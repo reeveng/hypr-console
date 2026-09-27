@@ -14,9 +14,9 @@ use console_panel::surface;
 
 fn main() {
     let build = Arc::new(|| {
-        let Ok(asked) = Rows::asked(|| {
-            let Ok(weather) = Row::said("Follow the weather", Aside(""));
-            let Ok(picture) = Row::said("Star Ride", Aside("Abi Toads"));
+        let Ok(asked) = Rows::computed(|| {
+            let Ok(weather) = Row::text("Follow the weather", Aside(""));
+            let Ok(picture) = Row::text("Star Ride", Aside("Abi Toads"));
 
             vec![weather, picture]
         });

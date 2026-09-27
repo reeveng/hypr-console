@@ -70,7 +70,7 @@ pub enum Swipe {
     Neither,
 }
 
-pub fn swiped(from: (f64, f64), at: (f64, f64)) -> Result<Swipe, Never> {
+pub fn classify_swipe(from: (f64, f64), at: (f64, f64)) -> Result<Swipe, Never> {
     let down = at.1 - from.1;
     let across = (at.0 - from.0).abs();
 
@@ -127,7 +127,7 @@ pub fn sheet(room: Size<u32>, wearing: &Wearing) -> Result<Sheet, Never> {
     Ok(Sheet { card, screenshot: button(first), close: button(first.saturating_add(step)) })
 }
 
-pub fn tapped(sheet: &Sheet, at: (f64, f64)) -> Result<Tapped, Never> {
+pub fn hit_test(sheet: &Sheet, at: (f64, f64)) -> Result<Tapped, Never> {
     let Ok(across) = toward_zero_i32(at.0.floor());
     let Ok(down) = toward_zero_i32(at.1.floor());
     let Ok(on_screenshot) = sheet.screenshot.covers(Point { x: across, y: down });
@@ -146,7 +146,7 @@ pub struct Labels {
     pub close: Size<u32>,
 }
 
-pub fn drawn(sheet: &Sheet, labels: Labels, wearing: &Wearing) -> Result<Vec<Shape>, Never> {
+pub fn render(sheet: &Sheet, labels: Labels, wearing: &Wearing) -> Result<Vec<Shape>, Never> {
     let Ok(screenshot) = label(sheet.screenshot, labels.screenshot, SCREENSHOT, wearing);
     let Ok(close) = label(sheet.close, labels.close, CLOSE, wearing);
 
@@ -183,47 +183,46 @@ mod tests {
     use super::*;
     use console_core_color::Oklch;
 
-    fn wearing() -> Wearing {
-        let one = Oklch { lightness: 0.5, chroma: 0.0, hue: 0.0 };
+    const ONE: Oklch = Oklch { lightness: 0.5, chroma: 0.0, hue: 0.0 };
 
-        Wearing { panel: one, text: one, edge: one, soft: one, coral: one, ground: one, fill: one, night: one, pink: one }
-    }
+    const WEARING: Wearing =
+        Wearing { panel: ONE, text: ONE, edge: ONE, soft: ONE, coral: ONE, ground: ONE, fill: ONE, night: ONE, pink: ONE };
 
     #[test]
     fn a_finger_dragged_down_off_the_edge_is_a_swipe_down() {
-        assert_eq!(swiped((500.0, 2.0), (510.0, 80.0)), Ok(Swipe::Down));
+        assert_eq!(classify_swipe((500.0, 2.0), (510.0, 80.0)), Ok(Swipe::Down));
     }
 
     #[test]
     fn a_finger_dragged_back_up_is_a_swipe_up() {
-        assert_eq!(swiped((500.0, 300.0), (490.0, 200.0)), Ok(Swipe::Up));
+        assert_eq!(classify_swipe((500.0, 300.0), (490.0, 200.0)), Ok(Swipe::Up));
     }
 
     #[test]
     fn a_tap_is_no_swipe() {
-        assert_eq!(swiped((500.0, 2.0), (503.0, 6.0)), Ok(Swipe::Neither));
+        assert_eq!(classify_swipe((500.0, 2.0), (503.0, 6.0)), Ok(Swipe::Neither));
     }
 
     #[test]
     fn a_finger_dragged_along_the_edge_is_no_swipe() {
-        assert_eq!(swiped((100.0, 2.0), (400.0, 90.0)), Ok(Swipe::Neither));
+        assert_eq!(classify_swipe((100.0, 2.0), (400.0, 90.0)), Ok(Swipe::Neither));
     }
 
     #[test]
     fn the_left_button_takes_the_picture_the_right_one_closes_and_anywhere_else_puts_the_sheet_away() {
-        let Ok(sheet) = sheet(Size { width: 1280, height: 800 }, &wearing());
+        let Ok(sheet) = sheet(Size { width: 1280, height: 800 }, &WEARING);
         let down = 60.0;
 
-        assert_eq!(tapped(&sheet, (560.0, down)), Ok(Tapped::Screenshot));
-        assert_eq!(tapped(&sheet, (720.0, down)), Ok(Tapped::Close));
-        assert_eq!(tapped(&sheet, (640.0, down)), Ok(Tapped::Outside));
-        assert_eq!(tapped(&sheet, (640.0, 600.0)), Ok(Tapped::Outside));
-        assert_eq!(tapped(&sheet, (20.0, down)), Ok(Tapped::Outside));
+        assert_eq!(hit_test(&sheet, (560.0, down)), Ok(Tapped::Screenshot));
+        assert_eq!(hit_test(&sheet, (720.0, down)), Ok(Tapped::Close));
+        assert_eq!(hit_test(&sheet, (640.0, down)), Ok(Tapped::Outside));
+        assert_eq!(hit_test(&sheet, (640.0, 600.0)), Ok(Tapped::Outside));
+        assert_eq!(hit_test(&sheet, (20.0, down)), Ok(Tapped::Outside));
     }
 
     #[test]
     fn the_sheet_is_centred_and_no_wider_than_it_needs_on_a_wide_screen() {
-        let Ok(sheet) = sheet(Size { width: 1280, height: 800 }, &wearing());
+        let Ok(sheet) = sheet(Size { width: 1280, height: 800 }, &WEARING);
 
         assert_eq!(sheet.card.size.width, WIDEST);
         assert_eq!(sheet.card.at.x, 460);

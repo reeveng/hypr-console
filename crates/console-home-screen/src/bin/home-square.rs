@@ -93,7 +93,7 @@ fn main() {
         None => return,
     };
 
-    match console_onscreen::telling(*said) {
+    match console_onscreen::send_to_home(*said) {
         Ok(()) => {},
         Err(fault) => {
             let Ok(word) = said.word();

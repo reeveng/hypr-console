@@ -68,7 +68,7 @@ impl Piece {
         Ok(Piece { said, unit: unit.to_string() })
     }
 
-    fn spoken(&self) -> Result<String, Never> {
+    fn label(&self) -> Result<String, Never> {
         Ok(match self.said == self.unit {
             true => self.unit.clone(),
             false => format!("{} ({})", self.said, self.unit),
@@ -109,7 +109,7 @@ impl Standing {
         })
     }
 
-    pub fn said(&self) -> Result<Option<(String, String)>, Never> {
+    pub fn problem(&self) -> Result<Option<(String, String)>, Never> {
         let Ok(health) = self.health();
 
         match health == Health::Healthy {
@@ -168,7 +168,7 @@ impl Standing {
         match !self.failing.is_empty() {
             true => {
                 let Ok(named) =
-                    self.failing.iter().map(Piece::spoken).collect::<Result<Vec<String>, Never>>();
+                    self.failing.iter().map(Piece::label).collect::<Result<Vec<String>, Never>>();
 
                 lines.push(format!(
                     "Not running: {}. It won't start on its own.",
@@ -184,7 +184,7 @@ impl Standing {
                     .restarted
                     .iter()
                     .map(|(piece, times)| {
-                        let Ok(spoken) = piece.spoken();
+                        let Ok(spoken) = piece.label();
 
                         Ok(format!("{spoken} \u{2014} {times} times"))
                     })
@@ -242,173 +242,221 @@ impl Standing {
 mod tests {
     use super::*;
 
-    fn piece(unit: &str, said: &str) -> Piece {
-        let Ok(piece) = Piece::new(unit, Called(said));
+    type Failure = Box<dyn std::error::Error>;
 
-        piece
+    const A_GIGABYTE: u64 = 1024 * 1024 * 1024;
+
+    const NINETY_GIGABYTES: u64 = 90 * A_GIGABYTE;
+
+    fn piece((unit, said): (&str, &str)) -> Result<Piece, Never> {
+        Piece::new(unit, Called(said))
     }
 
-    fn cramped() -> String {
+    fn cramped() -> Result<String, Failure> {
         let Ok(said) = crate::room::on_a_machine_standing(
-            1024 * 1024 * 1024,
-            &[crate::room::Place { name: "Videos".to_string(), bytes: 90 * 1024 * 1024 * 1024 }],
+            A_GIGABYTE,
+            &[crate::room::Place { name: "Videos".to_string(), bytes: NINETY_GIGABYTES }],
         );
+
         match said {
-            crate::room::Room::No(said) => said,
-            crate::room::Room::Enough => panic!("a machine with a gigabyte left"),
+            crate::room::Room::No(said) => Ok(said),
+            crate::room::Room::Enough => Err(Failure::from("a machine with a gigabyte left has room enough")),
         }
     }
 
-    fn card(standing: &Standing) -> (String, String) {
-        let Ok(said) = standing.said();
+    fn card(standing: &Standing) -> Result<(String, String), Failure> {
+        let Ok(said) = standing.problem();
+        let card = said.ok_or("no card")?;
 
-        said.expect("a card")
+        Ok(card)
     }
 
     #[test]
     fn a_machine_that_is_the_way_it_was_left_says_nothing() {
         let standing = Standing::default();
         assert_eq!(standing.health(), Ok(Health::Healthy));
-        assert_eq!(standing.said(), Ok(None));
+        assert_eq!(standing.problem(), Ok(None));
     }
 
     #[test]
-    fn an_update_that_never_finished_says_which_and_how_to_finish_it() {
-        let standing = Standing { unfinished: Some("3 (a1b2c3d)".into()), ..Standing::default() };
-        let (summary, body) = card(&standing);
+    fn an_update_that_never_finished_says_which_and_how_to_finish_it() -> Result<(), Failure> {
+        let standing = Standing { unfinished: Some("3 (a1b2c3d)".to_string()), ..Standing::default() };
+        let (summary, body) = card(&standing)?;
         assert_eq!(summary, "Update didn't finish");
         assert!(body.contains("3 (a1b2c3d)"), "{body}");
         assert!(body.contains("console apply"), "{body}");
+
+        Ok(())
     }
 
     #[test]
-    fn something_left_beside_a_file_is_an_apply_that_did_not_finish() {
+    fn something_left_beside_a_file_is_an_apply_that_did_not_finish() -> Result<(), Failure> {
         let standing =
-            Standing { leftovers: vec!["/usr/local/bin/launcher".into()], ..Standing::default() };
-        let (summary, body) = card(&standing);
+            Standing { leftovers: vec!["/usr/local/bin/launcher".to_string()], ..Standing::default() };
+        let (summary, body) = card(&standing)?;
         assert_eq!(summary, "Update didn't finish");
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
         assert!(body.contains("console apply"), "{body}");
+
+        Ok(())
     }
 
     #[test]
-    fn everything_wrong_at_once_is_still_one_card() {
+    fn everything_wrong_at_once_is_still_one_card() -> Result<(), Failure> {
+        let Ok(bar) = piece(("console-bar.service", "Status bar"));
+        let Ok(wallpaper) = piece(("console-wallpaper.service", "Which wallpaper is up"));
+
         let standing = Standing {
             unfinished: None,
             midway: Vec::new(),
-            leftovers: vec!["/usr/local/bin/launcher".into()],
+            leftovers: vec!["/usr/local/bin/launcher".to_string()],
             cramped: None,
-            adrift: vec!["/etc/pamac.conf".into()],
-            failing: vec![piece("console-bar.service", "Status bar")],
-            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 4)],
+            adrift: vec!["/etc/pamac.conf".to_string()],
+            failing: vec![bar.clone()],
+            restarted: vec![(wallpaper.clone(), 4)],
         };
-        let (_, body) = card(&standing);
+        let (_, body) = card(&standing)?;
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
         assert!(body.contains("/etc/pamac.conf"), "{body}");
         assert!(body.contains("console-bar.service"), "{body}");
         assert!(body.contains("console-wallpaper.service"), "{body}");
         assert!(body.contains("4 times"), "{body}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_piece_is_said_in_words_with_its_unit_beside_it() {
+    fn a_piece_is_said_in_words_with_its_unit_beside_it() -> Result<(), Failure> {
+        let Ok(bar) = piece(("console-bar.service", "Status bar"));
+
         let standing = Standing {
-            failing: vec![piece("console-bar.service", "Status bar")],
+            failing: vec![bar.clone()],
             ..Standing::default()
         };
-        let (summary, body) = card(&standing);
+        let (summary, body) = card(&standing)?;
         assert_eq!(summary, "Something didn't start");
         assert!(body.contains("Status bar"), "{body}");
         assert!(body.contains("console-bar.service"), "{body}");
+
+        Ok(())
     }
 
     #[test]
     fn a_piece_nothing_described_is_said_by_its_unit_alone() {
-        let alone = piece("something-else.service", "   ");
+        let Ok(alone) = piece(("something-else.service", "   "));
+
         assert_eq!(alone.said, "something-else.service");
-        assert_eq!(alone.spoken(), Ok("something-else.service".to_string()));
+        assert_eq!(alone.label(), Ok("something-else.service".to_string()));
     }
 
     #[test]
-    fn a_plan_left_behind_is_an_apply_that_stopped_partway_through() {
+    fn a_plan_left_behind_is_an_apply_that_stopped_partway_through() -> Result<(), Failure> {
         let standing = Standing {
-            midway: vec!["/usr/local/bin/launcher".into(), "/usr/local/bin/console".into()],
+            midway: vec!["/usr/local/bin/launcher".to_string(), "/usr/local/bin/console".to_string()],
             ..Standing::default()
         };
-        let (summary, body) = card(&standing);
+        let (summary, body) = card(&standing)?;
         assert_eq!(summary, "Update stopped halfway");
         assert!(body.contains("/usr/local/bin/launcher"), "{body}");
         assert!(body.contains("some are old"), "{body}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_disk_with_no_room_left_on_it_is_worth_a_card_before_anything_has_gone_wrong() {
-        let standing = Standing { cramped: Some(cramped()), ..Standing::default() };
+    fn a_disk_with_no_room_left_on_it_is_worth_a_card_before_anything_has_gone_wrong() -> Result<(), Failure> {
+        let cramped = cramped()?;
+
+        let standing = Standing { cramped: Some(cramped.clone()), ..Standing::default() };
         assert_eq!(standing.health(), Ok(Health::Unhealthy));
 
-        let (summary, body) = card(&standing);
+        let (summary, body) = card(&standing)?;
         assert_eq!(summary, "Running out of room");
         assert!(body.contains("1 GB left"), "{body}");
         assert!(body.contains("Videos (90 GB)"), "{body}");
+
+        Ok(())
     }
 
     #[test]
-    fn the_summary_names_the_worst_thing_that_is_wrong() {
+    fn the_summary_names_the_worst_thing_that_is_wrong() -> Result<(), Failure> {
+        let Ok(bar) = piece(("console-bar.service", "Status bar"));
+        let Ok(wallpaper) = piece(("console-wallpaper.service", "Which wallpaper is up"));
+        let cramped = cramped()?;
+
         let only_restarts = Standing {
-            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 2)],
+            restarted: vec![(wallpaper.clone(), 2)],
             ..Standing::default()
         };
-        assert_eq!(card(&only_restarts).0, "Something keeps restarting");
+        let (summary, _) = card(&only_restarts)?;
+        assert_eq!(summary, "Something keeps restarting");
 
         let also_down = Standing {
-            failing: vec![piece("console-bar.service", "Status bar")],
+            failing: vec![bar.clone()],
             ..only_restarts.clone()
         };
-        assert_eq!(card(&also_down).0, "Something didn't start");
+        let (summary, _) = card(&also_down)?;
+        assert_eq!(summary, "Something didn't start");
 
         let also_adrift =
-            Standing { adrift: vec!["/etc/pamac.conf".into()], ..also_down.clone() };
-        assert_eq!(card(&also_adrift).0, "Files have changed");
+            Standing { adrift: vec!["/etc/pamac.conf".to_string()], ..also_down.clone() };
+        let (summary, _) = card(&also_adrift)?;
+        assert_eq!(summary, "Files have changed");
 
-        let also_cramped = Standing { cramped: Some(cramped()), ..also_adrift };
-        assert_eq!(card(&also_cramped).0, "Running out of room");
+        let also_cramped = Standing { cramped: Some(cramped.clone()), ..also_adrift };
+        let (summary, _) = card(&also_cramped)?;
+        assert_eq!(summary, "Running out of room");
 
         let also_left =
-            Standing { leftovers: vec!["/usr/local/bin/launcher".into()], ..also_cramped };
-        assert_eq!(card(&also_left).0, "Update didn't finish");
+            Standing { leftovers: vec!["/usr/local/bin/launcher".to_string()], ..also_cramped };
+        let (summary, _) = card(&also_left)?;
+        assert_eq!(summary, "Update didn't finish");
 
         let also_midway =
-            Standing { midway: vec!["/usr/local/bin/console".into()], ..also_left };
-        assert_eq!(card(&also_midway).0, "Update stopped halfway");
+            Standing { midway: vec!["/usr/local/bin/console".to_string()], ..also_left };
+        let (summary, _) = card(&also_midway)?;
+        assert_eq!(summary, "Update stopped halfway");
+
+        Ok(())
     }
 
     #[test]
-    fn a_piece_that_came_back_is_worth_saying_even_though_it_is_running() {
+    fn a_piece_that_came_back_is_worth_saying_even_though_it_is_running() -> Result<(), Failure> {
+        let Ok(wallpaper) = piece(("console-wallpaper.service", "Which wallpaper is up"));
+
         let standing = Standing {
-            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 4)],
+            restarted: vec![(wallpaper.clone(), 4)],
             ..Standing::default()
         };
         assert_eq!(standing.health(), Ok(Health::Unhealthy));
-        let (_, body) = card(&standing);
+        let (_, body) = card(&standing)?;
         assert!(body.contains("It's working now"), "{body}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_card_says_nothing_only_this_tree_would_understand() {
+    fn a_card_says_nothing_only_this_tree_would_understand() -> Result<(), Failure> {
+        let Ok(bar) = piece(("console-bar.service", "Status bar"));
+        let Ok(wallpaper) = piece(("console-wallpaper.service", "Which wallpaper is up"));
+        let cramped = cramped()?;
+
         let standing = Standing {
-            unfinished: Some("3 (a1b2c3d)".into()),
-            midway: vec!["/usr/local/bin/console".into()],
-            leftovers: vec!["/usr/local/bin/launcher".into()],
-            cramped: Some(cramped()),
-            adrift: vec!["/etc/pamac.conf".into()],
-            failing: vec![piece("console-bar.service", "Status bar")],
-            restarted: vec![(piece("console-wallpaper.service", "Which wallpaper is up"), 4)],
+            unfinished: Some("3 (a1b2c3d)".to_string()),
+            midway: vec!["/usr/local/bin/console".to_string()],
+            leftovers: vec!["/usr/local/bin/launcher".to_string()],
+            cramped: Some(cramped.clone()),
+            adrift: vec!["/etc/pamac.conf".to_string()],
+            failing: vec![bar.clone()],
+            restarted: vec![(wallpaper.clone(), 4)],
         };
-        let (summary, body) = card(&standing);
+        let (summary, body) = card(&standing)?;
         let said = format!("{summary}\n{body}").to_lowercase();
 
         for jargon in ["manifest", "journalctl", "systemd", "unit", "release", "drift", "adrift"] {
             assert!(!said.contains(jargon), "a card says {jargon:?}:\n{said}");
         }
+
+        Ok(())
     }
 }

@@ -45,41 +45,37 @@ pub fn named_by(unit: &str) -> Result<BTreeSet<String>, Never> {
 mod tests {
     use super::*;
 
-    fn named(unit: &str) -> BTreeSet<String> {
-        let Ok(named) = named_by(unit);
-
-        named
-    }
-
-    fn woken(written: &[String]) -> Vec<Wake> {
-        let Ok(woken) = woken_by(written);
-
-        woken
-    }
+    type Failure = Box<dyn std::error::Error>;
 
     #[test]
     fn the_program_a_unit_runs_is_named_by_it() {
         let unit = "[Service]\nExecStart=/usr/local/bin/controller-desktop\n";
-        assert!(named(unit).contains("/usr/local/bin/controller-desktop"));
+        let Ok(named) = named_by(unit);
+
+        assert!(named.contains("/usr/local/bin/controller-desktop"));
     }
 
     #[test]
     fn an_argument_is_named_too() {
         let unit = "[Service]\nExecStart=/usr/bin/awww img /usr/share/backgrounds/console.webp\n";
-        let named = named(unit);
+        let Ok(named) = named_by(unit);
+
         assert!(named.contains("/usr/share/backgrounds/console.webp"), "{named:?}");
     }
 
     #[test]
     fn every_kind_of_exec_line_is_read() {
         let unit = "ExecStartPre=/a\nExecStart=/b\nExecStop=/c\nExecReload=/d\n";
-        assert_eq!(named(unit).len(), 4);
+        let Ok(named) = named_by(unit);
+
+        assert_eq!(named.len(), 4);
     }
 
     #[test]
     fn the_prefixes_systemd_allows_are_not_part_of_the_path() {
         let unit = "ExecStartPre=-/usr/bin/rm\nExecStart=+@!/usr/bin/thing\n";
-        let named = named(unit);
+        let Ok(named) = named_by(unit);
+
         assert!(named.contains("/usr/bin/rm"), "{named:?}");
         assert!(named.contains("/usr/bin/thing"), "{named:?}");
     }
@@ -87,26 +83,34 @@ mod tests {
     #[test]
     fn a_word_that_is_not_a_path_is_not_a_file() {
         let unit = "ExecStart=/usr/bin/thing --flag value -x\n";
-        assert_eq!(named(unit), BTreeSet::from(["/usr/bin/thing".to_string()]));
+
+        assert_eq!(named_by(unit), Ok(BTreeSet::from(["/usr/bin/thing".to_string()])));
     }
 
     #[test]
     fn a_setting_that_merely_starts_with_exec_is_not_an_exec_line() {
         let unit = "Execute_this=/nope\nExecStart=/yes\n";
-        assert_eq!(named(unit), BTreeSet::from(["/yes".to_string()]));
+
+        assert_eq!(named_by(unit), Ok(BTreeSet::from(["/yes".to_string()])));
     }
 
     #[test]
     fn a_file_under_nothing_that_wakes_wakes_nothing() {
         let elsewhere = vec!["/home/@user@/.config/wofi/config".to_string()];
-        assert!(woken(&elsewhere).is_empty());
+        let Ok(woken) = woken_by(&elsewhere);
+
+        assert!(woken.is_empty());
     }
 
     #[test]
-    fn the_kept_frames_go_when_a_background_is_written() {
+    fn the_kept_frames_go_when_a_background_is_written() -> Result<(), Failure> {
         let written = vec!["/usr/share/backgrounds/console.webp".to_string()];
-        let woken = woken(&written);
+        let Ok(woken) = woken_by(&written);
+        let first = woken.first().ok_or("nothing woke")?;
+
         assert_eq!(woken.len(), 1);
-        assert!(woken[0].run.starts_with("awww clear-cache"));
+        assert!(first.run.starts_with("awww clear-cache"));
+
+        Ok(())
     }
 }

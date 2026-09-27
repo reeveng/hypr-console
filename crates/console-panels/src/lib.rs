@@ -53,6 +53,7 @@ use std::thread;
 use rustix::event::{PollFd, PollFlags, poll};
 
 use console_core_internal_programs::InternalProgram;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_panel::card::{Card, Finalizer};
 use console_panel::picker;
@@ -128,29 +129,27 @@ pub fn serve() -> Result<(), Never> {
         Err(fault) => eprintln!("console-panels: {fault}"),
     }
 
-    let Ok(stopping) = console_panel::asked::told();
+    let Ok(stopping) = console_panel::asked::signal_pipe();
 
     eprintln!("console-panels: holding the panels, listening at {}", at.display());
 
     let Ok(()) = put_back();
 
-    let mut up: Option<Up> = None;
-
-    loop {
+    let held_until_stopped = console_core_iteration::iterate(None, |mut up: Option<Up>| {
         let held = up.as_ref().map(|up| Descriptors {
             panel: up.reader.get_ref().as_fd(),
             gone: up.while_it_is_up.as_fd(),
         });
-        let Ok(gone) = waited(&listening, stopping.as_ref(), held);
+        let Ok(gone) = wait_for_request(&listening, stopping.as_ref(), held);
 
         match gone {
             PanelRequest::ToStop => {
                 let Ok(()) = nothing_is_up(&mut up);
 
-                break;
+                return Ok(Step::Halt(()));
             }
             PanelRequest::ForAPanel => {
-                let Ok(()) = taken(&mut up, &listening);
+                let Ok(()) = accept_pending(&mut up, &listening);
             }
             PanelRequest::ByThePanel => {
                 let Ok(said) = a_word(&mut up);
@@ -168,6 +167,13 @@ pub fn serve() -> Result<(), Never> {
             }
             PanelRequest::None => {},
         }
+
+        Ok(Step::Again(up))
+    });
+
+    match held_until_stopped {
+        Ok(()) => {},
+        Err(_endless) => {},
     }
 
     let _ = std::fs::remove_file(&at);
@@ -176,7 +182,7 @@ pub fn serve() -> Result<(), Never> {
 }
 
 fn put_back() -> Result<(), Never> {
-    let Ok(left) = console_panel::left_open::left();
+    let Ok(left) = console_panel::left_open::load();
 
     let left = match left {
         Some(left) => left,
@@ -217,7 +223,7 @@ struct Descriptors<'a> {
     gone: BorrowedFd<'a>,
 }
 
-fn waited(
+fn wait_for_request(
     listening: &UnixListener,
     stopping: Option<&OwnedFd>,
     up: Option<Descriptors<'_>>,
@@ -286,15 +292,17 @@ fn no_one_is_there(at: &Path) -> Result<Free, Never> {
     Ok(Free::Yes)
 }
 
-fn taken(up: &mut Option<Up>, listening: &UnixListener) -> Result<(), Never> {
-    loop {
-        let asking = match listening.accept() {
-            Ok((asking, _)) => asking,
-            Err(_nothing_more_is_waiting) => return Ok(()),
-        };
+fn accept_pending(up: &mut Option<Up>, listening: &UnixListener) -> Result<(), Never> {
+    let waiting = std::iter::from_fn(|| match listening.accept() {
+        Ok((asking, _)) => Some(asking),
+        Err(_nothing_more_is_waiting) => None,
+    });
 
+    for asking in waiting {
         let Ok(()) = asked_of(up, asking);
     }
+
+    Ok(())
 }
 
 fn asked_of(up: &mut Option<Up>, asking: UnixStream) -> Result<(), Never> {
@@ -349,7 +357,7 @@ fn put_up(
         }
     };
 
-    let Ok(()) = console_panel::opening::asked(
+    let Ok(()) = console_panel::opening::start(
         &asked.who,
         asked.pressed.as_deref(),
         console_panel::opening::Came(&asked.from),
@@ -360,7 +368,7 @@ fn put_up(
     let Ok(card) = (known.card)(&asked.arguments);
     let Card { build, column, start, done } = card;
 
-    let (while_it_is_up, told_when_it_is_not) = match rustix::pipe::pipe() {
+    let (while_it_is_up, told_when_it_is_not) = match up_and_gone() {
         Ok(ends) => ends,
         Err(fault) => {
             eprintln!("console-panels: nothing to hear a panel close on: {fault}");
@@ -406,6 +414,12 @@ fn put_up(
     });
 
     Ok(())
+}
+
+fn up_and_gone() -> rustix::io::Result<(OwnedFd, OwnedFd)> {
+    let (told_when_it_is_not, while_it_is_up) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
+
+    Ok((while_it_is_up, told_when_it_is_not))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -456,7 +470,7 @@ fn nothing_is_up(up: &mut Option<Up>) -> Result<(), Never> {
 
     let Ok(()) = closing.mark("finishing");
 
-    closing.done()
+    closing.finish()
 }
 
 fn say(writer: &UnixStream, word: &str) -> Result<(), Never> {
@@ -499,18 +513,19 @@ pub fn asked_for(arguments: &[String]) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
-    fn a_panel_that_put_itself_away_is_gone_without_a_word_from_whoever_asked_for_it() {
-        let at = std::env::temp_dir().join(format!("console-panels-{}-gone", std::process::id()));
-        let _ = std::fs::remove_file(&at);
-        let listening = UnixListener::bind(&at).expect("nowhere to listen");
-        let (asked_by, _still_waiting) = UnixStream::pair().expect("no socket to ask on");
-        let (while_it_is_up, told_when_it_is_not) = rustix::pipe::pipe().expect("no pipe");
+    fn a_panel_that_put_itself_away_is_gone_without_a_word_from_whoever_asked_for_it() -> Result<(), Box<dyn Error>> {
+        let fresh = console_core_temporary_directories::fresh("panels-gone")?;
+        let at = fresh.join("panels.sock");
+        let listening = UnixListener::bind(&at)?;
+        let (asked_by, _still_waiting) = UnixStream::pair()?;
+        let (while_it_is_up, told_when_it_is_not) = rustix::pipe::pipe()?;
 
         drop(told_when_it_is_not);
 
-        let heard = waited(
+        let heard = wait_for_request(
             &listening,
             None,
             Some(Descriptors { panel: asked_by.as_fd(), gone: while_it_is_up.as_fd() }),
@@ -524,6 +539,8 @@ mod tests {
              reading a word from it instead is a host stuck until the next press, which then \
              closes a menu that is not there rather than opening one"
         );
+
+        Ok(())
     }
 
     #[test]
@@ -561,5 +578,29 @@ mod tests {
             assert!(!panel.who.is_empty());
             assert!(!panel.who.contains('/'), "{}: a namespace is a name, not a path", panel.who);
         }
+    }
+
+    #[test]
+    fn a_panel_hears_it_is_put_away_while_a_program_it_started_is_still_running() -> Result<(), Box<dyn Error>> {
+        let (while_it_is_up, told_when_it_is_not) = up_and_gone()?;
+        let Ok(mut staying) = console_core_external_programs::Program::Sh.command();
+        let mut started = staying.stdin(std::process::Stdio::piped()).spawn()?;
+
+        drop(while_it_is_up);
+        rustix::io::ioctl_fionbio(&told_when_it_is_not, true)?;
+
+        let mut said = [0_u8; 1];
+        let heard = match rustix::io::read(&told_when_it_is_not, &mut said) {
+            Ok(0) => "put away",
+            Ok(_a_byte) => "told something",
+            Err(_still_open) => "nothing yet",
+        };
+
+        drop(started.stdin.take());
+        let _ = started.wait();
+
+        assert_eq!(heard, "put away", "an app the panel started kept the pipe open, so the panel never hears it was put away");
+
+        Ok(())
     }
 }

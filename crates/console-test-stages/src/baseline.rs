@@ -80,7 +80,7 @@ mod tests {
             .filter(|name| {
                 let Ok(took) = lengths.of(name);
 
-                took.unwrap_or_default().is_zero()
+                took.is_none_or(|took| took.is_zero())
             })
             .collect();
 
@@ -88,28 +88,28 @@ mod tests {
     }
 
     #[test]
-    fn the_slow_ones_and_the_quick_ones_are_a_long_way_apart() {
+    fn the_slow_ones_and_the_quick_ones_are_a_long_way_apart() -> Result<(), Box<dyn std::error::Error>> {
         let Ok(lengths) = lengths();
         let Ok(names) = lengths.names();
         let mut every: Vec<u128> = names
             .iter()
-            .map(|name| {
+            .filter_map(|name| {
                 let Ok(took) = lengths.of(name);
 
-                took.unwrap_or_default().as_millis()
+                took.map(|took| took.as_millis())
             })
             .collect();
 
         every.sort_unstable();
 
-        let (quickest, slowest) = match (every.first(), every.last()) {
-            (Some(quickest), Some(slowest)) => (quickest, slowest),
-            (None, _) | (_, None) => panic!("the carried table is empty"),
-        };
+        let quickest = every.first().ok_or("the carried table is empty")?;
+        let slowest = every.last().ok_or("the carried table is empty")?;
 
         assert!(
             slowest > &quickest.saturating_mul(10),
             "the carried table has no shape to it, so counting checks would say as much"
         );
+
+        Ok(())
     }
 }

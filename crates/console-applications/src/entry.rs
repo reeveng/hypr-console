@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use console_core_ini_files::{Under, fields};
+use console_core_directory_listing::Descend;
 use console_core_never::Never;
 
 use crate::words::without_field_codes;
@@ -129,7 +130,7 @@ pub fn read(
     }))
 }
 
-pub fn written(application: &Application) -> Result<String, Never> {
+pub fn serialize(application: &Application) -> Result<String, Never> {
     let one_line = |said: &str| -> String { said.chars().filter(|letter| !letter.is_control()).collect() };
 
     let terminal = match application.terminal {
@@ -169,38 +170,22 @@ pub fn files(roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
 }
 
 fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    let mut waiting = listed(root)?;
-
-    while let Some(path) = waiting.pop() {
-        match path.is_dir() {
-            true => {
-                let deeper = listed(&path)?;
-
-                waiting.extend(deeper);
-            }
-            false => match path.extension().is_some_and(|kind| kind == "desktop") {
-                true => found.push(path),
-                false => {},
+    let Ok(listing) = console_core_directory_listing::recursive(root, |_| Descend::Into);
+    let mut found: Vec<PathBuf> = listing
+        .filter_map(|entry| match entry {
+            Ok(path) => match path.extension().is_some_and(|kind| kind == "desktop") && !path.is_dir() {
+                true => Some(path),
+                false => None,
             },
-        }
-    }
+            Err(_unreadable) => None,
+        })
+        .collect();
+
+    found.sort_by_key(|path| (path.components().count(), path.clone()));
 
     Ok(found)
 }
 
-fn listed(directory: &Path) -> Result<Vec<PathBuf>, Never> {
-    let reading = match std::fs::read_dir(directory) {
-        Ok(reading) => reading,
-        Err(_unreadable) => return Ok(Vec::new()),
-    };
-
-    let mut names: Vec<PathBuf> = reading.filter_map(Result::ok).map(|entry| entry.path()).collect();
-    names.sort();
-    names.reverse();
-
-    Ok(names)
-}
 
 #[cfg(test)]
 mod tests {
@@ -219,55 +204,54 @@ Name=New Window
 Exec=firefox --new-window
 ";
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
     fn anything(_: &str) -> Result<Installed, Never> {
         Ok(Installed::Yes)
     }
 
-    fn also(line: &str) -> String {
-        SAID.replace("Terminal=false", &format!("Terminal=false\n{line}"))
+    fn also(line: &str) -> Result<String, Never> {
+        Ok(SAID.replace("Terminal=false", &format!("Terminal=false\n{line}")))
     }
 
     #[test]
     fn an_entry_is_a_name_a_command_and_an_icon() {
         assert_eq!(
-            ok(read(SAID, anything)),
-            Some(Application {
+            read(SAID, anything),
+            Ok(Some(Application {
                 name: "Firefox".to_string(),
                 command: "firefox".to_string(),
                 terminal: false,
                 icon: "firefox".to_string(),
-            })
+            }))
         );
     }
 
     #[test]
     fn only_the_entry_itself_is_read() {
-        assert_eq!(ok(read(SAID, anything)).expect("firefox").name, "Firefox");
+        let Ok(read) = read(SAID, anything);
+
+        assert_eq!(read.map(|app| app.name), Some("Firefox".to_string()));
     }
 
     #[test]
     fn something_that_asks_not_to_be_seen_is_not_drawn() {
         for asking in ["NoDisplay=true", "Hidden=TRUE"] {
-            assert_eq!(ok(read(&also(asking), anything)), None, "{asking}");
+            let Ok(said) = also(asking);
+
+            assert_eq!(read(&said, anything), Ok(None), "{asking}");
         }
     }
 
     #[test]
     fn something_that_is_not_an_application_is_not_drawn() {
-        assert_eq!(ok(read("[Desktop Entry]\nType=Directory\nName=Games\n", anything)), None);
+        assert_eq!(read("[Desktop Entry]\nType=Directory\nName=Games\n", anything), Ok(None));
     }
 
     #[test]
     fn something_that_names_a_program_this_machine_has_not_got_is_not_drawn() {
-        let said = also("TryExec=firefox");
-        assert_eq!(ok(read(&said, |_| Ok(Installed::No))), None);
-        assert!(ok(read(&said, anything)).is_some());
+        let Ok(said) = also("TryExec=firefox");
+
+        assert_eq!(read(&said, |_| Ok(Installed::No)), Ok(None));
+        assert!(matches!(read(&said, anything), Ok(Some(_))));
     }
 
     #[test]
@@ -278,9 +262,9 @@ Exec=firefox --new-window
             terminal: false,
             icon: "/home/someone/.local/share/console/bookmark-icons/abc".to_string(),
         };
-        let Ok(said) = written(&application);
+        let Ok(said) = serialize(&application);
 
-        assert_eq!(ok(read(&said, anything)), Some(application));
+        assert_eq!(read(&said, anything), Ok(Some(application)));
     }
 
     #[test]
@@ -291,14 +275,17 @@ Exec=firefox --new-window
             terminal: false,
             icon: String::new(),
         };
-        let Ok(said) = written(&application);
+        let Ok(said) = serialize(&application);
 
         assert_eq!(said.lines().count(), 5, "{said}");
-        assert_eq!(ok(read(&said, anything)).expect("an entry").name, "TwoLines");
+
+        let Ok(read) = read(&said, anything);
+
+        assert_eq!(read.map(|app| app.name), Some("TwoLines".to_string()));
     }
 
     #[test]
     fn an_entry_with_nothing_to_run_is_not_drawn() {
-        assert_eq!(ok(read("[Desktop Entry]\nType=Application\nName=Nothing\n", anything)), None);
+        assert_eq!(read("[Desktop Entry]\nType=Application\nName=Nothing\n", anything), Ok(None));
     }
 }

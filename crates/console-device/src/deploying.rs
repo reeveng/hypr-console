@@ -260,7 +260,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         },
 
         (Step::Taking | Step::Retaking, Event::Custom(DeployingEvent::Took)) => {
-            let Ok(runs) = standing();
+            let Ok(runs) = git_status();
 
             Update::new(
                 Deploying::At(Step::Still, going.clone()),
@@ -372,7 +372,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         (Step::Fetching, Event::Replied(answer)) => match answer.status {
             ExitStatus::Failure(_) => stopped_at(step, going, "the device would not say what it has"),
             ExitStatus::Success => {
-                let Ok(runs) = logged("HEAD..FETCH_HEAD");
+                let Ok(runs) = git_log("HEAD..FETCH_HEAD");
 
                 Update::new(
                     Deploying::At(Step::Behind, going.clone()),
@@ -383,7 +383,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
 
         (Step::Behind, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
-                let Ok(runs) = logged("FETCH_HEAD..HEAD");
+                let Ok(runs) = git_log("FETCH_HEAD..HEAD");
 
                 Update::new(
                     Deploying::At(Step::Ahead, going.clone()),
@@ -429,7 +429,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                     )
                 },
                 How::Yes => {
-                    let Ok(runs) = standing();
+                    let Ok(runs) = git_status();
 
                     Update::new(
                         Deploying::At(Step::Settling, going.clone()),
@@ -476,8 +476,8 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         }
 
         (Step::Wondering(which), Event::Replied(answer)) => match answer.status {
-            ExitStatus::Success => answered(which, Choice::Yes, going),
-            ExitStatus::Failure(Some(SAID_NO)) => answered(which, Choice::No, going),
+            ExitStatus::Success => on_choice(which, Choice::Yes, going),
+            ExitStatus::Failure(Some(SAID_NO)) => on_choice(which, Choice::No, going),
             ExitStatus::Failure(_) => {
                 let Ok(said) = putting(which, &going.host);
 
@@ -494,7 +494,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             },
         },
 
-        (Step::Wondering(which), Event::Chosen(chose)) => answered(which, *chose, going),
+        (Step::Wondering(which), Event::Chosen(chose)) => on_choice(which, *chose, going),
 
         (Step::Settling, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
@@ -537,7 +537,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 )
             },
             false => {
-                let Ok(runs) = logged(&format!("{}..HEAD", going.was));
+                let Ok(runs) = git_log(&format!("{}..HEAD", going.was));
 
                 Update::new(
                     Deploying::At(Step::Moving, going.clone()),
@@ -654,7 +654,7 @@ fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> 
     }
 }
 
-fn answered(which: Whether, chose: Choice, going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
+fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
     match (which, chose) {
         (Whether::Send, Choice::No) => Update::new(
             Deploying::At(Step::Wondering(which), going.clone()),
@@ -662,7 +662,7 @@ fn answered(which: Whether, chose: Choice, going: &Going) -> Result<Update<Deplo
         ),
 
         (Whether::Send, Choice::Yes) => {
-            let Ok(runs) = standing();
+            let Ok(runs) = git_status();
 
             Update::new(
                 Deploying::At(Step::Settling, going.clone()),
@@ -728,8 +728,8 @@ fn stranger(arguments: &Arguments) -> Result<Option<String>, Never> {
 }
 
 pub fn asked_for(arguments: &Arguments) -> Result<How, Never> {
-    let check = arguments.given("--check")?;
-    let yes = arguments.given("--yes")?;
+    let check = arguments.flag("--check")?;
+    let yes = arguments.flag("--yes")?;
 
     Ok(match (check, yes) {
         (Flag::Present, _) => How::Check,
@@ -754,7 +754,7 @@ pub struct Confirmation {
     pub does: &'static str,
 }
 
-fn saying(which: Whether) -> Result<Confirmation, Never> {
+fn confirmation(which: Whether) -> Result<Confirmation, Never> {
     Ok(match which {
         Whether::Send => Confirmation {
             question: "Accept the update sent to this device?".to_string(),
@@ -768,10 +768,10 @@ fn saying(which: Whether) -> Result<Confirmation, Never> {
 }
 
 pub fn carding(going: &Going, which: Whether) -> Result<Command, Never> {
-    let Ok(asking) = saying(which);
+    let Ok(asking) = confirmation(which);
     let Ok(named) = card();
-    let Ok(quoted) = reaching::quoted(&asking.question);
-    let Ok(does) = reaching::quoted(asking.does);
+    let Ok(quoted) = reaching::shell_quote(&asking.question);
+    let Ok(does) = reaching::shell_quote(asking.does);
 
     let card = format!(
         "command -v {named} >/dev/null || exit {NO_CARD}; {CONFIRM_DOES}={does} exec {named} {quoted}"
@@ -794,11 +794,11 @@ fn checking() -> Result<Command, Never> {
     )
 }
 
-fn standing() -> Result<Command, Never> {
+fn git_status() -> Result<Command, Never> {
     Command::external(ExternalProgram::Git, &["status", "--porcelain"])
 }
 
-fn logged(range: &str) -> Result<Command, Never> {
+fn git_log(range: &str) -> Result<Command, Never> {
     Command::external(ExternalProgram::Git, &["log", "--oneline", range])
 }
 
@@ -837,69 +837,52 @@ mod tests {
 
     use super::*;
 
-    fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Option<u32> {
-        (0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at)
+    fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Result<Option<u32>, Never> {
+        Ok((0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at))
     }
 
-    fn well(said: &str) -> Event<DeployingEvent> {
-        let Ok(runs) = standing();
-        Event::Replied(Answer {
-            command: runs,
-            output: said.to_string(),
-            status: ExitStatus::Success,
-        })
+    enum Step {
+        Opened,
+        Success(&'static str),
+        Failure(i32),
+        Custom(DeployingEvent),
     }
 
-    fn badly(code: i32) -> Event<DeployingEvent> {
-        let Ok(runs) = standing();
-        Event::Replied(Answer {
-            command: runs,
-            output: String::new(),
-            status: ExitStatus::Failure(Some(code)),
-        })
+    fn events(steps: Vec<Step>) -> Result<Vec<Event<DeployingEvent>>, Never> {
+        let Ok(runs) = git_status();
+
+        let events = steps
+            .into_iter()
+            .map(|step| match step {
+                Step::Opened => Event::Opened,
+                Step::Custom(custom) => Event::Custom(custom),
+                Step::Success(said) => Event::Replied(Answer {
+                    command: runs.clone(),
+                    output: said.to_string(),
+                    status: ExitStatus::Success,
+                }),
+                Step::Failure(code) => Event::Replied(Answer {
+                    command: runs.clone(),
+                    output: String::new(),
+                    status: ExitStatus::Failure(Some(code)),
+                }),
+            })
+            .collect();
+
+        Ok(events)
     }
 
-    fn as_far_as(how: &[&str], events: &[Event<DeployingEvent>]) -> Trace<Deploying, DeployingEvent, DeployingEffect> {
-        let mut given = vec!["root@handheld"];
-
-        given.extend_from_slice(how);
-
-        let mut said = vec![
-            Event::Opened,
-            well(".git"),
-            Event::Custom(DeployingEvent::Took),
-            well(""),
-            well("abc123"),
-            well(""),
-            well(""),
-            well(""),
-            well(""),
-            well("f00d one thing, and a second thing"),
-            well(" one | 2 +-"),
-        ];
-
-        said.extend_from_slice(events);
-
-        heard(&given, &said)
+    struct Outcome {
+        effects: Vec<Effect<DeployingEffect>>,
+        asks: Vec<Command>,
+        pushes: u32,
+        failure: Option<String>,
     }
 
-    fn asked(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Vec<Effect<DeployingEffect>> {
+    fn told(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Result<Outcome, Never> {
         let Ok(effects) = said.effects();
 
-        effects
-    }
-
-    fn heard(given: &[&str], events: &[Event<DeployingEvent>]) -> Trace<Deploying, DeployingEvent, DeployingEffect> {
-        let Ok(arguments) = Arguments::of(given);
-        let Ok(said) = run::<Deploy>(&arguments, events);
-
-        said
-    }
-
-    fn asks(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Vec<Command> {
-        let Ok(effects) = said.effects();
-
-        effects
+        let asks: Vec<Command> = effects
             .iter()
             .filter_map(|effect| match effect {
                 Effect::Run(runs) | Effect::Stream(runs) => Some(runs.clone()),
@@ -913,20 +896,14 @@ mod tests {
                 | Effect::Stop(_)
                 | Effect::Custom(_) => None,
             })
-            .collect()
-    }
+            .collect();
 
-    fn pushes(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> u32 {
-        u32::try_from(
-            asks(said).iter().filter(|runs| runs.arguments.first().map(String::as_str) == Some("push")).count(),
-        )
-        .unwrap()
-    }
+        let pushes = asks
+            .iter()
+            .filter(|runs| runs.arguments.first().map(String::as_str) == Some("push"))
+            .fold(0_u32, |pushes, _| pushes.saturating_add(1));
 
-    fn badly_at(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Option<String> {
-        let Ok(effects) = said.effects();
-
-        effects.iter().rev().find_map(|effect| match effect {
+        let failure = effects.iter().rev().find_map(|effect| match effect {
             Effect::Stop(Exit::Failure(why)) => Some(why.clone()),
             Effect::Stop(Exit::Success)
             | Effect::Run(_)
@@ -939,26 +916,61 @@ mod tests {
             | Effect::Notify(_)
             | Effect::Print(_)
             | Effect::Custom(_) => None,
-        })
+        });
+
+        Ok(Outcome { effects, asks, pushes, failure })
+    }
+
+    fn run_with(given: &[&str], steps: Vec<Step>) -> Result<Outcome, Never> {
+        let Ok(arguments) = Arguments::of(given);
+        let Ok(events) = events(steps);
+        let Ok(said) = run::<Deploy>(&arguments, &events);
+
+        told(&said)
+    }
+
+    fn as_far_as(how: &[&str], then: Vec<Step>) -> Result<Outcome, Never> {
+        let mut given = vec!["root@handheld"];
+
+        given.extend_from_slice(how);
+
+        let mut steps = vec![
+            Step::Opened,
+            Step::Success(".git"),
+            Step::Custom(DeployingEvent::Took),
+            Step::Success(""),
+            Step::Success("abc123"),
+            Step::Success(""),
+            Step::Success(""),
+            Step::Success(""),
+            Step::Success(""),
+            Step::Success("f00d one thing, and a second thing"),
+            Step::Success(" one | 2 +-"),
+        ];
+
+        steps.extend(then);
+
+        run_with(&given, steps)
     }
 
     #[test]
     fn a_machine_that_names_no_device_reaches_for_nothing() {
         let Ok(said) = run::<Deploy>(&Arguments::default(), &[Event::Opened]);
+        let Ok(said) = told(&said);
 
-        assert!(asks(&said).is_empty(), "it reached for a device it had no name for");
-        assert!(badly_at(&said).is_some());
+        assert!(said.asks.is_empty(), "it reached for a device it had no name for");
+        assert!(said.failure.is_some());
     }
 
     #[test]
     fn a_lock_someone_else_holds_stops_before_the_tree_is_read() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Busy),
-                Event::Custom(DeployingEvent::Holder(Holder {
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Busy),
+                Step::Custom(DeployingEvent::Holder(Holder {
                     pid: "4242".to_string(),
                     on: "laptop".to_string(),
                     since: "Tue".to_string(),
@@ -968,47 +980,47 @@ mod tests {
             ],
         );
 
-        assert_eq!(asks(&said).len(), 1, "it looked at the tree while someone else held the lock");
+        assert_eq!(said.asks.len(), 1, "it looked at the tree while someone else held the lock");
         assert!(
-            badly_at(&said).is_some_and(|why| why.contains("already deploying")),
+            said.failure.as_deref().is_some_and(|why| why.contains("already deploying")),
             "it did not say who was deploying"
         );
     }
 
     #[test]
     fn a_lock_whose_process_is_gone_on_this_machine_is_taken_over() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Busy),
-                Event::Custom(DeployingEvent::Holder(Holder {
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Busy),
+                Step::Custom(DeployingEvent::Holder(Holder {
                     pid: "4242".to_string(),
                     on: "laptop".to_string(),
                     since: "Tue".to_string(),
                     here: "laptop".to_string(),
                     alive: Alive::No,
                 })),
-                Event::Custom(DeployingEvent::Took),
+                Step::Custom(DeployingEvent::Took),
             ],
         );
 
-        let Ok(standing) = standing();
+        let Ok(standing) = git_status();
 
-        assert!(badly_at(&said).is_none(), "it refused a lock its own dead process left");
-        assert_eq!(asks(&said).last(), Some(&standing));
+        assert!(said.failure.is_none(), "it refused a lock its own dead process left");
+        assert_eq!(said.asks.last(), Some(&standing));
     }
 
     #[test]
     fn a_lock_left_by_another_machine_is_not_taken_over_however_dead_it_looks() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Busy),
-                Event::Custom(DeployingEvent::Holder(Holder {
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Busy),
+                Step::Custom(DeployingEvent::Holder(Holder {
                     pid: "4242".to_string(),
                     on: "somewhere-else".to_string(),
                     since: "Tue".to_string(),
@@ -1018,36 +1030,37 @@ mod tests {
             ],
         );
 
-        assert!(badly_at(&said).is_some_and(|why| why.contains("already deploying")));
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("already deploying")));
     }
 
     #[test]
     fn a_tree_with_uncommitted_work_is_refused_before_anything_is_made_to_hold() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Took),
-                well(" M crates/console-panel/src/panel.rs\n"),
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(" M crates/console-panel/src/panel.rs\n"),
             ],
         );
 
-        let Ok(runs) = standing();
+        let Ok(runs) = git_status();
         let Ok(rooting) = Command::external(ExternalProgram::Git, &["rev-parse", "--git-common-dir"]);
 
-        assert_eq!(asks(&said), vec![rooting, runs], "it went past a dirty tree");
-        assert!(badly_at(&said).is_some_and(|why| why.contains("clone")));
+        assert_eq!(said.asks, vec![rooting, runs], "it went past a dirty tree");
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("clone")));
     }
 
     #[test]
     fn the_only_thing_asked_of_the_device_before_what_must_hold_is_how_much_room_it_has() {
-        let said = as_far_as(&["--yes"], &[]);
-        let asked = asks(&said);
-        let ready = position(&asked, |runs| runs.program == Executable::External(ExternalProgram::Just));
+        let Ok(said) = as_far_as(&["--yes"], vec![]);
+        let asked = said.asks;
+        let Ok(ready) = position(&asked, |runs| runs.program == Executable::External(ExternalProgram::Just));
         let Ok(told) = fetching("root@handheld");
-        let fetch = position(&asked, |runs| *runs == told);
+        let Ok(fetch) = position(&asked, |runs| *runs == told);
         assert!(ready.is_some(), "`just ready` was never run");
+
         let before: Vec<&Command> = asked
             .iter()
             .take_while(|runs| runs.program != Executable::External(ExternalProgram::Just))
@@ -1061,158 +1074,157 @@ mod tests {
         );
         assert_eq!(before.len(), 1, "the device was asked about room more than once");
         assert!(fetch.is_some_and(|fetch| ready.is_some_and(|ready| ready < fetch)));
-        assert_eq!(pushes(&said), 0);
+        assert_eq!(said.pushes, 0);
     }
 
     #[test]
     fn a_device_with_no_room_is_told_so_before_a_minute_is_spent_here() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Took),
-                well(""),
-                well("abc123"),
-                badly(NO_ROOM),
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Failure(NO_ROOM),
             ],
         );
 
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some_and(|why| why.contains("room on the device")));
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("room on the device")));
         assert!(
-            !asks(&said).iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
+            !said.asks.iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
             "the device had no room and this machine went on to spend minutes proving itself"
         );
     }
 
     #[test]
     fn a_device_whose_engine_cannot_be_asked_yet_is_not_a_device_with_no_room() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Took),
-                well(""),
-                well("abc123"),
-                badly(NOT_ASKED),
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Failure(NOT_ASKED),
             ],
         );
 
-        assert!(badly_at(&said).is_none(), "an old engine stopped a deploy that would have worked");
+        assert!(said.failure.is_none(), "an old engine stopped a deploy that would have worked");
         assert!(
-            asks(&said).iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
+            said.asks.iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
             "`just ready` was never reached"
         );
     }
 
     #[test]
     fn a_device_that_will_not_say_how_much_room_it_has_stops_the_deploy() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Took),
-                well(""),
-                well("abc123"),
-                badly(255),
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Failure(255),
             ],
         );
 
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some_and(|why| why.contains("would not say")));
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("would not say")));
     }
 
     #[test]
     fn what_must_hold_failing_sends_nothing() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Took),
-                well(""),
-                well("abc123"),
-                well(""),
-                badly(1),
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Success(""),
+                Step::Failure(1),
             ],
         );
 
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some());
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.is_some());
     }
 
     #[test]
     fn commits_the_device_has_and_this_does_not_stop_the_deploy_and_name_the_way_out() {
-        let said = heard(
+        let Ok(said) = run_with(
             &["root@handheld", "--yes"],
-            &[
-                Event::Opened,
-                well(".git"),
-                Event::Custom(DeployingEvent::Took),
-                well(""),
-                well("abc123"),
-                well(""),
-                well(""),
-                well(""),
-                well("cfeddd3 panels: saved on the device\n"),
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success("cfeddd3 panels: saved on the device\n"),
             ],
         );
 
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some_and(|why| why.contains("just pull")));
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("just pull")));
     }
 
     #[test]
     fn a_check_says_what_the_machine_would_say_and_pushes_nothing() {
-        let said = as_far_as(&["--check"], &[well("")]);
+        let Ok(said) = as_far_as(&["--check"], vec![Step::Success("")]);
 
-        assert_eq!(pushes(&said), 0, "a check sent something");
+        assert_eq!(said.pushes, 0, "a check sent something");
         assert!(
-            asks(&said).iter().any(|runs| runs.arguments.last().map(String::as_str)
+            said.asks.iter().any(|runs| runs.arguments.last().map(String::as_str)
                 == Some("console check")),
             "a check never asked the machine about itself"
         );
-        assert!(badly_at(&said).is_none());
+        assert!(said.failure.is_none());
     }
 
     #[test]
     fn a_yes_on_the_command_line_asks_no_one_anything() {
-        let said = as_far_as(
+        let Ok(said) = as_far_as(
             &["--yes"],
-            &[well(""), well("abc123"), well(""), well(""), well(""), well(""), well("")],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
         );
 
         assert!(
-            asked(&said).iter().all(|effect| !matches!(effect, Effect::Prompt(_))),
+            said.effects.iter().all(|effect| !matches!(effect, Effect::Prompt(_))),
             "it asked at the terminal although a person had already said yes"
         );
-        assert_eq!(pushes(&said), 1);
+        assert_eq!(said.pushes, 1);
     }
 
     #[test]
     fn without_a_yes_the_question_goes_to_the_device_and_no_sends_nothing() {
-        let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
-
+        let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(SAID_NO)]);
         let Ok(named) = card();
 
         assert!(
-            asks(&said).iter().any(|runs| runs.arguments.iter().any(|word| word.contains(named))),
+            said.asks.iter().flat_map(|runs| &runs.arguments).any(|word| word.contains(named)),
             "nothing was raised on the device"
         );
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some_and(|why| why == "nothing sent"));
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why == "nothing sent"));
     }
 
     #[test]
     fn a_word_console_deploy_does_not_know_sends_nothing_and_says_so() {
-        let said = heard(&["root@handheld", "--help"], &[Event::Opened]);
+        let Ok(said) = run_with(&["root@handheld", "--help"], vec![Step::Opened]);
 
-        assert_eq!(pushes(&said), 0, "an unknown word reached the machine");
+        assert_eq!(said.pushes, 0, "an unknown word reached the machine");
         assert!(
-            badly_at(&said).is_some_and(|why| why.starts_with("--help is not a word")),
+            said.failure.as_deref().is_some_and(|why| why.starts_with("--help is not a word")),
             "an unknown word was carried rather than refused"
         );
     }
@@ -1220,7 +1232,7 @@ mod tests {
     #[test]
     fn every_card_is_raised_with_the_word_for_going_ahead() {
         for which in [Whether::Send, Whether::Check] {
-            let Ok(asking) = saying(which);
+            let Ok(asking) = confirmation(which);
 
             assert!(
                 !["Yes", "No", "OK"].contains(&asking.does),
@@ -1237,38 +1249,37 @@ mod tests {
     }
 
     #[test]
-    fn the_word_for_going_ahead_travels_beside_the_question_and_not_inside_it() {
-        let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
+    fn the_word_for_going_ahead_travels_beside_the_question_and_not_inside_it() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(SAID_NO)]);
         let raised: Vec<String> =
-            asks(&said).iter().flat_map(|runs| runs.arguments.clone()).collect();
+            said.asks.iter().flat_map(|runs| runs.arguments.clone()).collect();
         let Ok(named) = card();
 
-        let line = match raised.iter().find(|word| word.contains(&format!("exec {named}"))) {
-            Some(line) => line.clone(),
-            None => panic!("nothing raised a card"),
-        };
+        let line = raised.iter().find(|word| word.contains(&format!("exec {named}"))).ok_or("nothing raised a card")?;
 
         assert!(
             line.contains(&format!("{CONFIRM_DOES}=")),
             "the verb is not in the environment, so only a copy that knows it reads it: {line}"
         );
 
-        let after = match line.split(&format!("exec {named} ")).nth(1) {
-            Some(after) => after.to_string(),
-            None => panic!("the card was handed nothing at all: {line}"),
-        };
+        let after = line
+            .split(&format!("exec {named} "))
+            .nth(1)
+            .ok_or_else(|| format!("the card was handed nothing at all: {line}"))?;
 
         assert!(
             !after.contains("--"),
             "a copy of the card older than this change draws every word it is handed, and this hands it one it would draw as part of the question: {after}"
         );
+
+        Ok(())
     }
 
     #[test]
     fn the_card_is_what_the_shell_becomes_and_the_word_that_looks_for_it_is_not() {
-        let said = as_far_as(&[], &[well("someone"), badly(SAID_NO)]);
+        let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(SAID_NO)]);
         let raised: Vec<String> =
-            asks(&said).iter().flat_map(|runs| runs.arguments.clone()).collect();
+            said.asks.iter().flat_map(|runs| runs.arguments.clone()).collect();
 
         let Ok(named) = card();
 
@@ -1284,65 +1295,66 @@ mod tests {
 
     #[test]
     fn a_device_with_no_card_to_raise_asks_at_this_terminal_instead() {
-        let said = as_far_as(&[], &[well("someone"), badly(NO_CARD)]);
+        let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(NO_CARD)]);
 
         assert!(
-            asked(&said).iter().any(|effect| matches!(effect, Effect::Prompt(_))),
+            said.effects.iter().any(|effect| matches!(effect, Effect::Prompt(_))),
             "a device that could not ask left no one to ask"
         );
-        assert_eq!(pushes(&said), 0, "it sent something before anyone had answered");
+        assert_eq!(said.pushes, 0, "it sent something before anyone had answered");
     }
 
     #[test]
     fn a_card_that_could_not_read_its_call_is_asked_here_rather_than_taken_for_a_no() {
         let Ok(unasked) = unasked();
-        let said = as_far_as(&[], &[well("someone"), badly(unasked)]);
+        let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(unasked)]);
 
         assert!(
-            asked(&said).iter().any(|effect| matches!(effect, Effect::Prompt(_))),
+            said.effects.iter().any(|effect| matches!(effect, Effect::Prompt(_))),
             "a card that never reached anyone was read as someone saying no"
         );
-        assert_eq!(pushes(&said), 0, "it sent something before anyone had answered");
+        assert_eq!(said.pushes, 0, "it sent something before anyone had answered");
     }
 
     #[test]
     fn a_yes_on_the_device_carries_on_into_the_second_look_at_the_tree() {
-        let said = as_far_as(&[], &[well("someone"), well("")]);
-        let Ok(standing) = standing();
+        let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Success("")]);
+        let Ok(standing) = git_status();
 
-        assert_eq!(asks(&said).last(), Some(&standing));
+        assert_eq!(said.asks.last(), Some(&standing));
     }
 
     #[test]
     fn a_file_that_appeared_while_the_deploy_ran_sends_nothing() {
-        let said = as_far_as(&["--yes"], &[well(" M justfile\n")]);
+        let Ok(said) = as_far_as(&["--yes"], vec![Step::Success(" M justfile\n")]);
 
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some_and(|why| why.contains("no longer what is here")));
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("no longer what is here")));
     }
 
     #[test]
     fn a_branch_that_moved_while_the_deploy_ran_sends_nothing() {
-        let said = as_far_as(
+        let Ok(said) = as_far_as(
             &["--yes"],
-            &[well(""), well("def456"), well("def456 something else entirely")],
+            vec![Step::Success(""), Step::Success("def456"), Step::Success("def456 something else entirely")],
         );
 
-        assert_eq!(pushes(&said), 0);
-        assert!(badly_at(&said).is_some_and(|why| why.contains("`just ready` passed")));
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("`just ready` passed")));
     }
 
     #[test]
     fn the_engine_is_built_and_put_in_place_before_the_machine_is_asked_to_apply() {
-        let said = as_far_as(
+        let Ok(said) = as_far_as(
             &["--yes"],
-            &[well(""), well("abc123"), well(""), well(""), well(""), well(""), well("")],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
         );
+
         let words: Vec<String> =
-            asks(&said).iter().filter_map(|runs| runs.arguments.last().cloned()).collect();
-        let built = position(&words, |word| word.contains("cargo build"));
-        let put = position(&words, |word| word.contains("install -m 755"));
-        let applied = position(&words, |word| word == "console apply");
+            said.asks.iter().filter_map(|runs| runs.arguments.last().cloned()).collect();
+        let Ok(built) = position(&words, |word| word.contains("cargo build"));
+        let Ok(put) = position(&words, |word| word.contains("install -m 755"));
+        let Ok(applied) = position(&words, |word| word == "console apply");
 
         assert!(built.is_some_and(|built| put.is_some_and(|put| built < put)));
         assert!(put.is_some_and(|put| applied.is_some_and(|applied| put < applied)));
@@ -1350,44 +1362,46 @@ mod tests {
 
     #[test]
     fn the_features_are_pressed_after_the_apply_and_never_before_it() {
-        let said = as_far_as(
+        let Ok(said) = as_far_as(
             &["--yes"],
-            &[well(""), well("abc123"), well(""), well(""), well(""), well(""), well("")],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
         );
-        let asked = asks(&said);
-        let applied = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
+
+        let asked = said.asks;
+        let Ok(applied) = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
         let Ok(told) = checking();
-        let pressed = position(&asked, |runs| *runs == told);
+        let Ok(pressed) = position(&asked, |runs| *runs == told);
 
         assert!(applied.is_some_and(|applied| pressed.is_some_and(|pressed| applied < pressed)));
     }
 
     #[test]
     fn the_second_question_is_asked_on_the_device_once_it_has_the_new_release() {
-        let said = as_far_as(
+        let Ok(said) = as_far_as(
             &[],
-            &[
-                well("someone"),
-                well(""),
-                well(""),
-                well("abc123"),
-                well(""),
-                well(""),
-                well(""),
-                well(""),
-                well(""),
+            vec![
+                Step::Success("someone"),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success(""),
             ],
         );
+
         let Ok(named) = card();
-        let asked = asks(&said);
+        let asked = said.asks;
         let cards: Vec<u32> = (0..)
             .zip(&asked)
-            .filter_map(|(at, runs)| match runs.arguments.iter().any(|word| word.contains(named)) {
+            .filter_map(|(at, runs)| match runs.arguments.join(" ").contains(named) {
                 true => Some(at),
                 false => None,
             })
             .collect();
-        let applied = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
+        let Ok(applied) = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
 
         assert_eq!(cards.len(), 2, "the device was not asked twice");
         assert!(

@@ -61,7 +61,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use console_compositor::events::CompositorEvent;
-use console_events::again::{self, Worth, Worthwhile, about, anything, layers};
+use console_events::again::{self, Worth, Worthwhile, about, always, layers};
 use console_core_never::Never;
 use console_program_contract::Topic;
 
@@ -79,9 +79,9 @@ pub fn tick(item: StatusItem) -> Result<Option<Duration>, Never> {
 
 fn change_source(item: StatusItem) -> Result<(Topic, Worthwhile), Never> {
     Ok(match item {
-        StatusItem::Battery => (Topic::Battery, anything),
+        StatusItem::Battery => (Topic::Battery, always),
         StatusItem::Bluetooth => (Topic::Bluetooth, again::bluetooth),
-        StatusItem::Network => (Topic::Network, anything),
+        StatusItem::Network => (Topic::Network, always),
         StatusItem::Sound => (Topic::Sound, again::sound),
     })
 }
@@ -92,7 +92,7 @@ pub fn subscribe(item: StatusItem, say: Sender<()>) -> Result<(), Never> {
     about(&topic, worth, say)
 }
 
-pub fn watching(item: StatusItem) -> Result<Receiver<()>, Never> {
+pub fn watch(item: StatusItem) -> Result<Receiver<()>, Never> {
     let (say, heard) = channel();
     let Ok(()) = layers(say.clone());
     let Ok(()) = subscribe(item, say);
@@ -171,10 +171,8 @@ mod tests {
         for item in [StatusItem::Battery, StatusItem::Network] {
             let Ok(every) = tick(item);
 
-            match every {
-                Some(every) => assert!(every >= Duration::from_secs(30), "{item:?} every {every:?}"),
-                None => panic!("{item:?} has something no source says and nothing to read it"),
-            }
+            assert!(every.is_some(), "{item:?} has something no source says and nothing to read it");
+            assert!(every >= Some(Duration::from_secs(30)), "{item:?} every {every:?}");
         }
     }
 }

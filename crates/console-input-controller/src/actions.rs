@@ -124,6 +124,7 @@ pub enum Action {
     Place(&'static str),
     Payload(i32),
     CarryTo(&'static str),
+    Overview,
     Click,
     MoreOptions,
     Back,
@@ -226,7 +227,7 @@ const SUPER: &[&str] = &["super"];
 const SUPER_CONTROL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
 
-pub const JOBS: [Task; 76] = [
+pub const JOBS: [Task; 77] = [
     Task {
         slug: "menu",
         action: Action::Menu,
@@ -553,6 +554,12 @@ pub const JOBS: [Task; 76] = [
         bound: &[(PAD, L2, "l1"), (KEYS, SUPER_SHIFT, "left"), (KEYS, SUPER_SHIFT, "h")],
     },
     Task {
+        slug: "overview",
+        action: Action::Overview,
+        context: Context::OnTheDesktop,
+        bound: &[(PAD, L2, "view"), (KEYS, SUPER, "o")],
+    },
+    Task {
         slug: "carry-to-one",
         action: Action::CarryTo("1"),
         context: Context::OnTheDesktop,
@@ -711,6 +718,7 @@ impl Action {
             Action::Wake => "wake the screen",
             Action::GameMode => "switch to Steam Game Mode",
             Action::Browser => "open the browser",
+            Action::Overview => "show every desktop",
             Action::ButtonGuide => "show the button guide",
             Action::Keyboard => "show or hide the keyboard",
             Action::Language(-1) => "previous keyboard",
@@ -847,7 +855,8 @@ impl Action {
             | Action::Workspace(_)
             | Action::Place(_)
             | Action::Payload(_)
-            | Action::CarryTo(_) => match down {
+            | Action::CarryTo(_)
+            | Action::Overview => match down {
                 ButtonPress::Up => Ok(None),
                 ButtonPress::Down => self.once(),
             },
@@ -882,6 +891,7 @@ impl Action {
             Action::Wake => run_by_path(InternalProgram::Brightness, &["undim"]),
             Action::GameMode => run_by_name(InternalProgram::SessionGame, &[]),
             Action::Browser => run_by_path(InternalProgram::Browser, &[]),
+            Action::Overview => run_by_name(InternalProgram::Overview, &["--show"]),
             Action::ButtonGuide => run_by_path(InternalProgram::MappingPanel, &[]),
             Action::Keyboard => run_by_name(InternalProgram::KeyboardToggle, &[]),
             Action::Language(-1) => {
@@ -1104,7 +1114,7 @@ pub fn ours(job: &Task) -> Result<Vec<Binding>, Never> {
         .bound
         .iter()
         .map(|(on, held, pressed)| {
-            let Ok(binding) = Binding::holding(*on, held, pressed);
+            let Ok(binding) = Binding::chord(*on, held, pressed);
 
             binding
         })
@@ -1139,37 +1149,46 @@ mod tests {
     use std::collections::BTreeSet;
     use console_input_gamepad::vocabulary::button_name;
 
-    fn ok<T>(answer: Result<T, console_core_never::Never>) -> T {
-        let Ok(value) = answer;
+    type Failure = Box<dyn std::error::Error>;
 
-        value
-    }
-
-    fn ours() -> Table {
-        ok(Table::ours())
-    }
-
-    fn none() -> Tasks {
-        ok(Tasks::none())
-    }
-
-    fn what(table: &Table, pressed: &str, held: &[&str], mode: Mode) -> Option<Action> {
+    fn what(table: &Table, pressed: &str, held: &[&str], mode: Mode) -> Result<Option<Action>, Never> {
         let Ok(found) = table.what(Input::Pad, held, pressed, mode);
 
-        found.map(|job| job.action)
+        Ok(found.map(|job| job.action))
     }
 
-    fn typed(table: &Table, pressed: &str, held: &[&str]) -> Option<Action> {
+    fn typed(table: &Table, pressed: &str, held: &[&str]) -> Result<Option<Action>, Never> {
         let Ok(found) = table.what(Input::Keyboard, held, pressed, Mode::Desktop);
 
-        found.map(|job| job.action)
+        Ok(found.map(|job| job.action))
+    }
+
+    fn stated(written: &str) -> Result<Table, Failure> {
+        let said = Tasks::read(written)?;
+        let Ok(table) = Table::of(&said);
+
+        Ok(table)
+    }
+
+    fn unmoved() -> Result<Table, Never> {
+        let Ok(none) = Tasks::none();
+
+        Table::of(&none)
     }
 
     #[test]
     fn nothing_is_written_down_twice() {
+        let Ok(every) = every();
         let mut seen = BTreeSet::new();
-        let twice: Vec<&str> =
-            ok(every()).map(|job| job.slug).filter(|slug| !seen.insert(*slug)).collect();
+        let mut twice: Vec<&str> = Vec::new();
+
+        for job in every {
+            match seen.insert(job.slug) {
+                true => {},
+                false => twice.push(job.slug),
+            }
+        }
+
 
         assert!(twice.is_empty(), "two jobs are called {twice:?}");
     }
@@ -1179,64 +1198,79 @@ mod tests {
         for mode in [Mode::Desktop, Mode::Tabs, Mode::HomeScreen] {
             let mut places: Vec<String> = Vec::new();
 
-            for job in ok(every()).filter(|job| job.context.applicability(mode) == Ok(Applicability::InFront)) {
+            let Ok(every) = every();
+
+            for job in every.filter(|job| job.context.applicability(mode) == Ok(Applicability::InFront)) {
+                let Ok(rank) = job.context.rank();
+
                 for (on, held, pressed) in job.bound {
                     let Ok(word) = on.word();
 
-                    places.push(format!("{word} {held:?} {pressed} {}", ok(job.context.rank())));
+                    places.push(format!("{word} {held:?} {pressed} {rank}"));
                 }
             }
 
             let mut seen = BTreeSet::new();
-            let twice: Vec<String> =
-                places.into_iter().filter(|on| !seen.insert(on.clone())).collect();
+            let mut twice: Vec<String> = Vec::new();
+
+            for place in places {
+                match seen.contains(&place) {
+                    true => twice.push(place),
+                    false => {
+                        seen.insert(place);
+                    },
+                }
+            }
 
             assert!(twice.is_empty(), "two jobs in one place in {mode:?}: {twice:?}");
         }
     }
 
     #[test]
-    fn every_default_is_on_something_this_desktop_can_read() {
-        for job in ok(every()) {
-            for (on, held, pressed) in job.bound {
-                let Ok(binding) = Binding::holding(*on, held, pressed);
-                let read = console_input_bindings::bound::Binding::read(&binding.to_string());
+    fn every_default_is_on_something_this_desktop_can_read() -> Result<(), Failure> {
+        let Ok(every) = every();
 
-                assert!(read.is_ok(), "{}: {binding} ({read:?})", job.slug);
+        for job in every {
+            for (on, held, pressed) in job.bound {
+                let Ok(binding) = Binding::chord(*on, held, pressed);
+
+                console_input_bindings::bound::Binding::read(&binding.to_string())?;
             }
         }
+
+        Ok(())
     }
 
     #[test]
-    fn every_button_a_default_names_is_one_this_desktop_routes() {
-        for job in ok(every()) {
-            for (on, _, pressed) in job.bound {
-                match on {
-                    Input::Keyboard => continue,
-                    Input::Pad => {},
-                }
+    fn every_button_a_default_names_is_one_this_desktop_routes() -> Result<(), Failure> {
+        let Ok(every) = every();
 
-                let named = button_name(pressed).unwrap_or_else(|_| panic!("{pressed}"));
+        for job in every {
+            for (_, _, pressed) in job.bound.iter().filter(|(on, _, _)| *on == Input::Pad) {
+                let named = button_name(pressed)?;
 
-                assert!(
-                    ok(console_input_gamepad::routing::arrives(named)).is_some(),
+                assert_ne!(
+                    console_input_gamepad::routing::arrives(named),
+                    Ok(None),
                     "{} is on {pressed}, which arrives nowhere",
                     job.slug
                 );
             }
         }
+
+        Ok(())
     }
 
     #[test]
     fn a_job_reached_from_a_keyboard_is_a_job_that_runs_something() {
-        for job in ok(every()) {
-            let keys = job.bound.iter().any(|(on, _, _)| *on == Input::Keyboard);
+        let Ok(every) = every();
 
-            match keys {
-                true => {},
-                false => continue,
-            }
+        let on_a_key = every
+            .flat_map(|job| job.bound.iter().map(move |(on, _, _)| (job, on)))
+            .filter(|(_, on)| **on == Input::Keyboard)
+            .map(|(job, _)| job);
 
+        for job in on_a_key {
             let Ok(does) = job.action.does(ButtonPress::Down);
 
             assert!(
@@ -1249,94 +1283,96 @@ mod tests {
 
     #[test]
     fn every_job_says_what_it_is() {
-        for job in ok(every()) {
-            assert!(!ok(job.action.says()).is_empty(), "{} says nothing", job.slug);
+        let Ok(every) = every();
+
+        for job in every {
+            assert_ne!(job.action.says(), Ok(""), "{} says nothing", job.slug);
             assert!(job.slug.chars().all(|letter| letter.is_ascii_lowercase() || letter == '-'));
         }
     }
 
     #[test]
     fn a_button_with_a_second_job_does_that_one_while_l2_is_held() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(what(&table, "dpad-up", &[], Mode::Desktop), Some(Action::Up));
-        assert_eq!(what(&table, "dpad-up", &["l2"], Mode::Desktop), Some(Action::Louder));
+        assert_eq!(what(&table, "dpad-up", &[], Mode::Desktop), Ok(Some(Action::Up)));
+        assert_eq!(what(&table, "dpad-up", &["l2"], Mode::Desktop), Ok(Some(Action::Louder)));
     }
 
     #[test]
     fn a_button_with_no_second_job_keeps_doing_its_first_one() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(what(&table, "left-paddle-top", &["l2"], Mode::Desktop), Some(Action::Menu));
+        assert_eq!(what(&table, "left-paddle-top", &["l2"], Mode::Desktop), Ok(Some(Action::Menu)));
     }
 
     #[test]
     fn both_triggers_is_not_either_of_them() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(what(&table, "dpad-up", &["l2", "r2"], Mode::Desktop), Some(Action::Louder));
+        assert_eq!(what(&table, "dpad-up", &["l2", "r2"], Mode::Desktop), Ok(Some(Action::Louder)));
     }
 
     #[test]
     fn a_button_can_mean_one_thing_on_the_desktop_and_another_in_a_picker() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(what(&table, "a", &[], Mode::Desktop), Some(Action::Click));
-        assert_eq!(what(&table, "a", &[], Mode::Tabs), Some(Action::Choose));
-        assert_eq!(what(&table, "r1", &[], Mode::Desktop), Some(Action::Workspace(1)));
-        assert_eq!(what(&table, "r1", &[], Mode::Tabs), Some(Action::Tab(1)));
+        assert_eq!(what(&table, "a", &[], Mode::Desktop), Ok(Some(Action::Click)));
+        assert_eq!(what(&table, "a", &[], Mode::Tabs), Ok(Some(Action::Choose)));
+        assert_eq!(what(&table, "r1", &[], Mode::Desktop), Ok(Some(Action::Workspace(1))));
+        assert_eq!(what(&table, "r1", &[], Mode::Tabs), Ok(Some(Action::Tab(1))));
     }
 
     #[test]
     fn leaving_for_steam_is_not_something_to_do_by_brushing_a_button() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert!(what(&table, "legion-left", &[], Mode::Desktop).is_some());
-        assert_eq!(what(&table, "legion-left", &[], Mode::Tabs), None);
-        assert_eq!(what(&table, "view", &[], Mode::Tabs), None);
+        assert_ne!(what(&table, "legion-left", &[], Mode::Desktop), Ok(None));
+        assert_eq!(what(&table, "legion-left", &[], Mode::Tabs), Ok(None));
+        assert_eq!(what(&table, "view", &[], Mode::Tabs), Ok(None));
     }
 
     #[test]
     fn a_key_is_not_a_button_and_does_not_answer_for_one() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(typed(&table, "i", &["super"]), Some(Action::Settings));
-        assert_eq!(typed(&table, "i", &[]), None, "the modifier is part of the place");
-        assert_eq!(what(&table, "i", &["super"], Mode::Desktop), None);
+        assert_eq!(typed(&table, "i", &["super"]), Ok(Some(Action::Settings)));
+        assert_eq!(typed(&table, "i", &[]), Ok(None), "the modifier is part of the place");
+        assert_eq!(what(&table, "i", &["super"], Mode::Desktop), Ok(None));
     }
 
     #[test]
     fn a_digit_names_a_place_by_its_number_and_zero_is_the_tenth() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(typed(&table, "3", &["super"]), Some(Action::Place("3")));
-        assert_eq!(typed(&table, "0", &["super"]), Some(Action::Place("10")));
-        assert_eq!(what(&table, "3", &["super"], Mode::Desktop), None, "a pad has no digits");
+        assert_eq!(typed(&table, "3", &["super"]), Ok(Some(Action::Place("3"))));
+        assert_eq!(typed(&table, "0", &["super"]), Ok(Some(Action::Place("10"))));
+        assert_eq!(what(&table, "3", &["super"], Mode::Desktop), Ok(None), "a pad has no digits");
 
         let Ok(third) = Effect::workspace("3", Payload::None);
 
         assert_eq!(Action::Place("3").does(ButtonPress::Down), Ok(Some(third)));
-        assert_eq!(ok(Action::Place("10").says()), "go to desktop 10");
+        assert_eq!(Action::Place("10").says(), Ok("go to desktop 10"));
 
         let Ok(carried) = Effect::workspace("3", Payload::Window);
 
-        assert_eq!(typed(&table, "3", &["super", "shift"]), Some(Action::CarryTo("3")));
+        assert_eq!(typed(&table, "3", &["super", "shift"]), Ok(Some(Action::CarryTo("3"))));
         assert_eq!(Action::CarryTo("3").does(ButtonPress::Down), Ok(Some(carried)));
     }
 
     #[test]
     fn the_keys_the_lua_used_to_hold_are_in_the_table() {
-        let table = ours();
+        let Ok(table) = Table::ours();
 
-        assert_eq!(typed(&table, "enter", &["super"]), Some(Action::Terminal));
-        assert_eq!(typed(&table, "f", &["super"]), Some(Action::Files));
-        assert_eq!(typed(&table, "w", &["super"]), Some(Action::CloseWindow));
-        assert_eq!(typed(&table, "f", &["super", "shift"]), Some(Action::Fullscreen));
-        assert_eq!(typed(&table, "left", &["super"]), Some(Action::Focus("left")));
-        assert_eq!(typed(&table, "left", &["super", "shift"]), Some(Action::Payload(-1)));
-        assert_eq!(typed(&table, "a", &["super", "ctrl"]), Some(Action::SettingsAt("Sound")));
-        assert_eq!(typed(&table, "print", &[]), Some(Action::Screenshot));
-        assert_eq!(typed(&table, "volume-up", &[]), Some(Action::Louder));
+        assert_eq!(typed(&table, "enter", &["super"]), Ok(Some(Action::Terminal)));
+        assert_eq!(typed(&table, "f", &["super"]), Ok(Some(Action::Files)));
+        assert_eq!(typed(&table, "w", &["super"]), Ok(Some(Action::CloseWindow)));
+        assert_eq!(typed(&table, "f", &["super", "shift"]), Ok(Some(Action::Fullscreen)));
+        assert_eq!(typed(&table, "left", &["super"]), Ok(Some(Action::Focus("left"))));
+        assert_eq!(typed(&table, "left", &["super", "shift"]), Ok(Some(Action::Payload(-1))));
+        assert_eq!(typed(&table, "a", &["super", "ctrl"]), Ok(Some(Action::SettingsAt("Sound"))));
+        assert_eq!(typed(&table, "print", &[]), Ok(Some(Action::Screenshot)));
+        assert_eq!(typed(&table, "volume-up", &[]), Ok(Some(Action::Louder)));
     }
 
     #[test]
@@ -1349,7 +1385,7 @@ mod tests {
 
     #[test]
     fn what_it_can_send_is_read_out_of_the_table() {
-        let sends = ok(sends());
+        let Ok(sends) = sends();
 
         for wanted in [KeyCode::BTN_LEFT, KeyCode::BTN_RIGHT, KeyCode::KEY_ESC, KeyCode::KEY_UP] {
             assert!(sends.contains(&wanted), "{wanted:?} is bound and cannot be sent");
@@ -1360,9 +1396,9 @@ mod tests {
 
     #[test]
     fn a_key_is_held_for_as_long_as_the_button_is() {
-        let down = ok(Output::key(KeyCode::KEY_UP.0, 1));
-        let up = ok(Output::key(KeyCode::KEY_UP.0, 0));
-        let clicked = ok(Output::key(KeyCode::BTN_LEFT.0, 1));
+        let Ok(down) = Output::key(KeyCode::KEY_UP.0, 1);
+        let Ok(up) = Output::key(KeyCode::KEY_UP.0, 0);
+        let Ok(clicked) = Output::key(KeyCode::BTN_LEFT.0, 1);
 
         assert_eq!(Action::Up.does(ButtonPress::Down), Ok(Some(Effect::Frame(vec![down]))));
         assert_eq!(Action::Up.does(ButtonPress::Up), Ok(Some(Effect::Frame(vec![up]))));
@@ -1371,119 +1407,133 @@ mod tests {
 
     #[test]
     fn something_that_starts_a_program_happens_once() {
-        assert_eq!(Action::Menu.does(ButtonPress::Down), Ok(Some(ok(Effect::run(&["launcher", "--keep"])))));
+        let Ok(started) = Effect::run(&["launcher", "--keep"]);
+
+        assert_eq!(Action::Menu.does(ButtonPress::Down), Ok(Some(started)));
         assert_eq!(Action::Menu.does(ButtonPress::Up), Ok(None));
     }
 
     #[test]
     fn the_shoulders_move_you_and_carry_the_window_while_l2_is_held() {
-        let moved = ok(Effect::workspace("+1", Payload::None));
-        let carried = ok(Effect::workspace("-1", Payload::Window));
+        let Ok(moved) = Effect::workspace("+1", Payload::None);
+        let Ok(carried) = Effect::workspace("-1", Payload::Window);
 
         assert_eq!(Action::Workspace(1).does(ButtonPress::Down), Ok(Some(moved)));
         assert_eq!(Action::Payload(-1).does(ButtonPress::Down), Ok(Some(carried)));
     }
 
     #[test]
-    fn the_keyboard_is_ours() {
-        let table = ours();
-        let job = ok(table.what(Input::Pad, &[], "x", Mode::Desktop)).expect("x");
+    fn l2_with_view_shows_every_desktop_and_view_alone_is_still_the_browser() {
+        let Ok(table) = Table::ours();
+        let Ok(shown) = Effect::run(&["console-overview", "--show"]);
 
-        assert_eq!(job.action, Action::Keyboard);
-        assert_eq!(job.action.does(ButtonPress::Down), Ok(Some(ok(Effect::run(&["keyboard-toggle"])))));
-        assert_eq!(what(&table, "keyboard", &[], Mode::Desktop), Some(Action::Keyboard));
+        assert_eq!(what(&table, "view", &["l2"], Mode::Desktop), Ok(Some(Action::Overview)));
+        assert_eq!(what(&table, "view", &[], Mode::Desktop), Ok(Some(Action::Browser)));
+        assert_eq!(Action::Overview.does(ButtonPress::Down), Ok(Some(shown)));
     }
 
     #[test]
-    fn what_someone_moved_is_where_they_moved_it() {
-        let said = Tasks::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
-        let table = ok(Table::of(&said));
+    fn the_keyboard_is_ours() {
+        let Ok(table) = Table::ours();
+        let Ok(toggled) = Effect::run(&["keyboard-toggle"]);
 
-        assert_eq!(what(&table, "a", &["r2"], Mode::Desktop), Some(Action::Screenshot));
+        assert_eq!(what(&table, "x", &[], Mode::Desktop), Ok(Some(Action::Keyboard)));
+        assert_eq!(Action::Keyboard.does(ButtonPress::Down), Ok(Some(toggled)));
+        assert_eq!(what(&table, "keyboard", &[], Mode::Desktop), Ok(Some(Action::Keyboard)));
+    }
+
+    #[test]
+    fn what_someone_moved_is_where_they_moved_it() -> Result<(), Failure> {
+        let table = stated("[jobs]\nscreenshot = \"r2 + a\"\n")?;
+
+        assert_eq!(what(&table, "a", &["r2"], Mode::Desktop), Ok(Some(Action::Screenshot)));
         assert_ne!(
             what(&table, "right-paddle-bottom", &["l2"], Mode::Desktop),
-            Some(Action::Screenshot)
-        );
-        assert_eq!(what(&table, "dpad-up", &["l2"], Mode::Desktop), Some(Action::Louder));
+            Ok(Some(Action::Screenshot)
+        ));
+        assert_eq!(what(&table, "dpad-up", &["l2"], Mode::Desktop), Ok(Some(Action::Louder)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_moved_onto_a_chord_of_two_buttons_is_read_off_the_chord() {
-        let said = Tasks::read("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")
-            .expect("a table");
-        let table = ok(Table::of(&said));
+    fn a_job_moved_onto_a_chord_of_two_buttons_is_read_off_the_chord() -> Result<(), Failure> {
+        let table = stated("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")?;
 
         assert_eq!(
             what(&table, "right-paddle-top", &["left-paddle-bottom"], Mode::Desktop),
-            Some(Action::Menu)
-        );
+            Ok(Some(Action::Menu)
+        ));
         assert_eq!(
             what(&table, "right-paddle-top", &[], Mode::Desktop),
-            Some(Action::PutAway),
+            Ok(Some(Action::PutAway)),
             "the button on its own goes on doing what it did"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_left_with_no_button_is_on_no_button() {
-        let said = Tasks::read("[jobs]\nmenu = \"\"\n").expect("a table");
-        let table = ok(Table::of(&said));
+    fn a_job_left_with_no_button_is_on_no_button() -> Result<(), Failure> {
+        let table = stated("[jobs]\nmenu = \"\"\n")?;
 
-        assert_eq!(what(&table, "left-paddle-top", &[], Mode::Desktop), None);
-        assert_eq!(ok(table.bindings("menu")).len(), 1);
-        assert_eq!(
-            ok(table.bindings("menu")).first().map(|one| one.played()),
-            Some(Ok(Played::ByNothing))
-        );
+        assert_eq!(what(&table, "left-paddle-top", &[], Mode::Desktop), Ok(None));
+        let Ok(menu) = table.bindings("menu");
+        let played: Vec<_> = menu.iter().map(|one| one.played()).collect();
+
+        assert_eq!(played, [Ok(Played::ByNothing)]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_this_desktop_does_not_have_is_left_alone() {
-        let said = Tasks::read("[jobs]\nteleport = \"a\"\n").expect("a table");
-        let table = ok(Table::of(&said));
+    fn a_job_this_desktop_does_not_have_is_left_alone() -> Result<(), Failure> {
+        let table = stated("[jobs]\nteleport = \"a\"\n")?;
 
-        assert_eq!(what(&table, "a", &[], Mode::Desktop), Some(Action::Click));
+        assert_eq!(what(&table, "a", &[], Mode::Desktop), Ok(Some(Action::Click)));
+
+        Ok(())
     }
 
     #[test]
     fn the_home_screen_takes_the_d_pad_and_leaves_the_rest() {
-        let table = ok(Table::of(&none()));
+        let Ok(table) = unmoved();
 
-        assert_eq!(what(&table, "dpad-up", &[], Mode::Desktop), Some(Action::Up));
-        assert_eq!(what(&table, "dpad-up", &[], Mode::HomeScreen), Some(Action::Tell(PadInput::Up)));
-        assert_eq!(what(&table, "dpad-down", &[], Mode::HomeScreen), Some(Action::Tell(PadInput::Down)));
-        assert_eq!(what(&table, "dpad-left", &[], Mode::HomeScreen), Some(Action::Tell(PadInput::Left)));
-        assert_eq!(what(&table, "dpad-right", &[], Mode::HomeScreen), Some(Action::Tell(PadInput::Right)));
+        assert_eq!(what(&table, "dpad-up", &[], Mode::Desktop), Ok(Some(Action::Up)));
+        assert_eq!(what(&table, "dpad-up", &[], Mode::HomeScreen), Ok(Some(Action::Tell(PadInput::Up))));
+        assert_eq!(what(&table, "dpad-down", &[], Mode::HomeScreen), Ok(Some(Action::Tell(PadInput::Down))));
+        assert_eq!(what(&table, "dpad-left", &[], Mode::HomeScreen), Ok(Some(Action::Tell(PadInput::Left))));
+        assert_eq!(what(&table, "dpad-right", &[], Mode::HomeScreen), Ok(Some(Action::Tell(PadInput::Right))));
 
-        assert_eq!(what(&table, "r1", &[], Mode::HomeScreen), Some(Action::Workspace(1)));
-        assert_eq!(what(&table, "l1", &[], Mode::HomeScreen), Some(Action::Workspace(-1)));
-        assert_eq!(what(&table, "legion-left", &[], Mode::HomeScreen), Some(Action::GameMode));
-        assert_eq!(what(&table, "view", &[], Mode::HomeScreen), Some(Action::Browser));
-        assert_eq!(what(&table, "left-paddle-top", &[], Mode::HomeScreen), Some(Action::Menu));
+        assert_eq!(what(&table, "r1", &[], Mode::HomeScreen), Ok(Some(Action::Workspace(1))));
+        assert_eq!(what(&table, "l1", &[], Mode::HomeScreen), Ok(Some(Action::Workspace(-1))));
+        assert_eq!(what(&table, "legion-left", &[], Mode::HomeScreen), Ok(Some(Action::GameMode)));
+        assert_eq!(what(&table, "view", &[], Mode::HomeScreen), Ok(Some(Action::Browser)));
+        assert_eq!(what(&table, "left-paddle-top", &[], Mode::HomeScreen), Ok(Some(Action::Menu)));
     }
 
     #[test]
     fn a_is_the_pointers_button_until_the_home_screen_is_awake() {
-        let table = ok(Table::of(&none()));
+        let Ok(table) = unmoved();
 
-        assert_eq!(what(&table, "a", &[], Mode::Desktop), Some(Action::Click));
-        assert_eq!(what(&table, "a", &[], Mode::HomeScreen), Some(Action::Click));
-        assert_eq!(what(&table, "a", &[], Mode::Standing), Some(Action::Tell(PadInput::Pressed)));
+        assert_eq!(what(&table, "a", &[], Mode::Desktop), Ok(Some(Action::Click)));
+        assert_eq!(what(&table, "a", &[], Mode::HomeScreen), Ok(Some(Action::Click)));
+        assert_eq!(what(&table, "a", &[], Mode::Standing), Ok(Some(Action::Tell(PadInput::Pressed))));
 
-        assert_eq!(what(&table, "y", &[], Mode::Desktop), Some(Action::MoreOptions));
-        assert_eq!(what(&table, "y", &[], Mode::HomeScreen), Some(Action::MoreOptions));
-        assert_eq!(what(&table, "y", &[], Mode::Standing), Some(Action::Tell(PadInput::More)));
+        assert_eq!(what(&table, "y", &[], Mode::Desktop), Ok(Some(Action::MoreOptions)));
+        assert_eq!(what(&table, "y", &[], Mode::HomeScreen), Ok(Some(Action::MoreOptions)));
+        assert_eq!(what(&table, "y", &[], Mode::Standing), Ok(Some(Action::Tell(PadInput::More))));
 
-        assert_eq!(what(&table, "b", &[], Mode::HomeScreen), Some(Action::Back));
-        assert_eq!(what(&table, "b", &[], Mode::Standing), Some(Action::Tell(PadInput::Back)));
+        assert_eq!(what(&table, "b", &[], Mode::HomeScreen), Ok(Some(Action::Back)));
+        assert_eq!(what(&table, "b", &[], Mode::Standing), Ok(Some(Action::Tell(PadInput::Back))));
     }
 
     #[test]
     fn the_d_pad_stays_the_home_screens_once_it_is_awake() {
-        let table = ok(Table::of(&none()));
+        let Ok(table) = unmoved();
 
-        assert_eq!(what(&table, "dpad-up", &[], Mode::Standing), Some(Action::Tell(PadInput::Up)));
-        assert_eq!(what(&table, "r1", &[], Mode::Standing), Some(Action::Workspace(1)));
+        assert_eq!(what(&table, "dpad-up", &[], Mode::Standing), Ok(Some(Action::Tell(PadInput::Up))));
+        assert_eq!(what(&table, "r1", &[], Mode::Standing), Ok(Some(Action::Workspace(1))));
     }
 
     #[test]

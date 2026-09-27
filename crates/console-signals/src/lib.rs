@@ -66,7 +66,7 @@ impl std::error::Error for SignalError {}
     clippy::missing_safety_doc,
     reason = "EXPLICIT020 denies the doc comment this asks for; what a handler has to promise is the module head's third paragraph"
 )]
-pub unsafe fn answered(signals: &[Signal], by: Handler) -> Result<(), SignalError> {
+pub unsafe fn install_handler(signals: &[Signal], by: Handler) -> Result<(), SignalError> {
     for which in signals {
         // SAFETY: `by` is an `extern "C" fn(c_int)`, which is what a
         // disposition is, and the caller has promised what it does.
@@ -76,7 +76,7 @@ pub unsafe fn answered(signals: &[Signal], by: Handler) -> Result<(), SignalErro
     Ok(())
 }
 
-pub fn defaulted(which: Signal) -> Result<(), SignalError> {
+pub fn restore_default(which: Signal) -> Result<(), SignalError> {
     // SAFETY: the default disposition is the kernel's own and runs nothing of
     // this process's.
     unsafe { set(which, DEFAULT) }
@@ -99,18 +99,25 @@ mod tests {
 
     use super::*;
 
+    #[cfg_attr(
+        dylint_lib = "explicit044_no_ambient_value",
+        allow(
+            explicit044_no_ambient_value,
+            reason = "a signal handler is handed nothing but the signal's number, so what it heard has to be somewhere it can store with one write"
+        )
+    )]
     static HEARD: AtomicBool = AtomicBool::new(false);
 
-    extern "C" fn heard(_number: c_int) {
+    extern "C" fn record_signal(_number: c_int) {
         HEARD.store(true, Ordering::SeqCst);
     }
 
     #[test]
-    fn a_signal_answered_runs_the_handler_rather_than_the_default() {
+    fn a_signal_answered_runs_the_handler_rather_than_the_default() -> Result<(), SignalError> {
         // SAFETY: the handler stores one flag.
-        let installed = unsafe { answered(&[Signal::USR2], heard) };
+        let installed = unsafe { install_handler(&[Signal::USR2], record_signal) };
 
-        assert!(installed.is_ok(), "{installed:?}");
+        installed?;
 
         let _ = rustix::process::kill_process(rustix::process::getpid(), Signal::USR2);
 
@@ -121,13 +128,14 @@ mod tests {
         });
 
         assert!(ran, "the handler never ran, so the signal went to its default");
-        assert!(defaulted(Signal::USR2).is_ok());
+
+        restore_default(Signal::USR2)
     }
 
     #[test]
     fn a_signal_the_kernel_will_not_let_anyone_answer_is_said_to_be_refused() {
         // SAFETY: the kernel refuses this before the handler could ever run.
-        let refused = unsafe { answered(&[Signal::KILL], heard) };
+        let refused = unsafe { install_handler(&[Signal::KILL], record_signal) };
 
         assert!(matches!(refused, Err(SignalError::Failed(Signal::KILL, _))), "{refused:?}");
     }

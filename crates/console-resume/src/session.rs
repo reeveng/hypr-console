@@ -88,8 +88,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use console_compositor::events::CompositorEvent;
-use console_compositor::{Query, DispatchResult, Filling, Floating, Pinned, Window};
+use console_compositor::{DispatchResult, Filling, Floating, Pinned, Window};
 use console_core_atomic_writes::Stored;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_events::subscription::Received;
@@ -198,21 +199,12 @@ pub struct Saved {
 }
 
 fn open_windows() -> Result<Vec<Window>, Unresumed> {
-    let said = console_compositor::query(Query::Clients)?;
+    let open = console_compositor::ask(console_compositor::Clients)?;
 
-    match said {
-        console_compositor::Answer::Clients(open) => Ok(open),
-        console_compositor::Answer::Layers(_)
-        | console_compositor::Answer::ActiveWorkspace(_)
-        | console_compositor::Answer::Workspaces(_)
-        | console_compositor::Answer::Monitors(_)
-        | console_compositor::Answer::EveryMonitor(_)
-        | console_compositor::Answer::Devices(_)
-        | console_compositor::Answer::Binds(_) => Ok(Vec::new()),
-    }
+    Ok(open)
 }
 
-fn kept(window: &Window) -> Result<Saved, Never> {
+fn to_saved(window: &Window) -> Result<Saved, Never> {
     Ok(Saved {
         address: window.address.clone(),
         title: window.title.clone(),
@@ -307,7 +299,7 @@ impl Changes {
 
 type Noted = Arc<Mutex<Changes>>;
 
-fn held(changes: &Noted) -> Result<MutexGuard<'_, Changes>, Never> {
+fn lock(changes: &Noted) -> Result<MutexGuard<'_, Changes>, Never> {
     Ok(match changes.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
@@ -331,7 +323,7 @@ fn note(changes: &Noted, stirred: &CompositorEvent) -> Result<(), Never> {
         | CompositorEvent::Ignored => return Ok(()),
     };
 
-    let Ok(mut held) = held(changes);
+    let Ok(mut held) = lock(changes);
 
     change(&mut held)
 }
@@ -361,7 +353,7 @@ fn workspace_selector(saved: &Window) -> Result<String, Never> {
     }
 }
 
-fn placing(saved: &Window) -> Result<Placing, Never> {
+fn placement(saved: &Window) -> Result<Placing, Never> {
     Ok(match (saved.floating, saved.filling) {
         (Floating::Yes, Filling::None) => Placing::ByPixels,
         (Floating::Yes, Filling::Maximized | Filling::Screen)
@@ -408,7 +400,7 @@ fn asked_of_the_compositor(asking: Dispatch<'_>, window: &str) -> Result<(), Nev
     Ok(())
 }
 
-fn put<T: PartialEq>(
+fn restore_field<T: PartialEq>(
     real: &Window,
     saved: &Window,
     of: fn(&Window) -> T,
@@ -476,7 +468,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
     let Ok(named) = crate::lua::window(&real.address);
     let Ok(workspace) = workspace_selector(saved);
 
-    let Ok(()) = put(real, saved, |window| window.workspace, really, Dispatch {
+    let Ok(()) = restore_field(real, saved, |window| window.workspace, really, Dispatch {
         lua: &format!(
             "hl.dsp.window.move({{ window = {named}, workspace = {workspace}, follow = false }})"
         ),
@@ -490,7 +482,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
 
     let Ok(screen) = crate::lua::quote(&on.to_string());
 
-    let Ok(()) = put(
+    let Ok(()) = restore_field(
         real,
         saved,
         |window| match window.monitor {
@@ -506,26 +498,26 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
         },
     );
 
-    let Ok(()) = put(real, saved, |window| window.floating, really, Dispatch {
+    let Ok(()) = restore_field(real, saved, |window| window.floating, really, Dispatch {
         lua: &format!("hl.dsp.window.float({{ window = {named}, action = \"toggle\" }})"),
         about: "floating the way it was",
     });
 
-    let Ok(()) = put(real, saved, |window| window.pinned, really, Dispatch {
+    let Ok(()) = restore_field(real, saved, |window| window.pinned, really, Dispatch {
         lua: &format!("hl.dsp.window.pin({{ window = {named}, action = \"toggle\" }})"),
         about: "pinned the way it was",
     });
 
     let Ok(()) = fill(real, saved, really, &named);
 
-    let Ok(placing) = placing(saved);
+    let Ok(placing) = placement(saved);
 
     match placing {
         Placing::ByTheLayout => return Ok(()),
         Placing::ByPixels => {},
     }
 
-    let Ok(()) = put(real, saved, |window| window.size, really, Dispatch {
+    let Ok(()) = restore_field(real, saved, |window| window.size, really, Dispatch {
         lua: &format!(
             "hl.dsp.window.resize({{ window = {named}, x = {}, y = {}, relative = false }})",
             saved.size.0, saved.size.1
@@ -533,7 +525,7 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
         about: "the size it was",
     });
 
-    put(real, saved, |window| window.at, really, Dispatch {
+    restore_field(real, saved, |window| window.at, really, Dispatch {
         lua: &format!(
             "hl.dsp.window.move({{ window = {named}, x = {}, y = {}, relative = false }})",
             saved.at.0, saved.at.1
@@ -661,7 +653,7 @@ impl Sessions {
         let Ok(known) = crate::starting::from_desktop_files();
 
         for window in open.iter().rev() {
-            let Ok(keeping) = kept(window);
+            let Ok(keeping) = to_saved(window);
 
             written.push(keeping);
 
@@ -798,7 +790,7 @@ impl Sessions {
                     let Ok(many) = fitted::<_, u64>(starting.len());
                     let Ok(()) = waiting.mark("started");
                     let Ok(()) = waiting.counted("windows", many);
-                    let Ok(()) = waiting.done();
+                    let Ok(()) = waiting.finish();
                 },
             },
         }
@@ -886,13 +878,11 @@ impl Sessions {
             }
         }));
 
-        let mut saved = Instant::now();
-
         let Ok(patience) = Schedule::asking_every(interval, TICK);
 
-        loop {
+        let watched = console_core_iteration::iterate(Instant::now(), |saved| {
             let Ok(_either_way_it_is_time) = console_waiting::until(patience, || {
-                let Ok(now) = held(&changes);
+                let Ok(now) = lock(&changes);
                 let Ok(worth) = now.worth_saving(saved, interval);
 
                 Ok(match worth {
@@ -901,15 +891,21 @@ impl Sessions {
                 })
             });
 
-            let Ok(mut now) = held(&changes);
+            let Ok(mut now) = lock(&changes);
 
             *now = Changes::default();
 
             drop(now);
 
-            self.save(name)?;
+            Ok(match self.save(name) {
+                Ok(()) => Step::Again(Instant::now()),
+                Err(fault) => Step::Halt(fault),
+            })
+        });
 
-            saved = Instant::now();
+        match watched {
+            Ok(fault) => Err(fault),
+            Err(_endless) => Ok(()),
         }
     }
 
@@ -937,11 +933,13 @@ impl Sessions {
 mod tests {
     use super::*;
 
-    fn window(class: &str, title: &str) -> Window {
-        Window {
+    struct Class<'a>(&'a str);
+
+    fn window(class: Class<'_>, title: &str) -> Result<Window, Never> {
+        Ok(Window {
             address: "0x1".to_string(),
             title: title.to_string(),
-            first_class: class.to_string(),
+            first_class: class.0.to_string(),
             first_title: title.to_string(),
             workspace: 2,
             workspace_named: "2".to_string(),
@@ -952,41 +950,42 @@ mod tests {
             at: (2, 2),
             size: (800, 600),
             pid: 42,
-        }
+        })
     }
 
     fn worth(changes: &Noted) -> Result<Worth, Never> {
-        let Ok(now) = held(changes);
+        let Ok(now) = lock(changes);
 
         now.worth_saving(Instant::now(), Duration::from_secs(600))
     }
 
-    fn on_special(named: &str, number: i64) -> Window {
-        let mut special = window("imv", "pictures");
+    fn on_special(named: &str, number: i64) -> Result<Window, Never> {
+        let Ok(mut special) = window(Class("imv"), "pictures");
+
         special.workspace = number;
         special.workspace_named = named.to_string();
 
-        special
+        Ok(special)
     }
 
-    fn sessions(at: &str) -> Sessions {
-        Sessions {
+    fn sessions(at: &str) -> Result<Sessions, Never> {
+        Ok(Sessions {
             at: PathBuf::from(at),
             adjusting_for: Duration::from_secs(1),
             really: Really::Simulated,
             restoring: Restoring::StartingItAgain,
             duplicates: Duplicates::OnePerProgram,
-        }
+        })
     }
 
     #[test]
     fn what_a_window_was_doing_survives_the_trip_through_the_file() {
-        let mut was = window("foot", "a shell");
+        let Ok(mut was) = window(Class("foot"), "a shell");
         was.floating = Floating::Yes;
         was.pinned = Pinned::Yes;
         was.filling = Filling::Screen;
 
-        let Ok(saved) = kept(&was);
+        let Ok(saved) = to_saved(&was);
         let Ok(again) = as_window(&saved);
 
         assert_eq!(again, was);
@@ -994,18 +993,20 @@ mod tests {
 
     #[test]
     fn a_special_workspace_goes_by_the_name_no_number_would_carry() {
-        assert_eq!(
-            workspace_selector(&on_special("special:sky", -99)),
-            Ok(r#""special:sky""#.to_string())
-        );
-        assert_eq!(workspace_selector(&window("foot", "a shell")), Ok(r#""2""#.to_string()));
+        let Ok(special) = on_special("special:sky", -99);
+
+        assert_eq!(workspace_selector(&special), Ok(r#""special:sky""#.to_string()));
+
+        let Ok(window) = window(Class("foot"), "a shell");
+
+        assert_eq!(workspace_selector(&window), Ok(r#""2""#.to_string()));
     }
 
     #[test]
     fn the_second_special_workspace_is_not_the_first_one() {
-        let second = on_special("special:magic", -98);
-
-        let Ok(rules) = sessions("/nowhere").rules_for(&second);
+        let Ok(second) = on_special("special:magic", -98);
+        let Ok(sessions) = sessions("/nowhere");
+        let Ok(rules) = sessions.rules_for(&second);
 
         assert_eq!(workspace_selector(&second), Ok(r#""special:magic""#.to_string()));
         assert!(rules.contains("workspace special:magic silent"), "{rules}");
@@ -1017,7 +1018,7 @@ mod tests {
 
     #[test]
     fn a_workspace_of_someones_own_called_specials_is_not_a_special_one() {
-        let mut named = window("foot", "a shell");
+        let Ok(mut named) = window(Class("foot"), "a shell");
         named.workspace = 4;
         named.workspace_named = "specials".to_string();
 
@@ -1027,54 +1028,65 @@ mod tests {
 
     #[test]
     fn a_window_is_the_same_one_by_what_it_was_called_rather_than_what_it_shows() {
-        let saved = window("foot", "foot");
-        let mut now = window("foot", "foot");
+        let Ok(saved) = window(Class("foot"), "foot");
+        let Ok(mut now) = window(Class("foot"), "foot");
         now.title = "half a build".to_string();
 
         assert_eq!(is_same_client(&saved, &now), Ok(Differs::No));
-        assert_eq!(is_same_client(&saved, &window("librewolf", "foot")), Ok(Differs::Yes));
+
+        let Ok(window) = window(Class("librewolf"), "foot");
+
+        assert_eq!(is_same_client(&saved, &window), Ok(Differs::Yes));
     }
 
     #[test]
     fn a_special_workspace_is_asked_for_by_the_word_the_rules_take() {
-        let Ok(rules) = sessions("/nowhere").rules_for(&on_special("special:sky", -99));
+        let Ok(special) = on_special("special:sky", -99);
+        let Ok(sessions) = sessions("/nowhere");
+        let Ok(rules) = sessions.rules_for(&special);
 
         assert!(rules.contains("workspace special:sky silent"), "{rules}");
     }
 
     #[test]
     fn the_special_workspace_no_one_named_is_still_a_special_one() {
-        let Ok(rules) = sessions("/nowhere").rules_for(&on_special("special", -99));
+        let Ok(special) = on_special("special", -99);
+        let Ok(sessions) = sessions("/nowhere");
+        let Ok(rules) = sessions.rules_for(&special);
 
-        assert_eq!(which_workspace(&on_special("special", -99)), Ok(Workspace::Special));
+        assert_eq!(which_workspace(&special), Ok(Workspace::Special));
         assert!(rules.contains("workspace special silent"), "{rules}");
     }
 
     #[test]
     fn a_tiled_window_is_left_where_the_layout_puts_it() {
-        assert_eq!(placing(&window("foot", "a shell")), Ok(Placing::ByTheLayout));
+        let Ok(window) = window(Class("foot"), "a shell");
+
+        assert_eq!(placement(&window), Ok(Placing::ByTheLayout));
     }
 
     #[test]
     fn a_floating_window_is_put_back_by_the_corner_and_the_size_it_had() {
-        let mut floats = window("imv", "pictures");
+        let Ok(mut floats) = window(Class("imv"), "pictures");
         floats.floating = Floating::Yes;
 
-        assert_eq!(placing(&floats), Ok(Placing::ByPixels));
+        assert_eq!(placement(&floats), Ok(Placing::ByPixels));
     }
 
     #[test]
     fn a_window_filling_the_screen_is_not_shifted_about_underneath_it() {
-        let mut filling = window("imv", "pictures");
+        let Ok(mut filling) = window(Class("imv"), "pictures");
         filling.floating = Floating::Yes;
         filling.filling = Filling::Screen;
 
-        assert_eq!(placing(&filling), Ok(Placing::ByTheLayout));
+        assert_eq!(placement(&filling), Ok(Placing::ByTheLayout));
     }
 
     #[test]
     fn a_rule_a_window_does_not_want_is_left_out_rather_than_left_empty() {
-        let Ok(plain) = sessions("/nowhere").rules_for(&window("foot", "a shell"));
+        let Ok(window) = window(Class("foot"), "a shell");
+        let Ok(sessions) = sessions("/nowhere");
+        let Ok(plain) = sessions.rules_for(&window);
 
         assert!(!plain.contains("float"), "{plain}");
         assert!(!plain.contains(";;"), "an empty rule is a rule no one wrote: {plain}");
@@ -1082,11 +1094,12 @@ mod tests {
 
     #[test]
     fn a_window_that_floats_and_is_pinned_says_both() {
-        let mut both = window("imv", "pictures");
+        let Ok(mut both) = window(Class("imv"), "pictures");
         both.floating = Floating::Yes;
         both.pinned = Pinned::Yes;
 
-        let Ok(rules) = sessions("/nowhere").rules_for(&both);
+        let Ok(sessions) = sessions("/nowhere");
+        let Ok(rules) = sessions.rules_for(&both);
 
         assert!(rules.contains(";float;"), "{rules}");
         assert!(rules.contains(";pin;"), "{rules}");
@@ -1103,7 +1116,6 @@ mod tests {
     #[test]
     fn a_change_to_a_window_is_worth_saving_and_the_screen_moving_is_not() {
         let changes: Noted = Arc::new(Mutex::new(Changes::default()));
-
         let Ok(()) = note(&changes, &CompositorEvent::WorkspaceChanged);
 
         assert_eq!(
@@ -1122,7 +1134,6 @@ mod tests {
     #[test]
     fn a_window_that_has_just_closed_is_not_written_down_yet() {
         let changes: Noted = Arc::new(Mutex::new(Changes::default()));
-
         let Ok(()) = note(&changes, &CompositorEvent::WindowClosed("0x1".to_string()));
 
         assert_eq!(
@@ -1134,6 +1145,8 @@ mod tests {
 
     #[test]
     fn listing_where_no_session_has_ever_been_saved_is_no_sessions_rather_than_a_fault() {
-        assert_eq!(sessions("/nowhere/at/all").list(), Ok(Vec::new()));
+        let Ok(sessions) = sessions("/nowhere/at/all");
+
+        assert_eq!(sessions.list(), Ok(Vec::new()));
     }
 }

@@ -166,14 +166,14 @@ impl Walk {
         Ok(match firmware {
             Firmware::Skipped => self,
             Firmware::Offered => {
-                let Ok(walked) = self.offered(heading, shape, level);
+                let Ok(walked) = self.visit(heading, shape, level);
 
                 walked
             }
         })
     }
 
-    fn offered(mut self, heading: &Heading, shape: Shape, level: u32) -> Result<Walk, Never> {
+    fn visit(mut self, heading: &Heading, shape: Shape, level: u32) -> Result<Walk, Never> {
         let Ok(segment) = self.segment(&heading.title, level);
         let Ok(held) = index(level);
         let above = Above { level: Level { title: heading.title.clone(), comments: heading.comments.clone() }, segment };
@@ -294,16 +294,18 @@ protocol: efi
 path: boot():/EFI/BOOT/BOOTX64.EFI
 ";
 
-    fn identifiers(config: &str) -> Vec<String> {
+    fn identifiers(config: &str) -> Result<Vec<String>, Never> {
         let Ok(found) = entries(config);
 
-        found.into_iter().map(|entry| entry.identifier).collect()
+        Ok(found.into_iter().map(|entry| entry.identifier).collect())
     }
 
     #[test]
     fn the_device_menu_is_named_the_way_limine_published_it() {
+        let Ok(found) = identifiers(DEVICE);
+
         assert_eq!(
-            identifiers(DEVICE),
+            found,
             vec![
                 "CachyOS.linux-cachyos-deckify",
                 "CachyOS.Snapshots.184-----2026-09-23-06-54-01.linux-cachyos-deckify",
@@ -331,28 +333,36 @@ path: boot():/EFI/BOOT/BOOTX64.EFI
     fn a_second_sibling_of_one_title_is_marked_in_the_path() {
         let config = "/Linux\nprotocol: linux\n/Linux\nprotocol: linux\n";
 
-        assert_eq!(identifiers(config), vec!["Linux", "Linux-1"]);
+        let Ok(found) = identifiers(config);
+
+        assert_eq!(found, vec!["Linux", "Linux-1"]);
     }
 
     #[test]
     fn two_paths_that_map_to_one_identifier_are_numbered_from_two() {
         let config = "/a b\nprotocol: linux\n/a:b\nprotocol: linux\n/a?b\nprotocol: linux\n";
 
-        assert_eq!(identifiers(config), vec!["a-b", "a-b-2", "a-b-3"]);
+        let Ok(found) = identifiers(config);
+
+        assert_eq!(found, vec!["a-b", "a-b-2", "a-b-3"]);
     }
 
     #[test]
     fn a_bios_entry_is_not_offered_and_does_not_count_as_a_sibling() {
         let config = "/Linux\nprotocol: bios\n/Linux\nprotocol: linux\n";
 
-        assert_eq!(identifiers(config), vec!["Linux"]);
+        let Ok(found) = identifiers(config);
+
+        assert_eq!(found, vec!["Linux"]);
     }
 
     #[test]
     fn a_slash_in_a_title_is_escaped_rather_than_read_as_a_level() {
         let config = "/A/B\nprotocol: linux\n";
 
-        assert_eq!(identifiers(config), vec!["A-.B"]);
+        let Ok(found) = identifiers(config);
+
+        assert_eq!(found, vec!["A-.B"]);
     }
 
     #[test]
@@ -360,6 +370,8 @@ path: boot():/EFI/BOOT/BOOTX64.EFI
         let title = "x".repeat(300);
         let config = format!("/{title}\nprotocol: linux\n");
 
-        assert_eq!(identifiers(&config), vec!["x".repeat(232)]);
+        let Ok(found) = identifiers(&config);
+
+        assert_eq!(found, vec!["x".repeat(232)]);
     }
 }

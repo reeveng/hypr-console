@@ -26,14 +26,13 @@ use console_core_never::Never;
 
 pub mod homeward;
 
-pub use homeward::{Woken, Hand, PadInput, carrying, homeward, telling, waking};
+pub use homeward::{Woken, Hand, PadInput, set_hand, homeward, send_to_home, set_awake};
 
 #[derive(Debug)]
 pub enum Error {
     Sessionless,
     Compositorless,
     Query(console_compositor::HyprctlError),
-    UnexpectedReply(console_compositor::Query),
     Making(PathBuf, std::io::Error),
     Writing(console_core_atomic_writes::Unwritten),
     Removing(PathBuf, std::io::Error),
@@ -54,11 +53,6 @@ impl fmt::Display for Error {
                 "HYPRLAND_INSTANCE_SIGNATURE: there is no compositor to listen to"
             ),
             Error::Query(fault) => write!(to, "{fault}"),
-            Error::UnexpectedReply(question) => {
-                let Ok(about) = question.about();
-
-                write!(to, "hyprctl answered something other than {about}")
-            }
             Error::Making(at, fault) => write!(to, "{}: making it: {fault}", at.display()),
             Error::Writing(fault) => write!(to, "{fault}"),
             Error::Removing(at, fault) => write!(to, "{}: removing it: {fault}", at.display()),
@@ -87,19 +81,7 @@ fn runtime() -> Result<PathBuf, Error> {
 }
 
 pub fn screens() -> Result<Vec<console_compositor::Layer>, Error> {
-    let asked = console_compositor::Query::Layers;
-    let answer = console_compositor::query(asked).map_err(Error::Query)?;
-
-    match answer {
-        console_compositor::Answer::Layers(layers) => Ok(layers),
-        console_compositor::Answer::ActiveWorkspace(_)
-        | console_compositor::Answer::Workspaces(_)
-        | console_compositor::Answer::Monitors(_)
-        | console_compositor::Answer::EveryMonitor(_)
-        | console_compositor::Answer::Clients(_)
-        | console_compositor::Answer::Devices(_)
-        | console_compositor::Answer::Binds(_) => Err(Error::UnexpectedReply(asked)),
-    }
+    console_compositor::ask(console_compositor::Layers).map_err(Error::Query)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,7 +98,7 @@ pub fn is_open(namespace: &str) -> Result<Up, Error> {
     Ok(up)
 }
 
-fn drawn<'a>(
+fn visible_layers<'a>(
     layers: &'a [console_compositor::Layer],
     namespace: &'a str,
 ) -> Result<impl Iterator<Item = &'a console_compositor::Layer>, Never> {
@@ -124,14 +106,14 @@ fn drawn<'a>(
         .iter()
         .filter(move |layer| layer.namespace.starts_with(namespace))
         .filter(|layer| {
-            let Ok(drawn) = layer.drawn();
+            let Ok(drawn) = layer.visibility();
 
             drawn == console_compositor::Visible::Yes
         }))
 }
 
 pub fn up(layers: &[console_compositor::Layer], namespace: &str) -> Result<Up, Never> {
-    let Ok(mut drawn) = drawn(layers, namespace);
+    let Ok(mut drawn) = visible_layers(layers, namespace);
 
     Ok(match drawn.next() {
         Some(_layer) => Up::OnScreen,
@@ -141,8 +123,8 @@ pub fn up(layers: &[console_compositor::Layer], namespace: &str) -> Result<Up, N
 
 pub use console_compositor::Frame as Standing;
 
-pub fn standing(layers: &[console_compositor::Layer], namespace: &str) -> Result<Option<Standing>, Never> {
-    let Ok(mut drawn) = drawn(layers, namespace);
+pub fn layer_state(layers: &[console_compositor::Layer], namespace: &str) -> Result<Option<Standing>, Never> {
+    let Ok(mut drawn) = visible_layers(layers, namespace);
 
     let layer = match drawn.next() {
         Some(layer) => layer,
@@ -152,7 +134,7 @@ pub fn standing(layers: &[console_compositor::Layer], namespace: &str) -> Result
     layer.corner()
 }
 
-pub const SYSTEM_SURFACES: [&str; 7] = [
+pub const SYSTEM_SURFACES: [&str; 8] = [
     "awww-daemon",
     "console-keyboard",
     "notifications",
@@ -160,6 +142,7 @@ pub const SYSTEM_SURFACES: [&str; 7] = [
     NOTIFICATION,
     HOME,
     CONTROL_CENTER,
+    OVERVIEW_EDGE,
 ];
 
 pub const BAR: &str = "console-bar";
@@ -174,6 +157,10 @@ pub const ASKING: &str = "console-asking";
 
 pub const CONTROL_CENTER: &str = "console-control-center";
 
+pub const OVERVIEW: &str = "console-overview";
+
+pub const OVERVIEW_EDGE: &str = "console-overview-edge";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Over {
     Some,
@@ -184,7 +171,7 @@ pub fn over_the_desktop(layers: &[console_compositor::Layer]) -> Result<Over, Ne
     let over = layers
         .iter()
         .filter(|layer| {
-            let Ok(drawn) = layer.drawn();
+            let Ok(drawn) = layer.visibility();
 
             drawn == console_compositor::Visible::Yes
         })
@@ -235,10 +222,10 @@ pub fn events() -> Result<PathBuf, Error> {
 pub fn note() -> Result<PathBuf, Error> {
     let runtime = runtime()?;
 
-    Ok(runtime.join(console_core_places::OURS).join("tab"))
+    Ok(runtime.join(console_core_places::APPLICATION).join("tab"))
 }
 
-pub fn saying(tab: &str) -> Result<(), Error> {
+pub fn write_tab(tab: &str) -> Result<(), Error> {
     let note = note()?;
 
     match note.parent() {
@@ -306,36 +293,14 @@ pub fn open_on(namespace: &str, tab_: Tab<'_>) -> Result<Up, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn layers(said: &str) -> Vec<console_compositor::Layer> {
-        let value = match console_compositor::read_value(said) {
-            Ok(value) => value,
-            Err(_unreadable) => return Vec::new(),
-        };
+    type Failure = Box<dyn Error>;
 
-        match console_compositor::answer_of(console_compositor::Query::Layers, value) {
-            Ok(console_compositor::Answer::Layers(layers)) => layers,
-            Ok(_not_layers) => Vec::new(),
-            Err(_unreadable) => Vec::new(),
-        }
-    }
+    fn layers(said: &str) -> Result<Vec<console_compositor::Layer>, Failure> {
+        let listed = console_compositor::read(console_compositor::Layers, said)?;
 
-    fn up(layers: &[console_compositor::Layer], namespace: &str) -> Up {
-        let Ok(up) = super::up(layers, namespace);
-
-        up
-    }
-
-    fn standing(layers: &[console_compositor::Layer], namespace: &str) -> Option<Standing> {
-        let Ok(standing) = super::standing(layers, namespace);
-
-        standing
-    }
-
-    fn worth_asking_after(line: &str) -> Worth {
-        let Ok(worth) = super::worth_asking_after(line);
-
-        worth
+        Ok(listed)
     }
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
@@ -343,38 +308,61 @@ mod tests {
         "2":[{"namespace":"console-bar","x":0,"y":0,"w":1920,"h":40}]}}}"#;
 
     #[test]
-    fn a_door_nothing_opened_is_shut() {
-        assert_eq!(up(&layers(NOTHING_UP), "launcher"), Up::NotThere);
-        assert_eq!(up(&layers(NOTHING_UP), "console-keyboard"), Up::NotThere);
+    fn a_door_nothing_opened_is_shut() -> Result<(), Failure> {
+        let listed = layers(NOTHING_UP)?;
+
+        assert_eq!(up(&listed, "launcher"), Ok(Up::NotThere));
+        assert_eq!(up(&listed, "console-keyboard"), Ok(Up::NotThere));
+
+        Ok(())
     }
 
     #[test]
-    fn the_menu_being_on_the_screen_opens_its_door() {
+    fn the_menu_being_on_the_screen_opens_its_door() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","x":0,"y":0,"w":1920,"h":1600}],
             "3":[{"namespace":"launcher","x":0,"y":0,"w":1920,"h":1562}]}}}"#;
-        assert_eq!(up(&layers(said), "launcher"), Up::OnScreen);
-        assert_eq!(up(&layers(said), "console-keyboard"), Up::NotThere);
+        let listed = layers(said)?;
+
+        assert_eq!(up(&listed, "launcher"), Ok(Up::OnScreen));
+        assert_eq!(up(&listed, "console-keyboard"), Ok(Up::NotThere));
+
+        Ok(())
     }
 
     #[test]
-    fn the_name_wofi_used_opens_nothing() {
+    fn the_name_wofi_used_opens_nothing() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"launcher","x":0,"y":0,"w":1920,"h":1562}]}}}"#;
-        assert_eq!(up(&layers(said), "wofi"), Up::NotThere);
+        let listed = layers(said)?;
+
+        assert_eq!(up(&listed, "wofi"), Ok(Up::NotThere));
+
+        Ok(())
     }
 
     #[test]
-    fn another_panel_does_not_open_the_menus_door() {
+    fn another_panel_does_not_open_the_menus_door() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"settings-panel","x":0,"y":0,"w":1920,"h":1562}]}}}"#;
-        assert_eq!(up(&layers(said), "launcher"), Up::NotThere);
+        let listed = layers(said)?;
+
+        assert_eq!(up(&listed, "launcher"), Ok(Up::NotThere));
+
+        Ok(())
     }
 
     #[test]
-    fn a_keyboard_with_no_height_is_a_keyboard_no_one_can_see() {
+    fn a_keyboard_with_no_height_is_a_keyboard_no_one_can_see() -> Result<(), Failure> {
         let hidden = r#"{"eDP-1":{"levels":{"3":[{"namespace":"console-keyboard","x":0,"y":0,"w":1920,"h":0}]}}}"#;
         let up_ = r#"{"eDP-1":{"levels":{"3":[{"namespace":"console-keyboard","x":0,"y":0,"w":1920,"h":520}]}}}"#;
-        assert_eq!(up(&layers(hidden), "console-keyboard"), Up::NotThere);
-        assert_eq!(up(&layers(up_), "console-keyboard"), Up::OnScreen);
+        let listed = layers(hidden)?;
+
+        assert_eq!(up(&listed, "console-keyboard"), Ok(Up::NotThere));
+
+        let listed = layers(up_)?;
+
+        assert_eq!(up(&listed, "console-keyboard"), Ok(Up::OnScreen));
+
+        Ok(())
     }
 
     const A_PANEL: &str = r#"{"eDP-1":{"levels":{
@@ -382,40 +370,56 @@ mod tests {
         "3":[{"namespace":"settings-panel","x":260,"y":140,"w":1400,"h":900}]}}}"#;
 
     #[test]
-    fn a_surface_stands_where_the_compositor_says_it_does() {
+    fn a_surface_stands_where_the_compositor_says_it_does() -> Result<(), Failure> {
+        let listed = layers(A_PANEL)?;
+
         assert_eq!(
-            standing(&layers(A_PANEL), "settings-panel"),
-            Some(Standing { x: 260, y: 140, width: 1400, height: 900 })
+            layer_state(&listed, "settings-panel"),
+            Ok(Some(Standing { x: 260, y: 140, width: 1400, height: 900 }))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_is_standing_where_nothing_is_drawn() {
-        assert_eq!(standing(&layers(A_PANEL), "launcher"), None);
+    fn nothing_is_standing_where_nothing_is_drawn() -> Result<(), Failure> {
+        let listed = layers(A_PANEL)?;
+
+        assert_eq!(layer_state(&listed, "launcher"), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_panel_no_one_can_see_is_standing_nowhere_either() {
+    fn a_panel_no_one_can_see_is_standing_nowhere_either() -> Result<(), Failure> {
         let empty = r#"{"eDP-1":{"levels":{
             "3":[{"namespace":"settings-panel","x":260,"y":140,"w":1400,"h":0}]}}}"#;
-        assert_eq!(up(&layers(empty), "settings-panel"), Up::NotThere);
-        assert_eq!(standing(&layers(empty), "settings-panel"), None);
+        let listed = layers(empty)?;
+
+        assert_eq!(up(&listed, "settings-panel"), Ok(Up::NotThere));
+        assert_eq!(layer_state(&listed, "settings-panel"), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_corner_half_said_is_no_corner_rather_than_a_corner_with_nought_in_it() {
+    fn a_corner_half_said_is_no_corner_rather_than_a_corner_with_nought_in_it() -> Result<(), Failure> {
         let half = r#"{"eDP-1":{"levels":{
             "3":[{"namespace":"settings-panel","y":140,"w":1400,"h":900}]}}}"#;
-        assert_eq!(up(&layers(half), "settings-panel"), Up::OnScreen, "it is on the screen");
-        assert_eq!(standing(&layers(half), "settings-panel"), None, "but not measurable");
+        let listed = layers(half)?;
+
+        assert_eq!(up(&listed, "settings-panel"), Ok(Up::OnScreen), "it is on the screen");
+        assert_eq!(layer_state(&listed, "settings-panel"), Ok(None), "but not measurable");
+
+        Ok(())
     }
 
     #[test]
     fn only_a_layer_opening_or_closing_is_asked_after() {
-        assert_eq!(worth_asking_after("openlayer>>console-keyboard"), Worth::Querying);
-        assert_eq!(worth_asking_after("closelayer>>launcher"), Worth::Querying);
-        assert_eq!(worth_asking_after("mousemove>>640,400"), Worth::Ignoring);
-        assert_eq!(worth_asking_after("openwindow>>a4f,3,alacritty,Alacritty"), Worth::Ignoring);
-        assert_eq!(worth_asking_after(""), Worth::Ignoring);
+        assert_eq!(worth_asking_after("openlayer>>console-keyboard"), Ok(Worth::Querying));
+        assert_eq!(worth_asking_after("closelayer>>launcher"), Ok(Worth::Querying));
+        assert_eq!(worth_asking_after("mousemove>>640,400"), Ok(Worth::Ignoring));
+        assert_eq!(worth_asking_after("openwindow>>a4f,3,alacritty,Alacritty"), Ok(Worth::Ignoring));
+        assert_eq!(worth_asking_after(""), Ok(Worth::Ignoring));
     }
 }

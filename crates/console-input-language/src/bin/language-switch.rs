@@ -48,28 +48,14 @@ fn main() -> std::process::ExitCode {
         false => Step::Forward,
     };
 
-    let devices = match console_compositor::query(console_compositor::Query::Devices) {
-        Ok(devices) => devices,
+    let keyboards = match console_compositor::ask(console_compositor::Devices) {
+        Ok(keyboards) => keyboards,
         Err(fault) => {
             eprintln!("language-switch: {fault}");
             return std::process::ExitCode::FAILURE;
         }
     };
-
-    let keyboards = match devices {
-        console_compositor::Answer::Devices(keyboards) => keyboards,
-        console_compositor::Answer::Layers(_)
-        | console_compositor::Answer::ActiveWorkspace(_)
-        | console_compositor::Answer::Workspaces(_)
-        | console_compositor::Answer::Monitors(_)
-        | console_compositor::Answer::EveryMonitor(_)
-        | console_compositor::Answer::Clients(_)
-        | console_compositor::Answer::Binds(_) => {
-            eprintln!("language-switch: hyprctl answered something other than what is plugged in");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let Ok(walk) = console_input_alphabets::chosen();
+    let Ok(walk) = console_input_alphabets::current();
     let Ok(said) = layouts(&walk);
     let Ok(home) = console_core_places::home();
 

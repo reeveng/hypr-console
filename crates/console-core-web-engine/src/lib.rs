@@ -160,18 +160,16 @@ fn point_of(text: &str) -> Result<Option<Point<f64>>, Never> {
 mod tests {
     use super::*;
 
-    fn request_round(request: &Request) -> Option<Request> {
+    fn request_round(request: &Request) -> Result<Option<Request>, Never> {
         let Ok(spelled) = encoded_request(request);
-        let Ok(read) = decoded_request(&spelled);
 
-        read
+        decoded_request(&spelled)
     }
 
-    fn event_round(event: &Event) -> Option<Event> {
+    fn event_round(event: &Event) -> Result<Option<Event>, Never> {
         let Ok(spelled) = encoded_event(event);
-        let Ok(read) = decoded_event(&spelled);
 
-        read
+        decoded_event(&spelled)
     }
 
     #[test]
@@ -186,7 +184,7 @@ mod tests {
             Request::Reload,
             Request::Stop,
         ] {
-            assert_eq!(request_round(&request), Some(request));
+            assert_eq!(request_round(&request), Ok(Some(request)));
         }
     }
 
@@ -200,7 +198,7 @@ mod tests {
             Event::Finished,
             Event::Frame(Size { width: 1920, height: 1200 }),
         ] {
-            assert_eq!(event_round(&event), Some(event));
+            assert_eq!(event_round(&event), Ok(Some(event)));
         }
     }
 
@@ -208,14 +206,14 @@ mod tests {
     fn a_newline_in_an_address_goes_the_way_a_url_parser_sends_it() {
         let open = Request::Open("https://exam\nple.org/\t".to_string());
 
-        assert_eq!(request_round(&open), Some(Request::Open("https://example.org/".to_string())));
+        assert_eq!(request_round(&open), Ok(Some(Request::Open("https://example.org/".to_string()))));
     }
 
     #[test]
     fn a_title_is_collapsed_the_way_a_document_collapses_it() {
         let title = Event::Title("  Two\nlines\t here ".to_string());
 
-        assert_eq!(event_round(&title), Some(Event::Title("Two lines here".to_string())));
+        assert_eq!(event_round(&title), Ok(Some(Event::Title("Two lines here".to_string()))));
     }
 
     #[test]

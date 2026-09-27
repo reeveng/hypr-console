@@ -204,7 +204,7 @@ impl std::error::Error for Unwritten {}
 pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     let Ok(staged) = beside(at);
 
-    match settled(&staged, bytes).and_then(|()| kept(at, &staged)) {
+    match write_and_sync(&staged, bytes).and_then(|()| copy_ownership(at, &staged)) {
         Ok(()) => {}
         Err(fault) => {
             let _ = std::fs::remove_file(&staged);
@@ -220,7 +220,7 @@ pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
         }
     }
 
-    named(at)
+    sync_parent_directory(at)
 }
 
 pub fn whole_with_folders(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
@@ -239,7 +239,7 @@ pub fn whole_with_folders(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
         reason = "this is the crate that knows how, and this is the half of it for a file read back at once: made, filled and committed in place, with the head above saying when that is the one to reach for"
     )
 )]
-pub fn settled(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
+pub fn write_and_sync(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     let mut file = File::create(at).map_err(|fault| Unwritten::Making(at.to_path_buf(), fault))?;
 
     file.write_all(bytes)
@@ -249,7 +249,7 @@ pub fn settled(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
         .map_err(|fault| Unwritten::Settling(at.to_path_buf(), fault))
 }
 
-fn kept(live: &Path, staged: &Path) -> Result<(), Unwritten> {
+fn copy_ownership(live: &Path, staged: &Path) -> Result<(), Unwritten> {
     let was = match std::fs::metadata(live) {
         Ok(was) => was,
         Err(_nothing_there_to_keep) => return Ok(()),
@@ -267,7 +267,7 @@ fn kept(live: &Path, staged: &Path) -> Result<(), Unwritten> {
     }
 }
 
-pub fn named(at: &Path) -> Result<(), Unwritten> {
+pub fn sync_parent_directory(at: &Path) -> Result<(), Unwritten> {
     let holding = match at.parent() {
         Some(holding) => holding,
         None => return Ok(()),
@@ -304,55 +304,86 @@ pub fn gone(at: &Path) -> Result<(), Ungone> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn somewhere(named: &str) -> PathBuf {
-        console_core_temporary_directories::fresh(&format!("writing-{named}")).expect("somewhere to work")
+    fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
+        let here = console_core_temporary_directories::fresh(&format!("writing-{named}"))?;
+
+        Ok(here)
     }
 
     #[test]
-    fn a_file_that_was_never_there_is_already_gone() {
-        let at = somewhere("gone").join("never");
-        gone(&at).expect("nothing to take away");
-        whole(&at, b"here").expect("written");
-        gone(&at).expect("taken away");
+    fn a_file_that_was_never_there_is_already_gone() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("gone")?;
+        let at = here.join("never");
+
+        gone(&at)?;
+        whole(&at, b"here")?;
+        gone(&at)?;
+
         assert!(!at.exists(), "the file is still there");
+
+        Ok(())
     }
 
     #[test]
-    fn the_folders_a_file_goes_in_are_made_for_it() {
-        let at = somewhere("folders").join("one/two/thing");
-        whole_with_folders(&at, b"deep").expect("written");
-        assert_eq!(std::fs::read(&at).expect("it"), b"deep");
+    fn the_folders_a_file_goes_in_are_made_for_it() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("folders")?;
+        let at = here.join("one/two/thing");
+
+        whole_with_folders(&at, b"deep")?;
+
+        let written = std::fs::read(&at)?;
+
+        assert_eq!(written, b"deep");
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_that_is_not_there_reads_as_nothing_and_one_that_cannot_be_read_says_so() {
-        let here = somewhere("unread");
+    fn a_file_that_is_not_there_reads_as_nothing_and_one_that_cannot_be_read_says_so() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("unread")?;
+
         assert_eq!(text_or_empty(&here.join("never")), Ok(String::new()));
-        assert!(text_or_empty(&here).is_err(), "a folder read as a file");
+        assert!(matches!(text_or_empty(&here), Err(Unread(..))), "a folder read as a file");
+
+        Ok(())
     }
 
     #[test]
-    fn a_number_kept_in_a_file_is_read_back_and_anything_else_is_none() {
-        let here = somewhere("number");
-        whole(&here.join("kept"), b"42\n").expect("written");
-        whole(&here.join("words"), b"forty-two").expect("written");
+    fn a_number_kept_in_a_file_is_read_back_and_anything_else_is_none() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("number")?;
+
+        whole(&here.join("kept"), b"42\n")?;
+        whole(&here.join("words"), b"forty-two")?;
+
         assert_eq!(number::<u32>(&here.join("kept")), Ok(Some(42)));
         assert_eq!(number::<u32>(&here.join("words")), Ok(None));
         assert_eq!(number::<u32>(&here.join("never")), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_folder_is_not_a_file_to_take_away() {
-        let at = somewhere("folder");
-        assert!(gone(&at).is_err(), "a folder was answered as gone");
+    fn a_folder_is_not_a_file_to_take_away() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("folder")?;
+
+        assert!(matches!(gone(&at), Err(Ungone(..))), "a folder was answered as gone");
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_is_written_and_is_what_was_written() {
-        let at = somewhere("plain").join("thing");
-        whole(&at, b"what it says").expect("written");
-        assert_eq!(std::fs::read(&at).expect("it"), b"what it says");
+    fn a_file_is_written_and_is_what_was_written() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("plain")?;
+        let at = here.join("thing");
+
+        whole(&at, b"what it says")?;
+
+        let written = std::fs::read(&at)?;
+
+        assert_eq!(written, b"what it says");
+        Ok(())
     }
 
     #[test]
@@ -364,98 +395,131 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_left_beside_the_file_afterwards() {
-        let at = somewhere("tidy").join("thing");
-        whole(&at, b"one").expect("written");
+    fn nothing_is_left_beside_the_file_afterwards() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("tidy")?;
+        let at = here.join("thing");
+
+        whole(&at, b"one")?;
 
         let Ok(beside) = beside(&at);
 
         assert!(!beside.exists(), "the staging copy outlived the write");
+        Ok(())
     }
 
     #[test]
-    fn writing_over_a_file_replaces_all_of_it() {
-        let at = somewhere("over").join("thing");
-        whole(&at, b"a long first version").expect("written");
-        whole(&at, b"short").expect("written again");
-        assert_eq!(std::fs::read(&at).expect("it"), b"short");
-    }
-
-    #[test]
-    fn a_write_that_fails_leaves_the_old_file_and_no_litter() {
-        let here = somewhere("cannot");
+    fn writing_over_a_file_replaces_all_of_it() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("over")?;
         let at = here.join("thing");
-        whole(&at, b"the one that was there").expect("written");
+
+        whole(&at, b"a long first version")?;
+        whole(&at, b"short")?;
+
+        let written = std::fs::read(&at)?;
+
+        assert_eq!(written, b"short");
+        Ok(())
+    }
+
+    #[test]
+    fn a_write_that_fails_leaves_the_old_file_and_no_litter() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("cannot")?;
+        let at = here.join("thing");
+
+        whole(&at, b"the one that was there")?;
 
         let Ok(beside) = beside(&at);
 
-        std::fs::create_dir(beside).expect("something in the way");
+        std::fs::create_dir(beside)?;
 
-        assert!(whole(&at, b"the new one").is_err(), "it wrote through an obstacle");
-        assert_eq!(std::fs::read(&at).expect("it"), b"the one that was there");
+        let through = match whole(&at, b"the new one") {
+            Ok(()) => "it wrote through an obstacle",
+            Err(_unwritten) => "it stopped at the obstacle",
+        };
+
+        assert_eq!(through, "it stopped at the obstacle");
+        let written = std::fs::read(&at)?;
+
+        assert_eq!(written, b"the one that was there");
+        Ok(())
     }
 
     #[test]
-    fn a_file_keeps_its_mode_when_it_is_written_over() {
+    fn a_file_keeps_its_mode_when_it_is_written_over() -> Result<(), Box<dyn Error>> {
         use std::os::unix::fs::PermissionsExt;
 
-        let at = somewhere("mode").join("thing");
-        whole(&at, b"private").expect("written");
-        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o600)).expect("made private");
+        let here = somewhere("mode")?;
+        let at = here.join("thing");
 
-        whole(&at, b"still private").expect("written again");
+        whole(&at, b"private")?;
+        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o600))?;
+        whole(&at, b"still private")?;
 
-        let mode = std::fs::metadata(&at).expect("it").permissions().mode() & 0o777;
+        let metadata = std::fs::metadata(&at)?;
+        let mode = metadata.permissions().mode() & 0o777;
+
         assert_eq!(mode, 0o600, "writing a file over itself changed who may read it");
+        Ok(())
     }
 
     #[test]
-    fn two_writers_at_once_each_leave_a_whole_file() {
-        let at = somewhere("two").join("thing");
-        let long = vec![b'a'; 1 << 20];
-        let short = vec![b'b'; 1 << 10];
+    fn two_writers_at_once_each_leave_a_whole_file() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("two")?;
+        let at = here.join("thing");
+        let long = vec![b'a'; 1_048_576];
+        let short = vec![b'b'; 1_024];
 
         std::thread::scope(|scope| {
             for _ in 0..50 {
                 let one = scope.spawn(|| whole(&at, &long));
                 let two = scope.spawn(|| whole(&at, &short));
-                one.join().expect("the first writer").expect("written");
-                two.join().expect("the second writer").expect("written");
+                let first = one.join().map_err(|_| "the first writer did not come back")?;
+                let second = two.join().map_err(|_| "the second writer did not come back")?;
 
-                let held = std::fs::read(&at).expect("it");
+                first?;
+                second?;
+
+                let held = std::fs::read(&at)?;
+
                 assert!(held == long || held == short, "a write came back torn, {} bytes", held.len());
             }
-        });
+
+            Ok(())
+        })
     }
 
     #[test]
-    fn nothing_there_and_will_not_be_read_are_two_different_answers() {
-        let here = somewhere("held");
-
+    fn nothing_there_and_will_not_be_read_are_two_different_answers() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("held")?;
         let Ok(never) = read(&here.join("never-written"));
 
         assert_eq!(never, Stored::Absent);
 
         let at = here.join("thing");
-        whole(&at, b"said").expect("written");
+
+        whole(&at, b"said")?;
 
         let Ok(held) = read(&at);
 
         assert_eq!(held, Stored::Text("said".to_string()));
 
         let Ok(directory) = read(&here);
+        let read_as = match directory {
+            Stored::Failed(_) => "a fault",
+            Stored::Text(_) => "text",
+            Stored::Absent => "nothing",
+        };
 
-        match directory {
-            Stored::Failed(_) => {}
-            other => panic!("a directory read as {other:?} rather than as a fault"),
-        }
+        assert_eq!(read_as, "a fault", "a directory read as something other than a fault");
+
+        Ok(())
     }
 
     #[test]
     fn folding_the_two_together_is_possible_and_has_to_be_said() {
-        let Ok(said) = Stored::Text("x".into()).text();
+        let Ok(said) = Stored::Text(String::from("x")).text();
         let Ok(nothing) = Stored::Absent.text();
-        let Ok(unreadable) = Stored::Failed("boom".into()).text();
+        let Ok(unreadable) = Stored::Failed(String::from("boom")).text();
 
         assert_eq!(said, Some("x".to_string()));
         assert_eq!(nothing, None);

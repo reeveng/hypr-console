@@ -14,6 +14,7 @@ name = "console-panels"
 path = "src/bin/console-panels.rs"
 
 [dependencies]
+console-core-iteration.workspace = true
 console-input-mapping.workspace = true
 console-calculator.workspace = true
 console-calendar.workspace = true
@@ -33,3 +34,7 @@ rustix.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-external-programs.workspace = true
+console-core-temporary-directories.workspace = true

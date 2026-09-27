@@ -73,7 +73,7 @@ pub fn read(at: &Path) -> Result<Option<Sensor>, Never> {
     })
 }
 
-pub fn found(under: &Path) -> Result<Option<Sensor>, Never> {
+pub fn find_sensor(under: &Path) -> Result<Option<Sensor>, Never> {
     let held = match std::fs::read_dir(under) {
         Err(_no_sensors_on_this_machine) => return Ok(None),
         Ok(held) => held,
@@ -96,5 +96,5 @@ pub fn found(under: &Path) -> Result<Option<Sensor>, Never> {
 }
 
 pub fn here() -> Result<Option<Sensor>, Never> {
-    found(Path::new(UNDER))
+    find_sensor(Path::new(UNDER))
 }

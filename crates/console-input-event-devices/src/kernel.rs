@@ -129,7 +129,7 @@ unsafe extern "C" {
     pub fn fcntl(file: c_int, command: c_int, ...) -> c_int;
 }
 
-pub fn checked(code: c_int) -> io::Result<c_int> {
+pub fn check(code: c_int) -> io::Result<c_int> {
     match code {
         -1 => Err(io::Error::last_os_error()),
         code => Ok(code),

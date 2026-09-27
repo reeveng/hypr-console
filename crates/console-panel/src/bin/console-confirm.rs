@@ -144,7 +144,7 @@ fn main() -> ExitCode {
         let asked = Arc::clone(&asked);
         let word = does.clone();
 
-        let Ok(rows) = Rows::asked(move || {
+        let Ok(rows) = Rows::computed(move || {
             let said = Arc::clone(&asked);
 
             let Ok(stores) = Handler::call(move |_| {

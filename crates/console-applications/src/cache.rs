@@ -41,7 +41,7 @@ fn field(said: &str) -> Result<String, Never> {
     Ok(said.replace(['\t', '\r', '\n'], " "))
 }
 
-pub fn written(
+pub fn serialize(
     applications: &BTreeMap<String, Application>,
     icon: &BTreeMap<String, String>,
 ) -> Result<String, Never> {
@@ -101,73 +101,96 @@ pub fn read(said: &str) -> Result<Vec<CachedApplication>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn one(name: &str, command: &str, terminal: bool) -> Application {
-        Application {
-            name: name.to_string(),
-            command: command.to_string(),
-            terminal,
+    fn app(named: Named<'_>) -> Result<Application, Never> {
+        Ok(Application {
+            name: named.name.to_string(),
+            command: named.command.to_string(),
+            terminal: false,
             icon: "whatever".to_string(),
-        }
+        })
     }
 
-    fn both() -> (BTreeMap<String, Application>, BTreeMap<String, String>) {
+    struct Named<'a> {
+        name: &'a str,
+        command: &'a str,
+    }
+
+    type Both = (BTreeMap<String, Application>, BTreeMap<String, String>);
+
+    fn both() -> Result<Both, Never> {
+        let Ok(wolf) = app(Named { name: "LibreWolf", command: "librewolf" });
+        let Ok(top) = app(Named { name: "Top", command: "htop" });
+        let Ok(plain) = app(Named { name: "Plain", command: "plain" });
+        let top = Application { terminal: true, ..top };
         let applications = BTreeMap::from([
-            ("LibreWolf".to_string(), one("LibreWolf", "librewolf", false)),
-            ("Top".to_string(), one("Top", "htop", true)),
-            ("Plain".to_string(), one("Plain", "plain", false)),
+            ("LibreWolf".to_string(), wolf),
+            ("Top".to_string(), top),
+            ("Plain".to_string(), plain),
         ]);
         let icon = BTreeMap::from([
             ("LibreWolf".to_string(), "/usr/share/icons/librewolf.svg".to_string()),
             ("Top".to_string(), "/usr/share/icons/htop.png".to_string()),
         ]);
-        (applications, icon)
+
+        Ok((applications, icon))
     }
 
     #[test]
-    fn what_was_written_is_what_is_read() {
-        let (applications, icon) = both();
-        let back = ok(read(&ok(written(&applications, &icon))));
+    fn what_was_written_is_what_is_read() -> Result<(), Box<dyn Error>> {
+        let Ok((applications, icon)) = both();
+        let Ok(said) = serialize(&applications, &icon);
+        let Ok(back) = read(&said);
+
         assert_eq!(back.len(), 3);
-        let wolf = back.iter().find(|kept| kept.application.name == "LibreWolf").expect("a row");
+
+        let wolf = back.iter().find(|kept| kept.application.name == "LibreWolf").ok_or("a row")?;
         assert_eq!(wolf.application.command, "librewolf");
         assert!(!wolf.application.terminal);
         assert_eq!(wolf.picture, "/usr/share/icons/librewolf.svg");
-        let top = back.iter().find(|kept| kept.application.name == "Top").expect("a row");
+
+        let top = back.iter().find(|kept| kept.application.name == "Top").ok_or("a row")?;
         assert!(top.application.terminal, "a program that wants a terminal round it");
+
+        Ok(())
     }
 
     #[test]
-    fn an_application_with_no_picture_is_still_an_application() {
-        let (applications, icon) = both();
-        let back = ok(read(&ok(written(&applications, &icon))));
-        let plain = back.iter().find(|kept| kept.application.name == "Plain").expect("a row");
+    fn an_application_with_no_picture_is_still_an_application() -> Result<(), Box<dyn Error>> {
+        let Ok((applications, icon)) = both();
+        let Ok(said) = serialize(&applications, &icon);
+        let Ok(back) = read(&said);
+        let plain = back.iter().find(|kept| kept.application.name == "Plain").ok_or("a row")?;
         assert_eq!(plain.picture, "");
+
+        Ok(())
     }
 
     #[test]
     fn a_line_that_is_not_an_application_is_not_a_row() {
-        assert!(ok(read("")).is_empty());
-        assert!(ok(read("LibreWolf")).is_empty(), "no fields");
-        assert!(ok(read("LibreWolf\tlibrewolf\t")).is_empty(), "three fields");
-        assert!(ok(read("\tlibrewolf\t\t")).is_empty(), "nothing to call it");
-        assert!(ok(read("LibreWolf\t\t\t")).is_empty(), "nothing to run");
-        assert_eq!(ok(read("A\tb\t\t\nrubbish\nC\td\t\t")).len(), 2, "the good lines stand");
+        for (said, why) in [
+            ("", "nothing"),
+            ("LibreWolf", "no fields"),
+            ("LibreWolf\tlibrewolf\t", "three fields"),
+            ("\tlibrewolf\t\t", "nothing to call it"),
+            ("LibreWolf\t\t\t", "nothing to run"),
+        ] {
+            assert_eq!(read(said).map(|rows| rows.len()), Ok(0), "{why}");
+        }
+
+        assert_eq!(read("A\tb\t\t\nrubbish\nC\td\t\t").map(|rows| rows.len()), Ok(2), "the good lines stand");
     }
 
     #[test]
     fn a_name_with_a_tab_in_it_is_still_one_field() {
-        let applications =
-            BTreeMap::from([("A\tB".to_string(), one("A\tB", "run\tit", false))]);
-        let back = ok(read(&ok(written(&applications, &BTreeMap::new()))));
+        let Ok(tabbed) = app(Named { name: "A\tB", command: "run\tit" });
+        let applications = BTreeMap::from([("A\tB".to_string(), tabbed)]);
+        let Ok(said) = serialize(&applications, &BTreeMap::new());
+        let Ok(back) = read(&said);
+
         assert_eq!(back.len(), 1);
-        assert_eq!(back[0].application.name, "A B");
-        assert_eq!(back[0].application.command, "run it");
+        assert_eq!(back.first().map(|kept| kept.application.name.as_str()), Some("A B"));
+        assert_eq!(back.first().map(|kept| kept.application.command.as_str()), Some("run it"));
     }
 }

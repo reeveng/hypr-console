@@ -68,18 +68,16 @@ impl Month {
         })
     }
 
-    pub fn stepped(self, by: i32) -> Result<Self, Never> {
+    pub fn add_months(self, by: i32) -> Result<Self, Never> {
         let mut at = self;
-        let mut left = by.saturating_abs();
 
-        while left > 0 {
+        for _month in 0..by.saturating_abs() {
             let Ok(stepped) = match by > 0 {
                 true => at.after(),
                 false => at.before(),
             };
 
             at = stepped;
-            left = left.saturating_sub(1);
         }
 
         Ok(at)
@@ -146,6 +144,7 @@ fn cells(line: &str) -> Result<Vec<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const OCTOBER: &str = r"    October 2026    
 Su Mo Tu We Th Fr Sa
@@ -157,10 +156,12 @@ Su Mo Tu We Th Fr Sa
                     
 ";
 
-    fn week(grid: &Grid, at: u32) -> Vec<String> {
-        match grid.weeks.get(console_core_number_conversion::index(at).unwrap()) {
-            Some(week) => week.clone(),
-            None => Vec::new(),
+    fn week(grid: &Grid, at: u32) -> Result<&[String], Box<dyn Error>> {
+        let Ok(at) = console_core_number_conversion::index(at);
+
+        match grid.weeks.get(at) {
+            Some(week) => Ok(week),
+            None => Err(Box::from(format!("the grid has no week {at}"))),
         }
     }
 
@@ -179,8 +180,8 @@ Su Mo Tu We Th Fr Sa
     fn a_year_of_steps_either_way_comes_back_to_the_month_it_started_in() {
         let from = Month { year: 2026, month: 9 };
 
-        let Ok(on) = from.stepped(12);
-        let Ok(back) = on.stepped(-12);
+        let Ok(on) = from.add_months(12);
+        let Ok(back) = on.add_months(-12);
 
         assert_eq!(on, Month { year: 2027, month: 9 });
         assert_eq!(back, from);
@@ -190,30 +191,42 @@ Su Mo Tu We Th Fr Sa
     fn standing_still_is_not_a_step() {
         let from = Month { year: 2026, month: 9 };
 
-        let Ok(nowhere) = from.stepped(0);
+        let Ok(nowhere) = from.add_months(0);
 
         assert_eq!(nowhere, from);
     }
 
     #[test]
-    fn a_week_that_starts_mid_week_keeps_the_days_under_their_own_names() {
+    fn a_week_that_starts_mid_week_keeps_the_days_under_their_own_names() -> Result<(), Box<dyn Error>> {
         let Ok(grid) = read(OCTOBER);
 
         assert_eq!(grid.said, "October 2026");
         assert_eq!(grid.weekdays, ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]);
-        assert_eq!(week(&grid, 0), ["", "", "", "", "1", "2", "3"]);
+
+        let days = week(&grid, 0)?;
+
+        assert_eq!(days, ["", "", "", "", "1", "2", "3"]);
 
         for said in &grid.weeks {
-            assert_eq!(u32::try_from(said.len()).unwrap(), WEEK, "a week is seven columns wide whatever is in it");
+            let wide = u32::try_from(said.len())?;
+
+            assert_eq!(wide, WEEK, "a week is seven columns wide whatever is in it");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_month_is_read_without_the_blank_line_under_it() {
+    fn a_month_is_read_without_the_blank_line_under_it() -> Result<(), Box<dyn Error>> {
         let Ok(grid) = read(OCTOBER);
 
         assert_eq!(grid.weeks.len(), 5);
-        assert_eq!(week(&grid, 4), ["25", "26", "27", "28", "29", "30", "31"]);
+
+        let days = week(&grid, 4)?;
+
+        assert_eq!(days, ["25", "26", "27", "28", "29", "30", "31"]);
+
+        Ok(())
     }
 
     #[test]
@@ -227,7 +240,6 @@ Su Mo Tu We Th Fr Sa
     fn the_month_a_day_is_in_is_the_only_one_that_holds_it() {
         let day = Day { year: 2026, month: 10, day: 9 };
         let Ok(at) = day.month();
-
         let Ok(holds) = at.holds(day);
         let Ok(next) = at.after();
         let Ok(elsewhere) = next.holds(day);

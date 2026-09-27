@@ -142,20 +142,20 @@ mod tests {
 
     use super::*;
 
-    fn answered(ran: Command, said: &str, went: ExitStatus) -> Event<console_core_never::Never> {
-        Event::Replied(Answer { command: ran, output: said.to_string(), status: went })
+    fn reply(ran: Command, said: &str, went: ExitStatus) -> Result<Event<Never>, Never> {
+        Ok(Event::Replied(Answer { command: ran, output: said.to_string(), status: went }))
     }
 
-    fn status(said: &str) -> Event<console_core_never::Never> {
+    fn status(said: &str) -> Result<Event<Never>, Never> {
         let Ok(runs) = Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
 
-        answered(runs, said, ExitStatus::Success)
+        reply(runs, said, ExitStatus::Success)
     }
 
-    fn well(said: &str) -> Event<console_core_never::Never> {
+    fn well(said: &str) -> Result<Event<Never>, Never> {
         let Ok(runs) = Command::external(ExternalProgram::Git, &["log"]);
 
-        answered(runs, said, ExitStatus::Success)
+        reply(runs, said, ExitStatus::Success)
     }
 
     #[test]
@@ -172,10 +172,9 @@ mod tests {
     #[test]
     fn a_tree_with_uncommitted_work_in_it_is_refused_before_anything_is_fetched() {
         let Ok(arguments) = Arguments::of(&["root@handheld"]);
-        let Ok(said) = run::<Pull>(
-            &arguments,
-            &[Event::Opened, status(" M crates/console-panel/src/panel.rs\n")],
-        );
+        let Ok(dirty) = status(" M crates/console-panel/src/panel.rs\n");
+        let Ok(said) = run::<Pull>(&arguments, &[Event::Opened, dirty]);
+
         let Ok(effects) = said.effects();
 
         assert_eq!(
@@ -189,16 +188,11 @@ mod tests {
     #[test]
     fn a_clean_tree_fetches_from_the_device_and_rebases_onto_what_came() {
         let Ok(arguments) = Arguments::of(&["root@handheld"]);
-        let Ok(said) = run::<Pull>(
-            &arguments,
-            &[
-                Event::Opened,
-                status(""),
-                well(""),
-                well(""),
-                well("cfeddd3 panels: a clause, and a second clause\n"),
-            ],
-        );
+        let Ok(clean) = status("");
+        let Ok(fetched) = well("");
+        let Ok(rebased) = well("");
+        let Ok(logged) = well("cfeddd3 panels: a clause, and a second clause\n");
+        let Ok(said) = run::<Pull>(&arguments, &[Event::Opened, clean, fetched, rebased, logged]);
 
         let Ok(fetching) = fetching("root@handheld");
         let Ok(rebasing) = Command::external(ExternalProgram::Git, &["rebase", "FETCH_HEAD"]);
@@ -221,15 +215,11 @@ mod tests {
     fn a_rebase_that_would_not_go_on_top_stops_rather_than_carrying_on() {
         let Ok(arguments) = Arguments::of(&["root@handheld"]);
         let Ok(rebase) = Command::external(ExternalProgram::Git, &["rebase"]);
-        let Ok(said) = run::<Pull>(
-            &arguments,
-            &[
-                Event::Opened,
-                status(""),
-                well(""),
-                answered(rebase, "", ExitStatus::Failure(Some(1))),
-            ],
-        );
+        let Ok(clean) = status("");
+        let Ok(fetched) = well("");
+        let Ok(refused) = reply(rebase, "", ExitStatus::Failure(Some(1)));
+        let Ok(said) = run::<Pull>(&arguments, &[Event::Opened, clean, fetched, refused]);
+
         let Ok(effects) = said.effects();
 
         assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Failure(_)))));

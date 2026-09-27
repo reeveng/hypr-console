@@ -13,14 +13,18 @@
 //! left under `src/` afterwards is a file nobody compiles.
 
 use std::collections::BTreeSet;
+use std::error::Error;
 use std::path::{Path, PathBuf};
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
+use console_core_atomic_writes::whole;
+use console_core_iteration::Step;
+use console_core_never::Never;
+
+fn root() -> Result<PathBuf, std::io::Error> {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
 }
 
-fn roots(at: &Path) -> Vec<PathBuf> {
+fn roots(at: &Path) -> Result<Vec<PathBuf>, Never> {
     let mut found = vec![at.join("src/lib.rs"), at.join("src/main.rs")];
 
     let bins = match std::fs::read_dir(at.join("src/bin")) {
@@ -47,32 +51,41 @@ fn roots(at: &Path) -> Vec<PathBuf> {
         }
     }
 
-    found.into_iter().filter(|at| at.is_file()).collect()
+    Ok(found.into_iter().filter(|at| at.is_file()).collect())
 }
 
-fn declared(line: &str) -> Option<&str> {
+fn declared(line: &str) -> Result<Option<&str>, Never> {
     let line = line.trim();
     let line = match line.strip_prefix("pub") {
         Some(rest) => match rest.trim_start().strip_prefix('(') {
-            Some(scoped) => scoped.split_once(')').map(|(_, rest)| rest).unwrap_or(rest),
+            Some(scoped) => match scoped.split_once(')') {
+                Some((_scope, after)) => after,
+                None => rest,
+            },
             None => rest,
         },
         None => line,
     };
 
-    line.trim_start()
+    let named = line
+        .trim_start()
         .strip_prefix("mod ")
         .and_then(|rest| rest.trim().strip_suffix(';'))
-        .map(|named| named.trim().trim_start_matches("r#"))
+        .map(|named| named.trim().trim_start_matches("r#"));
+
+    Ok(named)
 }
 
-fn moved(line: &str) -> Option<&str> {
-    line.trim()
+fn moved(line: &str) -> Result<Option<&str>, Never> {
+    let path = line
+        .trim()
         .strip_prefix("#[path")
-        .and_then(|rest| rest.split('"').nth(1))
+        .and_then(|rest| rest.split('"').nth(1));
+
+    Ok(path)
 }
 
-fn beneath(file: &Path, roots: &[PathBuf]) -> PathBuf {
+fn beneath(file: &Path, roots: &[PathBuf]) -> Result<PathBuf, Never> {
     let holding = match file.parent() {
         Some(holding) => holding.to_path_buf(),
         None => PathBuf::new(),
@@ -80,27 +93,32 @@ fn beneath(file: &Path, roots: &[PathBuf]) -> PathBuf {
     let stem = file.file_stem().and_then(|it| it.to_str());
     let owns_its_folder = roots.iter().any(|root| root == file) || stem == Some("mod");
 
-    match (owns_its_folder, stem) {
+    let under = match (owns_its_folder, stem) {
         (true, _) | (false, None) => holding,
         (false, Some(stem)) => holding.join(stem),
-    }
+    };
+
+    Ok(under)
 }
 
-fn children(file: &Path, roots: &[PathBuf]) -> Vec<PathBuf> {
+fn children(file: &Path, roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
     let said = match std::fs::read_to_string(file) {
         Ok(said) => said,
-        Err(_unread) => return Vec::new(),
+        Err(_unread) => return Ok(Vec::new()),
     };
     let holding = match file.parent() {
         Some(holding) => holding.to_path_buf(),
         None => PathBuf::new(),
     };
-    let under = beneath(file, roots);
+    let Ok(under) = beneath(file, roots);
     let mut found = Vec::new();
     let mut elsewhere: Option<String> = None;
 
     for line in said.lines() {
-        match (moved(line), declared(line)) {
+        let Ok(path) = moved(line);
+        let Ok(named) = declared(line);
+
+        match (path, named) {
             (Some(path), _) => elsewhere = Some(path.to_string()),
             (None, Some(named)) => {
                 match elsewhere.take() {
@@ -118,36 +136,50 @@ fn children(file: &Path, roots: &[PathBuf]) -> Vec<PathBuf> {
         }
     }
 
-    found.into_iter().filter(|at| at.is_file()).collect()
+    Ok(found.into_iter().filter(|at| at.is_file()).collect())
 }
 
-fn compiled(at: &Path) -> BTreeSet<PathBuf> {
-    let roots = roots(at);
-    let mut seen = BTreeSet::new();
-    let mut walking = roots.clone();
+fn compiled(at: &Path) -> Result<BTreeSet<PathBuf>, Never> {
+    let Ok(roots) = roots(at);
+    let seen = console_core_iteration::iterate((BTreeSet::new(), roots.clone()), |(mut seen, mut walking)| {
+        let file = match walking.pop() {
+            Some(file) => file,
+            None => return Ok(Step::Halt(seen)),
+        };
 
-    while let Some(file) = walking.pop() {
         match seen.insert(file.clone()) {
-            true => walking.extend(children(&file, &roots)),
+            true => {
+                let Ok(found) = children(&file, &roots);
+
+                walking.extend(found);
+            }
             false => {}
         }
-    }
 
-    seen
+        Ok(Step::Again((seen, walking)))
+    });
+
+    Ok(match seen {
+        Ok(seen) => seen,
+        Err(_endless) => BTreeSet::new(),
+    })
 }
 
 #[test]
-fn every_source_file_is_one_a_module_names() {
-    let crates = std::fs::read_dir(root().join("crates")).expect("crates/");
+fn every_source_file_is_one_a_module_names() -> Result<(), Box<dyn Error>> {
+    let root = root()?;
+    let crates = std::fs::read_dir(root.join("crates"))?;
     let mut unnamed: Vec<String> = Vec::new();
 
     for at in crates.flatten().map(|entry| entry.path()) {
-        let reached = compiled(&at);
+        let Ok(reached) = compiled(&at);
+        let Ok(found) = console_repository::sources::under(&at.join("src"));
 
-        for file in console_repository::sources::under(&at.join("src")).into_iter().flatten() {
-            match reached.contains(&file) {
-                true => {}
-                false => unnamed.push(file.strip_prefix(root()).unwrap_or(&file).display().to_string()),
+        for file in found {
+            match (reached.contains(&file), file.strip_prefix(&root)) {
+                (true, _) => {}
+                (false, Ok(inside)) => unnamed.push(inside.display().to_string()),
+                (false, Err(_outside)) => unnamed.push(file.display().to_string()),
             }
         }
     }
@@ -158,29 +190,32 @@ fn every_source_file_is_one_a_module_names() {
         unnamed.is_empty(),
         "a file no module names is never compiled, so nothing has ever checked it: {unnamed:#?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_walk_finds_a_file_nothing_names() {
-    let here = std::env::temp_dir().join(format!("console-every-file-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&here);
-    std::fs::create_dir_all(here.join("src")).expect("somewhere to work");
-    std::fs::write(here.join("src/lib.rs"), "pub mod named;\n#[path = \"moved/away.rs\"]\nmod away;\n").expect("lib");
-    std::fs::write(here.join("src/named.rs"), "mod nested;\n").expect("named");
-    std::fs::create_dir_all(here.join("src/named")).expect("named/");
-    std::fs::write(here.join("src/named/nested.rs"), "").expect("nested");
-    std::fs::create_dir_all(here.join("src/moved")).expect("moved/");
-    std::fs::write(here.join("src/moved/away.rs"), "").expect("away");
-    std::fs::write(here.join("src/forgotten.rs"), "").expect("forgotten");
+fn the_walk_finds_a_file_nothing_names() -> Result<(), Box<dyn Error>> {
+    let here = console_core_temporary_directories::fresh("every-file")?;
+    std::fs::create_dir_all(here.join("src"))?;
+    whole(&here.join("src/lib.rs"), b"pub mod named;\n#[path = \"moved/away.rs\"]\nmod away;\n")?;
+    whole(&here.join("src/named.rs"), b"mod nested;\n")?;
+    std::fs::create_dir_all(here.join("src/named"))?;
+    whole(&here.join("src/named/nested.rs"), b"")?;
+    std::fs::create_dir_all(here.join("src/moved"))?;
+    whole(&here.join("src/moved/away.rs"), b"")?;
+    whole(&here.join("src/forgotten.rs"), b"")?;
 
-    let reached = compiled(&here);
-    let missing: Vec<PathBuf> = console_repository::sources::under(&here.join("src"))
+    let Ok(reached) = compiled(&here);
+    let Ok(found) = console_repository::sources::under(&here.join("src"));
+    let missing: Vec<PathBuf> = found
         .into_iter()
-        .flatten()
         .filter(|file| !reached.contains(file))
         .collect();
 
     assert_eq!(missing, vec![here.join("src/forgotten.rs")]);
 
     let _ = std::fs::remove_dir_all(&here);
+
+    Ok(())
 }

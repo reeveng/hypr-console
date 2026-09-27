@@ -13,5 +13,8 @@ path = "src/lib.rs"
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 
+[dev-dependencies]
+console-core-atomic-writes.workspace = true
+
 [lints]
 workspace = true

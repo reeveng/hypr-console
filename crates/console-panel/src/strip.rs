@@ -62,7 +62,7 @@ pub fn fits(room: i32, cell: Cell) -> Result<u32, Never> {
     })
 }
 
-pub fn showing(tabs: Tabs) -> Result<Range<u32>, Never> {
+pub fn visible_range(tabs: Tabs) -> Result<Range<u32>, Never> {
     match tabs.fits >= tabs.many {
         true => return Ok(0..tabs.many),
         false => {},
@@ -111,13 +111,13 @@ mod tests {
 
     #[test]
     fn a_strip_with_room_for_all_of_them_starts_at_the_first() {
-        assert_eq!(showing(Tabs { many: 5, here: 3, from: 0, fits: 5 }), Ok(0..5));
-        assert_eq!(showing(Tabs { many: 5, here: 3, from: 2, fits: 9 }), Ok(0..5));
+        assert_eq!(visible_range(Tabs { many: 5, here: 3, from: 0, fits: 5 }), Ok(0..5));
+        assert_eq!(visible_range(Tabs { many: 5, here: 3, from: 2, fits: 9 }), Ok(0..5));
     }
 
     #[test]
     fn the_run_moves_as_little_as_it_can() {
-        let run = |here, from| showing(Tabs { many: 5, here, from, fits: 3 });
+        let run = |here, from| visible_range(Tabs { many: 5, here, from, fits: 3 });
 
         assert_eq!(run(0, 0), Ok(0..3), "standing on the first");
         assert_eq!(run(2, 0), Ok(0..3), "the third is already showing");
@@ -127,8 +127,8 @@ mod tests {
 
     #[test]
     fn the_run_never_hangs_off_either_end() {
-        assert_eq!(showing(Tabs { many: 5, here: 4, from: 0, fits: 3 }), Ok(2..5));
-        assert_eq!(showing(Tabs { many: 5, here: 4, from: 9, fits: 3 }), Ok(2..5));
+        assert_eq!(visible_range(Tabs { many: 5, here: 4, from: 0, fits: 3 }), Ok(2..5));
+        assert_eq!(visible_range(Tabs { many: 5, here: 4, from: 9, fits: 3 }), Ok(2..5));
     }
 
     #[test]
@@ -141,7 +141,11 @@ mod tests {
     fn the_room_is_the_card_less_everything_that_is_not_a_tab() {
         assert_eq!(
             room(Card { width: 900, spent: 120 }),
-            Ok(900 - 2 * EDGE - 2 * MARGIN - 2 * PAD - 120)
+            Ok(900_i32
+                .saturating_sub(EDGE.saturating_mul(2))
+                .saturating_sub(MARGIN.saturating_mul(2))
+                .saturating_sub(PAD.saturating_mul(2))
+                .saturating_sub(120))
         );
     }
 

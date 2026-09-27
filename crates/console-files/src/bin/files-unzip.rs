@@ -91,7 +91,7 @@ fn unpacked(
     match std::fs::create_dir_all(unpacking) {
         Ok(()) => {},
         Err(fault) => {
-            let Ok(()) = told(named, Why(&format!("{}: {fault}", unpacking.display())));
+            let Ok(()) = notify_failure(named, Why(&format!("{}: {fault}", unpacking.display())));
 
             return Ok(ExitCode::FAILURE);
         }
@@ -103,7 +103,7 @@ fn unpacked(
         Ran::Badly(why) => {
             let _ = std::fs::remove_dir_all(unpacking);
 
-            let Ok(()) = told(named, Why(&why));
+            let Ok(()) = notify_failure(named, Why(&why));
 
             return Ok(ExitCode::FAILURE);
         }
@@ -122,7 +122,7 @@ fn unpacked(
     match std::fs::rename(&out_of, into) {
         Ok(()) => {},
         Err(fault) => {
-            let Ok(()) = told(named, Why(&format!("{}: {fault}", into.display())));
+            let Ok(()) = notify_failure(named, Why(&format!("{}: {fault}", into.display())));
 
             return Ok(ExitCode::FAILURE);
         }
@@ -188,6 +188,6 @@ fn inside(unpacking: &Path) -> Result<Vec<(String, Is)>, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Why<'a>(&'a str);
 
-fn told(named: &str, why: Why<'_>) -> Result<(), Never> {
+fn notify_failure(named: &str, why: Why<'_>) -> Result<(), Never> {
     say(KIND, Notification { summary: &format!("Couldn't unzip {named}"), body: why.0 })
 }

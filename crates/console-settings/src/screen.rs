@@ -55,7 +55,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub fn named(said: &str) -> Result<Self, Never> {
+    pub fn parse(said: &str) -> Result<Self, Never> {
         Ok(match said.trim() {
             "raw" => Kind::Raw,
             "platform" => Kind::Platform,
@@ -81,7 +81,7 @@ pub enum Way {
 }
 
 impl Way {
-    pub fn named(word: &str) -> Result<Option<Self>, Never> {
+    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
         match word {
             "up" => Ok(Some(Way::Up)),
             "down" => Ok(Some(Way::Down)),
@@ -130,7 +130,7 @@ impl Panel {
         Ok(self.at.join("brightness"))
     }
 
-    pub fn stepped(&self, now: i64, way: Way) -> Result<i64, Never> {
+    pub fn step_from(&self, now: i64, way: Way) -> Result<i64, Never> {
         let Ok(step) = self.step();
         let Ok(ceiling) = self.ceiling();
         let Ok(floor) = self.floor();
@@ -228,10 +228,10 @@ pub fn kind_of(at: &Path) -> Result<Kind, Never> {
         Err(_it_will_not_say) => return Ok(Kind::Unsaid),
     };
 
-    Kind::named(&said)
+    Kind::parse(&said)
 }
 
-pub fn found(under: &Path) -> Result<Option<Panel>, Never> {
+pub fn find_panel(under: &Path) -> Result<Option<Panel>, Never> {
     let held = match std::fs::read_dir(under) {
         Ok(held) => held,
         Err(_no_backlight_on_this_machine) => return Ok(None),
@@ -259,15 +259,15 @@ pub fn found(under: &Path) -> Result<Option<Panel>, Never> {
 }
 
 pub fn here() -> Result<Option<Panel>, Never> {
-    found(Path::new(UNDER))
+    find_panel(Path::new(UNDER))
 }
 
-pub fn said(points: i64) -> Result<String, Never> {
+pub fn brightness_label(points: i64) -> Result<String, Never> {
     Ok(format!("Brightness {points}%"))
 }
 
 pub fn remembered() -> Result<Option<PathBuf>, Never> {
-    let run = console_core_places::runtime_ours()?;
+    let run = console_core_places::application_runtime()?;
 
     Ok(run.map(|run| run.join("dim")))
 }
@@ -276,79 +276,66 @@ pub fn remembered() -> Result<Option<PathBuf>, Never> {
 mod tests {
     use super::*;
 
-    fn panel(top: i64) -> Panel {
-        let Ok(panel) = Panel::of(PathBuf::from("/sys/class/backlight/someones"), Top(top));
-
-        panel
+    fn panel(top: i64) -> Result<Panel, Never> {
+        Panel::of(PathBuf::from("/sys/class/backlight/someones"), Top(top))
     }
 
-    fn this_device() -> Panel {
+    fn this_device() -> Result<Panel, Never> {
         panel(65535)
-    }
-
-    fn ceiling(panel: &Panel) -> i64 {
-        let Ok(ceiling) = panel.ceiling();
-
-        ceiling
-    }
-
-    fn floor(panel: &Panel) -> i64 {
-        let Ok(floor) = panel.floor();
-
-        floor
     }
 
     #[test]
     fn the_numbers_on_this_device_are_where_they_always_were() {
-        let panel = this_device();
+        let Ok(panel) = this_device();
 
-        assert_eq!(ceiling(&panel), 64027, "64000 was the number written out by hand");
-        assert_eq!(floor(&panel), 3211, "3200");
+        assert_eq!(panel.ceiling(), Ok(64027), "64000 was the number written out by hand");
+        assert_eq!(panel.floor(), Ok(3211), "3200");
         assert_eq!(panel.step(), Ok(6029), "6000");
     }
 
     #[test]
     fn a_panel_that_counts_to_255_is_a_panel_this_can_dim() {
-        let panel = panel(255);
+        let Ok(panel) = panel(255);
 
-        assert_eq!(ceiling(&panel), 249);
-        assert_eq!(floor(&panel), 12);
+        assert_eq!(panel.ceiling(), Ok(249));
+        assert_eq!(panel.floor(), Ok(12));
         assert_eq!(panel.step(), Ok(23));
-        assert_eq!(panel.stepped(249, Way::Down), Ok(226), "a step off full is a step");
+        assert_eq!(panel.step_from(249, Way::Down), Ok(226), "a step off full is a step");
         assert_eq!(panel.as_points(130), Ok(49), "half way up, in points of a hundred");
     }
 
     #[test]
     fn a_press_moves_it_one_step() {
-        let panel = this_device();
+        let Ok(panel) = this_device();
 
-        assert_eq!(panel.stepped(20000, Way::Up), Ok(26029));
-        assert_eq!(panel.stepped(20000, Way::Down), Ok(13971));
+        assert_eq!(panel.step_from(20000, Way::Up), Ok(26029));
+        assert_eq!(panel.step_from(20000, Way::Down), Ok(13971));
     }
 
     #[test]
     fn it_never_goes_past_the_brightest_that_still_lights() {
-        let panel = this_device();
-        let top = ceiling(&panel);
+        let Ok(panel) = this_device();
+        let Ok(top) = panel.ceiling();
 
-        assert_eq!(panel.stepped(top, Way::Up), Ok(top));
-        assert_eq!(panel.stepped(top.saturating_sub(1), Way::Up), Ok(top));
+        assert_eq!(panel.step_from(top, Way::Up), Ok(top));
+        assert_eq!(panel.step_from(top.saturating_sub(1), Way::Up), Ok(top));
         assert!(top < panel.top, "full is what turns the light off on this panel");
     }
 
     #[test]
     fn it_never_goes_down_to_a_screen_no_one_can_read() {
-        let panel = this_device();
-        let bottom = floor(&panel);
+        let Ok(panel) = this_device();
+        let Ok(bottom) = panel.floor();
 
-        assert_eq!(panel.stepped(bottom, Way::Down), Ok(bottom));
-        assert_eq!(panel.stepped(bottom.saturating_add(1), Way::Down), Ok(bottom));
+        assert_eq!(panel.step_from(bottom, Way::Down), Ok(bottom));
+        assert_eq!(panel.step_from(bottom.saturating_add(1), Way::Down), Ok(bottom));
     }
 
     #[test]
     fn the_bar_is_full_at_the_brightest_this_screen_goes() {
-        let panel = this_device();
-        let (top, bottom) = (ceiling(&panel), floor(&panel));
+        let Ok(panel) = this_device();
+        let Ok(top) = panel.ceiling();
+        let Ok(bottom) = panel.floor();
 
         assert_eq!(panel.as_points(top), Ok(100));
         assert_eq!(panel.as_points(bottom), Ok(0));
@@ -357,7 +344,7 @@ mod tests {
 
     #[test]
     fn a_reading_from_outside_the_range_is_still_a_bar_that_can_be_drawn() {
-        let panel = this_device();
+        let Ok(panel) = this_device();
 
         assert_eq!(panel.as_points(65535), Ok(100));
         assert_eq!(panel.as_points(0), Ok(0));
@@ -365,7 +352,7 @@ mod tests {
 
     #[test]
     fn a_screen_that_was_dimmed_comes_back_where_it_was() {
-        let panel = this_device();
+        let Ok(panel) = this_device();
         let Ok(dimmed) = panel.dimmed();
 
         assert_eq!(panel.undimming(dimmed, Was(40000)), Ok(Some(40000)));
@@ -373,7 +360,7 @@ mod tests {
 
     #[test]
     fn a_screen_someone_moved_while_it_was_dim_is_left_where_they_put_it() {
-        let panel = this_device();
+        let Ok(panel) = this_device();
         let Ok(dimmed) = panel.dimmed();
 
         assert_eq!(panel.undimming(40000, Was(20000)), Ok(None));
@@ -382,35 +369,37 @@ mod tests {
 
     #[test]
     fn dimmed_is_still_a_screen_that_can_be_read() {
-        let panel = this_device();
+        let Ok(panel) = this_device();
 
         assert_eq!(panel.dimmed(), panel.floor());
-        assert!(floor(&panel) > 0, "dimmed is off, and off is the step after");
+        assert!(panel.floor().is_ok_and(|floor| floor > 0), "dimmed is off, and off is the step after");
     }
 
     #[test]
     fn the_notification_says_the_level_it_has_reached() {
-        let panel = this_device();
-        let Ok(full) = panel.as_points(ceiling(&panel));
-        let Ok(none) = panel.as_points(floor(&panel));
+        let Ok(panel) = this_device();
+        let Ok(top) = panel.ceiling();
+        let Ok(bottom) = panel.floor();
+        let Ok(full) = panel.as_points(top);
+        let Ok(none) = panel.as_points(bottom);
 
-        assert_eq!(said(full), Ok("Brightness 100%".to_string()));
-        assert_eq!(said(none), Ok("Brightness 0%".to_string()));
+        assert_eq!(brightness_label(full), Ok("Brightness 100%".to_string()));
+        assert_eq!(brightness_label(none), Ok("Brightness 0%".to_string()));
     }
 
     #[test]
     fn nothing_but_the_two_words_is_a_way() {
-        assert_eq!(Way::named("up"), Ok(Some(Way::Up)));
-        assert_eq!(Way::named("Up"), Ok(None));
-        assert_eq!(Way::named("get"), Ok(None));
+        assert_eq!(Way::parse("up"), Ok(Some(Way::Up)));
+        assert_eq!(Way::parse("Up"), Ok(None));
+        assert_eq!(Way::parse("get"), Ok(None));
     }
 
     #[test]
     fn the_drivers_own_control_is_the_one_taken_when_there_are_several() {
-        assert_eq!(Kind::named("raw"), Ok(Kind::Raw));
-        assert_eq!(Kind::named("platform\n"), Ok(Kind::Platform));
-        assert_eq!(Kind::named("firmware"), Ok(Kind::Firmware));
-        assert_eq!(Kind::named("something else"), Ok(Kind::Unsaid));
+        assert_eq!(Kind::parse("raw"), Ok(Kind::Raw));
+        assert_eq!(Kind::parse("platform\n"), Ok(Kind::Platform));
+        assert_eq!(Kind::parse("firmware"), Ok(Kind::Firmware));
+        assert_eq!(Kind::parse("something else"), Ok(Kind::Unsaid));
         assert!(Kind::Raw < Kind::Platform, "raw is what a compositor reaches for");
         assert!(Kind::Platform < Kind::Firmware);
         assert!(Kind::Firmware < Kind::Unsaid, "a backlight that will not say comes last");
@@ -418,6 +407,6 @@ mod tests {
 
     #[test]
     fn a_machine_with_no_backlight_says_so_rather_than_naming_a_path_nothing_is_at() {
-        assert_eq!(found(Path::new("/sys/class/backlight/nothing-is-here")), Ok(None));
+        assert_eq!(find_panel(Path::new("/sys/class/backlight/nothing-is-here")), Ok(None));
     }
 }

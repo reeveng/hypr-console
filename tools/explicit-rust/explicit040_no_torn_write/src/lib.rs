@@ -62,7 +62,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT040: writing a file straight over the live one leaves it half
@@ -72,10 +72,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT040_NO_TORN_WRITE,
     Deny,
     "a file written outside the crate that knows how to write one whole"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // Where a program says it is about to change a file. The two that open one and
@@ -123,10 +119,6 @@ fn what_is_called(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit040NoTornWrite {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

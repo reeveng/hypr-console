@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use console_compositor::Window;
 use console_core_never::Never;
 
-pub fn placed(open: &[Window]) -> Result<BTreeMap<String, i64>, Never> {
+pub fn workspaces_by_window(open: &[Window]) -> Result<BTreeMap<String, i64>, Never> {
     Ok(open.iter().map(|window| (window.address.clone(), window.workspace)).collect())
 }
 
@@ -54,8 +54,8 @@ mod tests {
 
     use console_compositor::{Filling, Floating, Pinned};
 
-    fn on(address: &str, workspace: i64) -> Window {
-        Window {
+    fn on(address: &str, workspace: i64) -> Result<Window, Never> {
+        Ok(Window {
             address: address.to_string(),
             title: String::new(),
             first_class: String::new(),
@@ -69,63 +69,77 @@ mod tests {
             at: (0, 0),
             size: (0, 0),
             pid: 0,
-        }
+        })
     }
 
-    fn five() -> Vec<Window> {
-        (1..=5).map(|id| on(&format!("0x{id}"), id)).collect()
-    }
+    fn five() -> Result<Vec<Window>, Never> {
+        Ok((1..=5)
+            .map(|id| {
+                let Ok(window) = on(&format!("0x{id}"), id);
 
-    fn went(was_on: Option<i64>, front: Option<i64>, open: &[Window], closed: &str) -> Option<i64> {
-        let Ok(to) = goes_to(was_on, front, open, closed);
-
-        to
+                window
+            })
+            .collect())
     }
 
     #[test]
     fn closing_the_fourth_of_five_goes_to_the_third() {
-        assert_eq!(went(Some(4), Some(4), &five(), "0x4"), Some(3));
+        let Ok(open) = five();
+
+        assert_eq!(goes_to(Some(4), Some(4), &open, "0x4"), Ok(Some(3)));
     }
 
     #[test]
     fn a_window_already_gone_from_the_list_is_answered_the_same() {
-        let open: Vec<Window> = five().into_iter().filter(|window| window.address != "0x4").collect();
+        let Ok(five) = five();
+        let open: Vec<Window> = five.into_iter().filter(|window| window.address != "0x4").collect();
 
-        assert_eq!(went(Some(4), Some(4), &open, "0x4"), Some(3));
+        assert_eq!(goes_to(Some(4), Some(4), &open, "0x4"), Ok(Some(3)));
     }
 
     #[test]
     fn closing_the_first_goes_to_the_one_after() {
-        assert_eq!(went(Some(1), Some(1), &five(), "0x1"), Some(2));
+        let Ok(open) = five();
+
+        assert_eq!(goes_to(Some(1), Some(1), &open, "0x1"), Ok(Some(2)));
     }
 
     #[test]
     fn closing_the_last_window_there_is_stays_where_it_is() {
-        assert_eq!(went(Some(1), Some(1), &[on("0x1", 1)], "0x1"), None);
+        let Ok(only) = on("0x1", 1);
+
+        assert_eq!(goes_to(Some(1), Some(1), &[only], "0x1"), Ok(None));
     }
 
     #[test]
     fn a_window_closing_somewhere_else_moves_nobody() {
-        assert_eq!(went(Some(2), Some(6), &five(), "0x2"), None);
+        let Ok(open) = five();
+
+        assert_eq!(goes_to(Some(2), Some(6), &open, "0x2"), Ok(None));
     }
 
     #[test]
     fn a_workspace_with_a_window_still_on_it_is_kept() {
-        let mut open = five();
-        open.push(on("0x44", 4));
+        let Ok(mut open) = five();
+        let Ok(another) = on("0x44", 4);
 
-        assert_eq!(went(Some(4), Some(4), &open, "0x4"), None);
+        open.push(another);
+
+        assert_eq!(goes_to(Some(4), Some(4), &open, "0x4"), Ok(None));
     }
 
     #[test]
     fn a_window_nobody_saw_open_moves_nobody() {
-        assert_eq!(went(None, Some(4), &five(), "0x9"), None);
+        let Ok(open) = five();
+
+        assert_eq!(goes_to(None, Some(4), &open, "0x9"), Ok(None));
     }
 
     #[test]
     fn a_special_workspace_is_not_somewhere_to_be_sent() {
-        let open = vec![on("0x1", 1), on("0x99", -99)];
+        let Ok(first) = on("0x1", 1);
+        let Ok(special) = on("0x99", -99);
 
-        assert_eq!(went(Some(1), Some(1), &open, "0x1"), None);
+        assert_eq!(goes_to(Some(1), Some(1), &[first, special], "0x1"), Ok(None));
     }
 }

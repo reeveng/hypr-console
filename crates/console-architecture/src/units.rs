@@ -27,7 +27,7 @@ pub const ORDERINGS: [(Key<'static>, &str); 5] = [
     (Key("After"), "after"),
 ];
 
-pub const OURS: &str = "/usr/local/bin/";
+pub const APPLICATION: &str = "/usr/local/bin/";
 
 pub const TIMER_SUFFIX: &str = ".timer";
 
@@ -46,13 +46,13 @@ pub enum Started {
 }
 
 impl Unit {
-    pub fn started(&self) -> Result<Option<Started>, Never> {
+    pub fn exec_start(&self) -> Result<Option<Started>, Never> {
         let Ok(said) = field(&self.text, SERVICE, EXEC_START);
         let first = said
             .and_then(|command| command.split_whitespace().next())
             .map(|word| word.trim_start_matches(['-', '@', ':', '+', '!']));
 
-        Ok(first.map(|path| match path.strip_prefix(OURS) {
+        Ok(first.map(|path| match path.strip_prefix(APPLICATION) {
             Some(ours) => Started::InternalProgram(String::from(ours)),
             None => Started::ExternalProgram(match path.rsplit_once('/') {
                 Some((_, name)) => String::from(name),
@@ -61,7 +61,7 @@ impl Unit {
         }))
     }
 
-    pub fn ordered(&self) -> Result<Vec<(String, &'static str)>, Never> {
+    pub fn orderings(&self) -> Result<Vec<(String, &'static str)>, Never> {
         let mut found = Vec::new();
 
         for (key, said) in ORDERINGS {

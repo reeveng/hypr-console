@@ -8,7 +8,7 @@
 use console_core_never::Never;
 use std::path::{Path, PathBuf};
 
-pub use console_music_player::library::{KINDS, Playable, folder, folder_under, named, playable, said_in, told};
+pub use console_music_player::library::{KINDS, Playable, folder, folder_under, playable, said_in, config_path};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Thing {
@@ -58,7 +58,7 @@ fn about(path: &Path) -> Result<Option<Thing>, Never> {
         true => Ok(Some(Thing { name, path: path.to_path_buf(), folder: true })),
         false => match playable {
             Playable::Yes => {
-                let named = named(&name)?;
+                let named = console_core_file_names::title(&name)?;
 
                 Ok(Some(Thing { name: named, path: path.to_path_buf(), folder: false }))
             }

@@ -68,7 +68,6 @@ use console_compositor::{Window, Workspace};
 use console_core_external_programs::Program;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::{Float, fitted};
 use console_notifications::updating::{self, Progress};
 use console_notifications::serving;
 use console_program_lifetime::{BoundToParent, alongside};
@@ -79,44 +78,17 @@ use crate::picture::{Picture, where_};
 
 const NESTING: &str = "console-desktop";
 
+const POINTER: &str = "console-point";
 
 pub const PATIENCE: u64 = 180;
 
-const DRAWN: f64 = 6.0;
-
-const HAND: f64 = 0.6;
-
-const BETWEEN: f64 = 0.5;
-
-const AFTER: f64 = 1.5;
-
 fn pressing_hand() -> Result<(), Error> {
-    let Ok(nesting) = nesting_program();
-    let beside = nesting.parent().map(|at| at.join("console-point"));
+    let Ok(at) = console_core_internal_programs::beside_this_program(POINTER);
 
-    match beside {
-        Some(at) => match at.is_file() {
-            true => Ok(()),
-            false => Err(Error::NoPointer(at)),
-        },
-        None => Err(Error::PointerNotBeside),
+    match at.is_file() {
+        true => Ok(()),
+        false => Err(Error::NoPointer(at)),
     }
-}
-
-fn nesting_program() -> Result<PathBuf, Never> {
-    let beside = match std::env::current_exe() {
-        Ok(at) => at.parent().map(|at| at.join("console-desktop")),
-        Err(fault) => {
-            eprintln!("console-test-stages: where this program is: {fault}");
-
-            None
-        }
-    };
-
-    Ok(match beside.filter(|at| at.exists()) {
-        Some(beside) => beside,
-        None => PathBuf::from(NESTING),
-    })
 }
 
 const SEEN: &str = "clients.json";
@@ -152,7 +124,6 @@ const CONFIGURATION: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D
 pub struct Desktop {
     open_these: Vec<String>,
     press_these: Vec<String>,
-    patience: f64,
     not_before: Option<PathBuf>,
     filling: Option<Progress>,
     talking: Option<BoundToParent>,
@@ -176,12 +147,18 @@ impl Default for Desktop {
 
 impl Desktop {
     pub fn new() -> Result<Self, Never> {
+        #[cfg_attr(
+            dylint_lib = "explicit044_no_ambient_value",
+            allow(
+                explicit044_no_ambient_value,
+                reason = "the stage is made before anything can fail and the directory when it is first written, and it holds the bus the nested desktop is still listening on, which emptying it again would take away"
+            )
+        )]
         let here = std::env::temp_dir().join(format!("console-desktop-{}", std::process::id()));
 
         Ok(Desktop {
             open_these: Vec::new(),
             press_these: Vec::new(),
-            patience: 0.0,
             not_before: None,
             filling: None,
             talking: None,
@@ -193,7 +170,6 @@ impl Desktop {
     pub fn fresh(&mut self) -> Result<(), Never> {
         self.open_these.clear();
         self.press_these.clear();
-        self.patience = 0.0;
         self.not_before = None;
         self.filling = None;
         self.talking = None;
@@ -287,13 +263,6 @@ impl Desktop {
         self.press(command.to_string())
     }
 
-    pub fn waiting_inside(&mut self, command: &str, patience: f64) -> Result<(), Error> {
-        self.press(command.to_string())?;
-        self.patience += patience;
-
-        Ok(())
-    }
-
     pub fn keeping_timings(&mut self) -> Result<(), Error> {
         let kept = self.here.join(TIMINGS);
 
@@ -375,24 +344,11 @@ impl Desktop {
         }
     }
 
-    fn pressing(&self) -> Result<Option<(String, f64)>, Never> {
-        let (first, rest) = match self.press_these.split_first() {
-            Some((first, rest)) => (first, rest),
-            None => return Ok(None),
-        };
-
-        let mut script = format!("sleep {DRAWN}; {first}");
-
-        for command in rest {
-            script.push_str(&format!("; sleep {BETWEEN}; {command}"));
-        }
-
-        let Ok(pressed) = fitted::<_, u64>(self.press_these.len());
-        let Ok(many) = pressed.float();
-
-        let waited = DRAWN + many * (HAND + BETWEEN) + self.patience + AFTER;
-
-        Ok(Some((script, waited)))
+    fn pressing(&self) -> Result<Option<String>, Never> {
+        Ok(match self.press_these.is_empty() {
+            true => None,
+            false => Some(self.press_these.join("; ")),
+        })
     }
 
     fn picture(&mut self) -> Result<&Picture, Error> {
@@ -402,7 +358,7 @@ impl Desktop {
                 let _ = std::fs::remove_file(self.here.join(SEEN));
                 let _ = std::fs::remove_file(self.here.join(SCREEN));
                 let shot = self.here.join("screen.png");
-                let Ok(program) = nesting_program();
+                let Ok(program) = console_core_internal_programs::beside_this_program(NESTING);
                 let mut nesting = Command::new(program);
                 nesting.arg("shot").arg(&shot);
                 nesting.arg("--clients").arg(self.here.join(SEEN));
@@ -411,7 +367,7 @@ impl Desktop {
                 match &self.filling {
                     Some(far) => {
                         let at = self.here.join(FILLING);
-                        let Ok(written) = updating::written(far);
+                        let Ok(written) = updating::serialize(far);
 
                         console_core_atomic_writes::whole(&at, written.as_bytes())
                             .map_err(Error::Unwritten)?;
@@ -442,11 +398,10 @@ impl Desktop {
                 let Ok(pressing) = self.pressing();
 
                 match pressing {
-                    Some((script, waited)) => {
+                    Some(script) => {
                         pressing_hand()?;
 
-                        nesting.args(["--open", &script]);
-                        nesting.args(["--settle", &format!("{waited:.1}")]);
+                        nesting.args(["--press", &script]);
                     }
                     None => {},
                 }
@@ -476,7 +431,7 @@ impl Desktop {
     }
 
     pub fn installed(&self, program: &str) -> Result<Installed, Never> {
-        let Ok(quoted) = crate::device::quoted(program);
+        let Ok(quoted) = crate::device::shell_quote(program);
         let Ok(mut asking) = Program::Sh.command();
 
         let found = asking
@@ -566,56 +521,62 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn new() -> Desktop {
+    fn new() -> Result<Desktop, Never> {
         let Ok(desktop) = Desktop::new();
 
-        desktop
+        Ok(desktop)
     }
 
     #[test]
-    fn nothing_can_be_opened_once_the_picture_has_been_taken() {
-        let mut desktop = new();
-        assert!(desktop.open("alacritty").is_ok());
+    fn nothing_can_be_opened_once_the_picture_has_been_taken() -> Result<(), Box<dyn Error>> {
+        let Ok(mut desktop) = new();
+
+        desktop.open("alacritty")?;
         desktop.taken = None;
-        assert!(desktop.open("mapping-panel").is_ok());
+        desktop.open("mapping-panel")?;
+
         assert_eq!(desktop.open_these.len(), 2);
+
+        Ok(())
     }
 
     #[test]
-    fn a_fresh_desktop_has_nothing_open_and_nothing_looked_at() {
-        let mut desktop = new();
-        desktop.open("alacritty").expect("something to open");
-        desktop.point((10, 20)).expect("somewhere to point");
-        desktop.fresh();
+    fn a_fresh_desktop_has_nothing_open_and_nothing_looked_at() -> Result<(), Box<dyn Error>> {
+        let Ok(mut desktop) = new();
+        desktop.open("alacritty")?;
+        desktop.point((10, 20))?;
+        let Ok(()) = desktop.fresh();
         assert!(desktop.open_these.is_empty());
         assert!(desktop.press_these.is_empty());
+
+        Ok(())
     }
 
     #[test]
     fn nothing_pressed_is_a_session_that_is_not_kept_open_for_it() {
-        let Ok(pressing) = new().pressing();
+        let Ok(new) = new();
+        let Ok(pressing) = new.pressing();
 
         assert_eq!(pressing, None);
     }
 
     #[test]
-    fn the_presses_are_one_script_in_the_order_they_were_asked_for() {
-        let mut desktop = new();
-        desktop.point((10, 20)).expect("somewhere to point");
-        desktop.click((30, 40)).expect("somewhere to click");
-        desktop.scroll((30, 40), -2).expect("somewhere to scroll");
+    fn the_presses_are_one_script_in_the_order_they_were_asked_for() -> Result<(), Box<dyn Error>> {
+        let Ok(mut desktop) = new();
+        desktop.point((10, 20))?;
+        desktop.click((30, 40))?;
+        desktop.scroll((30, 40), -2)?;
 
         let Ok(pressing) = desktop.pressing();
-        let (script, waited) = pressing.expect("a script");
 
         assert_eq!(
-            script,
-            format!(
-                "sleep {DRAWN}; console-point 10 20; sleep {BETWEEN}; console-point 30 40 --click; \
-                 sleep {BETWEEN}; console-point 30 40 --scroll -2"
-            )
+            pressing.as_deref(),
+            Some("console-point 10 20; console-point 30 40 --click; console-point 30 40 --scroll -2")
         );
-        assert!(waited > DRAWN + AFTER, "the session goes before the last press: {waited}");
+
+        Ok(())
     }
+
 }

@@ -1,0 +1,13 @@
+[Unit]
+Description=The overview, swiped up from the bottom edge
+PartOf=console.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/console-overview
+ExecStopPost=-/usr/local/bin/console-report-crash %n
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=console.target

@@ -51,7 +51,7 @@ impl Program for Greeter {
 
     fn init(arguments: &Arguments) -> Initial<Greeting> {
         let Ok(pattern) = Pattern::new();
-        let Ok(fell) = arguments.given(FELL);
+        let Ok(fell) = arguments.flag(FELL);
         let status = match fell {
             Flag::Present => Status::Fell,
             Flag::Absent => Status::Waiting,
@@ -63,19 +63,19 @@ impl Program for Greeter {
 
     fn update(greeting: &Greeting, event: &Event<GreeterEvent>) -> Update<Greeting, GreeterEffect> {
         let Ok(update) = match (&greeting.status, event) {
-            (_, Event::Custom(GreeterEvent::Received(received))) => answered(greeting, received),
+            (_, Event::Custom(GreeterEvent::Received(received))) => on_reply(greeting, received),
             (Status::Checking, Event::Custom(GreeterEvent::Pressed(_) | GreeterEvent::Touched(_))) => Update::none(greeting.clone()),
             (
                 Status::Waiting | Status::Fell | Status::Failed(_) | Status::Message(_),
                 Event::Custom(GreeterEvent::Pressed(press)),
-            ) => pressed(greeting, *press),
+            ) => on_press(greeting, *press),
             (
                 Status::Waiting | Status::Fell | Status::Failed(_) | Status::Message(_),
                 Event::Custom(GreeterEvent::Touched(touch)),
             ) => {
-                let Ok(clicked) = greeting.pattern.touched(*touch);
+                let Ok(clicked) = greeting.pattern.touch(*touch);
 
-                chosen(greeting, clicked)
+                on_click(greeting, clicked)
             }
             (_, Event::Opened | Event::Changed(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping) => {
                 Update::none(greeting.clone())
@@ -86,7 +86,7 @@ impl Program for Greeter {
     }
 }
 
-fn pressed(greeting: &Greeting, press: ButtonPress) -> Result<Update<Greeting, GreeterEffect>, Never> {
+fn on_press(greeting: &Greeting, press: ButtonPress) -> Result<Update<Greeting, GreeterEffect>, Never> {
     let moved = |direction| {
         let Ok(pattern) = greeting.pattern.moved(direction);
 
@@ -104,18 +104,18 @@ fn pressed(greeting: &Greeting, press: ButtonPress) -> Result<Update<Greeting, G
             Update::none(Greeting { pattern, status: greeting.status.clone() })
         }
         ButtonPress::Choose => {
-            let Ok(clicked) = greeting.pattern.clicked();
+            let Ok(clicked) = greeting.pattern.click();
 
-            chosen(greeting, clicked)
+            on_click(greeting, clicked)
         }
     }
 }
 
-fn chosen(greeting: &Greeting, clicked: Clicked) -> Result<Update<Greeting, GreeterEffect>, Never> {
+fn on_click(greeting: &Greeting, clicked: Clicked) -> Result<Update<Greeting, GreeterEffect>, Never> {
     match clicked {
         Clicked::Traced(pattern) => Update::none(Greeting { pattern, status: greeting.status.clone() }),
         Clicked::Submitted(secret) => {
-            let Ok(spelled) = secret.spelled();
+            let Ok(spelled) = secret.as_str();
             let login = FromGreeter::Login(spelled.to_string());
             let Ok(pattern) = greeting.pattern.lifted();
 
@@ -124,7 +124,7 @@ fn chosen(greeting: &Greeting, clicked: Clicked) -> Result<Update<Greeting, Gree
     }
 }
 
-fn answered(greeting: &Greeting, received: &ToGreeter) -> Result<Update<Greeting, GreeterEffect>, Never> {
+fn on_reply(greeting: &Greeting, received: &ToGreeter) -> Result<Update<Greeting, GreeterEffect>, Never> {
     let Ok(cleared) = greeting.pattern.cleared();
 
     match received {
@@ -140,19 +140,13 @@ mod tests {
     use console_login_pattern::{DOTS, Target};
     use console_program_contract::run;
 
-    fn arguments(words: &[&str]) -> Arguments {
-        let Ok(arguments) = Arguments::of(words);
-
-        arguments
-    }
-
-    fn pressed(presses: &[ButtonPress]) -> Vec<Event<GreeterEvent>> {
-        presses.iter().map(|press| Event::Custom(GreeterEvent::Pressed(*press))).collect()
+    fn press_events(presses: &[ButtonPress]) -> Result<Vec<Event<GreeterEvent>>, Never> {
+        Ok(presses.iter().map(|press| Event::Custom(GreeterEvent::Pressed(*press))).collect())
     }
 
     #[test]
     fn a_pattern_ending_at_login_is_handed_to_the_window_as_its_letters() {
-        let events = pressed(&[
+        let Ok(events) = press_events(&[
             ButtonPress::Choose,
             ButtonPress::Right,
             ButtonPress::Choose,
@@ -162,34 +156,39 @@ mod tests {
             ButtonPress::Down,
             ButtonPress::Choose,
         ]);
-        let Ok(trace) = run::<Greeter>(&arguments(&[]), &events);
+        let Ok(arguments) = Arguments::of(&[]);
+        let Ok(trace) = run::<Greeter>(&arguments, &events);
         let Ok(effects) = trace.effects();
 
         assert_eq!(trace.state.status, Status::Checking);
-        assert_eq!(effects, vec![Effect::Custom(GreeterEffect::Send(FromGreeter::Login("ab".to_string())))]);
+        assert_eq!(effects, vec![Effect::Custom(GreeterEffect::Send(FromGreeter::Login(String::from("ab"))))]);
     }
 
     #[test]
-    fn a_finger_drawn_over_the_dots_and_lifted_is_handed_to_the_window() {
-        let over = |key: char| match DOTS.iter().find(|dot| dot.key == key) {
-            Some(dot) => dot.centre,
-            None => panic!("no dot for {key}"),
-        };
-        let touches = [Touch::Down(over('a')), Touch::Moved(over('e')), Touch::Moved(over('c')), Touch::Up];
+    fn a_finger_drawn_over_the_dots_and_lifted_is_handed_to_the_window() -> Result<(), &'static str> {
+        let over = |key: char| DOTS.iter().find(|dot| dot.key == key).map(|dot| dot.centre);
+        let a = over('a').ok_or("no dot for a")?;
+        let e = over('e').ok_or("no dot for e")?;
+        let c = over('c').ok_or("no dot for c")?;
+        let touches = [Touch::Down(a), Touch::Moved(e), Touch::Moved(c), Touch::Up];
         let events: Vec<Event<GreeterEvent>> = touches.iter().map(|touch| Event::Custom(GreeterEvent::Touched(*touch))).collect();
-        let Ok(trace) = run::<Greeter>(&arguments(&[]), &events);
+        let Ok(arguments) = Arguments::of(&[]);
+        let Ok(trace) = run::<Greeter>(&arguments, &events);
         let Ok(effects) = trace.effects();
 
         assert_eq!(trace.state.status, Status::Checking);
         assert_eq!(trace.state.pattern.finger, None);
-        assert_eq!(effects, vec![Effect::Custom(GreeterEffect::Send(FromGreeter::Login("aec".to_string())))]);
+        assert_eq!(effects, vec![Effect::Custom(GreeterEffect::Send(FromGreeter::Login(String::from("aec"))))]);
+
+        Ok(())
     }
 
     #[test]
     fn a_press_while_checking_does_nothing() {
         let Ok(start) = Pattern::new();
         let checking = Greeting { pattern: start.clone(), status: Status::Checking };
-        let Ok(trace) = console_program_contract::run_from::<Greeter>(&checking, &pressed(&[ButtonPress::Up, ButtonPress::Choose]));
+        let Ok(events) = press_events(&[ButtonPress::Up, ButtonPress::Choose]);
+        let Ok(trace) = console_program_contract::run_from::<Greeter>(&checking, &events);
 
         assert_eq!(trace.state, checking);
     }
@@ -197,11 +196,11 @@ mod tests {
     #[test]
     fn a_refusal_clears_the_pattern_and_keeps_the_cursor() {
         let drawn = Greeting { pattern: Pattern { at: Target::Login, path: vec![1, 2], finger: None }, status: Status::Checking };
-        let events = [Event::Custom(GreeterEvent::Received(ToGreeter::Failed("no".to_string())))];
+        let events = [Event::Custom(GreeterEvent::Received(ToGreeter::Failed(String::from("no"))))];
         let Ok(trace) = console_program_contract::run_from::<Greeter>(&drawn, &events);
 
         assert_eq!(trace.state.pattern, Pattern { at: Target::Login, path: Vec::new(), finger: None });
-        assert_eq!(trace.state.status, Status::Failed("no".to_string()));
+        assert_eq!(trace.state.status, Status::Failed(String::from("no")));
     }
 
     #[test]
@@ -216,7 +215,8 @@ mod tests {
 
     #[test]
     fn a_desktop_that_fell_is_said_on_the_first_screen() {
-        let Ok(trace) = run::<Greeter>(&arguments(&[FELL]), &[]);
+        let Ok(arguments) = Arguments::of(&[FELL]);
+        let Ok(trace) = run::<Greeter>(&arguments, &[]);
 
         assert_eq!(trace.state.status, Status::Fell);
     }

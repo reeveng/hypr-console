@@ -34,43 +34,46 @@ pub fn matching(names: &[String], word: &str) -> Result<Vec<String>, Never> {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
+    fn names(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
     }
 
-    fn names() -> Vec<String> {
-        ["Firefox", "Files", "Settings", "Profile Manager"]
-            .iter()
-            .map(|word| (*word).to_string())
-            .collect()
-    }
+    const EVERY: [&str; 4] = ["Firefox", "Files", "Settings", "Profile Manager"];
 
     #[test]
     fn nothing_typed_leaves_the_list_as_it_was() {
-        assert_eq!(ok(matching(&names(), "")), names());
-        assert_eq!(ok(matching(&names(), "   ")), names());
+        let Ok(every) = names(&EVERY);
+
+        assert_eq!(matching(&every, ""), Ok(every.clone()));
+        assert_eq!(matching(&every, "   "), Ok(every.clone()));
     }
 
     #[test]
     fn a_name_answers_to_a_word_anywhere_in_it() {
-        assert_eq!(ok(matching(&names(), "file")), ["Files", "Profile Manager"]);
+        let Ok(every) = names(&EVERY);
+
+        assert_eq!(matching(&every, "file"), names(&["Files", "Profile Manager"]));
     }
 
     #[test]
     fn what_begins_with_the_word_comes_before_what_merely_holds_it() {
-        assert_eq!(ok(matching(&names(), "fi")), ["Firefox", "Files", "Profile Manager"]);
+        let Ok(every) = names(&EVERY);
+
+        assert_eq!(matching(&every, "fi"), names(&["Firefox", "Files", "Profile Manager"]));
     }
 
     #[test]
     fn the_case_it_was_typed_in_does_not_matter() {
-        assert_eq!(ok(matching(&names(), "SETT")), ["Settings"]);
-        assert_eq!(ok(matching(&names(), "sEtT")), ["Settings"]);
+        let Ok(every) = names(&EVERY);
+
+        assert_eq!(matching(&every, "SETT"), names(&["Settings"]));
+        assert_eq!(matching(&every, "sEtT"), names(&["Settings"]));
     }
 
     #[test]
     fn a_word_nothing_answers_to_leaves_nothing() {
-        assert!(ok(matching(&names(), "kangaroo")).is_empty());
+        let Ok(every) = names(&EVERY);
+
+        assert_eq!(matching(&every, "kangaroo"), Ok(Vec::new()));
     }
 }

@@ -81,11 +81,11 @@ pub const MAGIC: &[u8] = b"panel-pictures 2\n";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Side(pub u32);
 
-pub fn keyed(of: &str, side: Side) -> Result<String, Never> {
+pub fn key(of: &str, side: Side) -> Result<String, Never> {
     Ok(format!("{} {of}", side.0))
 }
 
-pub fn unkeyed(key: &str) -> Result<Option<(&str, Side)>, Never> {
+pub fn parse_key(key: &str) -> Result<Option<(&str, Side)>, Never> {
     let (side, of) = match key.split_once(' ') {
         Some((side, of)) => (side, of),
         None => return Ok(None),
@@ -114,7 +114,7 @@ pub fn store() -> Result<Option<PathBuf>, Never> {
     Ok(ours.map(|ours| ours.join("pictures")))
 }
 
-pub fn written(pictures: &[Picture]) -> Result<Vec<u8>, Never> {
+pub fn serialize(pictures: &[Picture]) -> Result<Vec<u8>, Never> {
     let mut head: Vec<u8> = Vec::new();
     let mut body: Vec<u8> = Vec::new();
     let Ok(many) = fitted::<_, u32>(pictures.len());
@@ -271,7 +271,7 @@ pub fn read(bytes: &[u8]) -> Result<Option<BTreeMap<String, Where>>, Never> {
 
 type Cache = (Vec<u8>, BTreeMap<String, Where>);
 
-fn held() -> Result<Option<Arc<Cache>>, Never> {
+fn cache() -> Result<Option<Arc<Cache>>, Never> {
     #[cfg_attr(
         dylint_lib = "explicit044_no_ambient_value",
         allow(
@@ -335,7 +335,7 @@ pub fn pixels(of: &Path) -> Result<Option<Pixels>, Never> {
     pixels_at(of, side)
 }
 
-pub fn missing(wanted: &[String]) -> Result<Vec<String>, Never> {
+pub fn missing_pictures(wanted: &[String]) -> Result<Vec<String>, Never> {
     let Ok(side) = a_row();
 
     missing_at(wanted, side)
@@ -348,7 +348,7 @@ pub fn make(wanted: &[String]) -> Result<(), Never> {
 }
 
 pub fn pixels_at(of: &Path, side: Side) -> Result<Option<Pixels>, Never> {
-    let held = match held() {
+    let held = match cache() {
         Ok(Some(held)) => held,
         Ok(None) | Err(_) => return Ok(None),
     };
@@ -359,7 +359,7 @@ pub fn pixels_at(of: &Path, side: Side) -> Result<Option<Pixels>, Never> {
         None => return Ok(None),
     };
 
-    let Ok(named) = keyed(named, side);
+    let Ok(named) = key(named, side);
 
     let found = match index.get(&named) {
         Some(found) => found,
@@ -382,13 +382,13 @@ pub fn pixels_at(of: &Path, side: Side) -> Result<Option<Pixels>, Never> {
 }
 
 pub fn missing_at(wanted: &[String], side: Side) -> Result<Vec<String>, Never> {
-    let Ok(held) = held();
+    let Ok(held) = cache();
 
     let index = held.as_ref().map(|held| &held.1);
     let mut short: Vec<String> = Vec::new();
 
     for of in wanted {
-        let Ok(named) = keyed(of, side);
+        let Ok(named) = key(of, side);
 
         match index.is_some_and(|index| index.contains_key(&named)) {
             true => {},
@@ -419,7 +419,7 @@ pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
     let mut fresh: Vec<String> = Vec::new();
 
     for of in wanted {
-        let Ok(named) = keyed(of, side);
+        let Ok(named) = key(of, side);
 
         match asked.insert(named) {
             true => fresh.push(of.clone()),
@@ -446,7 +446,7 @@ pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
 
     match started {
         Ok(drawing) => {
-            let Ok(()) = crate::running::kept(drawing);
+            let Ok(()) = crate::running::reap_in_background(drawing);
         },
         Err(fault) => {
             eprintln!("no pictures made: {fault}");
@@ -474,39 +474,55 @@ fn number(bytes: &[u8]) -> Result<Option<(u32, &[u8])>, Never> {
 mod tests {
     use super::*;
 
-    fn a_picture(of: &str, side: u32) -> Picture {
-        Picture {
+    type Failure = Box<dyn std::error::Error>;
+
+    const LARGE: u32 = 32 * 32 * 4;
+
+    const SMALL: u32 = 16 * 16 * 4;
+
+    fn a_picture(of: &str, side: u32) -> Result<Picture, Never> {
+        let Ok(bytes) = index(side.saturating_mul(side).saturating_mul(4));
+
+        Ok(Picture {
             of: of.to_string(),
             width: side,
             height: side,
-            stride: side * 4,
-            pixels: vec![7; (side * side * 4).try_into().unwrap()],
-        }
+            stride: side.saturating_mul(4),
+            pixels: vec![7; bytes],
+        })
     }
 
     #[test]
-    fn a_store_says_where_each_picture_is_and_how_big() {
-        let pictures = vec![a_picture("/usr/share/icons/one.svg", 32), a_picture("/two.png", 16)];
-        let Ok(bytes) = written(&pictures);
-        let held = match read(&bytes) {
-            Ok(Some(held)) => held,
-            Ok(None) | Err(_) => panic!("a written store reads back"),
-        };
+    fn a_store_says_where_each_picture_is_and_how_big() -> Result<(), Failure> {
+        let Ok(one) = a_picture("/usr/share/icons/one.svg", 32);
+        let Ok(two) = a_picture("/two.png", 16);
+        let Ok(bytes) = serialize(&[one, two]);
+        let Ok(held) = read(&bytes);
+        let held = held.ok_or("a written store does not read back")?;
 
         assert_eq!(held.len(), 2);
-        let one = held.get("/usr/share/icons/one.svg").expect("the first picture");
+
+        let one = held.get("/usr/share/icons/one.svg").ok_or("the first picture")?;
+        let Ok(large) = index(LARGE);
+        let Ok(small) = index(SMALL);
+
         assert_eq!((one.width, one.height, one.stride), (32, 32, 128));
-        assert_eq!(one.in_store(&bytes), Ok(Some(&vec![7u8; 32 * 32 * 4][..])));
-        let two = held.get("/two.png").expect("the second picture");
-        assert_eq!(two.in_store(&bytes), Ok(Some(&vec![7u8; 16 * 16 * 4][..])));
+        assert_eq!(one.in_store(&bytes), Ok(Some(vec![7u8; large].as_slice())));
+
+        let two = held.get("/two.png").ok_or("the second picture")?;
+
+        assert_eq!(two.in_store(&bytes), Ok(Some(vec![7u8; small].as_slice())));
+
+        Ok(())
     }
 
     #[test]
     fn half_a_store_is_no_store_rather_than_half_the_pictures() {
-        let Ok(bytes) = written(&[a_picture("/one.svg", 32)]);
+        let Ok(one) = a_picture("/one.svg", 32);
+        let Ok(bytes) = serialize(&[one]);
 
-        for cut in [0, 4, MAGIC.len(), MAGIC.len() + 4, bytes.len() - 1] {
-            assert_eq!(read(&bytes[..cut]), Ok(None), "a store cut at {cut} was read as a store");
+        for cut in [0, 4, MAGIC.len(), MAGIC.len().saturating_add(4), bytes.len().saturating_sub(1)] {
+            assert_eq!(bytes.get(..cut).map(read), Some(Ok(None)), "a store cut at {cut} was read as a store");
         }
     }
 
@@ -518,9 +534,12 @@ mod tests {
 
     #[test]
     fn a_picture_that_points_outside_the_store_is_refused() {
-        let Ok(mut bytes) = written(&[a_picture("/one.svg", 32)]);
+        let Ok(one) = a_picture("/one.svg", 32);
+        let Ok(mut bytes) = serialize(&[one]);
         let far = (1_000_000u32).to_le_bytes();
-        for (slot, byte) in bytes.iter_mut().rev().skip(32 * 32 * 4 + 4).take(4).zip(far.iter().rev()) {
+        let Ok(behind) = index(LARGE.saturating_add(4));
+
+        for (slot, byte) in bytes.iter_mut().rev().skip(behind).take(4).zip(far.iter().rev()) {
             *slot = *byte;
         }
 
@@ -529,22 +548,21 @@ mod tests {
 
     #[test]
     fn a_picture_whose_rows_do_not_fit_its_own_pixels_is_refused() {
-        let mut picture = a_picture("/one.svg", 32);
+        let Ok(mut picture) = a_picture("/one.svg", 32);
         picture.stride = 4096;
-        let Ok(bytes) = written(&[picture]);
+        let Ok(bytes) = serialize(&[picture]);
 
         assert_eq!(read(&bytes), Ok(None));
     }
 
     #[test]
-    fn an_empty_store_is_a_store_with_nothing_in_it() {
-        let Ok(bytes) = written(&[]);
-
-        let held = match read(&bytes) {
-            Ok(Some(held)) => held,
-            Ok(None) | Err(_) => panic!("an empty store is still a store"),
-        };
+    fn an_empty_store_is_a_store_with_nothing_in_it() -> Result<(), Failure> {
+        let Ok(bytes) = serialize(&[]);
+        let Ok(held) = read(&bytes);
+        let held = held.ok_or("an empty store is not a store")?;
 
         assert!(held.is_empty());
+
+        Ok(())
     }
 }

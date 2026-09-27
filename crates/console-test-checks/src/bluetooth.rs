@@ -42,13 +42,13 @@ fn there(stage: &mut Device) -> CheckResult {
     }
 
     let Ok(_) = stage.exec_cmd(TAB);
-    let Ok(drawn) = stage.drawn(PATIENCE);
+    let Ok(drawn) = stage.wait_for_menu(PATIENCE);
 
     happened(drawn, || "the settings panel did not draw".to_string())?;
 
     let Ok(looked) = stage.until(looking, PATIENCE);
     let Ok(()) = stage.press("b");
-    let Ok(gone) = stage.closed(PATIENCE);
+    let Ok(gone) = stage.wait_for_close(PATIENCE);
     let Ok(stopped) = stage.until(
         |seen| {
             let Ok(up) = looking(seen);

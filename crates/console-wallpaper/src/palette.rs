@@ -88,6 +88,6 @@ mod tests {
 
     #[test]
     fn a_report_holding_no_colors_says_to_run_the_theme() {
-        assert!(read("# nothing here\n").is_err());
+        assert!(matches!(read("# nothing here\n"), Err(Unpainted::NoColors)));
     }
 }

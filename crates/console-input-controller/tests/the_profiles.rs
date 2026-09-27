@@ -9,20 +9,26 @@
 //! switcher's shell source and looked for paths in the text. It is a program
 //! now, and this asks it.
 
+use std::error::Error;
 use std::path::{Path, PathBuf};
+
+use console_core_never::Never;
 
 use console_input_controller::profile::ProfileState;
 use console_input_gamepad::router::{self, PROFILES};
 use console_program_contract::Arguments;
 
-fn root() -> PathBuf {
+fn root() -> Result<PathBuf, Never> {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
 
-    from.canonicalize().unwrap_or(from)
+    match from.canonicalize() {
+        Ok(found) => Ok(found),
+        Err(_not_there) => Ok(from),
+    }
 }
 
-fn every_word() -> Vec<(&'static str, Option<String>)> {
-    ["router", "desktop", "tabs", "game"]
+fn every_word() -> Result<Vec<(&'static str, Option<String>)>, Never> {
+    Ok(["router", "desktop", "tabs", "game"]
         .into_iter()
         .map(|word| {
             let Ok(arguments) = Arguments::of(&[word]);
@@ -31,31 +37,36 @@ fn every_word() -> Vec<(&'static str, Option<String>)> {
 
             (word, file)
         })
-        .collect()
+        .collect())
 }
 
 #[test]
-fn every_profile_the_switcher_names_is_one_of_these() {
+fn every_profile_the_switcher_names_is_one_of_these() -> Result<(), Box<dyn Error>> {
     let written = format!("{PROFILES}{}", router::FILE);
+    let Ok(every) = every_word();
+    let Ok(root) = root();
 
-    for (word, file) in every_word() {
-        let path = file.unwrap_or_else(|| panic!("{word} loads no profile at all"));
+    for (word, file) in every {
+        let path = file.ok_or_else(|| format!("{word} loads no profile at all"))?;
 
         match path == written {
             true => continue,
             false => {}
         }
 
-        let held = root().join("files").join(path.trim_start_matches('/'));
+        let held = root.join("files").join(path.trim_start_matches('/'));
 
         assert!(held.is_file(), "controller-profile loads {path} for {word}, which is not in the tree");
     }
+
+    Ok(())
 }
 
 #[test]
 fn the_switcher_knows_the_profile_that_is_made_rather_than_kept() {
     let written = format!("{PROFILES}{}", router::FILE);
-    let named: Vec<String> = every_word().into_iter().filter_map(|(_, file)| file).collect();
+    let Ok(every) = every_word();
+    let named: Vec<String> = every.into_iter().filter_map(|(_, file)| file).collect();
 
     assert!(
         named.contains(&written),

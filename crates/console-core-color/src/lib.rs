@@ -642,40 +642,45 @@ mod the_channels {
 #[cfg(test)]
 mod the_space {
     use super::*;
+    use std::error::Error;
 
-    fn round_trip(six: &str) -> String {
-        let color = match Rgba::of(six) {
-            Ok(color) => color,
-            Err(why) => panic!("{six} should read: {why}"),
-        };
+    fn round_trip(six: &str) -> Result<String, ParseError> {
+        let color = Rgba::of(six)?;
         let Ok(oklch) = Oklch::of(color);
         let Ok(again) = hexcode(oklch);
 
-        again
+        Ok(again)
     }
 
     #[test]
-    fn a_color_the_palette_spends_comes_back_as_itself() {
+    fn a_color_the_palette_spends_comes_back_as_itself() -> Result<(), Box<dyn Error>> {
         for six in ["110b12", "231b26", "372c3a", "723b5f", "8a7d8e", "f7e7f3", "ffc2e7"] {
-            assert_eq!(round_trip(six), six, "{six} did not survive the space");
+            let again = round_trip(six)?;
+
+            assert_eq!(again, six, "{six} did not survive the space");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_ends_of_every_channel_survive() {
+    fn the_ends_of_every_channel_survive() -> Result<(), Box<dyn Error>> {
         for six in ["000000", "ffffff", "ff0000", "00ff00", "0000ff"] {
-            assert_eq!(round_trip(six), six, "{six} did not survive the space");
+            let again = round_trip(six)?;
+
+            assert_eq!(again, six, "{six} did not survive the space");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn gray_has_no_chroma_to_speak_of() {
-        let color = match Rgba::of("808080") {
-            Ok(color) => color,
-            Err(why) => panic!("gray should read: {why}"),
-        };
+    fn gray_has_no_chroma_to_speak_of() -> Result<(), Box<dyn Error>> {
+        let color = Rgba::of("808080")?;
         let Ok(oklch) = Oklch::of(color);
 
         assert!(oklch.chroma < 0.0001, "gray came out with a hue: {oklch:?}");
+
+        Ok(())
     }
 }

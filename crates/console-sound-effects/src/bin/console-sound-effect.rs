@@ -31,7 +31,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(named) = Sound::named(word);
+    let Ok(named) = Sound::from_word(word);
 
     let sound = match named {
         Some(sound) => sound,
@@ -42,7 +42,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(chosen) = SoundEffects::chosen();
+    let Ok(chosen) = SoundEffects::current();
 
     match chosen {
         SoundEffects::On => {},

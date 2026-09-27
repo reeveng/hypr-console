@@ -9,7 +9,7 @@
 //! that fails on a busy machine.
 
 use console_core_never::Never;
-use console_panel::picker::{Again, Alone, alone, drawn, gone};
+use console_panel::picker::{Again, Alone, alone, mark_drawn, gone};
 
 const KEPT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -17,7 +17,7 @@ const DRAWING: std::time::Duration = std::time::Duration::from_millis(200);
 
 const GOING: std::time::Duration = std::time::Duration::from_millis(300);
 
-fn said(so: Alone) -> Result<&'static str, Never> {
+fn as_word(so: Alone) -> Result<&'static str, Never> {
     Ok(match so {
         Alone::Yes => "yes",
         Alone::No => "no",
@@ -55,7 +55,7 @@ fn main() {
     match asked.first().map(String::as_str) {
         Some("hold") => {
             let Ok(()) = took(&name);
-            let Ok(()) = drawn();
+            let Ok(()) = mark_drawn();
 
             println!("held");
             let Ok(()) = posing(KEPT);
@@ -66,13 +66,13 @@ fn main() {
             println!("held");
             let Ok(()) = posing(DRAWING);
 
-            let Ok(()) = drawn();
+            let Ok(()) = mark_drawn();
 
             let Ok(()) = posing(KEPT);
         }
         Some("going") => {
             let Ok(()) = took(&name);
-            let Ok(()) = drawn();
+            let Ok(()) = mark_drawn();
             let Ok(()) = gone();
 
             println!("held");
@@ -87,14 +87,14 @@ fn main() {
         Some("twice") => {
             let Ok(one) = alone(&name, Again::Closes);
             let Ok(other) = alone(&name, Again::Closes);
-            let Ok(one) = said(one);
-            let Ok(other) = said(other);
+            let Ok(one) = as_word(one);
+            let Ok(other) = as_word(other);
 
             println!("{one} {other}");
         }
         Some(_) | None => {
             let Ok(so) = alone(&name, Again::Closes);
-            let Ok(so) = said(so);
+            let Ok(so) = as_word(so);
 
             println!("{so}");
         }

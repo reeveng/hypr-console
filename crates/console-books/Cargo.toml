@@ -18,6 +18,7 @@ name = "books-catalog"
 path = "src/bin/books-catalog.rs"
 
 [dependencies]
+console-core-file-names.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-color.workspace = true
 console-core-fonts.workspace = true
@@ -26,6 +27,7 @@ console-defaults.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-iteration.workspace = true
 console-events.workspace = true
 console-program-contract.workspace = true
 console-core-number-conversion.workspace = true
@@ -41,3 +43,6 @@ console-program-lifetime.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

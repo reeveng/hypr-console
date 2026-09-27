@@ -70,7 +70,7 @@ where
     let (queue, each) = (&queue, &each);
 
     let finished = thread::scope(|scope| {
-        let started: Vec<_> = (0..workers).map(|_| scope.spawn(move || worked(queue, each))).collect();
+        let started: Vec<_> = (0..workers).map(|_| scope.spawn(move || drain_queue(queue, each))).collect();
 
         started.into_iter().map(|worker| worker.join()).collect::<Vec<_>>()
     });
@@ -97,38 +97,36 @@ fn cores() -> Result<u32, Never> {
     }
 }
 
-fn worked<T, R, F>(queue: &Queue<'_, T>, each: &F) -> Result<Vec<(u32, R)>, Never>
+fn drain_queue<T, R, F>(queue: &Queue<'_, T>, each: &F) -> Result<Vec<(u32, R)>, Never>
 where
     F: Fn(&T) -> R,
 {
-    let mut done = Vec::new();
-
-    loop {
-        let next = match queue.lock() {
-            Ok(mut waiting) => waiting.next(),
-            Err(_another_piece_panicked) => None,
-        };
-
-        match next {
-            Some((item, at)) => done.push((at, each(item))),
-            None => return Ok(done),
-        }
-    }
+    Ok(std::iter::from_fn(|| match queue.lock() {
+        Ok(mut waiting) => waiting.next(),
+        Err(_another_piece_panicked) => None,
+    })
+    .map(|(item, at)| (at, each(item)))
+    .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_waiting::{Ready, Schedule, until};
     use std::collections::BTreeSet;
     use std::time::Duration;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn the_answers_come_back_in_the_order_the_items_went_in() {
+    fn the_answers_come_back_in_the_order_the_items_went_in() -> Result<(), Failure> {
         let items: Vec<u32> = (0..500).collect();
 
-        let answered = map(&items, |item| item * 2).expect("every piece answers");
+        let answered = map(&items, |item| item.saturating_mul(2))?;
 
-        assert_eq!(answered, items.iter().map(|item| item * 2).collect::<Vec<u32>>());
+        assert_eq!(answered, items.iter().map(|item| item.saturating_mul(2)).collect::<Vec<u32>>());
+
+        Ok(())
     }
 
     #[test]
@@ -139,22 +137,24 @@ mod tests {
     }
 
     #[test]
-    fn the_pieces_run_on_more_than_one_thread_where_there_is_more_than_one_core() {
+    fn the_pieces_run_on_more_than_one_thread_where_there_is_more_than_one_core() -> Result<(), Failure> {
         let Ok(cores) = cores();
         let items: Vec<u32> = (0..8).collect();
+        let Ok(a_while) = Schedule::of(Duration::from_millis(50));
 
         let ran_on = map(&items, |_| {
-            std::thread::sleep(Duration::from_millis(50));
+            let Ok(_held_long_enough_for_the_others_to_start) = until(a_while, || Ok(Ready::NotYet));
 
             format!("{:?}", std::thread::current().id())
-        })
-        .expect("every piece answers");
+        })?;
 
         let threads: BTreeSet<String> = ran_on.into_iter().collect();
 
         let Ok(used) = fitted::<_, u32>(threads.len());
 
         assert_eq!(used, cores.min(8), "one thread per core, and every one of them used");
+
+        Ok(())
     }
 
     #[test]
@@ -162,6 +162,10 @@ mod tests {
         let items: Vec<u32> = (0..16).collect();
 
         let answered = map(&items, |item| match *item {
+            #[cfg_attr(
+                dylint_lib = "explicit004_no_panic",
+                allow(explicit004_no_panic, reason = "a piece that panics is what this test is about, and a panic is the only thing that presses it")
+            )]
             7 => panic!("the seventh piece"),
             other => other,
         });

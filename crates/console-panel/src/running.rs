@@ -38,15 +38,15 @@ use console_program_lifetime::{Detached, Wrapped, in_a_scope_of_its_own, let_go}
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
-pub fn kept(mut started: Detached) -> Result<(), Never> {
+pub fn reap_in_background(mut started: Detached) -> Result<(), Never> {
     let waiting = thread::spawn(move || {
-        let _ = started.waiting();
+        let _ = started.wait();
     });
 
     threads::let_go(waiting)
 }
 
-pub fn said(program: Program, rest: &[&str]) -> Result<String, Never> {
+pub fn run_output(program: Program, rest: &[&str]) -> Result<String, Never> {
     let Ok(mut asking) = program.command();
 
     asking.args(rest);
@@ -76,7 +76,7 @@ pub fn say(kind: &str, said: Notification<'_>) -> Result<(), Never> {
 
     match started {
         Ok(saying) => {
-            let Ok(()) = kept(saying);
+            let Ok(()) = reap_in_background(saying);
         },
         Err(fault) => {
             eprintln!("console-say: {fault}");
@@ -85,6 +85,27 @@ pub fn say(kind: &str, said: Notification<'_>) -> Result<(), Never> {
     }
 
     Ok(())
+}
+
+pub fn words_of(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
+    let program = match runs.program {
+        console_program_contract::Executable::External(program) => {
+            let Ok(name) = program.name();
+
+            name.to_string()
+        }
+        console_program_contract::Executable::Internal(program) => {
+            let Ok(at) = program.at();
+
+            at.to_string_lossy().into_owned()
+        }
+    };
+
+    let mut words = vec![program];
+
+    words.extend(runs.arguments.iter().cloned());
+
+    Ok(words)
 }
 
 pub fn and_waited(arguments: Vec<String>) -> Result<(), Never> {
@@ -124,7 +145,7 @@ pub fn left_running(arguments: &[String]) -> Result<(), Never> {
                 .stderr(Stdio::null());
             let Ok(()) = console_response_times::pressed_here(&mut starting);
 
-            let Ok(()) = holding(&mut starting);
+            let Ok(()) = spawn_detached(&mut starting);
 
             return Ok(());
         }
@@ -155,15 +176,15 @@ pub fn left_running(arguments: &[String]) -> Result<(), Never> {
         })
     };
 
-    let Ok(()) = holding(&mut starting);
+    let Ok(()) = spawn_detached(&mut starting);
 
     Ok(())
 }
 
-fn holding(starting: &mut Command) -> Result<(), Never> {
+fn spawn_detached(starting: &mut Command) -> Result<(), Never> {
     match let_go(starting) {
         Ok(started) => {
-            let Ok(()) = kept(started);
+            let Ok(()) = reap_in_background(started);
         },
         Err(fault) => {
             eprintln!("left_running: nothing started: {fault}");
@@ -183,15 +204,19 @@ mod tests {
 
     use console_waiting::{Outcome, Ready, Schedule, until};
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn a_program_let_go_is_reaped_when_it_ends_rather_than_at_the_next_press() {
-        let mut ending = Program::True.command().expect("a command");
-        let started = let_go(&mut ending).expect("started");
-        let at = std::path::PathBuf::from(format!("/proc/{}", started.id().expect("an id")));
+    fn a_program_let_go_is_reaped_when_it_ends_rather_than_at_the_next_press() -> Result<(), Failure> {
+        let mut ending = Program::True.command()?;
+        let started = let_go(&mut ending)?;
+        let id = started.id()?;
+        let at = std::path::PathBuf::from(format!("/proc/{id}"));
 
-        kept(started).expect("kept");
+        reap_in_background(started)?;
 
-        let gone = until(Schedule::of(Duration::from_secs(5)).expect("a patience"), || {
+        let patience = Schedule::of(Duration::from_secs(5))?;
+        let gone = until(patience, || {
             Ok(match at.exists() {
                 true => Ready::NotYet,
                 false => Ready::Yes,
@@ -205,5 +230,31 @@ mod tests {
              dead entry for every picture it asked for until someone presses something",
             at.display()
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_program_of_ours_is_run_from_beside_this_one_and_not_from_whatever_path_says() -> Result<(), Failure> {
+        let runs = console_program_contract::Command::internal(InternalProgram::Files, &["/music"])?;
+        let at = InternalProgram::Files.at()?;
+
+        assert_eq!(
+            words_of(&runs),
+            Ok(vec![at.to_string_lossy().into_owned(), "/music".to_string()]),
+            "a panel asked to run files ran the name, which is the installed copy rather than the one \
+             staged or built beside it"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_program_somebody_else_wrote_is_run_by_its_name() -> Result<(), Failure> {
+        let runs = console_program_contract::Command::external(Program::True, &[])?;
+
+        assert_eq!(words_of(&runs), Ok(vec!["true".to_string()]));
+
+        Ok(())
     }
 }

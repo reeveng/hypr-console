@@ -27,7 +27,7 @@ extern crate rustc_hir;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Destination, Expr, ExprKind, Node};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT046: a bare `break` or `continue` inside a nested loop leaves
@@ -36,10 +36,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT046_NO_UNNAMED_JUMP,
     Deny,
     "a jump out of a nested loop that does not name the loop it leaves"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 fn jumping(kind: &ExprKind<'_>) -> Option<(Destination, &'static str)> {
@@ -73,10 +69,6 @@ fn loops_around(cx: &LateContext<'_>, expr: &Expr<'_>) -> usize {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit046NoUnnamedJump {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

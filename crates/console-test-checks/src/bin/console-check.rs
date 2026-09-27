@@ -47,7 +47,7 @@ use std::collections::BTreeMap;
 use std::io::IsTerminal;
 use std::time::Instant;
 
-use console_test_checks::chosen;
+use console_test_checks::select;
 use console_test_checks::Unchecked;
 use console_core_never::Never;
 use console_response_times::{Note, Wait, Waiting};
@@ -85,7 +85,7 @@ struct Arguments {
     all: bool,
 }
 
-fn asked(words: Vec<String>) -> Result<Arguments, Never> {
+fn parse_arguments(words: Vec<String>) -> Result<Arguments, Never> {
     let said = |what: &str| words.iter().any(|word| word == what);
     let after = |what: &str| {
         words
@@ -142,7 +142,7 @@ fn main() -> std::process::ExitCode {
         false => PLAIN,
     };
 
-    let Ok(asked) = asked(std::env::args().skip(1).collect());
+    let Ok(asked) = parse_arguments(std::env::args().skip(1).collect());
 
     match run(asked, &ink) {
         Ok(code) => code,
@@ -261,32 +261,32 @@ fn on_the_device(
     let was = match asked.dry_run {
         true => None,
         false => {
-            let Ok(was) = putting_back::found(&mut stage);
+            let Ok(was) = putting_back::observe(&mut stage);
 
             Some(was)
         }
     };
     let Ok(many) = console_core_number_conversion::fitted::<_, u32>(ordered.len());
     let Ok(starting) = watching::starting(many, &ahead);
-    let Ok(card) = watching::said(&mut stage, &starting);
+    let Ok(card) = watching::notify(&mut stage, &starting);
     let began = Instant::now();
     let mut passed: u32 = 0;
     let mut failed: Vec<String> = Vec::new();
     let Ok(watch) = watching::Watching::of(many);
     let watch = std::sync::Arc::new(std::sync::Mutex::new(watch));
-    let Ok(()) = stage.watching(std::sync::Arc::clone(&watch));
+    let Ok(()) = stage.set_watching(std::sync::Arc::clone(&watch));
     let Ok(drawing) = watching::drawing(std::sync::Arc::clone(&watch));
 
     for check in ordered {
         let Ok(()) = watching::on(&watch, &ahead, check.name);
-        let Ok(()) = watching::showing(&mut stage, &ahead, check.name);
+        let Ok(()) = watching::show_progress(&mut stage, &ahead, check.name);
 
         let started = Instant::now();
         let Ok(timing) = timing(check);
         let Ok(how) = checking::device(check, &mut stage);
         let Ok(()) = timed(timing, DEVICE, &how);
         let took = started.elapsed();
-        let Ok(stop) = stopping::asked();
+        let Ok(stop) = stopping::stop_state();
 
         match stop {
             Stop::Requested => {
@@ -330,7 +330,7 @@ fn on_the_device(
     match was {
         Some(was) => {
             let Ok(handed) = putting_back::back(&mut stage, &was);
-            let Ok(said) = putting_back::said(&handed);
+            let Ok(said) = putting_back::summarize(&handed);
             let Ok(()) = watching::quietly(&watch, || {
                 println!("{}{said}{}", ink.dim, ink.off);
             });
@@ -341,7 +341,7 @@ fn on_the_device(
     let Ok(()) = watching::done_showing(&mut stage);
     let Ok(()) = lasting::keep(&mut stage, &lengths);
     let Ok(ended) = watching::ended(passed, &failed, began.elapsed(), card);
-    let _ = watching::said(&mut stage, &ended);
+    let _ = watching::notify(&mut stage, &ended);
 
     match asked.dry_run {
         true => {
@@ -377,17 +377,17 @@ fn timed(mut timing: Waiting, stage: &str, how: &How) -> Result<(), Never> {
 
     match how {
         How::Ok | How::Failed(_) => {
-            let Ok(()) = timing.named(Note { name: "stage", said: stage });
-            let Ok(()) = timing.named(Note { name: "went", said: went });
+            let Ok(()) = timing.add_note(Note { name: "stage", said: stage });
+            let Ok(()) = timing.add_note(Note { name: "went", said: went });
 
-            timing.done()
+            timing.finish()
         }
         How::Skipped(_) | How::Would => Ok(()),
     }
 }
 
 fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unchecked> {
-    let Ok(checks) = chosen(&asked.only);
+    let Ok(checks) = select(&asked.only);
 
     match checks.is_empty() {
         true => return Err(Unchecked::NoSuchCheck),
@@ -455,7 +455,7 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
     };
     println!("\n{} ok, {} failed, {} skipped{would}", many("ok"), many("failed"), many("skipped"));
 
-    let Ok(()) = console_response_times::settled();
+    let Ok(()) = console_response_times::flush();
 
     Ok(match many("failed") {
         0 => std::process::ExitCode::SUCCESS,

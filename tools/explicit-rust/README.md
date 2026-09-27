@@ -74,6 +74,8 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT050  a function fits on a screen
     EXPLICIT051  a number has a width the source says; no usize
     EXPLICIT052  the kernel is asked through rustix, never through libc
+    EXPLICIT053  no `while`; a loop names where it stops
+    EXPLICIT054  no `loop`; walk a list, an iterator or a source of events
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
@@ -404,10 +406,6 @@ daemon this process is running and is not a clock at all; the rule is silent on
 it, and on the flows, which is most of what a name-matching version would have
 shouted about.
 
-It does not exempt tests, which every other rule in the suite does. The checks
-that break it are written in test targets, and a rule that skipped those would
-be counting a tree no one runs.
-
 `Device::until` carries the allow, and it is the same sentence as
 `console_waiting::between`'s: the gap between two questions is what a poll is
 built out of. The checks have all crossed and the rule is denied, so what
@@ -490,7 +488,7 @@ answer goes in the scrutinee. A guard inside a macro's arm is the macro
 author's, and `matches!(x, P if c)` is left alone. `let … else` is
 not an `if` and is left alone: both of its outcomes are already written, and
 one of them is required to leave. A `while` desugars to an `if` no one wrote
-and is not charged for it.
+and is not charged for it here; 053 charges it under its own name.
 
 **020 is not about Rust at all.** It is about the other language a source file
 is written in, the one nothing compiles. Every `///` and every `//` in the
@@ -768,30 +766,25 @@ put a `match`. Every crate inherits that table with `[lints] workspace = true`
 and says nothing else about lints, so the next crate is covered before it is
 written.
 
-## Tests are exempt, except from 020 and 051
+## Tests are held to every rule
 
-Every lint but two returns early when `cx.sess().opts.test` is set. A test that panics
-is a test that fails, which is what a test is for, and an `as` in a fixture is
-arithmetic no one ships.
+No lint looks at `cx.sess().opts.test` any more. Every rule used to return
+early for the harness build of a target, on the argument that a test that
+panics is a test that fails, and 020 and 051 were the two it was taken back
+from. The same argument took it back from the rest.
 
-Nothing real is lost by it. `opts.test` is true only for the harness build of a
-target, and the ordinary build of the same library is linted as production, so
-a `#[cfg(test)] mod tests` inside a crate is skipped while the crate around it
-is not.
+A test is where someone goes to find out what a thing is supposed to do, and it
+is read by the same person who reads the code under it. An `unwrap` in a test
+says the same nothing it says anywhere else: a failure that names no reason,
+where a `match` would have said which part of the setup was missing. And the
+old line was one nobody could see from the file -- `tests/the_tree.rs` is a
+test build and a `#[cfg(test)] mod` inside a library is not, so the same line
+was legal in one and denied in the other.
 
-020 is the exception, and it is the exception because the reason above does not
-reach it. Every other rule is exempt where the harm it names is absent, and a
-comment in a test is prose beside code read by the same person and going stale
-at the same rate -- a test is where someone goes to find out what a thing is
-supposed to do, so it is the last place that should be explaining itself twice.
-Exempting it would also cut the rule along a line no one can see from the file:
-`tests/the_tree.rs` is a test build and a `#[cfg(test)] mod` inside a library is
-not, so the same comment would be legal in one and not in the other.
-
-051 is the other, for the same reason from the other side. A width is not a
-harm a test is spared by failing: a test that counts in `usize` is asserting a
-quantity the code under it no longer holds, and the width it compares against
-is the one the rule took out of that code.
+What a test still does differently is what the harness demands of it rather
+than what the rules forgive: a `#[test]` function is called by the harness with
+nothing and answers `()`, so the rules that read a signature -- 002, 007, 008,
+024, 034, 038 -- skip a function carrying the attribute, and nothing else.
 
 ## The nine that came after, and the half of them that are about cost
 
@@ -1152,14 +1145,34 @@ depending on the `libc` crate for one symbol. It arrived warned, with the
 handler installers carrying allows, and was denied once they had moved there
 and the programs that used signals to talk to each other had stopped.
 
+**053 is the `if` at the head of a loop.** A `while` asks a question every
+time round and leaves on the false answer, and that answer is written nowhere:
+where the walk stops is found by working out when the condition fails. It is
+019's complaint and 023's, one place over. What a `while` walks is a list,
+an iterator or a source of events, and then it is a `for`, or an iterator word
+that says what is walked and where it ends. `while let` is the same question
+put to a pattern. It arrived denied, with `while` still in most of the tree's crates,
+and they were walked onto a `for` or an iterator in the same stretch rather
+than left standing warned.
+
+**054 is the `loop` 053 would otherwise have sent everything to.** A `loop`
+ends wherever a `break` was written, which is further from its head than a
+`while`'s condition. A list is walked with a `for`, a sequence of steps with
+`successors` or `from_fn`, a search with `find_map`, and a program that runs
+for as long as something hands it events is a `for` over the receiver or the
+reader that hands them, which ends when that source does. Waiting for a thing
+is `console-waiting`'s, and it is written the same way. It arrived denied with
+053, and `console-core-directory-listing` is where the most common of the loops
+it found went: a stack of directories and a `while let` over its pop, written
+out in about ten crates.
+
 ## What it is, and what it is not yet
 
 `just explicit-gate` is a gate. It denies the rules that nothing in the tree
 breaks and warns the rest; which tier a rule is in is the level in its own
-crate and nowhere else. The warned tier is empty today, which is a thing that
-is true between sweeps rather than a thing that is finished: the next rule
-someone writes ahead of the code will stand there until its last call site is
-answered. A rule moves up when the last call site that broke it
+crate and nowhere else. The warned tier holds whatever rule was written ahead
+of the code, and it is empty between sweeps rather than finished: a rule
+stands there until its last call site is answered. A rule moves up when the last call site that broke it
 is fixed, and it never moves back. That is the whole ratchet.
 
 `just explicit` is the other half: every rule over every crate, counted rather

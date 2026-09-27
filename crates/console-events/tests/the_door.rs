@@ -19,21 +19,18 @@
 //! let in and told something, because a door that stops spinning by never
 //! opening again is the other way to get this wrong.
 
+mod pool;
+
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::mpsc::{Sender, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use console_events::serving;
-use console_events::sources::Subscribed;
 use console_events::wire::{self, Message};
 use console_program_contract::{Change, Topic};
+use console_waiting::{Ready, Schedule, until};
+use pool::{BEFORE_LONG, Failure, serve_at, socket};
 use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
-
-const BEFORE_LONG: Duration = Duration::from_secs(5);
 
 const REFUSING: Duration = Duration::from_secs(1);
 
@@ -41,75 +38,51 @@ const SPINNING: Duration = Duration::from_millis(300);
 
 const FEW: u64 = 256;
 
-static SAYING: OnceLock<Sender<Sender<Change>>> = OnceLock::new();
+const A_TICK: Duration = Duration::from_millis(10);
 
-fn source(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, console_core_never::Never> {
-    console_events::sources::handed_to(SAYING.get(), &Topic::Sound, topic, say)
-}
-
-fn socket() -> PathBuf {
-    std::env::temp_dir().join(format!("console-events-door-{}.sock", std::process::id()))
-}
-
-fn up(at: &Path) {
-    let began = Instant::now();
-
-    while began.elapsed() < BEFORE_LONG {
-        match at.exists() {
-            true => return,
-            false => std::thread::sleep(Duration::from_millis(5)),
-        }
-    }
-}
-
-fn on_the_processor(stat: &mut File) -> Duration {
+fn on_the_processor(stat: &mut File) -> Result<Duration, Failure> {
     let mut said = String::new();
 
-    stat.seek(SeekFrom::Start(0)).expect("the start of the process's own numbers");
-    stat.read_to_string(&mut said).expect("the process's own numbers");
+    stat.seek(SeekFrom::Start(0))?;
+    stat.read_to_string(&mut said)?;
 
-    let stat = said;
-    let (_, after_the_name) = stat.rsplit_once(')').expect("a name in brackets");
-    let fields: Vec<&str> = after_the_name.split_whitespace().collect();
-    let ticks: u64 = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
+    let (_, after_the_name) = said.rsplit_once(')').ok_or("a name in brackets")?;
+    let mut fields = after_the_name.split_whitespace().skip(11);
+    let user = fields.next().ok_or("the time spent as the program")?;
+    let system = fields.next().ok_or("the time spent as the kernel on its behalf")?;
+    let user: u32 = user.parse()?;
+    let system: u32 = system.parse()?;
 
-    Duration::from_millis(ticks * 10)
+    Ok(A_TICK.saturating_mul(user.saturating_add(system)))
 }
 
 #[test]
-fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() {
-    let at = socket();
-    let (handing, handed) = channel();
-    let _ = SAYING.set(handing);
-
-    let serving = at.clone();
-    let _ = std::thread::spawn(move || serving::serve(&serving, source));
-
-    up(&at);
-
-    let mut stat = File::open("/proc/self/stat").expect("the process's own numbers");
+fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() -> Result<(), Failure> {
+    let at = socket("door")?;
+    let handed = serve_at(&at)?;
+    let mut stat = File::open("/proc/self/stat")?;
     let was = getrlimit(Resource::Nofile);
 
-    setrlimit(Resource::Nofile, Rlimit { current: Some(FEW), maximum: was.maximum }).expect("fewer descriptors");
+    setrlimit(Resource::Nofile, Rlimit { current: Some(FEW), maximum: was.maximum })?;
 
-    let mut spent: Vec<File> = Vec::new();
-
-    while let Ok(null) = File::open("/dev/null") {
-        spent.push(null);
-    }
+    let mut spent: Vec<File> = std::iter::repeat_with(|| File::open("/dev/null"))
+        .map_while(|opened| match opened {
+            Ok(null) => Some(null),
+            Err(_out_of_descriptors) => None,
+        })
+        .collect();
 
     drop(spent.pop());
 
-    let queued = UnixStream::connect(&at).expect("a place in the queue at the door");
-
-    let before = on_the_processor(&mut stat);
-
-    std::thread::sleep(REFUSING);
-
-    let spun = on_the_processor(&mut stat) - before;
+    let queued = UnixStream::connect(&at)?;
+    let before = on_the_processor(&mut stat)?;
+    let Ok(patience) = Schedule::of(REFUSING);
+    let Ok(_refused_all_along) = until(patience, || Ok(Ready::NotYet));
+    let after = on_the_processor(&mut stat)?;
+    let spun = after.saturating_sub(before);
 
     drop(spent);
-    setrlimit(Resource::Nofile, was).expect("the descriptors back");
+    setrlimit(Resource::Nofile, was)?;
 
     assert!(
         spun < SPINNING,
@@ -117,21 +90,25 @@ fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() {
          the processor in {REFUSING:?} of nothing happening"
     );
 
-    let asked = wire::encoded(&Message::Subscribe(Topic::Sound)).expect("the wire");
-    let mut asking = queued.try_clone().expect("the connection");
+    let asked = wire::encoded(&Message::Subscribe(Topic::Sound))?;
+    let mut asking = queued.try_clone()?;
 
-    writeln!(asking, "{asked}").expect("asking to listen");
+    writeln!(asking, "{asked}")?;
 
-    let saying = handed.recv_timeout(BEFORE_LONG).expect("the program queued at the door was never let in");
+    let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the program queued at the door was never let in")?;
 
-    saying.send(Change { topic: Topic::Sound, text: "let in at last".to_string() }).expect("the pool");
+    saying
+        .send(Change { topic: Topic::Sound, text: "let in at last".to_string() })
+        .map_err(|_| "the pool stopped listening to its own source")?;
 
     let _ = queued.set_read_timeout(Some(BEFORE_LONG));
     let mut told = String::new();
 
-    BufReader::new(queued).read_line(&mut told).expect("told something once it was let in");
+    BufReader::new(queued).read_line(&mut told)?;
 
     assert!(told.contains("let in at last"), "the program let in heard {told:?}");
 
     let _ = std::fs::remove_file(&at);
+
+    Ok(())
 }

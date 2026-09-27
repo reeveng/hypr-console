@@ -24,6 +24,7 @@
 use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program;
+use console_core_file_names::Stored;
 use console_core_never::Never;
 use console_core_places::Folder;
 
@@ -43,7 +44,7 @@ pub const NAMED: &str = "%(title)s [%(id)s].%(ext)s";
 pub const LONGEST_TITLE: u32 = 120;
 
 pub fn into(kind: Kind) -> Result<PathBuf, Never> {
-    let films = Folder::Videos.hers()?;
+    let films = Folder::Videos.user()?;
     let home = console_core_places::home()?;
 
     Ok(match kind {
@@ -141,10 +142,7 @@ fn book(fetch: Fetch<'_>) -> Result<Vec<String>, Never> {
         },
     };
 
-    let named = match id {
-        Some(id) => format!("{file_name} [{id}].{BOOK}"),
-        None => format!("{file_name}.{BOOK}"),
-    };
+    let Ok(named) = Stored { title: &file_name, id: id.as_deref(), ending: BOOK }.name();
 
     Ok(vec![
         curl.to_string(),
@@ -211,7 +209,7 @@ pub fn id_in(url: &str) -> Result<Option<String>, Never> {
         None => said,
     };
 
-    crate::store::named(before)
+    crate::store::valid_id(before)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,52 +294,57 @@ pub fn holds(folder: &Path, id: &str) -> Result<Have, Never> {
 mod tests {
     use super::*;
 
-    fn words(kind: Kind) -> Vec<String> {
-        let Ok(arguments) = arguments(Fetch { kind, url: "https://youtu.be/abc", into: Path::new("/home/ada/Music"), title: "abc" });
-
-        arguments
+    fn words(kind: Kind) -> Result<Vec<String>, Never> {
+        arguments(Fetch { kind, url: "https://youtu.be/abc", into: Path::new("/home/ada/Music"), title: "abc" })
     }
 
-    fn after(arguments: &[String], flag: &str) -> String {
-        arguments.iter().skip_while(|word| *word != flag).nth(1).expect(flag).clone()
+    fn after<'a>(arguments: &'a [String], flag: &str) -> Result<Option<&'a str>, Never> {
+        Ok(arguments.iter().skip_while(|word| *word != flag).nth(1).map(String::as_str))
     }
 
     #[test]
     fn the_thing_that_fetches_is_yt_dlp_and_the_link_is_the_last_word() {
-        let said = words(Kind::Sound);
+        let Ok(said) = words(Kind::Sound);
         let Ok(yt_dlp) = Program::YtDlp.name();
 
-        assert_eq!(said[0], yt_dlp);
-        assert_eq!(said[said.len() - 2], "--", "a link is a link and never a flag");
-        assert_eq!(said[said.len() - 1], "https://youtu.be/abc");
+        assert_eq!(said.first().map(String::as_str), Some(yt_dlp));
+        assert!(said.ends_with(&["--".to_string(), "https://youtu.be/abc".to_string()]), "a link is a link and never a flag");
     }
 
     #[test]
     fn a_film_is_the_smallest_file_at_the_height_this_screen_can_show() {
-        let said = words(Kind::Film);
-        assert_eq!(after(&said, "--format-sort"), format!("res:{TALL},+size"));
-        assert_eq!(after(&said, "--merge-output-format"), FILM);
+        let Ok(said) = words(Kind::Film);
+        let sort = format!("res:{TALL},+size");
+
+        assert_eq!(after(&said, "--format-sort"), Ok(Some(sort.as_str())));
+        assert_eq!(after(&said, "--merge-output-format"), Ok(Some(FILM)));
     }
 
     #[test]
     fn sound_is_the_best_the_site_has_and_is_unwrapped_rather_than_encoded() {
-        let said = words(Kind::Sound);
-        assert_eq!(after(&said, "--format"), "bestaudio/best");
-        assert_eq!(after(&said, "--audio-format"), SOUND);
+        let Ok(said) = words(Kind::Sound);
+
+        assert_eq!(after(&said, "--format"), Ok(Some("bestaudio/best")));
+        assert_eq!(after(&said, "--audio-format"), Ok(Some(SOUND)));
     }
 
     #[test]
     fn the_picture_goes_inside_the_file_whichever_kind_it_is() {
         for kind in Kind::BOTH {
-            assert!(words(kind).contains(&"--embed-thumbnail".to_string()));
+            let Ok(said) = words(kind);
+
+            assert!(said.contains(&"--embed-thumbnail".to_string()));
         }
     }
 
     #[test]
     fn a_fetched_song_is_named_the_way_the_music_library_reads_a_name() {
-        assert_eq!(after(&words(Kind::Sound), "--output"), NAMED);
+        let Ok(said) = words(Kind::Sound);
+
+        assert_eq!(after(&said, "--output"), Ok(Some(NAMED)));
+        assert_eq!(Stored { title: "%(title)s", id: Some("%(id)s"), ending: "%(ext)s" }.name(), Ok(NAMED.to_string()));
         assert_eq!(
-            console_music_player::library::named("Africa [FTQbiNvZqaY].opus"),
+            console_core_file_names::title("Africa [FTQbiNvZqaY].opus"),
             Ok("Africa".to_string()),
         );
     }
@@ -378,7 +381,7 @@ mod tests {
             title: "Frankenstein; or/the modern prometheus",
         });
 
-        assert_eq!(after(&arguments, "--output"), "/home/ada/Books/Frankenstein; or the modern prometheus [84].epub.part");
+        assert_eq!(after(&arguments, "--output"), Ok(Some("/home/ada/Books/Frankenstein; or the modern prometheus [84].epub.part")));
         assert_eq!(arguments.last().map(String::as_str), Some("https://www.gutenberg.org/ebooks/84.epub3.images"));
         assert_eq!(have_it(["Frankenstein [84].epub".to_string()], "84"), Ok(Have::It));
     }

@@ -34,7 +34,7 @@ impl State {
     }
 }
 
-pub fn made(root: &Path, name: &str) -> Result<PathBuf, Never> {
+pub fn built_path(root: &Path, name: &str) -> Result<PathBuf, Never> {
     Ok(root.join("target/release").join(name))
 }
 
@@ -43,7 +43,7 @@ pub fn live(name: &str) -> Result<String, Never> {
 }
 
 pub fn state(root: &Path, name: &str) -> Result<State, Never> {
-    let Ok(made) = made(root, name);
+    let Ok(made) = built_path(root, name);
     let Ok(live) = live(name);
 
     Ok(match (std::fs::read(made), std::fs::read(live)) {
@@ -68,34 +68,18 @@ pub fn how(names: &[String]) -> Result<Vec<String>, Never> {
 mod tests {
     use super::*;
 
-    fn live(name: &str) -> String {
-        let Ok(live) = super::live(name);
-
-        live
-    }
-
-    fn how(names: &[String]) -> Vec<String> {
-        let Ok(how) = super::how(names);
-
-        how
-    }
-
-    fn state(root: &Path, name: &str) -> State {
-        let Ok(state) = super::state(root, name);
-
-        state
-    }
-
     #[test]
     fn a_program_is_installed_where_everything_not_from_a_package_lives() {
-        assert_eq!(live("console-panel"), "/usr/local/bin/console-panel");
+        assert_eq!(live("console-panel"), Ok("/usr/local/bin/console-panel".to_string()));
     }
 
     #[test]
     fn cargo_is_asked_once_for_every_program() {
         let names = ["console-panel".to_string(), "console-buttons".to_string()];
+        let Ok(how) = how(&names);
+
         assert_eq!(
-            how(&names),
+            how,
             [
                 "build", "--release", "--locked",
                 "--bin", "console-panel",
@@ -117,6 +101,7 @@ mod tests {
     #[test]
     fn a_program_nothing_has_compiled_is_unbuilt_whatever_the_machine_holds() {
         let nowhere = Path::new("/nonexistent-tree");
-        assert_eq!(state(nowhere, "console-panel"), State::Unbuilt);
+
+        assert_eq!(state(nowhere, "console-panel"), Ok(State::Unbuilt));
     }
 }

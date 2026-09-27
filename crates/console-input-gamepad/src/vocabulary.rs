@@ -82,7 +82,7 @@ pub const MODIFIERS: [(&str, &str); 4] = [
 ];
 
 pub fn key_capability(name: &str) -> Result<Option<String>, Never> {
-    let Ok(held) = found(&MODIFIERS, name);
+    let Ok(held) = lookup(&MODIFIERS, name);
 
     match held {
         Some(named) => return Ok(Some(format!("{KEY}{named}"))),
@@ -142,38 +142,50 @@ pub const HAT_CODES: [(&str, (AbsoluteAxisCode, i32)); 4] = [
 ];
 
 pub fn hat_code(name: &str) -> Result<Option<(AbsoluteAxisCode, i32)>, Never> {
-    found(&HAT_CODES, name)
+    lookup(&HAT_CODES, name)
 }
 
 pub const TRIGGER_BUTTONS: [(&str, KeyCode); 2] =
     [("LeftTrigger", KeyCode::BTN_TL2), ("RightTrigger", KeyCode::BTN_TR2)];
 
-fn found<'a, T: Copy>(table: &'a [(&'a str, T)], name: &str) -> Result<Option<T>, Never> {
+fn lookup<'a, T: Copy>(table: &'a [(&'a str, T)], name: &str) -> Result<Option<T>, Never> {
     Ok(table.iter().find(|(said, _)| *said == name).map(|(_, what)| *what))
 }
 
 pub fn gamepad_code(name: &str) -> Result<Option<KeyCode>, Never> {
-    found(&GAMEPAD_CODES, name)
+    lookup(&GAMEPAD_CODES, name)
 }
 
 pub fn mouse_code(name: &str) -> Result<Option<KeyCode>, Never> {
-    found(&MOUSE_CODES, name)
+    lookup(&MOUSE_CODES, name)
 }
 
 pub fn axis_codes(name: &str) -> Result<Option<(AbsoluteAxisCode, AbsoluteAxisCode)>, Never> {
-    found(&AXIS_CODES, name)
+    lookup(&AXIS_CODES, name)
 }
 
 pub fn trigger_code(name: &str) -> Result<Option<AbsoluteAxisCode>, Never> {
-    found(&TRIGGER_CODES, name)
+    lookup(&TRIGGER_CODES, name)
 }
 
 pub fn trigger_button(name: &str) -> Result<Option<KeyCode>, Never> {
-    found(&TRIGGER_BUTTONS, name)
+    lookup(&TRIGGER_BUTTONS, name)
+}
+
+pub fn trigger_of_axis(code: u16) -> Result<Option<&'static str>, Never> {
+    Ok(TRIGGER_CODES.iter().find(|(_, axis)| axis.0 == code).map(|(named, _)| *named))
+}
+
+pub fn trigger_of_button(code: u16) -> Result<Option<&'static str>, Never> {
+    Ok(TRIGGER_BUTTONS.iter().find(|(_, key)| key.0 == code).map(|(named, _)| *named))
+}
+
+pub fn trigger_spoken(named: &str) -> Result<Option<&'static str>, Never> {
+    Ok(TRIGGERS.iter().find(|(_, profile)| *profile == named).map(|(spoken, _)| *spoken))
 }
 
 pub fn axis_named(spoken: &str) -> Result<&str, Never> {
-    let named = found(&AXES, spoken)?;
+    let named = lookup(&AXES, spoken)?;
 
     Ok(match named {
         Some(named) => named,
@@ -182,7 +194,7 @@ pub fn axis_named(spoken: &str) -> Result<&str, Never> {
 }
 
 pub fn trigger_named(spoken: &str) -> Result<&str, Never> {
-    let named = found(&TRIGGERS, spoken)?;
+    let named = lookup(&TRIGGERS, spoken)?;
 
     Ok(match named {
         Some(named) => named,
@@ -191,7 +203,7 @@ pub fn trigger_named(spoken: &str) -> Result<&str, Never> {
 }
 
 pub fn is_trigger(spoken: &str) -> Result<Names, Never> {
-    let trigger = found(&TRIGGERS, spoken)?;
+    let trigger = lookup(&TRIGGERS, spoken)?;
 
     Ok(match trigger.is_some() {
         true => Names::ATrigger,
@@ -215,7 +227,7 @@ pub fn key_code(name: &str) -> Result<KeyCode, GamepadError> {
 }
 
 pub fn button_name(spoken: &str) -> Result<&'static str, GamepadError> {
-    let Ok(found) = found(&BUTTONS, spoken);
+    let Ok(found) = lookup(&BUTTONS, spoken);
 
     found.ok_or_else(|| GamepadError::NoSuchButton(spoken.to_string()))
 }
@@ -232,9 +244,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_face_buttons_are_not_where_their_names_suggest() {
-        assert_eq!(gamepad_code(button_name("x").expect("x")), Ok(Some(KeyCode::BTN_NORTH)));
-        assert_eq!(gamepad_code(button_name("y").expect("y")), Ok(Some(KeyCode::BTN_WEST)));
+    fn the_face_buttons_are_not_where_their_names_suggest() -> Result<(), GamepadError> {
+        let x = button_name("x")?;
+        let y = button_name("y")?;
+
+        assert_eq!(gamepad_code(x), Ok(Some(KeyCode::BTN_NORTH)));
+        assert_eq!(gamepad_code(y), Ok(Some(KeyCode::BTN_WEST)));
+
+        Ok(())
     }
 
     #[test]
@@ -252,9 +269,13 @@ mod tests {
     }
 
     #[test]
-    fn a_button_crosses_both_ways() {
-        assert_eq!(button_name("legion-right").expect("a button"), "QuickAccess");
+    fn a_button_crosses_both_ways() -> Result<(), GamepadError> {
+        let button = button_name("legion-right")?;
+
+        assert_eq!(button, "QuickAccess");
         assert_eq!(spoken_for("QuickAccess"), Ok("legion-right"));
+
+        Ok(())
     }
 
     #[test]
@@ -271,14 +292,19 @@ mod tests {
     }
 
     #[test]
-    fn a_key_is_the_same_name_in_capitals() {
-        assert_eq!(key_code("KeyPageUp").expect("a key"), KeyCode::KEY_PAGEUP);
-        assert_eq!(key_code("KeyF13").expect("a key"), KeyCode::KEY_F13);
+    fn a_key_is_the_same_name_in_capitals() -> Result<(), GamepadError> {
+        let page_up = key_code("KeyPageUp")?;
+        let f13 = key_code("KeyF13")?;
+
+        assert_eq!(page_up, KeyCode::KEY_PAGEUP);
+        assert_eq!(f13, KeyCode::KEY_F13);
+
+        Ok(())
     }
 
     #[test]
     fn something_that_is_not_a_key_says_so_rather_than_guessing() {
-        assert!(key_code("South").is_err());
-        assert!(key_code("KeyNotAKey").is_err());
+        assert!(matches!(key_code("South"), Err(GamepadError::NotAKeyName(_))));
+        assert!(matches!(key_code("KeyNotAKey"), Err(GamepadError::NoSuchKey(_))));
     }
 }

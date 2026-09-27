@@ -91,7 +91,7 @@ impl Router {
         let mut asked = String::new();
 
         for target in crate::targets::ASKED {
-            let Ok(name) = target.asked();
+            let Ok(name) = target.as_str();
 
             asked.push_str(&format!("  - {name}\n"));
         }
@@ -137,7 +137,7 @@ impl Router {
         }
 
         for button in &self.buttons {
-            let mapping = routing::mapping(button)?;
+            let mapping = routing::mapping_for(button)?;
 
             match mapping {
                 Some(mapping) => said.push_str(&mapping),
@@ -190,17 +190,12 @@ pub fn every_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
+    use crate::GamepadError;
     use crate::profile::{Kind, Profile, Source, Target};
     use std::path::Path;
 
-    fn legion() -> BTreeSet<String> {
-        [
+    fn legion() -> Result<BTreeSet<String>, Never> {
+        Ok([
             "Gamepad:Button:South",
             "Gamepad:Button:North",
             "Gamepad:Button:DPadUp",
@@ -213,27 +208,40 @@ mod tests {
         ]
         .into_iter()
         .map(String::from)
-        .collect()
+        .collect())
+    }
+
+    fn written(router: &Router) -> Result<Profile, GamepadError> {
+        let Ok(yaml) = router.yaml();
+
+        Profile::read(Path::new(FILE), &yaml)
     }
 
     #[test]
     fn every_button_the_device_has_is_routed() {
-        let router = ok(Router::of(&legion()));
+        let Ok(legion) = legion();
+        let Ok(router) = Router::of(&legion);
+
         assert_eq!(router.buttons, ["South", "DPadUp", "LeftPaddle1", "QuickAccess", "North"]);
         assert!(router.without.is_empty());
     }
 
     #[test]
     fn a_trigger_is_not_one_of_the_buttons() {
-        let router = ok(Router::of(&legion()));
+        let Ok(legion) = legion();
+        let Ok(router) = Router::of(&legion);
+        let Ok(yaml) = router.yaml();
+
         assert_eq!(router.has("LeftTrigger"), Ok(Has::No));
-        assert!(ok(router.yaml()).contains("LeftTrigger - a layer, held"));
+        assert!(yaml.contains("LeftTrigger - a layer, held"));
     }
 
     #[test]
-    fn a_trigger_reaches_the_pad_as_a_trigger() {
-        let Ok(written) = ok(Router::of(&ok(legion_go()))).yaml();
-        let profile = Profile::read(Path::new(FILE), &written).expect("a profile");
+    fn a_trigger_reaches_the_pad_as_a_trigger() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(legion_go) = legion_go();
+        let Ok(router) = Router::of(&legion_go);
+        let profile = written(&router)?;
+
         for trigger in PASSED {
             let held = profile
                 .mappings
@@ -242,60 +250,81 @@ mod tests {
                     name: trigger.to_string(),
                     deadzone: Some(0.3),
                 })
-                .unwrap_or_else(|| panic!("{trigger} is not in the profile"));
+                .ok_or_else(|| format!("{trigger} is not in the profile"))?;
+
             assert_eq!(
                 held.targets,
                 [Target { kind: Kind::GamepadTrigger, name: trigger.to_string() }],
                 "{trigger} does not come out of the profile as itself",
             );
         }
+
+        Ok(())
     }
 
     #[test]
     fn a_button_nothing_here_can_name_is_said_rather_than_dropped() {
-        let mut odd = legion();
+        let Ok(mut odd) = legion();
+
         odd.insert("Gamepad:Button:ThirdShoulder".to_string());
-        let router = ok(Router::of(&odd));
+
+        let Ok(router) = Router::of(&odd);
+        let Ok(yaml) = router.yaml();
+
         assert_eq!(router.without, ["ThirdShoulder"]);
-        assert!(!ok(router.yaml()).contains("ThirdShoulder"));
+        assert!(!yaml.contains("ThirdShoulder"));
     }
 
     #[test]
-    fn what_it_writes_is_a_profile_that_reads_back() {
-        let router = ok(Router::of(&legion()));
-        let profile = Profile::read(Path::new(FILE), &ok(router.yaml())).expect("it is a profile");
+    fn what_it_writes_is_a_profile_that_reads_back() -> Result<(), GamepadError> {
+        let Ok(legion) = legion();
+        let Ok(router) = Router::of(&legion);
+        let profile = written(&router)?;
+
         assert_eq!(profile.name, "Router");
         assert_eq!(profile.publishes("xbox-elite"), Ok(Has::Yes));
         assert_eq!(profile.publishes("keyboard"), Ok(Has::Yes));
         assert_eq!(profile.publishes("mouse"), Ok(Has::Yes));
-        assert_eq!(profile.mappings.len(), router.buttons.len() + 4);
+        assert_eq!(profile.mappings.len(), router.buttons.len().saturating_add(4));
         assert!(
             profile
                 .mappings
                 .iter()
-                .any(|mapping| mapping.source == Source::Button("LeftPaddle1".into()))
+                .any(|mapping| mapping.source == Source::Button("LeftPaddle1".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
     fn the_pointer_is_left_where_it_is_smooth() {
-        let Ok(yaml) = ok(Router::of(&legion())).yaml();
+        let Ok(legion) = legion();
+        let Ok(router) = Router::of(&legion);
+        let Ok(yaml) = router.yaml();
+
         assert!(yaml.contains("speed_pps: 900"), "{yaml}");
     }
 
     #[test]
-    fn the_machine_this_grew_on_is_routed_whole() {
-        let router = ok(Router::of(&ok(legion_go())));
+    fn the_machine_this_grew_on_is_routed_whole() -> Result<(), GamepadError> {
+        let Ok(legion_go) = legion_go();
+        let Ok(router) = Router::of(&legion_go);
+        let _profile = router.profile()?;
+
         assert!(router.without.is_empty(), "{:?}", router.without);
         assert_eq!(router.buttons.len(), routing::ROUTE.len());
-        assert!(router.profile().is_ok());
+
+        Ok(())
     }
 
     #[test]
-    fn a_device_with_almost_nothing_still_gets_a_profile() {
+    fn a_device_with_almost_nothing_still_gets_a_profile() -> Result<(), GamepadError> {
         let bare: BTreeSet<String> = ["Gamepad:Button:South"].into_iter().map(String::from).collect();
-        let router = ok(Router::of(&bare));
-        let profile = Profile::read(Path::new(FILE), &ok(router.yaml())).expect("a profile");
+        let Ok(router) = Router::of(&bare);
+        let profile = written(&router)?;
+
         assert_eq!(profile.mappings.len(), 5);
+
+        Ok(())
     }
 }

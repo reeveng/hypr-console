@@ -20,10 +20,12 @@ path = "src/bin/home-square.rs"
 [dependencies]
 console-core-atomic-writes.workspace = true
 console-core-geometry.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-walking.workspace = true
 console-compositor.workspace = true
 console-core-words.workspace = true
+console-screen.workspace = true
 console-onscreen.workspace = true
 console-applications.workspace = true
 console-core-places.workspace = true

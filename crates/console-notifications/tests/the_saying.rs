@@ -15,6 +15,7 @@
 //! ask. That is the whole reason for keeping them: the programs are new, and
 //! what a person meets is meant not to be.
 
+use std::error::Error;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -26,58 +27,85 @@ const REPORT_CRASH: &str = env!("CARGO_BIN_EXE_console-report-crash");
 
 const LOUD: u32 = 5;
 
+const AGAIN: (&str, &str) = ("wallpaper-choice", "The wallpaper was not changed");
+
+type Failure = Box<dyn Error>;
+
 struct Subscriber {
     here: PathBuf,
 }
 
 impl Subscriber {
-    fn new(named: &str) -> Self {
-        let named = format!("legion-saying-{named}-{}", std::process::id());
-        let here = std::env::temp_dir().join(named);
-        let _ = std::fs::remove_dir_all(&here);
-        std::fs::create_dir_all(here.join("bin")).expect("somewhere to listen");
-        std::fs::create_dir_all(here.join("run")).expect("somewhere to count");
+    fn new(named: &str) -> Result<Self, Failure> {
+        let here = console_core_temporary_directories::fresh(&format!("legion-saying-{named}"))?;
+
+        std::fs::create_dir_all(here.join("bin"))?;
+        std::fs::create_dir_all(here.join("run"))?;
+
         let listening = Subscriber { here };
-        listening.stub("notify-send", "shown");
         let Ok(logger) = Program::Logger.name();
 
-        listening.stub(logger, "written");
-        listening
+        listening.stub(("notify-send", "shown"))?;
+        listening.stub((logger, "written"))?;
+
+        Ok(listening)
     }
 
-    fn stub(&self, program: &str, into: &str) {
+    fn stub(&self, (program, into): (&str, &str)) -> Result<(), Failure> {
         let at = self.here.join("bin").join(program);
         let script = format!(
             "#!/bin/sh\necho \"$@\" >> {}\n",
             self.here.join(into).display()
         );
-        std::fs::write(&at, script).expect("a stub");
-        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).expect("runnable");
+
+        console_core_atomic_writes::whole(&at, script.as_bytes())?;
+        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755))?;
+
+        Ok(())
     }
 
-    fn run(&self, program: &str, arguments: &[&str], result: Option<&str>) {
-        let path = format!(
-            "{}:{}",
-            self.here.join("bin").display(),
-            std::env::var("PATH").unwrap_or_default()
-        );
+    fn run(&self, program: &str, arguments: &[&str], result: Option<&str>) -> Result<(), Failure> {
+        #[cfg_attr(
+            dylint_lib = "explicit026_env_read_once",
+            allow(
+                explicit026_env_read_once,
+                reason = "the program is run with the stubs in front of the path this test was given, so the path it was given is what is read"
+            )
+        )]
+        let given = std::env::var("PATH")?;
+        let path = format!("{}:{given}", self.here.join("bin").display());
         let mut running = Command::new(program);
+
         running
             .args(arguments)
             .env("PATH", path)
             .env("XDG_RUNTIME_DIR", self.here.join("run"));
-        if let Some(result) = result {
-            running.env("SERVICE_RESULT", result);
+
+        match result {
+            Some(result) => {
+                running.env("SERVICE_RESULT", result);
+            }
+            None => {}
         }
-        running.status().expect("it runs");
+
+        let _status = running.status()?;
+
+        Ok(())
     }
 
-    fn say(&self, kind: &str, summary: &str) {
-        self.run(SAY, &[kind, summary, "the body"], None);
+    fn say(&self, (kind, summary): (&str, &str)) -> Result<(), Failure> {
+        self.run(SAY, &[kind, summary, "the body"], None)
     }
 
-    fn counted(&self, what: &str) -> u32 {
-        u32::try_from(std::fs::read_to_string(self.here.join(what)).unwrap_or_default().lines().count()).unwrap()
+    fn read(&self, what: &str) -> Result<String, console_core_atomic_writes::Unread> {
+        console_core_atomic_writes::text_or_empty(&self.here.join(what))
+    }
+
+    fn counted(&self, what: &str) -> Result<u32, Failure> {
+        let said = self.read(what)?;
+        let Ok(lines) = console_core_number_conversion::fitted::<_, u32>(said.lines().count());
+
+        Ok(lines)
     }
 }
 
@@ -88,60 +116,91 @@ impl Drop for Subscriber {
 }
 
 #[test]
-fn a_fault_that_keeps_happening_is_shown_a_few_times_and_written_down_every_time() {
-    let listening = Subscriber::new("again");
-    for _ in 0..LOUD + 3 {
-        listening.say("wallpaper-choice", "The wallpaper was not changed");
+fn a_fault_that_keeps_happening_is_shown_a_few_times_and_written_down_every_time() -> Result<(), Failure> {
+    let listening = Subscriber::new("again")?;
+    let many = LOUD.saturating_add(3);
+
+    for _ in 0..many {
+        listening.say(AGAIN)?;
     }
-    assert_eq!(listening.counted("shown"), LOUD);
-    assert_eq!(listening.counted("written"), LOUD + 3);
+
+    let shown = listening.counted("shown")?;
+    let written = listening.counted("written")?;
+
+    assert_eq!(shown, LOUD);
+    assert_eq!(written, many);
+
+    Ok(())
 }
 
 #[test]
-fn the_last_one_shown_says_that_it_is_the_last() {
-    let listening = Subscriber::new("last");
+fn the_last_one_shown_says_that_it_is_the_last() -> Result<(), Failure> {
+    let listening = Subscriber::new("last")?;
+
     for _ in 0..LOUD {
-        listening.say("wallpaper-choice", "The wallpaper was not changed");
+        listening.say(AGAIN)?;
     }
-    let shown = std::fs::read_to_string(listening.here.join("shown")).expect("something shown");
-    let last = shown.lines().next_back().expect("a last one");
+
+    let shown = listening.read("shown")?;
+    let last = shown.lines().next_back().ok_or("nothing was shown")?;
+
     assert!(
         last.contains("Not shown again"),
         "the last one shown said only: {last}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn two_kinds_of_fault_are_counted_apart() {
-    let listening = Subscriber::new("kinds");
+fn two_kinds_of_fault_are_counted_apart() -> Result<(), Failure> {
+    let listening = Subscriber::new("kinds")?;
+
     for _ in 0..LOUD {
-        listening.say("wallpaper-choice", "The wallpaper was not changed");
+        listening.say(AGAIN)?;
     }
-    listening.say("compositor", "The compositor stopped answering");
-    assert_eq!(listening.counted("shown"), LOUD + 1);
+
+    listening.say(("compositor", "The compositor stopped answering"))?;
+
+    let shown = listening.counted("shown")?;
+
+    assert_eq!(shown, LOUD.saturating_add(1));
+
+    Ok(())
 }
 
 #[test]
-fn a_service_that_was_asked_to_stop_says_nothing() {
-    let listening = Subscriber::new("clean");
-    listening.run(REPORT_CRASH, &["console-paper.service"], Some("success"));
-    assert_eq!(listening.counted("shown"), 0);
-    assert_eq!(listening.counted("written"), 0);
+fn a_service_that_was_asked_to_stop_says_nothing() -> Result<(), Failure> {
+    let listening = Subscriber::new("clean")?;
+
+    listening.run(REPORT_CRASH, &["console-paper.service"], Some("success"))?;
+
+    let shown = listening.counted("shown")?;
+    let written = listening.counted("written")?;
+
+    assert_eq!(shown, 0);
+    assert_eq!(written, 0);
+
+    Ok(())
 }
 
 #[test]
-fn a_service_that_fell_over_says_which_one_it_was() {
-    let listening = Subscriber::new("crash");
-    listening.run(REPORT_CRASH, &["console-paper.service"], Some("core-dump"));
-    let shown = std::fs::read_to_string(listening.here.join("shown")).expect("something shown");
+fn a_service_that_fell_over_says_which_one_it_was() -> Result<(), Failure> {
+    let listening = Subscriber::new("crash")?;
+
+    listening.run(REPORT_CRASH, &["console-paper.service"], Some("core-dump"))?;
+
+    let shown = listening.read("shown")?;
+    let written = listening.read("written")?;
+
     assert!(
         shown.contains("console-paper.service"),
         "it did not name itself: {shown}"
     );
-
-    let written = std::fs::read_to_string(listening.here.join("written")).expect("a line");
     assert!(
         written.contains("core-dump"),
         "the journal was not told what happened: {written}"
     );
+
+    Ok(())
 }

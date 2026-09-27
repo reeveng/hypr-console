@@ -99,15 +99,6 @@ dylint_linting::declare_early_lint! {
     "a block that decides something must have a blank line above and below it"
 }
 
-// Tests are exempt, as they are in the rest of the suite. A fixture is written
-// to be read against the thing it checks, and a table of short cases packed
-// together is easier to check than the same table spread over three screens.
-// `opts.test` is true only for the harness build of a target -- the ordinary
-// build of the same library is linted as production, so nothing real is lost.
-fn is_test_build(cx: &EarlyContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 /// One line of the file the span came from, by its one-based number.
 ///
 /// `get_line` counts from zero and everything a diagnostic says counts from
@@ -355,10 +346,6 @@ fn declares(item: &Item) -> Option<&'static str> {
 
 impl EarlyLintPass for Explicit013BreathingRoom {
     fn check_block(&mut self, cx: &EarlyContext<'_>, block: &Block) {
-        if is_test_build(cx) {
-            return;
-        }
-
         for stmt in &block.stmts {
             let Some(what) = decides(stmt) else {
                 continue;
@@ -369,10 +356,6 @@ impl EarlyLintPass for Explicit013BreathingRoom {
     }
 
     fn check_item(&mut self, cx: &EarlyContext<'_>, item: &Item) {
-        if is_test_build(cx) {
-            return;
-        }
-
         let Some(what) = declares(item) else {
             return;
         };
@@ -381,10 +364,6 @@ impl EarlyLintPass for Explicit013BreathingRoom {
     }
 
     fn check_fn(&mut self, cx: &EarlyContext<'_>, kind: FnKind<'_>, span: Span, _: rustc_ast::NodeId) {
-        if is_test_build(cx) {
-            return;
-        }
-
         // A closure is an expression in the middle of a line, the same as an
         // `if` that is being assigned. Only a declaration is a declaration.
         if !matches!(kind, FnKind::Fn(..)) {

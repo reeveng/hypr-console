@@ -118,24 +118,18 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::Stopped;
+    use super::{Stopped, crashed};
 
     const BAR: Stopped<'static> = Stopped { unit: "console-bar.service", said: "Status bar" };
 
-    fn crashed(stopped: Stopped<'_>, result: Option<&str>) -> Option<(String, String, String)> {
-        let Ok(crashed) = super::crashed(stopped, result);
-
-        crashed
-    }
-
     #[test]
     fn a_unit_that_was_stopped_on_purpose_says_nothing() {
-        assert_eq!(crashed(BAR, Some("success")), None);
+        assert_eq!(crashed(BAR, Some("success")), Ok(None));
     }
 
     #[test]
     fn a_stop_with_no_reason_given_is_taken_as_a_clean_one() {
-        assert_eq!(crashed(BAR, None), None);
+        assert_eq!(crashed(BAR, None), Ok(None));
     }
 
     #[test]
@@ -148,31 +142,43 @@ mod tests {
                 },
                 Some("exec-condition")
             ),
-            None,
+            Ok(None),
         );
     }
 
     #[test]
-    fn a_unit_that_fell_over_says_so_in_a_line_anyone_can_read() {
-        let (kind, summary, body) =
-            crashed(BAR, Some("exit-code")).expect("a fall");
+    fn a_unit_that_fell_over_says_so_in_a_line_anyone_can_read() -> Result<(), &'static str> {
+        let Ok(fell) = crashed(BAR, Some("exit-code"));
+        let (kind, summary, body) = fell.ok_or("it did not fall")?;
+
         assert_eq!(kind, "unit-console-bar.service");
         assert_eq!(summary, "Status bar restarted");
         assert!(!summary.contains("console-bar.service"), "the top line names a unit: {summary}");
         assert_eq!(body, "It quit unexpectedly.");
+
+        Ok(())
     }
 
     #[test]
-    fn a_unit_with_no_description_is_said_by_its_name() {
+    fn a_unit_with_no_description_is_said_by_its_name() -> Result<(), &'static str> {
         let untitled = Stopped { unit: "something-else.service", said: "" };
-        let (_, summary, _) = crashed(untitled, Some("exit-code")).expect("a fall");
+        let Ok(fell) = crashed(untitled, Some("exit-code"));
+        let (_, summary, _) = fell.ok_or("it did not fall")?;
+
         assert!(summary.starts_with("something-else.service"), "{summary}");
+
+        Ok(())
     }
 
     #[test]
-    fn one_unit_is_one_kind_however_many_ways_it_falls() {
-        let one = crashed(BAR, Some("exit-code")).expect("a fall");
-        let other = crashed(BAR, Some("signal")).expect("a fall");
-        assert_eq!(one.0, other.0);
+    fn one_unit_is_one_kind_however_many_ways_it_falls() -> Result<(), &'static str> {
+        let Ok(exited) = crashed(BAR, Some("exit-code"));
+        let Ok(signalled) = crashed(BAR, Some("signal"));
+        let (one, _, _) = exited.ok_or("it did not fall")?;
+        let (other, _, _) = signalled.ok_or("it did not fall")?;
+
+        assert_eq!(one, other);
+
+        Ok(())
     }
 }

@@ -157,25 +157,21 @@ impl<D: Digest + Clone> Files<D> {
         }
     }
 
-    pub fn stored(&self) -> Result<Vec<ContentHash>, Never> {
+    pub fn hashes(&self) -> Result<Vec<ContentHash>, Never> {
         Ok(self.contents.keys().copied().collect())
     }
 
     pub fn history(&self, file: FileId) -> Result<Vec<Version>, FilesError> {
-        let mut walking = match self.heads.get(&file) {
-            Some(head) => Some(*head),
+        let head = match self.heads.get(&file) {
+            Some(head) => *head,
             None => return Err(FilesError::NotFound(file)),
         };
-        let mut history = Vec::new();
 
-        while let Some(at) = walking {
-            let version = self.version(at)?;
-
-            history.push(version);
-            walking = version.parent;
-        }
-
-        Ok(history)
+        core::iter::successors(Some(self.version(head)), |found| match found {
+            Ok(version) => version.parent.map(|parent| self.version(parent)),
+            Err(_already_said) => None,
+        })
+        .collect()
     }
 
     pub fn collisions(&self) -> Result<Vec<Collision>, Never> {

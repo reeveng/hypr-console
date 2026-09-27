@@ -22,95 +22,54 @@
 //! here is the daemon's half -- that the door it asks through is the one that
 //! keeps.
 
+use std::error::Error;
+
+use console_core_never::Never;
 use console_input_controller::actions::{Task, Applicability, Table, Action, Context, job};
 use console_input_controller::mode::Mode;
 use console_test_flows::screens;
-use console_button_guide::guide::{DOABLE, MENUS, Line, Section, opens_on, said, sections};
+use console_button_guide::guide::{DOABLE, MENUS, Line, Section, opens_on, button_label, sections};
 use console_input_bindings::bound::{Input, Played};
 use console_test_stages::device::Ready;
 use console_test_stages::here::{Here, TURNS};
 use console_input_event_devices::{EventType, KeyCode};
 
-fn to(where_: &str) -> String {
-    format!("hl.dsp.focus({{workspace = \"{where_}\"}})")
+type Failure = Box<dyn Error>;
+
+const NEXT: &str = "hl.dsp.focus({workspace = \"+1\"})";
+const PREVIOUS: &str = "hl.dsp.focus({workspace = \"-1\"})";
+const CARRIED_TO_THE_NEXT: &str = "hl.dsp.window.move({workspace = \"+1\"})";
+
+fn stage() -> Result<Here, Failure> {
+    let mut here = Here::new()?;
+
+    here.set_layers(screens::NOTHING_UP)?;
+
+    Ok(here)
 }
 
-fn carrying(where_: &str) -> String {
-    format!("hl.dsp.window.move({{workspace = \"{where_}\"}})")
-}
-
-fn ours() -> Table {
-    let Ok(table) = Table::ours();
-
-    table
-}
-
-fn dispatches(here: &Here) -> Vec<String> {
-    let Ok(dispatches) = here.dispatches();
-
-    dispatches
-}
-
-fn started(here: &Here) -> Vec<String> {
-    let Ok(names) = here.names();
-
-    names
-}
-
-fn commands(here: &Here) -> Vec<Vec<String>> {
-    let Ok(commands) = here.commands();
-
-    commands.to_vec()
-}
-
-fn mode(here: &Here) -> Mode {
-    let Ok(mode) = here.mode();
-
-    mode
-}
-
-fn sent(here: &Here, kind: EventType, code: u16, value: i32) -> Ready {
-    let Ok(seen) = here.sent(kind, code, value);
-
-    seen
-}
-
-fn says(what: Action) -> &'static str {
-    let Ok(says) = what.says();
-
-    says
-}
-
-fn stage() -> Here {
-    let mut here = Here::new().expect("a stage");
-    here.showing(screens::NOTHING_UP).expect("the desktop");
-    here
-}
-
-fn guide(table: &Table) -> Vec<Section> {
-    let Ok(sections) = sections(table);
-
-    sections
-}
-
-fn as_read(guide: &[Section], mode: Mode) -> Vec<Line> {
+fn as_read(guide: &[Section], mode: Mode) -> Result<Vec<Line>, Never> {
     let Ok(first) = opens_on(Input::Pad, mode);
-    let mut lines = under(guide, first);
+    let Ok(mut lines) = under(guide, first);
 
     match first == DOABLE {
         true => {},
-        false => lines.extend(under(guide, DOABLE)),
+        false => {
+            let Ok(doable) = under(guide, DOABLE);
+
+            lines.extend(doable);
+        },
     }
 
-    lines
+    Ok(lines)
 }
 
-fn under(guide: &[Section], title: &str) -> Vec<Line> {
-    guide
+fn under(guide: &[Section], title: &str) -> Result<Vec<Line>, Never> {
+    Ok(guide
         .iter()
         .filter(|section| section.title == title)
         .flat_map(|section| section.lines.clone())
-        .collect()
+        .collect())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,23 +78,23 @@ enum Yes {
     Not,
 }
 
-fn names(lines: &[Line], button: &str, does: &str) -> Yes {
-    let Ok(said) = said(button);
+fn names(lines: &[Line], (button, does): (&str, &str)) -> Result<Yes, Never> {
+    let Ok(said) = button_label(button);
     let found = lines
         .iter()
         .filter(|line| line.does == does)
         .any(|line| line.button.split(" / ").any(|named| named == said));
 
     match found {
-        true => Yes::It,
-        false => Yes::Not,
+        true => Ok(Yes::It),
+        false => Ok(Yes::Not),
     }
 }
 
-fn bare(table: &Table, mode: Mode) -> Vec<(&'static Task, String)> {
+fn bare(table: &Table, mode: Mode) -> Result<Vec<(&'static Task, String)>, Never> {
     let Ok(every) = table.every();
 
-    every
+    Ok(every
         .filter(|(job, _)| {
             let Ok(applicability) = job.context.applicability(mode);
 
@@ -154,244 +113,329 @@ fn bare(table: &Table, mode: Mode) -> Vec<(&'static Task, String)> {
                 .map(move |one| (job, one.pressed.clone()))
                 .collect::<Vec<(&'static Task, String)>>()
         })
-        .collect()
+        .collect())
 }
 
-fn anything(here: &Here) -> bool {
-    let Ok(told) = here.told();
+fn anything(here: &Here) -> Result<Yes, Never> {
+    let Ok(told) = here.pad_inputs();
+    let Ok(commands) = here.commands();
 
-    !commands(here).is_empty() || !here.written.is_empty() || !told.is_empty()
+    match commands.is_empty() && here.written.is_empty() && told.is_empty() {
+        true => Ok(Yes::Not),
+        false => Ok(Yes::It),
+    }
 }
 
 #[test]
-fn the_shoulders_carry_you_between_places_and_carry_nothing_else() {
-    let mut here = stage();
+fn the_shoulders_carry_you_between_places_and_carry_nothing_else() -> Result<(), Failure> {
+    let mut here = stage()?;
 
-    here.press("r1").expect("a shoulder");
-    here.settle(TURNS);
-    assert_eq!(dispatches(&here), [to("+1")], "R1 on the desktop is the place after this one");
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
+    assert_eq!(dispatches, [NEXT], "R1 on the desktop is the place after this one");
     assert!(here.written.is_empty(), "a shoulder is a place, so it sends nothing to the pointer");
 
-    here.press("r1").expect("a shoulder");
-    here.settle(TURNS);
-    assert_eq!(dispatches(&here), [to("+1"), to("+1")], "pressed again, it is one further on");
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
 
-    here.press("l1").expect("a shoulder");
-    here.settle(TURNS);
+    assert_eq!(dispatches, [NEXT, NEXT], "pressed again, it is one further on");
+
+    here.press("l1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
     assert_eq!(
-        dispatches(&here),
-        [to("+1"), to("+1"), to("-1")],
+        dispatches,
+        [NEXT, NEXT, PREVIOUS],
         "L1 comes back one, so the walk is two forward and one back"
     );
 
-    assert_eq!(dispatches(&here).len(), 3, "three presses asked for three moves and no more");
-    assert!(started(&here).iter().all(|name| name == "hyprctl"), "a shoulder starts nothing else");
+    let Ok(dispatches) = here.dispatches();
+
+    assert_eq!(dispatches.len(), 3, "three presses asked for three moves and no more");
+    let Ok(started) = here.names();
+
+    assert!(started.iter().all(|name| name == "hyprctl"), "a shoulder starts nothing else");
+
+    Ok(())
 }
 
 #[test]
-fn a_trigger_held_carries_the_window_and_the_bare_shoulder_stays_out_of_it() {
-    let mut here = stage();
+fn a_trigger_held_carries_the_window_and_the_bare_shoulder_stays_out_of_it() -> Result<(), Failure> {
+    let mut here = stage()?;
 
-    here.trigger("l2", 1.0).expect("a trigger");
-    here.press("r1").expect("a shoulder");
-    here.settle(TURNS);
+    here.trigger("l2", 1.0)?;
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
     assert_eq!(
-        dispatches(&here),
-        [carrying("+1")],
+        dispatches,
+        [CARRIED_TO_THE_NEXT],
         "L2 held, the shoulder takes the window along"
     );
-    here.trigger("l2", 0.0).expect("a trigger let go");
-    here.fresh();
+    here.trigger("l2", 0.0)?;
+    let Ok(()) = here.fresh();
 
-    here.press("r1").expect("a shoulder");
-    here.settle(TURNS);
-    assert_eq!(dispatches(&here), [to("+1")], "the trigger let go, the shoulder is a place again");
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
+    assert_eq!(dispatches, [NEXT], "the trigger let go, the shoulder is a place again");
+
+    Ok(())
 }
 
 #[test]
-fn a_picker_takes_the_shoulders_and_hands_them_back() {
-    let mut here = stage();
-    here.showing(screens::A_PICKER).expect("a picker");
-    assert_eq!(mode(&here), Mode::Tabs, "a panel over the desktop is a picker");
+fn a_picker_takes_the_shoulders_and_hands_them_back() -> Result<(), Failure> {
+    let mut here = stage()?;
+    here.set_layers(screens::A_PICKER)?;
+    let Ok(mode) = here.mode();
 
-    here.press("r1").expect("a shoulder");
-    here.press("l1").expect("a shoulder");
-    here.settle(TURNS);
+    assert_eq!(mode, Mode::Tabs, "a panel over the desktop is a picker");
+
+    here.press("r1")?;
+    here.press("l1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(sent) = here.check_sent(EventType::KEY, KeyCode::KEY_PAGEDOWN.0, 1);
+
     assert_eq!(
-        sent(&here, EventType::KEY, KeyCode::KEY_PAGEDOWN.0, 1),
+        sent,
         Ready::Yes,
         "with a picker up, R1 is the tab after this one"
     );
+    let Ok(sent) = here.check_sent(EventType::KEY, KeyCode::KEY_PAGEUP.0, 1);
+
     assert_eq!(
-        sent(&here, EventType::KEY, KeyCode::KEY_PAGEUP.0, 1),
+        sent,
         Ready::Yes,
         "and L1 is the tab before it"
     );
-    assert!(dispatches(&here).is_empty(), "neither of them moved you off the menu you are reading");
-    here.fresh();
+    let Ok(dispatches) = here.dispatches();
 
-    here.trigger("l2", 1.0).expect("a trigger");
-    here.press("r1").expect("a shoulder");
-    here.settle(TURNS);
+    assert!(dispatches.is_empty(), "neither of them moved you off the menu you are reading");
+    let Ok(()) = here.fresh();
+
+    here.trigger("l2", 1.0)?;
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
     assert!(
-        dispatches(&here).is_empty(),
+        dispatches.is_empty(),
         "with a picker up, no shoulder is a workspace, held or not"
     );
-    here.trigger("l2", 0.0).expect("a trigger let go");
-    here.fresh();
+    here.trigger("l2", 0.0)?;
+    let Ok(()) = here.fresh();
 
-    here.press("legion-left").expect("the left Legion button");
-    here.press("view").expect("the button with the two squares");
-    here.settle(TURNS);
-    assert!(started(&here).is_empty(), "with a picker up, the desktop's own buttons start nothing");
-    here.fresh();
+    here.press("legion-left")?;
+    here.press("view")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(started) = here.names();
 
-    here.showing(screens::NOTHING_UP).expect("the desktop");
-    assert_eq!(mode(&here), Mode::Desktop, "the picker is gone");
-    here.press("r1").expect("a shoulder");
-    here.settle(TURNS);
-    assert_eq!(dispatches(&here), [to("+1")], "the picker gone, R1 is a workspace in one press");
+    assert!(started.is_empty(), "with a picker up, the desktop's own buttons start nothing");
+    let Ok(()) = here.fresh();
+
+    here.set_layers(screens::NOTHING_UP)?;
+    let Ok(mode) = here.mode();
+
+    assert_eq!(mode, Mode::Desktop, "the picker is gone");
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
+    assert_eq!(dispatches, [NEXT], "the picker gone, R1 is a workspace in one press");
+    let Ok(sent) = here.check_sent(EventType::KEY, KeyCode::KEY_PAGEDOWN.0, 1);
+
     assert_eq!(
-        sent(&here, EventType::KEY, KeyCode::KEY_PAGEDOWN.0, 1),
+        sent,
         Ready::NotYet,
         "and it is not also a tab, so nothing was kept from the picker"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_guide_is_raised_from_either_place_and_reads_the_table_the_daemon_obeys() {
-    let mut here = stage();
-    let guide = guide(&ours());
-    let anywhere = under(&guide, DOABLE);
-    let menus = under(&guide, MENUS);
+fn the_guide_is_raised_from_either_place_and_reads_the_table_the_daemon_obeys() -> Result<(), Failure> {
+    let mut here = stage()?;
+    let Ok(table) = Table::ours();
+    let Ok(guide) = sections(&table);
+    let Ok(anywhere) = under(&guide, DOABLE);
+    let Ok(menus) = under(&guide, MENUS);
 
-    here.press("r1").expect("a shoulder");
-    here.press("menu").expect("the button with the lines on it");
-    here.settle(TURNS);
+    here.press("r1")?;
+    here.press("menu")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(started) = here.names();
+
     assert!(
-        started(&here).contains(&"mapping-panel".to_string()),
+        started.contains(&"mapping-panel".to_string()),
         "the menu button raises the guide"
     );
-    assert_eq!(dispatches(&here), [to("+1")], "and raising it did not undo the move before it");
-    here.fresh();
+    let Ok(dispatches) = here.dispatches();
+
+    assert_eq!(dispatches, [NEXT], "and raising it did not undo the move before it");
+    let Ok(()) = here.fresh();
+    let Ok(workspace) = Action::Workspace(1).says();
+    let Ok(named) = names(&anywhere, ("r1", workspace));
 
     assert_eq!(
-        names(&anywhere, "r1", says(Action::Workspace(1))),
+        named,
         Yes::It,
         "the guide names R1 as the place after this one, which is what it just was"
     );
+
+    let Ok(tab) = Action::Tab(1).says();
+    let Ok(named) = names(&menus, ("r1", tab));
+
     assert_eq!(
-        names(&menus, "r1", says(Action::Tab(1))),
+        named,
         Yes::It,
         "and with a picker up it is the tab, which is what it just was there"
     );
 
-    here.showing(screens::A_PICKER).expect("a picker");
-    here.press("menu").expect("the button with the lines on it");
-    here.settle(TURNS);
+    here.set_layers(screens::A_PICKER)?;
+    here.press("menu")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(started) = here.names();
+
     assert!(
-        started(&here).contains(&"mapping-panel".to_string()),
+        started.contains(&"mapping-panel".to_string()),
         "the guide is raised from inside a picker too"
     );
+    let Ok(mode) = here.mode();
+
     assert_eq!(
-        opens_on(Input::Pad, mode(&here)),
+        opens_on(Input::Pad, mode),
         Ok(MENUS),
         "raised over a picker it opened on the tab where A is a click and R1 is a workspace"
     );
+
+    Ok(())
 }
 
 #[test]
-fn everything_the_guide_says_about_a_place_is_true_when_you_stand_in_it() {
-    let table = ours();
-    let guide = guide(&table);
-    let desktop = as_read(&guide, Mode::Desktop);
-    let picker = as_read(&guide, Mode::Tabs);
+fn everything_the_guide_says_about_a_place_is_true_when_you_stand_in_it() -> Result<(), Failure> {
+    let Ok(table) = Table::ours();
+    let Ok(guide) = sections(&table);
+    let Ok(desktop) = as_read(&guide, Mode::Desktop);
+    let Ok(picker) = as_read(&guide, Mode::Tabs);
 
     for (mode, screen, named) in [
         (Mode::Desktop, screens::NOTHING_UP, &desktop),
         (Mode::Tabs, screens::A_PICKER, &picker),
     ] {
-        for (job, button) in bare(&table, mode) {
-            let mut here = Here::new().expect("a stage");
-            here.showing(screen).expect("somewhere to stand");
-            here.press(&button).expect("a button");
-            here.settle(TURNS);
+        let Ok(bare) = bare(&table, mode);
 
-            assert!(
-                anything(&here),
+        for (job, button) in bare {
+            let mut here = Here::new()?;
+
+            here.set_layers(screen)?;
+            here.press(&button)?;
+            let Ok(()) = here.settle(TURNS);
+            let Ok(anything) = anything(&here);
+
+            assert_eq!(
+                anything,
+                Yes::It,
                 "{mode:?}: {button} is bound to {} and the daemon did nothing about it",
                 job.slug
             );
-            assert_eq!(
-                names(named, &button, says(job.action)),
-                Yes::It,
-                "{mode:?}: the guide does not say {button} is {}",
-                says(job.action)
-            );
+
+            let Ok(says) = job.action.says();
+            let Ok(named) = names(named, (&button, says));
+
+            assert_eq!(named, Yes::It, "{mode:?}: the guide does not say {button} is {says}");
         }
     }
+
+    Ok(())
 }
 
 #[test]
-fn the_right_paddle_leaves_from_wherever_it_is_pressed() {
-    let mut here = stage();
-    here.showing(screens::A_PICKER).expect("a picker");
+fn the_right_paddle_leaves_from_wherever_it_is_pressed() -> Result<(), Failure> {
+    let mut here = stage()?;
+    here.set_layers(screens::A_PICKER)?;
 
-    here.press("r1").expect("a shoulder");
-    here.press("r1").expect("a shoulder");
-    here.press("dpad-down").expect("the d-pad");
-    here.press("dpad-down").expect("the d-pad");
-    here.settle(TURNS);
-    here.fresh();
+    here.press("r1")?;
+    here.press("r1")?;
+    here.press("dpad-down")?;
+    here.press("dpad-down")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(()) = here.fresh();
 
-    here.press("right-paddle-top").expect("the paddle that closes");
-    here.settle(TURNS);
-    assert_eq!(started(&here), ["console-put-away"], "deep in a panel, the paddle puts away what is up");
+    here.press("right-paddle-top")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(started) = here.names();
+
+    assert_eq!(started, ["console-put-away"], "deep in a panel, the paddle puts away what is up");
+    let Ok(dispatches) = here.dispatches();
+
     assert!(
-        dispatches(&here).is_empty(),
+        dispatches.is_empty(),
         "and it does not close the window behind the panel on the way"
     );
-    here.fresh();
+    let Ok(()) = here.fresh();
 
-    here.press("b").expect("b");
-    here.settle(TURNS);
+    here.press("b")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(sent) = here.check_sent(EventType::KEY, KeyCode::KEY_ESC.0, 1);
+
     assert_eq!(
-        sent(&here, EventType::KEY, KeyCode::KEY_ESC.0, 1),
+        sent,
         Ready::Yes,
         "b in a picker is one step back"
     );
-    assert!(started(&here).is_empty(), "one step back starts nothing");
-    here.fresh();
+    let Ok(started) = here.names();
 
-    here.showing(screens::NOTHING_UP).expect("the desktop");
-    here.press("right-paddle-top").expect("the paddle that closes");
-    here.settle(TURNS);
-    assert_eq!(started(&here), ["console-put-away"], "on the desktop it is the same one job");
+    assert!(started.is_empty(), "one step back starts nothing");
+    let Ok(()) = here.fresh();
+
+    here.set_layers(screens::NOTHING_UP)?;
+    here.press("right-paddle-top")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(started) = here.names();
+
+    assert_eq!(started, ["console-put-away"], "on the desktop it is the same one job");
+
+    Ok(())
 }
 
 #[test]
-fn a_menu_asked_for_while_one_is_up_is_asked_for_through_the_door_that_keeps() {
-    let mut here = stage();
+fn a_menu_asked_for_while_one_is_up_is_asked_for_through_the_door_that_keeps() -> Result<(), Failure> {
+    let mut here = stage()?;
 
-    here.press("left-paddle-top").expect("the paddle with the menu on it");
-    here.settle(TURNS);
-    assert_eq!(commands(&here), [["launcher", "--keep"]], "the paddle opens the menu");
-    here.fresh();
+    here.press("left-paddle-top")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(commands) = here.commands();
 
-    here.showing(screens::A_PICKER).expect("a picker");
-    here.press("left-paddle-top").expect("the paddle with the menu on it");
-    here.settle(TURNS);
+    assert_eq!(commands, [["launcher", "--keep"]], "the paddle opens the menu");
+    let Ok(()) = here.fresh();
+
+    here.set_layers(screens::A_PICKER)?;
+    here.press("left-paddle-top")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(commands) = here.commands();
+
     assert_eq!(
-        commands(&here),
+        commands,
         [["launcher", "--keep"]],
         "with a menu already up, the paddle asks through the same door"
     );
-    assert_eq!(started(&here).len(), 1, "and asks once, so there is one to replace the one up");
+    let Ok(started) = here.names();
+
+    assert_eq!(started.len(), 1, "and asks once, so there is one to replace the one up");
+
+    Ok(())
 }
 
 #[test]
-fn the_walk_is_about_the_buttons_it_names() {
-    let table = ours();
+fn the_walk_is_about_the_buttons_it_names() -> Result<(), Failure> {
+    let Ok(table) = Table::ours();
 
     for (slug, button, when) in [
         ("workspace-next", "r1", Context::OnTheDesktop),
@@ -403,8 +447,9 @@ fn the_walk_is_about_the_buttons_it_names() {
         ("menu", "left-paddle-top", Context::Anywhere),
     ] {
         let Ok(job) = job(slug);
-        let job = job.expect("a job this desktop does");
-        assert_eq!(job.context, when, "{slug} applies somewhere else now");
+
+        assert_eq!(job.map(|job| job.context), Some(when), "{slug} applies somewhere else now");
+
         let Ok(bindings) = table.bindings(slug);
 
         assert!(
@@ -414,4 +459,6 @@ fn the_walk_is_about_the_buttons_it_names() {
             "{slug} is not on {button} any more, and this flow is walking the old machine"
         );
     }
+
+    Ok(())
 }

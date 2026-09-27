@@ -81,6 +81,7 @@ fn event_in(bytes: &[u8]) -> Result<Option<InputEvent>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::keys::KeyCode;
 
     #[test]
@@ -94,14 +95,16 @@ mod tests {
     }
 
     #[test]
-    fn a_torn_event_is_not_read() {
+    fn a_torn_event_is_not_read() -> Result<(), Box<dyn Error>> {
         let Ok(whole) = InputEvent::REPORT.bytes();
         let torn = match whole.split_last() {
             Some((_, torn)) => torn,
-            None => panic!("an event with nothing in it"),
+            None => return Err(Box::from("an event with nothing in it")),
         };
         let Ok(read) = events(torn);
 
         assert_eq!(read, Vec::new());
+
+        Ok(())
     }
 }

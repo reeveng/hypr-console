@@ -6,7 +6,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{FnDecl, PrimTy, QPath, Ty, TyKind, def::Res};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT008: bool parameters are forbidden. `fn write(2, true)` is
@@ -25,15 +25,6 @@ fn hir_ty_is_bool(ty: &Ty<'_>) -> bool {
             rustc_hir::Path { res: Res::PrimTy(PrimTy::Bool), .. }
         ))
     )
-}
-
-// Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
-// is true only for the harness build of a target -- the ordinary build of the
-// same library is linted as production, so nothing real is lost by skipping
-// this one.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // A method that implements a trait did not choose its own signature. The rule
@@ -58,22 +49,13 @@ impl<'tcx> LateLintPass<'tcx> for Explicit008NoBoolParam {
         span: rustc_span::Span,
         def_id: rustc_hir::def_id::LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
         if matches!(kind, rustc_hir::intravisit::FnKind::Closure) {
             return;
         }
         if implements_a_trait(cx, def_id) {
             return;
         }
-        let hir_id = cx.tcx.local_def_id_to_hir_id(def_id);
-        if cx
-            .tcx
-            .hir_attrs(hir_id)
-            .iter()
-            .any(|a| a.has_name(rustc_span::sym::test))
-        {
+        if clippy_utils::is_test_function(cx.tcx, def_id) {
             return;
         }
         for arg in decl.inputs {

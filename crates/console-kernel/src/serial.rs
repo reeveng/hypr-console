@@ -60,16 +60,17 @@ impl Serial {
 }
 
 fn send(byte: u8) -> Result<(), Never> {
-    loop {
+    let emptied = core::iter::repeat_with(|| {
         let Ok(status) = read(LINE_STATUS);
 
-        match status & TRANSMITTER_EMPTY == NOTHING {
-            true => {},
-            false => break,
-        }
-    }
+        status
+    })
+    .any(|status| status & TRANSMITTER_EMPTY != NOTHING);
 
-    write(DATA, byte)
+    match emptied {
+        true => write(DATA, byte),
+        false => Ok(()),
+    }
 }
 
 fn write(port: u16, value: u8) -> Result<(), Never> {

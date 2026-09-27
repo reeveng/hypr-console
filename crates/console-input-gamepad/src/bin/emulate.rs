@@ -15,7 +15,7 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_input_gamepad::capture::captured;
+use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::go::{LegionGo, Passing};
 use console_input_gamepad::profile::Profile;
@@ -23,6 +23,7 @@ use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::{self, VERBS};
 use console_input_gamepad::GamepadError;
 use console_input_gamepad::uinput::Uinput;
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,7 +128,7 @@ fn run() -> Result<ExitCode, Unemulated> {
         Action::Interactive | Action::ButtonPress(_) | Action::Run(_) => (),
     }
 
-    let descriptors = captured().map_err(Unemulated::NoDevices)?;
+    let descriptors = load_capture().map_err(Unemulated::NoDevices)?;
     let sink = Uinput::of(&descriptors).map_err(Unemulated::NoUinput)?;
     let profiles = every_profile(&asked.root)?;
     let Ok(devices) = Devices::new(descriptors, sink);
@@ -155,28 +156,47 @@ fn run() -> Result<ExitCode, Unemulated> {
     Ok(ExitCode::SUCCESS)
 }
 
+struct Reading {
+    waiting: std::vec::IntoIter<String>,
+    profile: String,
+    root: PathBuf,
+    rest: Vec<String>,
+}
+
 fn read(arguments: Vec<String>) -> Result<Option<Arguments>, Unemulated> {
-    let mut profile = console_input_gamepad::router::NAME.to_string();
-    let mut root = PathBuf::from(".");
-    let mut rest: Vec<String> = Vec::new();
-    let mut waiting = arguments.into_iter();
+    let reading = Reading {
+        waiting: arguments.into_iter(),
+        profile: console_input_gamepad::router::NAME.to_string(),
+        root: PathBuf::from("."),
+        rest: Vec::new(),
+    };
+    let read = console_core_iteration::iterate(reading, |mut reading| {
+        Ok(match reading.waiting.next() {
+            None => Step::Halt(Ok(Some(reading))),
+            Some(word) => match word.as_str() {
+                "--help" | "-h" => Step::Halt(Ok(None)),
+                "--profile" => match reading.waiting.next() {
+                    Some(name) => Step::Again(Reading { profile: name, ..reading }),
+                    None => Step::Halt(Err(Unemulated::NoProfileName)),
+                },
+                "--root" => match reading.waiting.next() {
+                    Some(path) => Step::Again(Reading { root: PathBuf::from(path), ..reading }),
+                    None => Step::Halt(Err(Unemulated::NoRootPath)),
+                },
+                _ => {
+                    reading.rest.push(word);
 
-    while let Some(word) = waiting.next() {
-        match word.as_str() {
-            "--help" | "-h" => return Ok(None),
-            "--profile" => {
-                let name = waiting.next().ok_or(Unemulated::NoProfileName)?;
-
-                profile = name;
-            }
-            "--root" => {
-                let path = waiting.next().ok_or(Unemulated::NoRootPath)?;
-
-                root = std::path::PathBuf::from(path);
-            }
-            _ => rest.push(word),
-        }
-    }
+                    Step::Again(reading)
+                }
+            },
+        })
+    });
+    let Reading { profile, root, rest, .. } = match read {
+        Ok(Ok(Some(reading))) => reading,
+        Ok(Ok(None)) => return Ok(None),
+        Ok(Err(fault)) => return Err(fault),
+        Err(_endless) => return Ok(None),
+    };
 
     let root = match root == Path::new(".") {
         true => console_repository::root()?,
@@ -219,7 +239,7 @@ fn interactive<S: console_input_gamepad::devices::Sink>(
                 let read = script::Step::read(said);
 
                 let done = match read {
-                    Ok(Some(step)) => step.done(go),
+                    Ok(Some(step)) => step.run(go),
                     Ok(None) => Ok(()),
                     Err(fault) => Err(fault),
                 };
@@ -290,7 +310,7 @@ fn what(
 }
 
 fn devices() -> Result<(), Never> {
-    let found = match captured() {
+    let found = match load_capture() {
         Ok(found) => found,
         Err(why) => {
             println!("console-emulate: {why}");

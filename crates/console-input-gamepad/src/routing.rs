@@ -111,7 +111,7 @@ pub enum Hat {
     NotAnAxis,
 }
 
-pub fn mapping(profile_name: &str) -> Result<Option<String>, Never> {
+pub fn mapping_for(profile_name: &str) -> Result<Option<String>, Never> {
     let how = arrives(profile_name)?;
 
     let how = match how {
@@ -168,67 +168,77 @@ fn key_named(key: KeyCode) -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::GamepadError;
     use crate::vocabulary::{BUTTONS, key_code};
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
 
     #[test]
     fn every_button_this_desktop_names_arrives_somewhere() {
         for (spoken, profile_name) in BUTTONS {
-            assert!(ok(arrives(profile_name)).is_some(), "{spoken} ({profile_name}) arrives nowhere");
+            let Ok(arrives) = arrives(profile_name);
+
+            assert!(arrives.is_some(), "{spoken} ({profile_name}) arrives nowhere");
         }
     }
 
     #[test]
     fn no_two_buttons_arrive_the_same_way() {
         let mut every: Vec<String> = ROUTE.iter().map(|(_, how)| format!("{how:?}")).collect();
+
         every.sort();
+
         let mut once = every.clone();
+
         once.dedup();
+
         assert_eq!(once, every);
     }
 
     #[test]
     fn a_press_is_read_back_as_the_button_it_came_from() {
-        assert_eq!(button_of_keys(KeyCode::KEY_F13), Some("LeftPaddle1"));
-        assert_eq!(ok(button_of_pad(KeyCode::BTN_SOUTH.0)), Some("South"));
-        assert_eq!(ok(button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, -1)), Some("DPadUp"));
+        assert_eq!(button_of_key(KeyCode::KEY_F13.0), Ok(Some("LeftPaddle1")));
+        assert_eq!(button_of_pad(KeyCode::BTN_SOUTH.0), Ok(Some("South")));
+        assert_eq!(button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, -1), Ok(Some("DPadUp")));
         assert_eq!(
-            ok(button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, 0)),
-            None,
+            button_of_hat(AbsoluteAxisCode::ABS_HAT0Y.0, 0),
+            Ok(None),
             "the middle is no button"
         );
     }
 
-    fn button_of_keys(key: KeyCode) -> Option<&'static str> {
-        ok(button_of_key(key.0))
-    }
-
     #[test]
-    fn every_key_is_named_in_a_way_both_ends_know() {
-        for (_, how) in ROUTE {
-            let key = match how {
-                Arrives::Keys(key) => key,
-                Arrives::Pad(_) | Arrives::Hat(_, _) => continue,
-            };
-            let said = ok(key_named(key)).expect("a name");
-            assert_eq!(key_code(&said).expect("a key"), key, "{said}");
+    fn every_key_is_named_in_a_way_both_ends_know() -> Result<(), GamepadError> {
+        let keys = ROUTE.iter().filter_map(|(_, how)| match how {
+            Arrives::Keys(key) => Some(*key),
+            Arrives::Pad(_) | Arrives::Hat(_, _) => None,
+        });
+
+        for key in keys {
+            let Ok(named) = key_named(key);
+            let said = named.ok_or(GamepadError::NotFound("a name for a key"))?;
+            let code = key_code(&said)?;
+
+            assert_eq!(code, key, "{said}");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_button_is_routed_as_a_key_or_as_itself() {
-        let paddle = ok(mapping("LeftPaddle1")).expect("a mapping");
+    fn a_button_is_routed_as_a_key_or_as_itself() -> Result<(), GamepadError> {
+        let Ok(paddle) = mapping_for("LeftPaddle1");
+        let paddle = paddle.ok_or(GamepadError::NotFound("a mapping for the paddle"))?;
+
         assert!(paddle.contains("button: LeftPaddle1"), "{paddle}");
         assert!(paddle.contains("- keyboard: KeyF13"), "{paddle}");
         assert!(paddle.contains("LeftPaddle1 - as KeyF13"), "{paddle}");
-        let face = ok(mapping("South")).expect("a mapping");
+
+        let Ok(face) = mapping_for("South");
+        let face = face.ok_or(GamepadError::NotFound("a mapping for the face button"))?;
+
         assert!(face.contains("- gamepad:\n          button: South"), "{face}");
         assert!(face.contains("South - as itself"), "{face}");
-        assert_eq!(ok(mapping("NoSuchButton")), None);
+        assert_eq!(mapping_for("NoSuchButton"), Ok(None));
+
+        Ok(())
     }
 }

@@ -42,6 +42,7 @@ console-draw-surface.workspace = true
 console-program-lifetime.workspace = true
 console-core-places = { workspace = true }
 console-core-external-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
 console-waiting.workspace = true
@@ -55,3 +56,6 @@ serde_json = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

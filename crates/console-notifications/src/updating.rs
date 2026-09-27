@@ -99,11 +99,11 @@ pub struct Progress {
 
 pub const WHOLE: u16 = 1000;
 
-pub fn written(progress: &Progress) -> Result<String, Never> {
+pub fn serialize(progress: &Progress) -> Result<String, Never> {
     Ok(format!("{} {}\n", progress.permille, progress.label))
 }
 
-pub fn reading(held: &str) -> Result<Option<Progress>, Never> {
+pub fn parse(held: &str) -> Result<Option<Progress>, Never> {
     let first = match held.lines().next() {
         Some(first) => first,
         None => return Ok(None),
@@ -144,7 +144,7 @@ pub fn wrote(progress: &Progress) -> Result<(), Never> {
         }
     }
 
-    let Ok(written) = written(progress);
+    let Ok(written) = serialize(progress);
 
     match console_core_atomic_writes::whole(&at, written.as_bytes()) {
         Ok(()) => {}
@@ -158,7 +158,7 @@ pub fn wrote(progress: &Progress) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn done() -> Result<(), Never> {
+pub fn clear() -> Result<(), Never> {
     let Ok(at) = at();
 
     let _ = std::fs::remove_file(at);
@@ -174,7 +174,7 @@ pub fn progress() -> Result<Option<Progress>, Never> {
         Err(_unreadable) => return Ok(None),
     };
 
-    reading(&said)
+    parse(&said)
 }
 
 #[cfg(test)]
@@ -188,31 +188,31 @@ mod tests {
             Progress { permille: 620, label: "building".to_string() },
             Progress { permille: WHOLE, label: "done".to_string() },
         ] {
-            let Ok(written) = written(&progress);
+            let Ok(written) = serialize(&progress);
 
-            assert_eq!(reading(&written), Ok(Some(progress)));
+            assert_eq!(parse(&written), Ok(Some(progress)));
         }
     }
 
     #[test]
     fn a_name_with_spaces_in_it_survives_the_round_trip() {
         let progress = Progress { permille: 8, label: "writing files".to_string() };
-        let Ok(written) = written(&progress);
+        let Ok(written) = serialize(&progress);
 
-        assert_eq!(reading(&written), Ok(Some(progress)));
+        assert_eq!(parse(&written), Ok(Some(progress)));
     }
 
     #[test]
     fn nothing_is_read_out_of_something_we_did_not_write() {
         for held in ["", "\n", "building", "62", "62 ", "  ", "-1 building", "x building"] {
-            assert_eq!(reading(held), Ok(None), "{held:?} was read as a number");
+            assert_eq!(parse(held), Ok(None), "{held:?} was read as a number");
         }
     }
 
     #[test]
     fn a_number_past_the_end_is_not_ours() {
-        assert_eq!(reading("1001 building"), Ok(None));
-        assert_eq!(reading("999999 building"), Ok(None));
+        assert_eq!(parse("1001 building"), Ok(None));
+        assert_eq!(parse("999999 building"), Ok(None));
     }
 
     #[test]

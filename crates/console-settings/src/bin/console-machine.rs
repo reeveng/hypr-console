@@ -103,7 +103,7 @@ impl From<console_core_atomic_writes::Unwritten> for Unset {
     }
 }
 
-fn said(program: Program, arguments: &[&str]) -> Result<String, Unset> {
+fn run_output(program: Program, arguments: &[&str]) -> Result<String, Unset> {
     let Ok(name) = program.name();
     let mut command = match program.command() {
         Ok(command) => command,
@@ -124,7 +124,7 @@ fn said(program: Program, arguments: &[&str]) -> Result<String, Unset> {
     }
 }
 
-fn held(at: &Path) -> Result<String, Unset> {
+fn read_file(at: &Path) -> Result<String, Unset> {
     let Ok(read) = console_core_atomic_writes::read(at);
 
     match read {
@@ -160,7 +160,7 @@ fn language(locale: Locale<'_>) -> Result<(), Unset> {
     }
 
     let recipes = Path::new(LOCALE_GEN);
-    let was = held(recipes)?;
+    let was = read_file(recipes)?;
 
     let Ok(written) = languages::generating(&was, languages::Line(&line));
 
@@ -171,7 +171,7 @@ fn language(locale: Locale<'_>) -> Result<(), Unset> {
 
             println!("making {name}");
 
-            said(Program::LocaleGen, &[])?;
+            run_output(Program::LocaleGen, &[])?;
         }
     }
 
@@ -197,7 +197,7 @@ fn language(locale: Locale<'_>) -> Result<(), Unset> {
 }
 
 fn hour(zone: &str) -> Result<(), Unset> {
-    let listed = said(Program::Timedatectl, &["list-timezones"])?;
+    let listed = run_output(Program::Timedatectl, &["list-timezones"])?;
 
     let Ok(zones) = console_settings::hours::zones(&listed);
 
@@ -208,7 +208,7 @@ fn hour(zone: &str) -> Result<(), Unset> {
         false => return Err(Unset::NoSuchZone(zone.to_string())),
     }
 
-    said(Program::Timedatectl, &["set-timezone", zone])?;
+    run_output(Program::Timedatectl, &["set-timezone", zone])?;
 
     println!("{zone}");
 
@@ -225,7 +225,7 @@ fn called(name: &str) -> Result<(), Unset> {
         }
     }
 
-    said(Program::Hostnamectl, &["set-hostname", name])?;
+    run_output(Program::Hostnamectl, &["set-hostname", name])?;
 
     println!("{name}");
 

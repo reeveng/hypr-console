@@ -87,7 +87,7 @@ pub fn after(walk: &[LayoutKind], alphabet: LayoutKind) -> Result<Option<LayoutK
         None => THE_FIRST_ONE,
     };
 
-    let Ok(next) = ring.stepped(here, Step::Forward);
+    let Ok(next) = ring.step(here, Step::Forward);
     let Ok(next) = index(next);
 
     Ok(languages.get(next).copied())
@@ -160,7 +160,7 @@ impl Typist {
         Ok(typist)
     }
 
-    fn when(&self) -> Result<u32, Never> {
+    fn elapsed_ms(&self) -> Result<u32, Never> {
         fitted(self.since.elapsed().as_millis())
     }
 
@@ -189,18 +189,18 @@ impl Typist {
     }
 
     pub fn tap(&mut self, code: u32) -> Result<(), Never> {
-        let Ok(at) = self.when();
+        let Ok(at) = self.elapsed_ms();
 
         self.keys.key(at, code, 1);
 
-        let Ok(then) = self.when();
+        let Ok(then) = self.elapsed_ms();
 
         self.keys.key(then, code, 0);
 
         Ok(())
     }
 
-    pub fn holding(&mut self, held: u8) -> Result<(), Never> {
+    pub fn set_modifiers(&mut self, held: u8) -> Result<(), Never> {
         self.keys.modifiers(u32::from(held), 0, 0, 0);
 
         Ok(())
@@ -232,7 +232,7 @@ impl Typist {
         let Ok(of) = of(self.showing);
         let Ok(()) = self.wear(of.alphabet);
         let held = self.held;
-        let Ok(()) = self.holding(held);
+        let Ok(()) = self.set_modifiers(held);
 
         Ok(())
     }
@@ -295,7 +295,7 @@ impl Typist {
 
                 self.step = match round {
                     Some(ring) => {
-                        let Ok(went) = ring.stepped(self.step, Step::Forward);
+                        let Ok(went) = ring.step(self.step, Step::Forward);
 
                         went
                     }
@@ -345,17 +345,17 @@ impl Typist {
         Ok(match kind {
             Kind::Code { code, .. } => {
                 let held = self.held | force;
-                let Ok(()) = self.holding(held);
+                let Ok(()) = self.set_modifiers(held);
                 let Ok(()) = self.tap(code);
 
                 match reset == Drops::Modifiers || self.held != modifiers::NONE {
                     true => {
                         self.held &= modifiers::CAPS_LOCK;
-                        let Ok(()) = self.holding(self.held);
+                        let Ok(()) = self.set_modifiers(self.held);
                         After::Draw
                     },
                     false => {
-                        let Ok(()) = self.holding(self.held);
+                        let Ok(()) = self.set_modifiers(self.held);
                         After::Still
                     },
                 }
@@ -373,7 +373,7 @@ impl Typist {
             Kind::Mod(bit) => {
                 self.held ^= bit;
                 let held = self.held;
-                let Ok(()) = self.holding(held);
+                let Ok(()) = self.set_modifiers(held);
                 After::Draw
             },
             Kind::Layout(which) => {
@@ -449,100 +449,133 @@ impl Typist {
 mod tests {
     use crate::layout::{Kind, Layout, LayoutKind, modifiers};
 
-    fn named(name: &str) -> Option<LayoutKind> {
-        let Ok(named) = crate::layout::named(name);
+    type Failure = Box<dyn std::error::Error>;
 
-        named
+    fn named(name: &str) -> Result<LayoutKind, Failure> {
+        let Ok(found) = crate::layout::find_layout(name);
+        let which = found.ok_or(format!("no layout called {name}"))?;
+
+        Ok(which)
     }
 
-    fn of(which: LayoutKind) -> &'static Layout {
-        let Ok(of) = crate::layout::of(which);
+    fn laid_out(which: LayoutKind) -> Result<&'static Layout, Failure> {
+        let Ok(layout) = crate::layout::of(which);
 
-        of
-    }
-
-    #[test]
-    fn an_accent_shelf_goes_back_to_the_alphabet_not_to_the_shelf() {
-        let shelf = named("composea").expect("the a shelf");
-        assert!(!of(shelf).primary, "an accent shelf is not somewhere you type");
-        let full = named("full").expect("full");
-        assert!(of(full).primary, "the letters are");
+        Ok(layout)
     }
 
     #[test]
-    fn the_language_key_walks_the_alphabets_and_skips_the_shelf() {
-        let landscape = named("landscape").expect("landscape");
-        let thai = named("thai").expect("thai");
-        let shelf = named("landscapespecial").expect("landscapespecial");
+    fn an_accent_shelf_goes_back_to_the_alphabet_not_to_the_shelf() -> Result<(), Failure> {
+        let composea = named("composea")?;
+        let shelf = laid_out(composea)?;
+        let full = named("full")?;
+        let full = laid_out(full)?;
+
+        assert!(!shelf.primary, "an accent shelf is not somewhere you type");
+        assert!(full.primary, "the letters are");
+
+        Ok(())
+    }
+
+    #[test]
+    fn the_language_key_walks_the_alphabets_and_skips_the_shelf() -> Result<(), Failure> {
+        let landscape = named("landscape")?;
+        let thai = named("thai")?;
+        let shelf = named("landscapespecial")?;
         let walk = [landscape, thai, shelf];
+        let shelf_laid_out = laid_out(shelf)?;
+
         assert_eq!(super::after(&walk, landscape), Ok(Some(thai)), "latin goes to Thai");
         assert_eq!(super::after(&walk, thai), Ok(Some(landscape)), "and Thai comes back round");
-        assert!(!of(shelf).primary, "the ?123 shelf is not a language");
+        assert!(!shelf_laid_out.primary, "the ?123 shelf is not a language");
+
+        Ok(())
     }
 
     #[test]
-    fn the_numbers_key_finds_the_shelf_of_whichever_walk_it_is_in() {
-        let thai = named("thai").expect("thai");
-        let landscape = named("landscape").expect("landscape");
-        let wide_shelf = named("landscapespecial").expect("landscapespecial");
-        let full = named("full").expect("full");
-        let tall_shelf = named("special").expect("special");
+    fn the_numbers_key_finds_the_shelf_of_whichever_walk_it_is_in() -> Result<(), Failure> {
+        let thai = named("thai")?;
+        let landscape = named("landscape")?;
+        let wide_shelf = named("landscapespecial")?;
+        let full = named("full")?;
+        let tall_shelf = named("special")?;
 
         assert_eq!(super::symbols(&[landscape, thai, wide_shelf]), Ok(Some(wide_shelf)));
         assert_eq!(super::symbols(&[full, thai, tall_shelf]), Ok(Some(tall_shelf)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_walk_with_no_shelf_has_no_numbers_to_go_to() {
-        let full = named("full").expect("full");
-        let thai = named("thai").expect("thai");
+    fn a_walk_with_no_shelf_has_no_numbers_to_go_to() -> Result<(), Failure> {
+        let full = named("full")?;
+        let thai = named("thai")?;
+
         assert_eq!(super::symbols(&[full, thai]), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn one_alphabet_leaves_the_language_key_with_nothing_to_say() {
-        let landscape = named("landscape").expect("landscape");
-        let shelf = named("landscapespecial").expect("landscapespecial");
+    fn one_alphabet_leaves_the_language_key_with_nothing_to_say() -> Result<(), Failure> {
+        let landscape = named("landscape")?;
+        let shelf = named("landscapespecial")?;
+
         assert_eq!(super::after(&[landscape, shelf], landscape), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_third_language_needs_no_new_key() {
-        let landscape = named("landscape").expect("landscape");
-        let thai = named("thai").expect("thai");
-        let russian = named("cyrillic").expect("cyrillic");
+    fn a_third_language_needs_no_new_key() -> Result<(), Failure> {
+        let landscape = named("landscape")?;
+        let thai = named("thai")?;
+        let russian = named("cyrillic")?;
         let walk = [landscape, thai, russian];
+
         assert_eq!(super::after(&walk, landscape), Ok(Some(thai)));
         assert_eq!(super::after(&walk, thai), Ok(Some(russian)));
         assert_eq!(super::after(&walk, russian), Ok(Some(landscape)));
+
+        Ok(())
     }
 
     #[test]
-    fn the_walk_this_desktop_uses_is_alphabets_and_a_shelf_of_symbols() {
+    fn the_walk_this_desktop_uses_is_alphabets_and_a_shelf_of_symbols() -> Result<(), Failure> {
         for name in ["full", "thai"] {
-            let which = named(name).expect(name);
-            assert!(of(which).primary, "{name} is not an alphabet");
+            let which = named(name)?;
+            let layout = laid_out(which)?;
+
+            assert!(layout.primary, "{name} is not an alphabet");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_letters_that_have_accents_carry_them_and_the_rest_do_not() {
-        let full = of(named("full").expect("full"));
+    fn the_letters_that_have_accents_carry_them_and_the_rest_do_not() -> Result<(), Failure> {
+        let full = named("full")?;
+        let full = laid_out(full)?;
         let key = full
             .keys
             .iter()
             .find(|key| key.label == "a")
-            .expect("the a key");
+            .ok_or("the a key")?;
+
         assert!(
             matches!(key.kind, Kind::Code { held: Some(LayoutKind::ComposeA), .. }),
             "a long press on a does not reach the accents"
         );
+
         let space = full
             .keys
             .iter()
             .find(|key| key.label == "space" || key.width > 3.0)
-            .expect("the space bar");
+            .ok_or("the space bar")?;
+
         assert!(matches!(space.kind, Kind::Code { held: None, .. }), "the space bar carries a shelf");
+
+        Ok(())
     }
 
     #[test]

@@ -34,7 +34,7 @@ extern crate rustc_hir;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT030: `&thing.clone()` allocates a copy so that a borrow of the
@@ -45,20 +45,12 @@ dylint_linting::declare_late_lint! {
     "a copy allocated only so that a borrow of it could be handed over"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 fn makes_a_copy(named: &str) -> bool {
     matches!(named, "clone" | "to_owned" | "to_vec" | "to_string")
 }
 
 impl<'tcx> LateLintPass<'tcx> for Explicit030NoCopyToLend {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

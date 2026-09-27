@@ -160,6 +160,11 @@ hl.config({
         -- went looking. Told the palette, the desktop is the right color
         -- even with nothing painting on it.
         background_color        = blossom.behind,
+        -- A lock screen that dies leaves the session locked and nothing on
+        -- the glass to unlock it with. This is what lets the one systemd
+        -- starts again take the lock back, rather than a device that needs
+        -- another machine and ssh to be got into.
+        allow_session_lock_restore = true,
     },
     -- Redraw the whole screen whenever any of it changes, rather than the
     -- rectangle that changed.
@@ -189,8 +194,12 @@ hl.config({
         follow_mouse = 1,
         sensitivity  = 0,
     },
+    -- Windows sharing a place stand side by side and are never stacked. Dwindle
+    -- stacks a split when its height times this number is more than its width,
+    -- and no window on this screen is ten times taller than it is wide.
     dwindle = {
-        preserve_split = true,
+        preserve_split         = true,
+        split_width_multiplier = 0.1,
     },
 })
 
@@ -208,14 +217,13 @@ hl.device({
     enabled = false,
 })
 
--- One window at a time. On a screen this size a split is two unusable halves,
--- so every window takes the whole of it and you move between them with the
--- shoulders and View rather than looking at two things at once.
-hl.window_rule({
-    name     = "every window fills the screen",
-    match    = { class = ".*" },
-    maximize = true,
-})
+-- A window opens alone and fills the screen, because with no gaps a tiling
+-- layout gives one window the whole of it. Two can share a place when somebody
+-- carries one onto another's (L2 with a shoulder, or Super, Shift and an
+-- arrow): the tiling splits the screen between them, and a finger or Super and
+-- an arrow says which one is being used. This used to maximise every window,
+-- which meant a window carried onto an occupied place landed on top of the one
+-- there and hid it, so moving a window between places could only ever stack.
 
 -- Nothing floats. A dialog that asks to be a small window on top of another
 -- one is the only way anything could overlap here, and on a screen this size
@@ -230,20 +238,13 @@ hl.window_rule({
     tile  = true,
 })
 
--- One window to a workspace. Only one window at a time can hold the maximised
--- state, so a second window opening on the same workspace splits the screen
--- with the first, which is the thing this desktop is meant not to do. Giving
--- each window a workspace of its own means there is never a second window to
--- share with: the shoulders move between them, and the bar lists them.
+-- A new window gets a place of its own. Sharing is something a person asks
+-- for by carrying a window; a program opening a second window is not asking.
 hl.window_rule({
-    name      = "one window to a workspace",
+    name      = "a new window opens alone",
     match     = { class = ".*" },
     workspace = "emptyn",
 })
-
--- No handler on focus: the dispatcher toggles, so focusing a window that was
--- already filling the screen would shrink it again. Unlike fullscreen, any
--- number of windows can be maximised at once, so the rule alone is enough.
 
 ------------------------------------------------------------------ startup
 

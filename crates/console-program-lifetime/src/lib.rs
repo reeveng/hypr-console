@@ -130,15 +130,15 @@ pub fn alongside(command: &mut Command) -> io::Result<BoundToParent> {
 }
 
 impl BoundToParent {
-    pub fn reading(&mut self) -> Result<Option<ChildStdout>, Never> {
+    pub fn take_stdout(&mut self) -> Result<Option<ChildStdout>, Never> {
         Ok(self.child.stdout.take())
     }
 
-    pub fn writing(&mut self) -> Result<Option<ChildStdin>, Never> {
+    pub fn take_stdin(&mut self) -> Result<Option<ChildStdin>, Never> {
         Ok(self.child.stdin.take())
     }
 
-    pub fn erring(&mut self) -> Result<Option<ChildStderr>, Never> {
+    pub fn take_stderr(&mut self) -> Result<Option<ChildStderr>, Never> {
         Ok(self.child.stderr.take())
     }
 
@@ -146,7 +146,7 @@ impl BoundToParent {
         Ok(self.child.id())
     }
 
-    pub fn waiting(&mut self) -> io::Result<ExitStatus> {
+    pub fn wait(&mut self) -> io::Result<ExitStatus> {
         self.child.wait()
     }
 
@@ -174,7 +174,7 @@ pub fn let_go(command: &mut Command) -> io::Result<Detached> {
 }
 
 impl Detached {
-    pub fn writing(&mut self) -> Result<Option<ChildStdin>, Never> {
+    pub fn take_stdin(&mut self) -> Result<Option<ChildStdin>, Never> {
         Ok(self.child.stdin.take())
     }
 
@@ -182,7 +182,7 @@ impl Detached {
         still(&mut self.child)
     }
 
-    pub fn waiting(&mut self) -> io::Result<ExitStatus> {
+    pub fn wait(&mut self) -> io::Result<ExitStatus> {
         self.child.wait()
     }
 
@@ -191,7 +191,7 @@ impl Detached {
     }
 }
 
-pub fn reaped(started: Vec<Detached>) -> Result<Vec<Detached>, Never> {
+pub fn reap(started: Vec<Detached>) -> Result<Vec<Detached>, Never> {
     Ok(started
         .into_iter()
         .filter_map(|mut one| {
@@ -395,10 +395,14 @@ mod scopes {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+    use std::io::BufRead;
+    use std::path::PathBuf;
     use std::process::Stdio;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use console_core_external_programs::Program;
+    use console_waiting::{Outcome, Ready, Schedule, until, until_handed};
 
     use super::*;
 
@@ -408,248 +412,223 @@ mod tests {
 
     const SIGKILL: c_int = 9;
 
-    fn still_there(id: u32) -> bool {
-        std::path::Path::new(&format!("/proc/{id}")).exists()
+    fn listed(id: u32) -> Result<PathBuf, Never> {
+        Ok(PathBuf::from(format!("/proc/{id}")))
     }
 
-    fn gone_within(id: u32, waiting: Duration) -> bool {
-        let by = Instant::now() + waiting;
-
-        while Instant::now() < by {
-            match still_there(id) {
-                true => std::thread::sleep(Duration::from_millis(10)),
-                false => return true,
-            }
-        }
-
-        !still_there(id)
-    }
-
-    fn holding() -> Command {
+    fn holding() -> Result<Command, Never> {
         let Ok(mut command) = Program::Sh.command();
 
         command
             .args(["-c", "exec sleep 600"])
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        command
+
+        Ok(command)
     }
 
-    #[test]
-    fn dropping_it_ends_the_child() {
-        let mut command = holding();
-        let running = match alongside(&mut command) {
-            Ok(running) => running,
-            Err(_fault) => return,
-        };
+    fn killed(id: u32) -> Result<(), Box<dyn Error>> {
+        let pid = i32::try_from(id)?;
 
-        let Ok(id) = running.id();
-
-        assert!(still_there(id), "it never started");
-
-        drop(running);
-
-        assert!(!still_there(id), "the child outlived the thing holding it");
-    }
-
-    #[test]
-    fn a_child_let_go_is_still_running_after_the_drop() {
-        let mut command = holding();
-        let running = match let_go(&mut command) {
-            Ok(running) => running,
-            Err(_fault) => return,
-        };
-
-        let Ok(id) = running.id();
-
-        drop(running);
-
-        assert!(still_there(id), "letting go ended it anyway");
-
-        // SAFETY: a signal to a child this test started, by the pid it was
-        // given, and nothing else can have that pid while it is unreaped.
-        match i32::try_from(id) {
-            Ok(pid) => unsafe {
-                kill(pid, SIGKILL);
-            },
-            Err(_fault) => {},
+        // SAFETY: a signal to a process this test started, by the pid it was
+        // given, while it is still held here and its pid cannot be reused.
+        unsafe {
+            kill(pid, SIGKILL);
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_lines_it_says_are_readable_while_it_is_held() {
+    fn dropping_it_ends_the_child() -> Result<(), Box<dyn Error>> {
+        let Ok(mut command) = holding();
+        let running = alongside(&mut command)?;
+        let Ok(id) = running.id();
+        let Ok(at) = listed(id);
+
+        assert!(at.exists(), "it never started");
+
+        drop(running);
+
+        assert!(!at.exists(), "the child outlived the thing holding it");
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_child_let_go_is_still_running_after_the_drop() -> Result<(), Box<dyn Error>> {
+        let Ok(mut command) = holding();
+        let running = let_go(&mut command)?;
+        let Ok(id) = running.id();
+        let Ok(at) = listed(id);
+
+        drop(running);
+
+        assert!(at.exists(), "letting go ended it anyway");
+
+        killed(id)
+    }
+
+    #[test]
+    fn the_lines_it_says_are_readable_while_it_is_held() -> Result<(), Box<dyn Error>> {
         let Ok(mut command) = Program::Sh.command();
 
         command.args(["-c", "printf 'one\\ntwo\\n'"]).stdout(Stdio::piped());
 
-        let mut running = match alongside(&mut command) {
-            Ok(running) => running,
-            Err(_fault) => return,
-        };
-        let out = match running.reading() {
-            Ok(Some(out)) => out,
-            Ok(None) | Err(_) => panic!("no pipe from a piped command"),
-        };
-
-        let said = std::io::read_to_string(out).unwrap_or_default();
-        let Ok(again) = running.reading();
+        let mut running = alongside(&mut command)?;
+        let Ok(out) = running.take_stdout();
+        let out = out.ok_or("no pipe from a piped command")?;
+        let said = std::io::read_to_string(out)?;
+        let Ok(again) = running.take_stdout();
 
         assert_eq!(said, "one\ntwo\n");
         assert!(again.is_none(), "the pipe was handed out twice");
+
+        Ok(())
     }
 
     #[test]
-    fn one_that_ended_says_so_and_one_that_has_not_says_so() {
+    fn one_that_ended_says_so_and_one_that_has_not_says_so() -> Result<(), Box<dyn Error>> {
         let Ok(mut command) = Program::True.command();
 
         command.stdout(Stdio::null());
 
-        let mut done = match alongside(&mut command) {
-            Ok(done) => done,
-            Err(_fault) => return,
-        };
-        let _ = done.waiting();
-
+        let mut done = alongside(&mut command)?;
+        let _ = done.wait();
         let Ok(ended) = done.still();
 
         assert_eq!(ended, Still::Ended);
 
-        let mut command = holding();
-        let mut going = match alongside(&mut command) {
-            Ok(going) => going,
-            Err(_fault) => return,
-        };
-
+        let Ok(mut command) = holding();
+        let mut going = alongside(&mut command)?;
         let Ok(running) = going.still();
 
         assert_eq!(running, Still::Running);
+
+        Ok(())
     }
 
     #[test]
-    fn a_child_let_go_that_ended_is_reaped_and_one_still_going_is_kept() {
+    fn a_child_let_go_that_ended_is_reaped_and_one_still_going_is_kept() -> Result<(), Box<dyn Error>> {
         let Ok(mut command) = Program::True.command();
 
         command.stdout(Stdio::null());
 
-        let done = match let_go(&mut command) {
-            Ok(done) => done,
-            Err(_fault) => return,
-        };
+        let done = let_go(&mut command)?;
         let Ok(ended) = done.id();
 
-        let mut command = holding();
-        let going = match let_go(&mut command) {
-            Ok(going) => going,
-            Err(_fault) => return,
-        };
+        let Ok(mut command) = holding();
+        let going = let_go(&mut command)?;
         let Ok(held) = going.id();
 
         let mut started = vec![done, going];
-        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(2));
-        let Ok(_over) = console_waiting::until(patience, || {
-            let Ok(still) = reaped(std::mem::take(&mut started));
+        let Ok(patience) = Schedule::of(Duration::from_secs(2));
+        let Ok(_over) = until_handed(patience, &mut started, |started| {
+            let Ok(still) = reap(std::mem::take(started));
 
-            started = still;
+            *started = still;
 
             Ok(match started.len() {
-                1 => console_waiting::Ready::Yes,
-                _more => console_waiting::Ready::NotYet,
+                1 => Ready::Yes,
+                _more => Ready::NotYet,
             })
         });
 
-        let kept: Vec<u32> = started.iter().filter_map(|one| one.id().ok()).collect();
+        let kept: Vec<u32> = started
+            .iter()
+            .map(|one| {
+                let Ok(id) = one.id();
+
+                id
+            })
+            .collect();
+        let Ok(at) = listed(ended);
 
         assert_eq!(kept, [held]);
-        assert!(!std::path::Path::new(&format!("/proc/{ended}")).exists(), "{ended} is still in the process table");
+        assert!(!at.exists(), "{ended} is still in the process table");
 
         for mut one in started {
             let _ = one.child.kill();
-            let _ = one.waiting();
+            let _ = one.wait();
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_parent_killed_outright_takes_the_child_with_it() {
-        let ours = std::env::current_exe().unwrap_or_default();
-        let executable = match ours.to_str() {
-            Some(executable) => executable,
-            None => return,
-        };
-
+    fn a_parent_killed_outright_takes_the_child_with_it() -> Result<(), Box<dyn Error>> {
+        let this_test = std::env::current_exe()?;
+        let exe = this_test.to_str().ok_or("this test is not at a path that can be said")?;
         let Ok(mut command) = Program::Sh.command();
 
         command
-            .args(["-c", &format!("exec {executable} --nocapture the_child_this_test_starts")])
+            .args(["-c", &format!("exec {exe} --nocapture the_child_this_test_starts")])
             .env(HOLDING, "yes")
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        let mut parent = match let_go(&mut command) {
-            Ok(parent) => parent,
-            Err(_fault) => return,
-        };
-
-        let out = match parent.child.stdout.take() {
-            Some(out) => out,
-            None => return,
-        };
-
+        let mut parent = let_go(&mut command)?;
+        let out = parent.child.stdout.take().ok_or("no pipe from the parent")?;
         let mut heard = Vec::new();
-        let by = Instant::now() + Duration::from_secs(20);
-        let mut lines = std::io::BufReader::new(out);
         let mut found = None;
 
-        while Instant::now() < by && found.is_none() {
-            let mut said = String::new();
+        for line in std::io::BufReader::new(out).lines() {
+            let line = line?;
 
-            match std::io::BufRead::read_line(&mut lines, &mut said) {
-                Ok(0) => break,
-                Ok(_read) => {
-                    found = said.trim().parse::<u32>().ok();
-                    heard.push(said);
+            match line.trim().parse::<u32>() {
+                Ok(id) => {
+                    found = Some(id);
+
+                    break;
                 }
-                Err(_fault) => break,
+                Err(_not_a_number) => heard.push(line),
             }
         }
 
-        let id = match found {
-            Some(id) => id,
-            None => panic!("the parent never said what it started: {heard:?}"),
-        };
-
+        let id = found.ok_or_else(|| format!("the parent never said what it started: {heard:?}"))?;
         let Ok(whose) = parent.id();
 
-        // SAFETY: a signal to a process this test started, by the pid it was
-        // given, while it is still held here and its pid cannot be reused.
-        match i32::try_from(whose) {
-            Ok(pid) => unsafe {
-                kill(pid, SIGKILL);
-            },
-            Err(_fault) => return,
-        }
+        killed(whose)?;
 
-        assert!(gone_within(id, Duration::from_secs(10)), "the child outlived a killed parent");
+        let Ok(at) = listed(id);
+        let Ok(patience) = Schedule::of(Duration::from_secs(10));
+        let Ok(gone) = until(patience, || {
+            Ok(match at.exists() {
+                true => Ready::NotYet,
+                false => Ready::Yes,
+            })
+        });
+
+        assert_eq!(gone, Outcome::Happened, "the child outlived a killed parent");
+
+        Ok(())
     }
 
     const HOLDING: &str = "CONSOLE_CHILD_PROCESSES_HOLDING";
 
+    #[cfg_attr(
+        dylint_lib = "explicit026_env_read_once",
+        allow(
+            explicit026_env_read_once,
+            reason = "the test above starts this one with HOLDING set, and the environment is the only thing a test harness passes through to the test it runs"
+        )
+    )]
     #[test]
-    fn the_child_this_test_starts() {
+    fn the_child_this_test_starts() -> Result<(), Box<dyn Error>> {
         match std::env::var(HOLDING) {
             Ok(_asked) => {},
-            Err(_not) => return,
+            Err(_not) => return Ok(()),
         }
 
-        let mut command = holding();
-        let running = match alongside(&mut command) {
-            Ok(running) => running,
-            Err(_fault) => return,
-        };
-
+        let Ok(mut command) = holding();
+        let running = alongside(&mut command)?;
         let Ok(id) = running.id();
 
         println!("{id}");
 
-        std::thread::sleep(Duration::from_secs(120));
+        let Ok(patience) = Schedule::of(Duration::from_secs(120));
+        let Ok(_held) = until(patience, || Ok(Ready::NotYet));
+
+        Ok(())
     }
 }

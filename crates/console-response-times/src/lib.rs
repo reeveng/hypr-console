@@ -100,7 +100,7 @@ const NOT_SAID: f64 = 0.0;
 const LOADAVG: &str = "/proc/loadavg";
 
 
-pub use writing::settled;
+pub use writing::flush;
 
 pub const PRESSED: &str = "CONSOLE_PRESSED";
 
@@ -117,7 +117,7 @@ pub const STALE: Duration = Duration::from_secs(10);
         reason = "CONSOLE_PRESSED and CONSOLE_FROM are stamped by this crate and read by this crate, and the two consts above are the only spelling of either"
     )
 )]
-fn asked(name: &str) -> Result<Option<String>, Never> {
+fn env_var(name: &str) -> Result<Option<String>, Never> {
     match std::env::var(name) {
         Ok(said) => Ok(Some(said)),
         Err(std::env::VarError::NotPresent) => Ok(None),
@@ -208,7 +208,7 @@ impl Waiting {
         })
     }
 
-    pub fn asked(
+    pub fn start(
         wait: Wait<'_>,
         pressed: Option<&str>,
         from: &str,
@@ -300,7 +300,7 @@ impl Waiting {
         Ok(())
     }
 
-    pub fn named(&mut self, note: Note<'_>) -> Result<(), Never> {
+    pub fn add_note(&mut self, note: Note<'_>) -> Result<(), Never> {
         self.notes.push((note.name.to_string(), line::Value::Word(note.said.to_string())));
 
         Ok(())
@@ -315,7 +315,7 @@ impl Waiting {
 
         match so_far >= FELT {
             true => {
-                let Ok(()) = self.done();
+                let Ok(()) = self.finish();
             }
             false => {}
         }
@@ -323,7 +323,7 @@ impl Waiting {
         Ok(())
     }
 
-    pub fn done(self) -> Result<(), Never> {
+    pub fn finish(self) -> Result<(), Never> {
         let waited = self.before + self.started.elapsed();
 
         written_down(Record { who: self.who, what: self.what, waited, marks: self.marks, notes: self.notes })
@@ -364,7 +364,7 @@ pub(crate) fn written_down(kept: Record) -> Result<(), Never> {
         notes: kept.notes,
     };
 
-    let Ok(said) = line::written(&entry);
+    let Ok(said) = line::serialize(&entry);
     let Ok(()) = writing::line(&said);
 
     Ok(())
@@ -513,7 +513,7 @@ pub fn started_at(stat: &str) -> Result<Option<f64>, Never> {
 }
 
 fn since_press() -> Result<Option<Duration>, Never> {
-    let Ok(said) = asked(PRESSED);
+    let Ok(said) = env_var(PRESSED);
 
     let raw = match said {
         Some(raw) => raw,
@@ -524,7 +524,7 @@ fn since_press() -> Result<Option<Duration>, Never> {
 }
 
 pub fn press_said() -> Result<Option<String>, Never> {
-    let Ok(said) = asked(PRESSED);
+    let Ok(said) = env_var(PRESSED);
 
     Ok(said.filter(|said| !said.trim().is_empty()))
 }
@@ -567,7 +567,7 @@ pub fn fresh(waited: Duration) -> Result<Option<Duration>, Never> {
 }
 
 fn came_from() -> Result<Option<String>, Never> {
-    let Ok(said) = asked(FROM);
+    let Ok(said) = env_var(FROM);
 
     Ok(said.filter(|said| !said.is_empty()))
 }
@@ -652,6 +652,7 @@ mod tests {
     use console_core_external_programs::Program;
 
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn when_a_process_began_is_read_past_a_name_with_spaces_in_it() {
@@ -685,10 +686,17 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        dylint_lib = "explicit026_env_read_once",
+        allow(
+            explicit026_env_read_once,
+            reason = "this only asks anything of a test run nobody pressed for, and whether somebody did is said in the environment the run was started with"
+        )
+    )]
     fn an_opening_that_nothing_stamped_says_nothing_about_a_press() {
         match std::env::var(PRESSED) {
             Ok(_) => {}
-            Err(_) => {
+            Err(_nobody_pressed) => {
                 let Ok(waiting) = Waiting::on(Wait { who: "a test", what: "opening" });
 
                 let named: Vec<&str> =
@@ -699,8 +707,8 @@ mod tests {
         }
     }
 
-    fn handed(starting: &Command) -> Vec<(String, Option<String>)> {
-        starting
+    fn handed(starting: &Command) -> Result<Vec<(String, Option<String>)>, Never> {
+        Ok(starting
             .get_envs()
             .map(|(name, said)| {
                 (
@@ -708,20 +716,22 @@ mod tests {
                     said.map(|said| said.to_string_lossy().to_string()),
                 )
             })
-            .collect()
+            .collect())
     }
 
     #[test]
-    fn a_start_that_is_a_press_hands_on_the_moment_and_where_it_came_from() {
+    fn a_start_that_is_a_press_hands_on_the_moment_and_where_it_came_from() -> Result<(), Box<dyn Error>> {
         let Ok(mut starting) = Program::True.command();
         let Ok(()) = pressed(&mut starting, "pad");
-
-        let handed = handed(&starting);
+        let Ok(handed) = handed(&starting);
         let from = handed.iter().find(|(name, _)| name == FROM).and_then(|(_, said)| said.clone());
         let stamp =
             handed.iter().find(|(name, _)| name == PRESSED).and_then(|(_, said)| said.clone());
+        let stamp = stamp.ok_or("no stamp was handed on")?;
+        let _nanoseconds: u64 = stamp.parse()?;
+
         assert_eq!(from.as_deref(), Some("pad"));
-        assert!(stamp.is_some_and(|said| said.parse::<u64>().is_ok()), "the stamp is nanoseconds");
+        Ok(())
     }
 
     #[test]
@@ -729,8 +739,7 @@ mod tests {
         let Ok(mut starting) = Program::True.command();
         let Ok(()) = pressed(&mut starting, "pad");
         let Ok(()) = not_a_press(&mut starting);
-
-        let handed = handed(&starting);
+        let Ok(handed) = handed(&starting);
 
         for name in [PRESSED, FROM] {
             let said = handed.iter().find(|(had, _)| had == name);
@@ -743,19 +752,19 @@ mod tests {
     }
 
     #[test]
-    fn a_press_stamp_reads_back_as_a_moment_that_has_already_gone() {
+    fn a_press_stamp_reads_back_as_a_moment_that_has_already_gone() -> Result<(), Box<dyn Error>> {
         let Ok(stamp) = press_stamp();
-        let (word, stamped) = stamp.expect("this machine has a monotonic clock");
+        let (word, stamped) = stamp.ok_or("this machine has no monotonic clock")?;
 
         assert_eq!(word, PRESSED);
 
-        let then: u64 = stamped.parse().expect("nanoseconds");
-
+        let then: u128 = stamped.parse()?;
         let Ok(clock) = monotonic_now();
-
-        let now = clock.expect("a monotonic clock").as_nanos() as u64;
+        let clock = clock.ok_or("this machine has no monotonic clock")?;
+        let now = clock.as_nanos();
 
         assert!(now >= then, "the clock went backwards between two reads");
+        Ok(())
     }
 
     #[test]
@@ -797,11 +806,14 @@ mod tests {
     }
 
     #[test]
-    fn a_waiting_that_is_dropped_writes_nothing() {
+    fn a_waiting_that_is_dropped_writes_nothing() -> Result<(), Box<dyn Error>> {
         let Ok(store) = where_();
-        let store = store.expect("a home to keep the times under");
+        let store = store.ok_or("no home to keep the times under")?;
 
-        let before = store.metadata().map(|about| about.len()).unwrap_or(0);
+        let before = match store.metadata() {
+            Ok(about) => about.len(),
+            Err(_nothing_written_yet) => 0,
+        };
 
         {
             let Ok(mut waiting) = Waiting::here(Wait { who: "a test", what: "nothing" });
@@ -809,7 +821,12 @@ mod tests {
             let Ok(()) = waiting.mark("thinking about it");
         }
 
-        let after = store.metadata().map(|about| about.len()).unwrap_or(0);
+        let after = match store.metadata() {
+            Ok(about) => about.len(),
+            Err(_nothing_written_yet) => 0,
+        };
+
         assert_eq!(before, after, "a dropped waiting wrote a line");
+        Ok(())
     }
 }

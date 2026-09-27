@@ -38,14 +38,14 @@ pub fn name<C: Code>(code: C) -> Result<Option<&'static str>, Never> {
     Ok(C::NAMED.iter().find(|(_, named)| *named == code).map(|(name, _)| *name))
 }
 
-pub fn named<C: Code>(word: &str) -> Result<C, NoSuchName> {
+pub fn from_name<C: Code>(word: &str) -> Result<C, NoSuchName> {
     match C::NAMED.iter().find(|(name, _)| *name == word) {
         Some((_, code)) => Ok(*code),
         None => Err(NoSuchName { kind: C::KIND, word: word.to_string() }),
     }
 }
 
-pub fn written<C: Code>(code: C, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn format_code<C: Code>(code: C, to: &mut fmt::Formatter<'_>) -> fmt::Result {
     let Ok(said) = name(code);
     let Ok(number) = code.number();
 
@@ -77,7 +77,7 @@ macro_rules! codes {
 
         impl std::fmt::Debug for $kind {
             fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                $crate::codes::written(*self, to)
+                $crate::codes::format_code(*self, to)
             }
         }
 
@@ -85,7 +85,7 @@ macro_rules! codes {
             type Err = $crate::codes::NoSuchName;
 
             fn from_str(word: &str) -> Result<$kind, $crate::codes::NoSuchName> {
-                $crate::codes::named(word)
+                $crate::codes::from_name(word)
             }
         }
     };
@@ -274,6 +274,9 @@ mod tests {
     #[test]
     fn a_name_reads_back_as_its_code() {
         assert_eq!(AbsoluteAxisCode::from_str("ABS_MT_SLOT"), Ok(AbsoluteAxisCode::ABS_MT_SLOT));
-        assert!(RelativeAxisCode::from_str("REL_NOTHING").is_err());
+        assert_eq!(
+            RelativeAxisCode::from_str("REL_NOTHING"),
+            Err(NoSuchName { kind: RelativeAxisCode::KIND, word: "REL_NOTHING".to_string() })
+        );
     }
 }

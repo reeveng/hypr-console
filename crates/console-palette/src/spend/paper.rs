@@ -44,44 +44,60 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::spend::tests::blossom;
 
     #[test]
-    fn a_color_that_cannot_be_set_does_not_take_the_background_down() {
-        let unit = spend(&blossom()).expect("every color it spends is declared");
+    fn a_color_that_cannot_be_set_does_not_take_the_background_down() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let unit = spend(&palette)?;
         let line = unit
             .lines()
             .find(|line| line.starts_with("ExecStartPost="))
-            .expect("the line that sets the ground");
+            .ok_or("a line that sets the ground")?;
         assert!(
             line.starts_with("ExecStartPost=-"),
             "{line:?} makes the ground a condition of the background"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn the_ground_is_set_and_no_picture_is_named() {
-        let unit = spend(&blossom()).expect("every color it spends is declared");
+    fn the_ground_is_set_and_no_picture_is_named() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let unit = spend(&palette)?;
         assert!(unit.contains("awww clear "));
         assert!(!unit.contains(".webp"), "{unit:?} names a picture");
         assert!(!unit.contains("awww img"), "{unit:?} paints a picture");
+
+        Ok(())
     }
 
     #[test]
-    fn the_color_is_six_hex_digits_with_no_hash() {
-        let unit = spend(&blossom()).expect("every color it spends is declared");
-        let (_, color) = unit.rsplit_once(' ').expect("a color at the end");
+    fn the_color_is_six_hex_digits_with_no_hash() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let unit = spend(&palette)?;
+        let (_, color) = unit.rsplit_once(' ').ok_or("a color at the end")?;
         assert_eq!(color.len(), 6, "{color:?}");
         assert!(color.chars().all(|digit| digit.is_ascii_hexdigit()), "{color:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn every_line_is_a_comment_or_a_setting() {
-        for line in spend(&blossom()).expect("every color it spends is declared").lines() {
+    fn every_line_is_a_comment_or_a_setting() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+
+        let spent = spend(&palette)?;
+
+        for line in spent.lines() {
             assert!(
                 line.starts_with('#') || line.contains('='),
                 "{line:?} is neither a comment nor a setting"
             );
         }
+
+        Ok(())
     }
 }

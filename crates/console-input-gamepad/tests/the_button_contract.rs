@@ -23,32 +23,34 @@
 //! session rather than one per surface.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::error::Error;
 
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::{self, every_profile};
 
-fn root() -> PathBuf {
-    {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
-}
+fn profiles() -> Result<BTreeMap<String, Profile>, Box<dyn Error>> {
+    let root = console_repository::root()?;
+    let profiles = every_profile(&root)?;
 
-fn profiles() -> BTreeMap<String, Profile> {
-    every_profile(&root()).expect("the profiles")
+    Ok(profiles)
 }
 
 #[test]
-fn there_is_a_profile_for_each_thing_the_pad_can_be_wearing() {
-    let named: BTreeSet<String> = profiles().into_keys().collect();
-    assert_eq!(named, ["game", router::NAME].map(String::from).into());
+fn there_is_a_profile_for_each_thing_the_pad_can_be_wearing() -> Result<(), Box<dyn Error>> {
+    let profiles = profiles()?;
+    let named: BTreeSet<String> = profiles.into_keys().collect();
+
+    assert_eq!(named, BTreeSet::from(["game", router::NAME].map(String::from)));
+
+    Ok(())
 }
 
 #[test]
-fn every_profile_publishes_all_three_devices() {
-    for (name, profile) in profiles() {
+fn every_profile_publishes_all_three_devices() -> Result<(), Box<dyn Error>> {
+    let profiles = profiles()?;
+
+    for (name, profile) in profiles {
         for device in ["mouse", "keyboard", "xbox-elite"] {
             assert_eq!(
                 profile.publishes(device),
@@ -57,4 +59,6 @@ fn every_profile_publishes_all_three_devices() {
             );
         }
     }
+
+    Ok(())
 }

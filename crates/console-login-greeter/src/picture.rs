@@ -20,7 +20,7 @@ use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
 use console_core_shapes::{Edge, Font, Line, Panel, Round, Shape, Text, Weight};
-use console_draw_painting::{Run, measured};
+use console_draw_painting::{Run, measure_text};
 use console_login_pattern::{DOTS, LOGIN, LOGIN_SIZE, ROOM, Target, dot};
 
 use crate::greeting::{Greeting, Status};
@@ -119,10 +119,10 @@ pub fn from_the_room(canvas: Size<u32>, at: Point<i32>) -> Result<Point<i32>, Ne
 }
 
 pub fn picture(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>) -> Result<Vec<Shape>, Never> {
-    labelled(greeting, wearing, canvas, LOGGING_IN)
+    render(greeting, wearing, canvas, LOGGING_IN)
 }
 
-pub fn labelled(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, button: &str) -> Result<Vec<Shape>, Never> {
+pub fn render(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, button: &str) -> Result<Vec<Shape>, Never> {
     let Ok(placed) = Placed::of(canvas);
     let mut shapes = vec![Shape::Panel(Panel {
         at: Point { x: 0, y: 0 },
@@ -228,7 +228,7 @@ pub fn labelled(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, butto
 }
 
 fn centred(run: Run<'_>, font: &Font, middle: Point<i32>) -> Result<Point<i32>, Never> {
-    let Ok(ink) = measured(run, font);
+    let Ok(ink) = measure_text(run, font);
     let Ok(half_wide) = fitted::<u32, i32>(ink.width.saturating_div(2));
     let Ok(half_tall) = fitted::<u32, i32>(ink.height.saturating_div(2));
 
@@ -261,10 +261,10 @@ mod tests {
     use console_core_color::Oklch;
     use console_login_pattern::Pattern;
 
-    fn wearing() -> Wearing {
+    fn flat_palette() -> Result<Wearing, Never> {
         let color = |lightness| Oklch { lightness, chroma: 0.0, hue: 0.0 };
 
-        Wearing {
+        Ok(Wearing {
             panel: color(0.3),
             text: color(0.9),
             edge: color(0.5),
@@ -274,75 +274,73 @@ mod tests {
             fill: color(0.4),
             night: color(0.05),
             pink: color(0.85),
-        }
-    }
-
-    fn panels(shapes: &[Shape]) -> Vec<Panel> {
-        let Ok(panels) = console_core_shapes::panels(shapes);
-
-        panels
+        })
     }
 
     #[test]
     fn every_dot_and_login_are_on_the_screen() {
+        let Ok(palette) = flat_palette();
         let canvas = Size { width: 2560, height: 1600 };
         let Ok(pattern) = Pattern::new();
-        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &wearing(), canvas);
+        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &palette, canvas);
         let inside = |panel: &Panel| {
             panel.at.x >= 0
                 && panel.at.y >= 0
-                && i64::from(panel.at.x) + i64::from(panel.size.width) <= i64::from(canvas.width)
-                && i64::from(panel.at.y) + i64::from(panel.size.height) <= i64::from(canvas.height)
+                && i64::from(panel.at.x).saturating_add(i64::from(panel.size.width)) <= i64::from(canvas.width)
+                && i64::from(panel.at.y).saturating_add(i64::from(panel.size.height)) <= i64::from(canvas.height)
         };
 
-        assert_eq!(panels(&shapes).len(), DOTS.len() + 2);
-        assert!(panels(&shapes).iter().all(inside));
+        let Ok(drawn) = console_core_shapes::panels(&shapes);
+
+        assert_eq!(drawn.len(), DOTS.len().saturating_add(2));
+        assert!(drawn.iter().all(inside));
     }
 
-    fn texts(shapes: &[Shape]) -> Vec<Text> {
-        let Ok(texts) = console_core_shapes::texts(shapes);
+    fn middle_of(text: &Text) -> Result<i64, Never> {
+        let Ok(ink) = measure_text(Run { said: &text.said, weight: text.weight, width: text.width }, &text.font);
 
-        texts
-    }
-
-    fn middle_of(text: &Text) -> i64 {
-        let Ok(ink) = measured(Run { said: &text.said, weight: text.weight, width: text.width }, &text.font);
-
-        i64::from(text.at.x) + i64::from(ink.width) / 2
+        Ok(i64::from(text.at.x).saturating_add(i64::from(ink.width).div_euclid(2)))
     }
 
     #[test]
     fn the_button_and_the_line_under_it_are_centred() {
+        let Ok(palette) = flat_palette();
         let canvas = Size { width: 1280, height: 800 };
         let Ok(pattern) = Pattern::new();
 
         for button in ["Login", "Next", "Save"] {
-            let greeting = Greeting { pattern: pattern.clone(), status: Status::Message("Draw a new pattern, then Next.".to_string()) };
-            let Ok(shapes) = labelled(&greeting, &wearing(), canvas, button);
+            let greeting = Greeting { pattern: pattern.clone(), status: Status::Message(String::from("Draw a new pattern, then Next.")) };
+            let Ok(shapes) = render(&greeting, &palette, canvas, button);
             let Ok(placed) = Placed::of(canvas);
             let Ok(centre) = placed.point(LOGIN);
-            let said = texts(&shapes);
-            let apart = |text: &Text, from: i64| (middle_of(text) - from).abs();
+            let Ok(said) = console_core_shapes::texts(&shapes);
+            let apart = |text: &Text, from: i64| {
+                let Ok(middle) = middle_of(text);
+
+                middle.saturating_sub(from).abs()
+            };
 
             assert_eq!(said.len(), 2);
             assert!(said.first().is_some_and(|label| apart(label, i64::from(centre.x)) <= 2), "{button} is off the middle of its button");
-            assert!(said.get(1).is_some_and(|line| apart(line, i64::from(canvas.width) / 2) <= 2), "the line under {button} is off the middle of the screen");
+            assert!(said.get(1).is_some_and(|line| apart(line, i64::from(canvas.width).div_euclid(2)) <= 2), "the line under {button} is off the middle of the screen");
         }
     }
 
     #[test]
     fn a_drawn_pattern_is_one_line_fewer_than_its_dots() {
+        let Ok(palette) = flat_palette();
         let pattern = Pattern { at: Target::Login, path: vec![0, 2, 5], finger: None };
-        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &wearing(), Size { width: 1280, height: 800 });
+        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &palette, Size { width: 1280, height: 800 });
         assert_eq!(shapes.iter().filter(|shape| matches!(shape, Shape::Line(_))).count(), 2);
     }
 
     #[test]
     fn a_finger_down_draws_the_line_on_from_the_last_dot_to_it() {
+        let Ok(palette) = flat_palette();
         let finger = Point { x: 300, y: 200 };
         let pattern = Pattern { at: Target::Dot(5), path: vec![0, 2, 5], finger: Some(finger) };
         let canvas = Size { width: 1280, height: 800 };
-        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &wearing(), canvas);
+        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &palette, canvas);
         let Ok(placed) = Placed::of(canvas);
         let Ok(under) = placed.point(finger);
         let lines: Vec<&Line> = shapes
@@ -366,19 +364,22 @@ mod tests {
             let Ok(on_screen) = placed.point(dot.centre);
             let Ok(back) = in_the_room(canvas, Point { x: f64::from(on_screen.x), y: f64::from(on_screen.y) });
 
-            assert!((back.x - dot.centre.x).abs() <= 1 && (back.y - dot.centre.y).abs() <= 1, "{} came back at {back:?}", dot.key);
+            assert!(back.x.abs_diff(dot.centre.x) <= 1 && back.y.abs_diff(dot.centre.y) <= 1, "{} came back at {back:?}", dot.key);
         }
     }
 
     #[test]
     fn the_cursor_is_the_one_edge_in_the_text_color() {
+        let Ok(palette) = flat_palette();
         let Ok(pattern) = Pattern::new();
-        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &wearing(), Size { width: 1280, height: 800 });
+        let Ok(shapes) = picture(&Greeting { pattern, status: Status::Waiting }, &palette, Size { width: 1280, height: 800 });
+        let Ok(drawn) = console_core_shapes::panels(&shapes);
+
         assert_eq!(
-            panels(&shapes)
+            drawn
                 .iter()
                 .filter(|panel| match panel.edge {
-                    Edge::Of { color, .. } => color == wearing().text,
+                    Edge::Of { color, .. } => color == palette.text,
                     Edge::None => false,
                 })
                 .count(),

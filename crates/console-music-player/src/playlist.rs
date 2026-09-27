@@ -78,7 +78,7 @@ impl Playlist {
 
     pub fn opened(songs: Vec<PathBuf>, song: &Path) -> Result<Playlist, Never> {
         let held = Playlist::of(songs)?;
-        let Ok(at) = held.holding(song);
+        let Ok(at) = held.position_of(song);
 
         Ok(Playlist { at, ..held })
     }
@@ -170,7 +170,7 @@ impl Playlist {
         self.ordered = order;
 
         let Ok(at) = match held {
-            Some(song) => self.holding(&song),
+            Some(song) => self.position_of(&song),
             None => Ok(0),
         };
 
@@ -196,7 +196,7 @@ impl Playlist {
         }
     }
 
-    fn holding(&self, song: &Path) -> Result<u32, Never> {
+    fn position_of(&self, song: &Path) -> Result<u32, Never> {
         let found = (0..).zip(&self.order).find(|(_, held)| {
             let Ok(held) = index(**held);
 
@@ -218,11 +218,7 @@ fn shuffled(songs: u32, seed: u64) -> Result<Vec<u32>, Never> {
     let Ok(mut order) = listed(songs);
     let Ok(mut rolling) = Rolling::from(seed);
 
-    let mut at = songs;
-
-    while at > 1 {
-        at = at.saturating_sub(1);
-
+    for at in (1..songs).rev() {
         let Ok(other) = rolling.under(at.saturating_add(1));
         let Ok(here) = index(at);
         let Ok(there) = index(other);

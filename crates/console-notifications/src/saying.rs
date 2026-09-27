@@ -48,7 +48,7 @@ pub enum Expiry {
 }
 
 impl Expiry {
-    fn said(self) -> Result<String, Never> {
+    fn as_argument(self) -> Result<String, Never> {
         Ok(match self {
             Expiry::Stays => "0".to_string(),
             Expiry::Milliseconds(many) => many.to_string(),
@@ -116,7 +116,7 @@ impl Notification {
 
     pub fn arguments(&self) -> Result<Vec<String>, Never> {
         let Ok(urgency) = self.urgency.said();
-        let Ok(expiry) = self.expiry.said();
+        let Ok(expiry) = self.expiry.as_argument();
 
         let mut arguments = vec![
             "notify-send".to_string(),
@@ -222,14 +222,14 @@ pub fn for_the_journal(kind: &str, said: Content<'_>) -> Result<String, Never> {
 }
 
 pub fn under() -> Result<PathBuf, Never> {
-    let ours = console_core_places::runtime_ours()?;
+    let ours = console_core_places::application_runtime()?;
 
 Ok(match ours {
             Some(ours) => ours,
             None => {
                 let mine = getuid();
 
-                PathBuf::from(format!("/run/user/{mine}")).join(console_core_places::OURS)
+                PathBuf::from(format!("/run/user/{mine}")).join(console_core_places::APPLICATION)
             }
         })
 }
@@ -237,7 +237,7 @@ Ok(match ours {
 pub struct StatePath(PathBuf);
 
 impl StatePath {
-    pub fn named(name: &str) -> Result<Self, Never> {
+    pub fn new(name: &str) -> Result<Self, Never> {
         let Ok(under) = under();
 
         Ok(StatePath(under.join(name)))
@@ -442,38 +442,47 @@ mod tests {
     #[test]
     fn the_first_few_are_shown_and_the_rest_are_the_journals() {
         assert_eq!(visibility(1), Ok(Visibility::Shown));
-        assert_eq!(visibility(LOUD - 1), Ok(Visibility::Shown));
+        assert_eq!(visibility(LOUD.saturating_sub(1)), Ok(Visibility::Shown));
         assert_eq!(visibility(LOUD), Ok(Visibility::Last));
-        assert_eq!(visibility(LOUD + 1), Ok(Visibility::Hidden));
+        assert_eq!(visibility(LOUD.saturating_add(1)), Ok(Visibility::Hidden));
         assert_eq!(visibility(200), Ok(Visibility::Hidden));
     }
 
     #[test]
-    fn the_last_one_says_it_is_the_last_one() {
+    fn the_last_one_says_it_is_the_last_one() -> Result<(), &'static str> {
         let Ok(fault) = fault(Content { summary: "The picture would not delete", body: "" }, LOUD);
-        let notification = fault.expect("the last");
+        let notification = fault.ok_or("the last was not shown")?;
+
         assert!(notification.body.contains("Not shown again"));
+
+        Ok(())
     }
 
     #[test]
-    fn the_last_ones_sentence_comes_after_what_the_fault_said() {
+    fn the_last_ones_sentence_comes_after_what_the_fault_said() -> Result<(), &'static str> {
         let said = Content { summary: "Closed wrong", body: "The folder is read-only." };
         let Ok(fault) = fault(said, LOUD);
-        let notification = fault.expect("the last");
+        let notification = fault.ok_or("the last was not shown")?;
+
         assert!(notification.body.starts_with("The folder is read-only."));
+
+        Ok(())
     }
 
     #[test]
     fn nothing_is_shown_once_the_screen_has_had_enough() {
-        assert_eq!(fault(Content { summary: "Closed wrong", body: "again" }, LOUD + 1), Ok(None));
+        assert_eq!(fault(Content { summary: "Closed wrong", body: "again" }, LOUD.saturating_add(1)), Ok(None));
     }
 
     #[test]
-    fn a_fault_stays_on_the_screen() {
+    fn a_fault_stays_on_the_screen() -> Result<(), &'static str> {
         let Ok(fault) = fault(Content { summary: "Closed wrong", body: "" }, 1);
-        let notification = fault.expect("the first");
+        let notification = fault.ok_or("the first was not shown")?;
+
         assert_eq!(notification.expiry, Expiry::Stays);
         assert_eq!(notification.urgency, Urgency::Critical);
+
+        Ok(())
     }
 
     #[test]
@@ -544,15 +553,16 @@ mod tests {
     }
 
     #[test]
-    fn a_card_no_one_kept_a_number_for_is_left_alone() {
-        let at = std::env::temp_dir()
-            .join(format!("console-withdraw-{}-{}", std::process::id(), line!()));
-        let _ = std::fs::remove_file(&at);
+    fn a_card_no_one_kept_a_number_for_is_left_alone() -> Result<(), console_core_temporary_directories::Unmade> {
+        let fresh = console_core_temporary_directories::fresh("withdraw")?;
+        let at = fresh.join("kept");
 
         let kept = StatePath(at.clone());
         let Ok(()) = withdraw(&kept);
 
         assert_eq!(kept.read(), Ok(None));
         assert!(!at.exists(), "a withdrawal wrote a file where there was nothing to withdraw");
+
+        Ok(())
     }
 }

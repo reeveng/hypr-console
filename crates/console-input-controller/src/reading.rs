@@ -9,8 +9,9 @@ use console_input_event_devices::{AbsoluteAxisCode, EventType, KeyCode};
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_words::Words;
+use console_input_gamepad::axis::Range;
 use console_input_gamepad::routing::{self, Hat};
-use console_input_gamepad::vocabulary::spoken_for;
+use console_input_gamepad::vocabulary::{spoken_for, trigger_of_axis, trigger_of_button, trigger_spoken};
 
 use console_input_bindings::bound::Input;
 
@@ -65,7 +66,7 @@ impl From {
             reason = "a variable names the device to read instead of finding one, and which variable is on the variant. Two binaries read these before this existed and the second one only knew about the pad"
         )
     )]
-    pub fn told(self) -> Result<Option<String>, Never> {
+    pub fn path_from_environment(self) -> Result<Option<String>, Never> {
         let Ok(called) = self.called();
 
         Ok(match std::env::var(called) {
@@ -92,7 +93,7 @@ impl From {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ranges {
-    pub stick: i32,
+    pub stick: Range,
     pub trigger: (i32, i32),
 }
 
@@ -131,7 +132,7 @@ impl Default for Pulled {
 }
 
 impl Pulled {
-    pub fn said(self) -> Result<Vec<&'static str>, Never> {
+    pub fn held_names(self) -> Result<Vec<&'static str>, Never> {
         let mut said = Vec::new();
 
         match self.l2 {
@@ -146,11 +147,23 @@ impl Pulled {
 
         Ok(said)
     }
+
+    fn hold(&mut self, named: Option<&str>, pulled: Trigger) -> Result<(), Never> {
+        let Ok(spoken) = named.map_or(Ok(None), trigger_spoken);
+
+        match spoken {
+            Some("l2") => self.l2 = pulled,
+            Some("r2") => self.r2 = pulled,
+            Some(_) | None => {},
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for Ranges {
     fn default() -> Self {
-        Ranges { stick: 1, trigger: (0, 1) }
+        Ranges { stick: Range { low: -1, high: 1 }, trigger: (0, 1) }
     }
 }
 
@@ -251,7 +264,7 @@ impl Controller {
     }
 
     fn on_pad(&mut self, kind: EventType, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
-        let Ok(meant) = self.meant(kind, code, value);
+        let Ok(meant) = self.classify(kind, code, value);
 
         let Ok(mut done) = match meant {
             Meant::Some => self.now_using(Input::Pad),
@@ -276,7 +289,7 @@ impl Controller {
         Ok(done)
     }
 
-    fn meant(&self, kind: EventType, code: u16, value: i32) -> Result<Meant, Never> {
+    fn classify(&self, kind: EventType, code: u16, value: i32) -> Result<Meant, Never> {
         Ok(match kind {
             EventType::KEY => match value {
                 1 => Meant::Some,
@@ -304,10 +317,10 @@ impl Controller {
             Hat::NotAnAxis => {},
         }
 
-        let trigger = code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0;
+        let Ok(trigger) = trigger_of_axis(code);
 
         match trigger {
-            true => {
+            Some(_) => {
                 let Ok(pulled) = pulled(value, self.ranges.trigger);
 
                 return Ok(match pulled {
@@ -315,10 +328,10 @@ impl Controller {
                     Trigger::Loose => Meant::None,
                 });
             }
-            false => {},
+            None => {},
         }
 
-        let Ok(pushed) = pushed(Stick { value, span: self.ranges.stick });
+        let Ok(pushed) = pushed(Stick { value, range: self.ranges.stick });
 
         Ok(match pushed.abs() > 0.0 {
             true => Meant::Some,
@@ -329,28 +342,23 @@ impl Controller {
     fn on_trigger_button(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
         let Ok(pulled) = pulled_by(value);
 
-        match (code == KeyCode::BTN_TL2.0, code == KeyCode::BTN_TR2.0) {
-            (true, _) => self.pulled.l2 = pulled,
-            (false, true) => self.pulled.r2 = pulled,
-            (false, false) => {},
-        }
+        let Ok(named) = trigger_of_button(code);
+        let Ok(()) = self.pulled.hold(named, pulled);
 
         Ok(Vec::new())
     }
 
     fn on_axis(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
-        match code == AbsoluteAxisCode::ABS_Z.0 || code == AbsoluteAxisCode::ABS_RZ.0 {
-            true => {
-                let Ok(pulled) = pulled(value, self.ranges.trigger);
+        let Ok(trigger) = trigger_of_axis(code);
 
-                match code == AbsoluteAxisCode::ABS_Z.0 {
-                    true => self.pulled.l2 = pulled,
-                    false => self.pulled.r2 = pulled,
-                }
+        match trigger {
+            Some(named) => {
+                let Ok(pulled) = pulled(value, self.ranges.trigger);
+                let Ok(()) = self.pulled.hold(Some(named), pulled);
 
                 return Ok(Vec::new());
             }
-            false => {},
+            None => {},
         }
 
         let Ok(hat) = routing::is_hat(code);
@@ -360,7 +368,7 @@ impl Controller {
             Hat::NotAnAxis => {},
         }
 
-        let Ok(pushed) = pushed(Stick { value, span: self.ranges.stick });
+        let Ok(pushed) = pushed(Stick { value, range: self.ranges.stick });
 
         match (code == AbsoluteAxisCode::ABS_RX.0, code == AbsoluteAxisCode::ABS_RY.0) {
             (true, _) => self.stick.0 = pushed,
@@ -433,7 +441,7 @@ impl Controller {
                     false => {},
                 }
 
-                let Ok(held) = self.held();
+                let Ok(held) = self.held_buttons();
                 let Ok(found) = buttons::job_for(&self.table, self.mode, &held, button);
 
                 self.pressed_buttons.push(button);
@@ -491,8 +499,8 @@ impl Controller {
         }
     }
 
-    fn held(&self) -> Result<Vec<&'static str>, Never> {
-        let Ok(mut held) = self.pulled.said();
+    fn held_buttons(&self) -> Result<Vec<&'static str>, Never> {
+        let Ok(mut held) = self.pulled.held_names();
 
         held.extend(self.pressed_buttons.iter().copied());
 
@@ -533,7 +541,7 @@ impl Controller {
                     false => ButtonPress::Up,
                 };
 
-                self.finger.touched(down, now)
+                self.finger.handle_press(down, now)
             }
             (EventType::KEY, PRESSED) => self.finger.pressed(value),
             (EventType::ABSOLUTE, ACROSS) => {
@@ -551,9 +559,9 @@ impl Controller {
     }
 
     pub fn tick(&mut self, seconds: f64) -> Result<Vec<Effect>, Never> {
-        let Ok(mut done) = self.stepped(seconds);
+        let Ok(mut done) = self.tick_repeat(seconds);
         let by = Point { x: self.stick.0, y: self.stick.1 };
-        let Ok(notches) = self.wheel.turned(by, seconds);
+        let Ok(notches) = self.wheel.scroll(by, seconds);
 
         match notches.is_empty() {
             true => {},
@@ -563,7 +571,7 @@ impl Controller {
         Ok(done)
     }
 
-    fn stepped(&mut self, seconds: f64) -> Result<Vec<Effect>, Never> {
+    fn tick_repeat(&mut self, seconds: f64) -> Result<Vec<Effect>, Never> {
         let held = match &mut self.stepping {
             Some(held) => held,
             None => return Ok(Vec::new()),
@@ -631,98 +639,126 @@ impl Wake {
 mod tests {
     use crate::effect::Payload;
     use super::*;
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
     use crate::effect::Output;
+    use console_core_number_conversion::{fitted, toward_zero_u32};
     use console_input_event_devices::RelativeAxisCode;
 
-    fn ranges() -> Ranges {
-        Ranges { stick: 32767, trigger: (0, 1023) }
-    }
+    const RANGES: Ranges = Ranges { stick: Range { low: -32767, high: 32767 }, trigger: (0, 1023) };
+    const THEN: f64 = 1000.0;
 
-    fn controller() -> Controller {
+    fn fresh() -> Result<Controller, Never> {
         let mut held = Controller::default();
-        ok(held.reading(ranges()));
-        ok(held.using(Input::Pad));
-        held
+        let Ok(()) = held.reading(RANGES);
+
+        Ok(held)
     }
 
-    fn fresh() -> Controller {
-        let mut held = Controller::default();
-        ok(held.reading(ranges()));
-        held
+    fn controller() -> Result<Controller, Never> {
+        let Ok(mut held) = fresh();
+        let Ok(()) = held.using(Input::Pad);
+
+        Ok(held)
     }
 
-    fn pressed(held: &mut Controller, from: From, code: KeyCode) -> Vec<Effect> {
-        let down = ok(held.saw(from, EventType::KEY, code.0, 1, 1000.0));
-        ok(held.saw(from, EventType::KEY, code.0, 0, 1000.0));
-        down
+    fn pressed(held: &mut Controller, from: From, code: KeyCode) -> Result<Vec<Effect>, Never> {
+        let Ok(down) = held.saw(from, EventType::KEY, code.0, 1, THEN);
+        let Ok(_) = held.saw(from, EventType::KEY, code.0, 0, THEN);
+
+        Ok(down)
     }
 
-    fn brighter(held: &mut Controller) -> Vec<Effect> {
-        ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0));
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 1, 1000.0))
+    fn brighter(held: &mut Controller) -> Result<Vec<Effect>, Never> {
+        let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, THEN);
+
+        held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 1, THEN)
     }
 
-    fn ticked(held: &mut Controller, seconds: f64) -> u32 {
-        let mut steps = 0;
-        let mut left = seconds;
-        while left > 0.0 {
-            steps += u32::try_from(ok(held.tick(POLL)).len()).unwrap();
-            left -= POLL;
+    fn ticked(held: &mut Controller, seconds: f64) -> Result<u32, Never> {
+        let mut steps: u32 = 0;
+
+        for _left in std::iter::successors(Some(seconds), |left| Some(left - POLL)).take_while(|left| *left > 0.0) {
+            let Ok(turned) = held.tick(POLL);
+            let Ok(these) = fitted::<_, u32>(turned.len());
+
+            steps = steps.saturating_add(these);
         }
-        steps
+
+        Ok(steps)
+    }
+
+    fn key(code: KeyCode, value: i32) -> Result<Effect, Never> {
+        let Ok(output) = Output::key(code.0, value);
+
+        Ok(Effect::Frame(vec![output]))
+    }
+
+    fn launcher() -> Result<Effect, Never> {
+        Effect::run(&["launcher", "--keep"])
     }
 
     #[test]
     fn a_scale_held_down_goes_on_stepping() {
-        let mut held = controller();
-        let brightness = ok(console_core_internal_programs::InternalProgram::Brightness.path());
-        let step = ok(Effect::run(&[brightness, "up"]));
-        assert_eq!(brighter(&mut held), std::slice::from_ref(&step), "the press itself");
-        assert_eq!(ticked(&mut held, STEP_AFTER - 0.1), 0, "before the delay is up");
-        assert!(ticked(&mut held, 0.4) > 0, "after it");
+        let Ok(mut held) = controller();
+        let Ok(brightness) = console_core_internal_programs::InternalProgram::Brightness.path();
+        let Ok(step) = Effect::run(&[brightness, "up"]);
+
+        assert_eq!(brighter(&mut held), Ok(vec![step]), "the press itself");
+        assert_eq!(ticked(&mut held, STEP_AFTER - 0.1), Ok(0), "before the delay is up");
+
+        let Ok(after) = ticked(&mut held, 0.4);
+
+        assert!(after > 0, "after it");
     }
 
     #[test]
     fn one_press_of_a_scale_is_one_step() {
-        let mut held = controller();
-        assert_eq!(brighter(&mut held).len(), 1);
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 0, 1000.0));
-        assert_eq!(ticked(&mut held, 3.0), 0, "a press that was let go went on stepping");
+        let Ok(mut held) = controller();
+        let Ok(stepped) = brighter(&mut held);
+
+        assert_eq!(stepped.len(), 1);
+
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 0, THEN);
+
+        assert_eq!(ticked(&mut held, 3.0), Ok(0), "a press that was let go went on stepping");
     }
 
     #[test]
     fn a_job_that_is_not_a_scale_does_not_repeat_when_it_is_held() {
-        let mut held = controller();
-        let down = ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, 1000.0));
-        assert_eq!(down, [ok(Effect::run(&["launcher", "--keep"]))]);
-        assert_eq!(ticked(&mut held, 3.0), 0, "the menu opened again on its own");
+        let Ok(mut held) = controller();
+        let Ok(launched) = launcher();
+
+        assert_eq!(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, THEN), Ok(vec![launched]));
+        assert_eq!(ticked(&mut held, 3.0), Ok(0), "the menu opened again on its own");
     }
 
     #[test]
     fn a_pad_that_went_away_stops_a_scale() {
-        let mut held = controller();
-        assert_eq!(brighter(&mut held).len(), 1);
-        ok(held.pad_went());
-        assert_eq!(ticked(&mut held, 3.0), 0);
+        let Ok(mut held) = controller();
+        let Ok(stepped) = brighter(&mut held);
+
+        assert_eq!(stepped.len(), 1);
+
+        let Ok(_) = held.pad_went();
+
+        assert_eq!(ticked(&mut held, 3.0), Ok(0));
     }
 
     #[test]
     fn a_held_scale_gathers_pace_and_then_holds_it() {
-        let mut held = controller();
-        brighter(&mut held);
-        ticked(&mut held, STEP_AFTER);
-        let first = ticked(&mut held, 1.0);
-        let later = ticked(&mut held, 1.0);
+        let Ok(mut held) = controller();
+        let Ok(_) = brighter(&mut held);
+        let Ok(_) = ticked(&mut held, STEP_AFTER);
+        let Ok(first) = ticked(&mut held, 1.0);
+        let Ok(later) = ticked(&mut held, 1.0);
+
         assert!(later > first, "it did not gather: {first} then {later}");
-        let most = (1.0 / STEP_FASTEST).ceil() as u32;
+
+        let Ok(most) = toward_zero_u32((1.0 / STEP_FASTEST).ceil());
+
         assert!(later <= most, "{later} steps in a second is past {most}");
-        let settled = ticked(&mut held, 1.0);
+
+        let Ok(settled) = ticked(&mut held, 1.0);
+
         assert!(
             later.abs_diff(settled) <= 1,
             "it went on gathering past the floor: {later} then {settled}",
@@ -731,249 +767,296 @@ mod tests {
 
     #[test]
     fn a_button_that_starts_something_acts_when_it_goes_down_and_not_when_it_comes_up() {
-        let mut held = controller();
-        assert_eq!(
-            ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, 1000.0)),
-            [ok(Effect::run(&["launcher", "--keep"]))]
-        );
-        assert!(ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 0, 1000.0)).is_empty());
+        let Ok(mut held) = controller();
+        let Ok(launched) = launcher();
+
+        assert_eq!(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 1, THEN), Ok(vec![launched]));
+        assert_eq!(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F13.0, 0, THEN), Ok(Vec::new()));
     }
 
     #[test]
     fn a_button_that_sends_a_key_sends_it_down_and_up() {
-        let mut held = controller();
-        let down = ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
-        assert_eq!(down, [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 1))])]);
-        let up = ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, 1000.0));
-        assert_eq!(up, [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 0))])]);
+        let Ok(mut held) = controller();
+        let Ok(clicked) = key(KeyCode::BTN_LEFT, 1);
+        let Ok(released) = key(KeyCode::BTN_LEFT, 0);
+
+        assert_eq!(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, THEN), Ok(vec![clicked]));
+        assert_eq!(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, THEN), Ok(vec![released]));
     }
 
     #[test]
     fn the_dpad_arrives_as_a_hat_and_is_read_as_four_buttons() {
-        let mut held = controller();
-        let up = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, -1, 1000.0));
-        assert_eq!(up, [Effect::Frame(vec![ok(Output::key(KeyCode::KEY_UP.0, 1))])]);
-        let over = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 1, 1000.0));
+        let Ok(mut held) = controller();
+        let Ok(up) = key(KeyCode::KEY_UP, 1);
+        let Ok(up_released) = key(KeyCode::KEY_UP, 0);
+        let Ok(down) = key(KeyCode::KEY_DOWN, 1);
+        let Ok(down_released) = key(KeyCode::KEY_DOWN, 0);
+
+        assert_eq!(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, -1, THEN), Ok(vec![up]));
         assert_eq!(
-            over,
-            [
-                Effect::Frame(vec![ok(Output::key(KeyCode::KEY_UP.0, 0))]),
-                Effect::Frame(vec![ok(Output::key(KeyCode::KEY_DOWN.0, 1))]),
-            ]
+            held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 1, THEN),
+            Ok(vec![up_released, down])
         );
-        let middle = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 0, 1000.0));
-        assert_eq!(middle, [Effect::Frame(vec![ok(Output::key(KeyCode::KEY_DOWN.0, 0))])]);
+        assert_eq!(
+            held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 0, THEN),
+            Ok(vec![down_released])
+        );
     }
 
     #[test]
     fn standing_down_lets_go_of_a_button_whose_release_will_never_arrive() {
-        let mut held = controller();
-        let down = ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F22.0, 1, 1000.0));
+        let Ok(mut held) = controller();
+        let Ok(down) = held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F22.0, 1, THEN);
 
         assert!(!down.is_empty(), "X does nothing at all, so this test is asking nothing");
 
-        let _ = ok(held.now_in(Mode::Keyboard));
-        let again = ok(held.now_in(Mode::Desktop));
+        let Ok(_) = held.now_in(Mode::Keyboard);
+        let Ok(again) = held.now_in(Mode::Desktop);
 
         assert!(again.is_empty(), "coming back is not a release of its own");
         assert_eq!(
-            ok(held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F22.0, 1, 2000.0)),
-            down,
+            held.saw(From::Keys, EventType::KEY, KeyCode::KEY_F22.0, 1, 2000.0),
+            Ok(down),
             "X was still held from last time, so the press that puts the keyboard back does nothing"
         );
     }
 
     #[test]
     fn a_button_held_across_a_menu_opening_stays_held() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, THEN);
 
-        assert!(ok(held.now_in(Mode::Tabs)).is_empty(), "a picker opening let go of A");
+        assert_eq!(held.now_in(Mode::Tabs), Ok(Vec::new()), "a picker opening let go of A");
     }
 
     #[test]
     fn a_button_is_let_go_of_by_the_job_that_took_it() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
-        let _ = ok(held.now_in(Mode::Tabs));
-        let up = ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, 1000.0));
-        assert_eq!(up, [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 0))])], "not Enter");
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, THEN);
+        let Ok(_) = held.now_in(Mode::Tabs);
+        let Ok(released) = key(KeyCode::BTN_LEFT, 0);
+
+        assert_eq!(
+            held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0, THEN),
+            Ok(vec![released]),
+            "not Enter"
+        );
     }
 
     #[test]
     fn a_pad_that_went_away_lets_go_of_what_was_held() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, 1000.0));
-        assert_eq!(ok(held.pad_went()), [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 0))])]);
-        assert!(ok(held.pad_went()).is_empty(), "and only the once");
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1, THEN);
+        let Ok(released) = key(KeyCode::BTN_LEFT, 0);
+
+        assert_eq!(held.pad_went(), Ok(vec![released]));
+        assert_eq!(held.pad_went(), Ok(Vec::new()), "and only the once");
     }
 
     #[test]
     fn the_shoulders_carry_the_window_while_l2_is_held() {
-        let mut held = controller();
-        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Effect::workspace("+1", Payload::None))]);
-        ok(held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, 1000.0));
+        let Ok(mut held) = controller();
+        let Ok(moved) = Effect::workspace("+1", Payload::None);
+        let Ok(carried) = Effect::workspace("+1", Payload::Window);
+
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), Ok(vec![moved]));
+
+        let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, THEN);
+
         assert_eq!(held.pulled.l2, Trigger::Pressed);
-        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), [ok(Effect::workspace("+1", Payload::Window))]);
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), Ok(vec![carried]));
     }
 
     #[test]
     fn pulling_l2_past_halfway_is_holding_it() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 400, 1000.0));
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 400, THEN);
+
         assert_eq!(held.pulled.l2, Trigger::Loose, "not far enough");
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900, 1000.0));
+
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900, THEN);
+
         assert_eq!(held.pulled.l2, Trigger::Pressed);
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 900, 1000.0));
+
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 900, THEN);
+
         assert_eq!(held.pulled.r2, Trigger::Pressed);
     }
 
     #[test]
     fn the_right_stick_turns_the_wheel_and_the_left_one_does_not() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Y.0, -32767, 1000.0));
-        assert!(ok(held.tick(1.0)).is_empty(), "the left stick is not a wheel");
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, 1000.0));
-        let turned = ok(held.tick(1.0));
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Y.0, -32767, THEN);
 
-        let Ok(wanted) = console_core_number_conversion::toward_zero_u32(crate::scroll::MAX_HZ);
+        assert_eq!(held.tick(1.0), Ok(Vec::new()), "the left stick is not a wheel");
 
-        assert!(matches!(turned.as_slice(), [Effect::Frame(notches)] if u32::try_from(notches.len()).unwrap() == wanted));
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, THEN);
+        let Ok(turned) = held.tick(1.0);
+        let Ok(wanted) = toward_zero_u32(crate::scroll::MAX_HZ);
+        let notches = match turned.as_slice() {
+            [Effect::Frame(notches)] => {
+                let Ok(counted) = fitted::<_, u32>(notches.len());
+
+                Some(counted)
+            },
+            _ => None,
+        };
+
+        assert_eq!(notches, Some(wanted), "one frame of notches, at the most the wheel turns: {turned:?}");
     }
 
     #[test]
     fn a_pad_that_went_away_stops_the_wheel() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, 1000.0));
-        ok(held.pad_went());
-        assert!(ok(held.tick(1.0)).is_empty());
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, THEN);
+        let Ok(_) = held.pad_went();
+
+        assert_eq!(held.tick(1.0), Ok(Vec::new()));
     }
 
     #[test]
     fn a_tap_on_the_touchpad_is_a_click() {
-        let mut held = controller();
-        ok(held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1, 1000.0));
-        let clicked = ok(held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 0, 1000.05));
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1, THEN);
+        let Ok(clicked) = held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 0, 1000.05);
+
         assert_eq!(clicked.len(), 2, "down and up");
     }
 
     #[test]
     fn a_finger_on_the_pad_is_read_at_the_pads_own_pace() {
-        let mut held = controller();
-        ok(held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1, 1000.0));
-        assert_eq!(ok(held.wake()), Wake::Within(crate::touch::POLL));
-        ok(held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 0, 1000.5));
-        assert_eq!(ok(held.wake()), Wake::OnInput, "a finger lifted is nothing to look at");
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1, THEN);
+
+        assert_eq!(held.wake(), Ok(Wake::Within(crate::touch::POLL)));
+
+        let Ok(_) = held.saw(From::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 0, 1000.5);
+
+        assert_eq!(held.wake(), Ok(Wake::OnInput), "a finger lifted is nothing to look at");
     }
 
     #[test]
     fn a_controller_nobody_is_holding_waits_for_a_press() {
-        let mut held = controller();
-        assert_eq!(ok(held.wake()), Wake::OnInput);
-        pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, 1000.0));
-        assert_eq!(ok(held.wake()), Wake::OnInput, "a press let go and a stick resting are not held");
+        let Ok(mut held) = controller();
+
+        assert_eq!(held.wake(), Ok(Wake::OnInput));
+
+        let Ok(_) = pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, THEN);
+
+        assert_eq!(held.wake(), Ok(Wake::OnInput), "a press let go and a stick resting are not held");
     }
 
     #[test]
     fn a_stick_pushed_is_looked_at_until_it_is_let_go() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, 1000.0));
-        assert_eq!(ok(held.wake()), Wake::Within(POLL));
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, 0, 1000.5));
-        assert_eq!(ok(held.wake()), Wake::OnInput);
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, -32767, THEN);
+
+        assert_eq!(held.wake(), Ok(Wake::Within(POLL)));
+
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RY.0, 0, 1000.5);
+
+        assert_eq!(held.wake(), Ok(Wake::OnInput));
     }
 
     #[test]
     fn a_button_that_repeats_is_looked_at_while_it_is_held() {
-        let mut held = controller();
-        brighter(&mut held);
-        assert_eq!(ok(held.wake()), Wake::Within(POLL));
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 0, 1000.5));
-        assert_eq!(ok(held.wake()), Wake::OnInput);
+        let Ok(mut held) = controller();
+        let Ok(_) = brighter(&mut held);
+
+        assert_eq!(held.wake(), Ok(Wake::Within(POLL)));
+
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0X.0, 0, 1000.5);
+
+        assert_eq!(held.wake(), Ok(Wake::OnInput));
     }
 
     #[test]
     fn the_sooner_of_two_wakes_is_the_one_kept() {
-        assert_eq!(ok(Wake::OnInput.sooner(Wake::OnInput)), Wake::OnInput);
-        assert_eq!(ok(Wake::OnInput.sooner(Wake::Within(1.0))), Wake::Within(1.0));
-        assert_eq!(ok(Wake::Within(1.0).sooner(Wake::OnInput)), Wake::Within(1.0));
-        assert_eq!(ok(Wake::Within(1.0).sooner(Wake::Within(POLL))), Wake::Within(POLL));
+        assert_eq!(Wake::OnInput.sooner(Wake::OnInput), Ok(Wake::OnInput));
+        assert_eq!(Wake::OnInput.sooner(Wake::Within(1.0)), Ok(Wake::Within(1.0)));
+        assert_eq!(Wake::Within(1.0).sooner(Wake::OnInput), Ok(Wake::Within(1.0)));
+        assert_eq!(Wake::Within(1.0).sooner(Wake::Within(POLL)), Ok(Wake::Within(POLL)));
     }
 
     #[test]
     fn a_key_on_a_keyboard_someone_plugged_in_says_which_input_is_being_used() {
-        let mut held = controller();
-        let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
+        let Ok(mut held) = controller();
 
-        assert_eq!(typed, vec![Effect::Using(Input::Keyboard)]);
+        assert_eq!(
+            held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, THEN),
+            Ok(vec![Effect::Using(Input::Keyboard)])
+        );
+        assert_eq!(
+            held.saw(From::Typing, EventType::KEY, KeyCode::KEY_J.0, 1, THEN),
+            Ok(Vec::new()),
+            "the input it was already on is not said twice"
+        );
 
-        let again = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_J.0, 1, 1000.0));
-
-        assert!(again.is_empty(), "the input it was already on is not said twice");
-
-        let back = pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
+        let Ok(back) = pressed(&mut held, From::Pad, KeyCode::BTN_SOUTH);
 
         assert_eq!(back.first(), Some(&Effect::Using(Input::Pad)), "the last press wins");
     }
 
     #[test]
     fn a_key_on_a_keyboard_someone_plugged_in_does_nothing_else_at_all() {
-        let mut held = controller();
-        let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
+        let Ok(mut held) = controller();
+        let Ok(typed) = held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, THEN);
 
         assert!(
             !typed.iter().any(|what| matches!(what, Effect::Run(_) | Effect::Frame(_))),
             "the compositor carries a key, and the daemon acting on one too is it happening twice"
         );
-
-        let up = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 0, 1000.0));
-
-        assert!(up.is_empty(), "a key let go says nothing");
+        assert_eq!(
+            held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 0, THEN),
+            Ok(Vec::new()),
+            "a key let go says nothing"
+        );
     }
 
     #[test]
     fn a_pad_that_is_merely_being_held_has_not_said_anything() {
-        let mut held = fresh();
-        ok(held.using(Input::Keyboard));
+        let Ok(mut held) = fresh();
+        let Ok(()) = held.using(Input::Keyboard);
 
-        let drift = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, 1000.0));
+        assert_eq!(
+            held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 12, THEN),
+            Ok(Vec::new()),
+            "a stick resting on its center is no one using anything"
+        );
+        assert_eq!(
+            held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 3, THEN),
+            Ok(Vec::new()),
+            "a trigger a few units off zero is a finger lying on it"
+        );
 
-        assert!(drift.is_empty(), "a stick resting on its center is no one using anything");
-
-        let resting = ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 3, 1000.0));
-
-        assert!(resting.is_empty(), "a trigger a few units off zero is a finger lying on it");
-
-        let moved =
-            ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, 1000.0));
+        let Ok(moved) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, THEN);
 
         assert_eq!(moved.first(), Some(&Effect::Using(Input::Pad)), "a stick pushed is meant");
     }
 
     #[test]
     fn nothing_has_been_pressed_yet_is_not_the_same_as_the_pad() {
-        let mut held = fresh();
-        let typed = ok(held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, 1000.0));
+        let Ok(mut held) = fresh();
 
         assert_eq!(
-            typed,
-            vec![Effect::Using(Input::Keyboard)],
+            held.saw(From::Typing, EventType::KEY, KeyCode::KEY_I.0, 1, THEN),
+            Ok(vec![Effect::Using(Input::Keyboard)]),
             "a daemon that was told nothing says what the first press was"
         );
     }
 
     #[test]
     fn what_comes_out_is_movement_on_one_device() {
-        let mut held = controller();
-        ok(held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, 1000.0));
-        let turned = ok(held.tick(1.0));
+        let Ok(mut held) = controller();
+        let Ok(_) = held.saw(From::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 32767, THEN);
+        let Ok(turned) = held.tick(1.0);
+        let Ok(notch) = Output::relative(RelativeAxisCode::REL_HWHEEL.0, 1);
         let notches = match turned.first() {
-            Some(Effect::Frame(notches)) => notches,
-            Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_)) | None => {
-                panic!("a frame of notches")
-            }
+            Some(Effect::Frame(notches)) => notches.as_slice(),
+            Some(Effect::Run(_) | Effect::Tell(_) | Effect::Using(_) | Effect::Reconnected(_)) | None => &[],
         };
-        assert!(notches.contains(&ok(Output::relative(RelativeAxisCode::REL_HWHEEL.0, 1))));
+
+        assert!(notches.contains(&notch), "a frame of notches, and one of them sideways: {turned:?}");
     }
 }

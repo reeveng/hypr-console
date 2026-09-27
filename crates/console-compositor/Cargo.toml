@@ -20,3 +20,6 @@ serde_json = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

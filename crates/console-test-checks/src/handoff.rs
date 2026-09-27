@@ -81,7 +81,7 @@ struct Layer<'a>(&'a str);
 
 fn opened(stage: &mut Device, button: &str, who: Layer<'_>) -> Result<Option<(u32, u32)>, Never> {
     let Ok(()) = stage.press(button);
-    let Ok(drawn) = stage.drawn(PATIENCE);
+    let Ok(drawn) = stage.wait_for_menu(PATIENCE);
 
     match drawn {
         Outcome::RanOut => return Ok(None),
@@ -104,7 +104,7 @@ fn alone(seen: &mut Device, who: Layer<'_>) -> Result<Ready, Never> {
 
 fn console_put_away(stage: &mut Device) -> CheckResult {
     let Ok(()) = stage.press("b");
-    let Ok(gone) = stage.closed(PATIENCE);
+    let Ok(gone) = stage.wait_for_close(PATIENCE);
 
     happened(gone, || "B did not put the panel away".to_string())
 }
@@ -165,7 +165,7 @@ fn host(seen: &mut Device) -> Result<Vec<String>, Never> {
     lines(&said)
 }
 
-fn held(seen: &mut Device) -> Result<Vec<String>, Never> {
+fn host_children(seen: &mut Device) -> Result<Vec<String>, Never> {
     let Ok(said) =
         seen.user(&format!("pgrep -P \"$(pgrep -x {HOST} | head -1)\" -a || true"));
 
@@ -201,7 +201,7 @@ fn holds_nothing(stage: &mut Device) -> CheckResult {
 
     let Ok(_) = stage.until::<Never>(
         |seen| {
-            let Ok(left) = held(seen);
+            let Ok(left) = host_children(seen);
 
             Ok(match left.is_empty() {
                 true => Ready::Yes,
@@ -211,7 +211,7 @@ fn holds_nothing(stage: &mut Device) -> CheckResult {
         PATIENCE,
     );
 
-    let Ok(left) = held(stage);
+    let Ok(left) = host_children(stage);
 
     empty(&left, || format!("{HOST} is holding a child with every panel closed: {left:?}"))
 }

@@ -15,6 +15,8 @@ path = "src/bin/viewer.rs"
 
 [dependencies]
 console-core-geometry.workspace = true
+console-core-internal-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-localization.workspace = true
 console-core-walking.workspace = true
@@ -32,9 +34,12 @@ console-core-shapes.workspace = true
 
 
 [dev-dependencies]
+console-core-atomic-writes.workspace = true
+console-core-ini-files.workspace = true
 console-waiting.workspace = true
 console-settings.workspace = true
 console-test-stages.workspace = true
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

@@ -70,7 +70,7 @@ impl CachedLocation {
             None => {},
         }
 
-        let at = asking()?;
+        let at = locate()?;
 
         self.0 = Some((now, at));
 
@@ -80,7 +80,7 @@ impl CachedLocation {
 
 const CHOSEN: &str = "location";
 
-pub fn chosen() -> Result<Option<String>, Never> {
+pub fn current() -> Result<Option<String>, Never> {
     let told = console_defaults::setting(CHOSEN)?;
 
     Ok(told.filter(|zone| !zone.is_empty()))
@@ -96,7 +96,7 @@ pub fn choose(zone: Option<Zone<'_>>) -> Result<(), Never> {
 }
 
 pub fn place() -> Result<Option<String>, Never> {
-    let chosen = chosen()?;
+    let chosen = current()?;
 
     match chosen {
         Some(chosen) => Ok(Some(chosen)),
@@ -140,7 +140,7 @@ pub fn every_zone() -> Result<Vec<String>, Never> {
     Ok(every)
 }
 
-pub fn asking() -> Result<Where, Never> {
+pub fn locate() -> Result<Where, Never> {
     let zone = place()?;
 
     let zone = match zone {
@@ -340,6 +340,7 @@ fn degrees(said: &str) -> Result<Option<f64>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const TABLE: &str = "# a comment, which is not a row\n\
                          AD\t+4230+00131\tEurope/Andorra\n\
@@ -358,35 +359,41 @@ mod tests {
     }
 
     #[test]
-    fn a_zone_is_looked_up_by_its_name_and_not_by_its_country() {
+    fn a_zone_is_looked_up_by_its_name_and_not_by_its_country() -> Result<(), Box<dyn Error>> {
         let Ok(andorra) = at(Zone("Europe/Andorra"), TABLE);
 
-        let andorra = andorra.expect("a place");
+        let andorra = andorra.ok_or("a place")?;
         assert!((andorra.latitude - 42.5).abs() < 0.001, "{andorra:?}");
         assert!((andorra.longitude - 1.5167).abs() < 0.001, "{andorra:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_place_south_or_west_is_a_negative_number() {
+    fn a_place_south_or_west_is_a_negative_number() -> Result<(), Box<dyn Error>> {
         let Ok(west) = at(Zone("America/Halifax"), TABLE);
 
-        let west = west.expect("a place");
+        let west = west.ok_or("a place")?;
 
         assert!(west.latitude > 0.0 && west.longitude < 0.0, "{west:?}");
 
         let Ok(south) = at(Zone("Pacific/Auckland"), TABLE);
 
-        let south = south.expect("a place");
+        let south = south.ok_or("a place")?;
         assert!(south.latitude < 0.0 && south.longitude > 0.0, "{south:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_row_written_to_the_second_is_read_to_the_second() {
+    fn a_row_written_to_the_second_is_read_to_the_second() -> Result<(), Box<dyn Error>> {
         let Ok(troll) = at(Zone("Antarctica/Troll"), TABLE);
 
-        let troll = troll.expect("a place");
+        let troll = troll.ok_or("a place")?;
         assert!((troll.latitude + 72.0114).abs() < 0.001, "{troll:?}");
         assert!((troll.longitude - 2.5350).abs() < 0.001, "{troll:?}");
+
+        Ok(())
     }
 
     #[test]
@@ -425,7 +432,7 @@ mod tests {
 
     #[test]
     fn this_machine_says_where_it_is() {
-        let Ok(asking) = asking();
+        let Ok(asking) = locate();
 
         assert!(asking.latitude.abs() <= 90.0);
         assert!(asking.longitude.abs() <= 180.0);

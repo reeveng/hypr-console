@@ -152,7 +152,7 @@ pub fn read(said: &str) -> Result<Vec<Fact>, Unread> {
     Ok(facts)
 }
 
-pub fn written(facts: &[Fact]) -> Result<String, Never> {
+pub fn serialize(facts: &[Fact]) -> Result<String, Never> {
     let mut out = String::new();
 
     for fact in facts {
@@ -189,7 +189,7 @@ pub fn whose(facts: &[Fact], kind: Kind, what: &str) -> Result<BTreeSet<String>,
         .collect())
 }
 
-pub fn said(facts: &[Fact], kind: Kind) -> Result<BTreeSet<String>, Never> {
+pub fn of_kind(facts: &[Fact], kind: Kind) -> Result<BTreeSet<String>, Never> {
     Ok(facts.iter().filter(|fact| fact.kind == kind).map(|fact| fact.what.clone()).collect())
 }
 
@@ -218,7 +218,7 @@ impl Fact {
     }
 }
 
-fn named(facts: &[Fact], target: &Target) -> Result<BTreeSet<String>, Never> {
+fn names_of(facts: &[Fact], target: &Target) -> Result<BTreeSet<String>, Never> {
     Ok(facts
         .iter()
         .filter(|fact| fact.kind == Kind::Names && fact.whose(target).is_ok_and(|whose| whose == Ownership::Its))
@@ -226,12 +226,12 @@ fn named(facts: &[Fact], target: &Target) -> Result<BTreeSet<String>, Never> {
         .collect())
 }
 
-pub fn subscribed(facts: &[Fact]) -> Result<BTreeMap<Target, BTreeSet<String>>, Never> {
+pub fn subscriptions(facts: &[Fact]) -> Result<BTreeMap<Target, BTreeSet<String>>, Never> {
     let mut held: BTreeMap<Target, BTreeSet<String>> = BTreeMap::new();
 
     for fact in facts.iter().filter(|fact| fact.kind == Kind::Subscribes) {
         let Ok(target) = fact.of();
-        let Ok(names) = named(facts, &target);
+        let Ok(names) = names_of(facts, &target);
         let topics = held.entry(target).or_default();
 
         match (fact.what == ANY_TOPIC, names.is_empty()) {
@@ -253,7 +253,7 @@ pub fn libraries(facts: &[Fact]) -> Result<BTreeMap<String, String>, Never> {
         .collect())
 }
 
-pub fn reaching(facts: &[Fact], target: &Target) -> Result<BTreeSet<String>, Never> {
+pub fn reachable(facts: &[Fact], target: &Target) -> Result<BTreeSet<String>, Never> {
     let Ok(libraries) = libraries(facts);
     let mut packages = BTreeSet::from([target.package.clone()]);
 

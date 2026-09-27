@@ -17,6 +17,7 @@
 //! player can be left in by something else, and pressing the button out of it
 //! means the same as pressing it out of off.
 
+use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
 use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
@@ -32,11 +33,11 @@ pub const PLAY: u32 = 2;
 
 pub const LINE: u32 = 1;
 
-pub const INDEX: &str = "music-index";
+pub const INDEX: InternalProgram = InternalProgram::MusicIndex;
 
-pub const FILES: &str = "files";
+pub const FILES: InternalProgram = InternalProgram::Files;
 
-pub const ONWARD: &str = "music-onward";
+pub const ONWARD: InternalProgram = InternalProgram::MusicOnward;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Read {
@@ -228,58 +229,57 @@ mod tests {
 
     use super::*;
 
-    fn said(heard: &[MusicEvent]) -> Trace<Standing, MusicEvent, MusicEffect> {
+    fn said(heard: &[MusicEvent]) -> Result<Trace<Standing, MusicEvent, MusicEffect>, Never> {
         let events: Vec<Event<MusicEvent>> = heard.iter().cloned().map(Event::Custom).collect();
-        let Ok(told) = run::<Music>(&Arguments::default(), &events);
 
-        told
+        run::<Music>(&Arguments::default(), &events)
     }
 
-    fn effects(said: &Trace<Standing, MusicEvent, MusicEffect>) -> Vec<Effect<MusicEffect>> {
-        let Ok(effects) = said.effects();
+    fn answered(heard: &[MusicEvent]) -> Result<Vec<Effect<MusicEffect>>, Never> {
+        let Ok(told) = said(heard);
 
-        effects
-    }
-
-    fn typed(word: &str) -> MusicEvent {
-        MusicEvent::Typed(word.to_string())
+        told.effects()
     }
 
     #[test]
     fn the_library_is_read_once_a_run_however_often_the_tab_is_arrived_at() {
-        let after = said(&[
+        let Ok(after) = said(&[
             MusicEvent::Arrived { unread: 12 },
             MusicEvent::Arrived { unread: 12 },
             MusicEvent::Arrived { unread: 12 },
         ]);
 
         let Ok(index) = Command::internal(INDEX, &[]);
-        assert_eq!(effects(&after).iter().filter(|effect| **effect == Effect::Run(index.clone())).count(), 1);
+        let Ok(effects) = after.effects();
+
+        assert_eq!(effects.iter().filter(|effect| **effect == Effect::Run(index.clone())).count(), 1);
     }
 
     #[test]
     fn a_library_with_nothing_unread_is_not_asked_to_read_itself() {
-        let after = said(&[MusicEvent::Arrived { unread: 0 }]);
+        let Ok(after) = said(&[MusicEvent::Arrived { unread: 0 }]);
 
-        assert!(effects(&after).is_empty());
+        let Ok(effects) = after.effects();
+
+        assert!(effects.is_empty());
         assert_eq!(after.state.read, Read::NotYet);
     }
 
     #[test]
     fn one_song_is_said_in_the_singular() {
-        let after = said(&[MusicEvent::Arrived { unread: 1 }]);
+        let Ok(after) = said(&[MusicEvent::Arrived { unread: 1 }]);
 
         assert_eq!(
-            effects(&after).first(),
-            Some(&Effect::Custom(MusicEffect::Note(
+            after.effects().map(|effects| effects.first().cloned()),
+            Ok(Some(Effect::Custom(MusicEffect::Note(
                 "Updating 1 song…".to_string()
-            )))
+            ))))
         );
     }
 
     #[test]
     fn typing_the_same_word_again_does_not_redraw() {
-        let after = said(&[typed("blue"), typed("blue")]);
+        let Ok(after) = said(&[MusicEvent::Typed("blue".to_string()), MusicEvent::Typed("blue".to_string())]);
         let Ok(second) = after.on(1);
 
         assert!(second.is_some_and(<[_]>::is_empty));
@@ -287,12 +287,14 @@ mod tests {
 
     #[test]
     fn back_clears_what_was_typed_before_it_closes_anything() {
-        let out = said(&[typed("blue"), MusicEvent::Back]);
+        let Ok(out) = said(&[MusicEvent::Typed("blue".to_string()), MusicEvent::Back]);
 
         assert_eq!(out.state.typed, "");
-        assert_eq!(effects(&out).last(), Some(&Effect::Custom(MusicEffect::Replace(LINE))));
+        let Ok(effects) = out.effects();
 
-        let empty = said(&[typed("blue"), MusicEvent::Back, MusicEvent::Back]);
+        assert_eq!(effects.last(), Some(&Effect::Custom(MusicEffect::Replace(LINE))));
+
+        let Ok(empty) = said(&[MusicEvent::Typed("blue".to_string()), MusicEvent::Back, MusicEvent::Back]);
 
         assert_eq!(closes(&empty.state), Ok(Closes::Yes));
     }
@@ -301,18 +303,18 @@ mod tests {
     fn the_thumb_opens_on_play_and_stops_at_both_ends_of_the_row() {
         assert_eq!(Standing::default().press, PLAY);
 
-        let left = said(&[MusicEvent::Along { by: -1, of: 5 }, MusicEvent::Along { by: -1, of: 5 }]);
+        let Ok(left) = said(&[MusicEvent::Along { by: -1, of: 5 }, MusicEvent::Along { by: -1, of: 5 }]);
 
         assert_eq!(left.state.press, 0);
 
-        let again = said(&[MusicEvent::Along { by: -1, of: 5 }, MusicEvent::Along { by: -1, of: 5 }, MusicEvent::Along {
+        let Ok(again) = said(&[MusicEvent::Along { by: -1, of: 5 }, MusicEvent::Along { by: -1, of: 5 }, MusicEvent::Along {
             by: -1,
             of: 5,
         }]);
 
         assert_eq!(again.state.press, 0);
 
-        let right = said(&[
+        let Ok(right) = said(&[
             MusicEvent::Along { by: 1, of: 5 },
             MusicEvent::Along { by: 1, of: 5 },
             MusicEvent::Along { by: 1, of: 5 },
@@ -323,37 +325,39 @@ mod tests {
 
     #[test]
     fn repeat_moves_between_two_of_its_three_states() {
-        assert_eq!(effects(&said(&[MusicEvent::Repeating(Over::On)])), vec![Effect::Custom(MusicEffect::Repeat(
+        assert_eq!(answered(&[MusicEvent::Repeating(Over::On)]), Ok(vec![Effect::Custom(MusicEffect::Repeat(
             Over::Again
-        ))]);
-        assert_eq!(effects(&said(&[MusicEvent::Repeating(Over::Again)])), vec![Effect::Custom(MusicEffect::Repeat(
+        ))]));
+        assert_eq!(answered(&[MusicEvent::Repeating(Over::Again)]), Ok(vec![Effect::Custom(MusicEffect::Repeat(
             Over::On
-        ))]);
-        assert_eq!(effects(&said(&[MusicEvent::Repeating(Over::Round)])), vec![Effect::Custom(MusicEffect::Repeat(
+        ))]));
+        assert_eq!(answered(&[MusicEvent::Repeating(Over::Round)]), Ok(vec![Effect::Custom(MusicEffect::Repeat(
             Over::Again
-        ))]);
+        ))]));
     }
 
     #[test]
     fn shuffle_is_the_two_it_has() {
-        assert_eq!(effects(&said(&[MusicEvent::Shuffling(Order::Any)])), vec![Effect::Custom(MusicEffect::Shuffle(
+        assert_eq!(answered(&[MusicEvent::Shuffling(Order::Any)]), Ok(vec![Effect::Custom(MusicEffect::Shuffle(
             Order::AsListed
-        ))]);
-        assert_eq!(effects(&said(&[MusicEvent::Shuffling(Order::AsListed)])), vec![Effect::Custom(
+        ))]));
+        assert_eq!(answered(&[MusicEvent::Shuffling(Order::AsListed)]), Ok(vec![Effect::Custom(
             MusicEffect::Shuffle(Order::Any)
-        )]);
+        )]));
     }
 
     #[test]
     fn playing_a_song_starts_the_player_and_then_asks_what_comes_after_it() {
-        let after = said(&[MusicEvent::Chose {
+        let Ok(after) = said(&[MusicEvent::Chose {
             path: PathBuf::from("/music/blue-monday.flac"),
             kind: Kind::ASong,
         }]);
 
         let Ok(onward) = Command::internal(ONWARD, &["/music/blue-monday.flac"]);
 
-        assert_eq!(effects(&after).last(), Some(&Effect::Run(onward)));
-        assert!(matches!(effects(&after).first(), Some(Effect::Spawn(_))));
+        let Ok(effects) = after.effects();
+
+        assert_eq!(effects.last(), Some(&Effect::Run(onward)));
+        assert!(matches!(effects.first(), Some(Effect::Spawn(_))));
     }
 }

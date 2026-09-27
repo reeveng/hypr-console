@@ -58,10 +58,10 @@ pub struct Alone {
 }
 
 pub fn taking() -> Result<Alone, Unapplied> {
-    named(NAME)
+    claim(NAME)
 }
 
-pub fn named(name: &str) -> Result<Alone, Unapplied> {
+pub fn claim(name: &str) -> Result<Alone, Unapplied> {
     let who = SocketAddr::from_abstract_name(name.as_bytes())
         .map_err(|fault| Unapplied::NoKernelName(name.to_string(), fault))?;
 
@@ -74,53 +74,69 @@ pub fn named(name: &str) -> Result<Alone, Unapplied> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_core_never::Never;
 
-    fn a_name_of_our_own(what: &str) -> String {
-        format!("console/test-{}-{what}", std::process::id())
+    type Failure = Box<dyn std::error::Error>;
+
+    fn a_name_of_our_own(what: &str) -> Result<String, Never> {
+        Ok(format!("console/test-{}-{what}", std::process::id()))
     }
 
     #[test]
-    fn a_second_writer_is_refused() {
-        let name = a_name_of_our_own("refused");
-        let first = named(&name);
-        assert!(first.is_ok());
-        assert!(named(&name).is_err());
+    fn a_second_writer_is_refused() -> Result<(), Failure> {
+        let Ok(name) = a_name_of_our_own("refused");
+        let _first = claim(&name)?;
+
+        assert!(matches!(claim(&name), Err(Unapplied::AlreadyRunning)));
+
+        Ok(())
     }
 
     #[test]
-    fn giving_it_back_lets_the_next_one_in() {
-        let name = a_name_of_our_own("again");
-        let first = named(&name);
-        assert!(first.is_ok());
+    fn giving_it_back_lets_the_next_one_in() -> Result<(), Failure> {
+        let Ok(name) = a_name_of_our_own("again");
+        let first = claim(&name)?;
+
         drop(first);
-        assert!(named(&name).is_ok());
+
+        let _again = claim(&name)?;
+
+        Ok(())
     }
 
     #[test]
-    fn two_different_names_are_two_different_locks() {
-        let one = named(&a_name_of_our_own("one"));
-        let other = named(&a_name_of_our_own("other"));
-        assert!(one.is_ok() && other.is_ok(), "an unrelated name was refused");
+    fn two_different_names_are_two_different_locks() -> Result<(), Failure> {
+        let Ok(one) = a_name_of_our_own("one");
+        let Ok(other) = a_name_of_our_own("other");
+        let _one = claim(&one)?;
+        let _other = claim(&other).map_err(|fault| format!("an unrelated name was refused: {fault}"))?;
+
+        Ok(())
     }
 
     #[test]
-    fn the_refusal_says_what_is_actually_happening() {
-        let name = a_name_of_our_own("said");
-        let first = named(&name);
-        assert!(first.is_ok());
-        let said = named(&name).expect_err("the second one was let in");
+    fn the_refusal_says_what_is_actually_happening() -> Result<(), Failure> {
+        let Ok(name) = a_name_of_our_own("said");
+        let _first = claim(&name)?;
+        let said = match claim(&name) {
+            Ok(_) => return Err(Failure::from("the second one was let in")),
+            Err(said) => said,
+        };
+
         assert!(
             said.to_string().contains("another console apply is running"),
             "the refusal does not say another apply is running: {said:?}"
         );
         assert!(!said.to_string().contains("os error"), "the refusal hands over an errno: {said:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn the_lock_is_not_a_file_anyone_can_remove() {
-        let name = a_name_of_our_own("nofile");
-        let held = named(&name);
-        assert!(held.is_ok());
+    fn the_lock_is_not_a_file_anyone_can_remove() -> Result<(), Failure> {
+        let Ok(name) = a_name_of_our_own("nofile");
+        let _held = claim(&name)?;
+
         for was in ["/run/console/apply.lock", "/run/console"] {
             assert!(
                 !std::path::Path::new(was).exists(),
@@ -128,6 +144,12 @@ mod tests {
                  applies can hold at once"
             );
         }
-        assert!(named(&name).is_err(), "the name stopped excluding once nothing named it");
+
+        assert!(
+            matches!(claim(&name), Err(Unapplied::AlreadyRunning)),
+            "the name stopped excluding once nothing named it"
+        );
+
+        Ok(())
     }
 }

@@ -74,7 +74,7 @@ pub fn along(
     };
 
     let Ok(now) = at(walk, alphabet);
-    let Ok(next) = ring.stepped(now, step);
+    let Ok(next) = ring.step(now, step);
     let Ok(next) = index(next);
 
     match walk.get(next) {
@@ -86,54 +86,74 @@ pub fn along(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn walk(said: &str) -> Vec<&'static Alphabet> {
-        ok(console_input_alphabets::read(said))
-    }
-
-    fn one(key: &str) -> &'static Alphabet {
+    fn one(key: &str) -> Result<&'static Alphabet, Box<dyn Error>> {
         let Ok(one) = console_input_alphabets::one(key);
 
-        one.expect("an alphabet")
+        one.ok_or_else(|| Box::from(format!("{key} is not an alphabet")))
     }
 
     #[test]
     fn the_list_a_compositor_is_told_is_the_alphabets_in_the_order_they_are_walked() {
-        assert_eq!(ok(layouts(&walk("greek,thai"))), "us,gr,th");
+        let Ok(walk) = console_input_alphabets::read("greek,thai");
+        let Ok(said) = layouts(&walk);
+
+        assert_eq!(said, "us,gr,th");
     }
 
     #[test]
     fn a_machine_that_types_nothing_still_types_english() {
-        assert_eq!(ok(layouts(&[])), "us");
+        let Ok(said) = layouts(&[]);
+
+        assert_eq!(said, "us");
     }
 
     #[test]
-    fn the_next_one_comes_after_and_the_last_one_comes_round() {
-        let walk = walk("greek,thai");
+    fn the_next_one_comes_after_and_the_last_one_comes_round() -> Result<(), Box<dyn Error>> {
+        let Ok(walk) = console_input_alphabets::read("greek,thai");
+        let alphabet = one("latin")?;
+        let Ok(found) = along(&walk, alphabet, Step::Forward);
 
-        assert_eq!(ok(along(&walk, one("latin"), Step::Forward)).key, "greek");
-        assert_eq!(ok(along(&walk, one("greek"), Step::Forward)).key, "thai");
-        assert_eq!(ok(along(&walk, one("thai"), Step::Forward)).key, "latin");
+        assert_eq!(found.key, "greek");
+
+        let alphabet = one("greek")?;
+        let Ok(found) = along(&walk, alphabet, Step::Forward);
+
+        assert_eq!(found.key, "thai");
+
+        let alphabet = one("thai")?;
+        let Ok(found) = along(&walk, alphabet, Step::Forward);
+
+        assert_eq!(found.key, "latin");
+
+        Ok(())
     }
 
     #[test]
-    fn the_one_before_comes_back_and_the_first_one_comes_round() {
-        let walk = walk("greek,thai");
+    fn the_one_before_comes_back_and_the_first_one_comes_round() -> Result<(), Box<dyn Error>> {
+        let Ok(walk) = console_input_alphabets::read("greek,thai");
+        let alphabet = one("thai")?;
+        let Ok(found) = along(&walk, alphabet, Step::Back);
 
-        assert_eq!(ok(along(&walk, one("thai"), Step::Back)).key, "greek");
-        assert_eq!(ok(along(&walk, one("greek"), Step::Back)).key, "latin");
-        assert_eq!(ok(along(&walk, one("latin"), Step::Back)).key, "thai");
+        assert_eq!(found.key, "greek");
+
+        let alphabet = one("greek")?;
+        let Ok(found) = along(&walk, alphabet, Step::Back);
+
+        assert_eq!(found.key, "latin");
+
+        let alphabet = one("latin")?;
+        let Ok(found) = along(&walk, alphabet, Step::Back);
+
+        assert_eq!(found.key, "thai");
+
+        Ok(())
     }
 
     #[test]
     fn a_step_each_way_is_where_it_started() {
-        let walk = walk("greek,thai");
+        let Ok(walk) = console_input_alphabets::read("greek,thai");
 
         for alphabet in &walk {
             let Ok(on) = along(&walk, alphabet, Step::Forward);
@@ -144,30 +164,51 @@ mod tests {
     }
 
     #[test]
-    fn an_alphabet_this_machine_no_longer_types_steps_on_from_the_front() {
-        let walk = walk("thai");
+    fn an_alphabet_this_machine_no_longer_types_steps_on_from_the_front() -> Result<(), Box<dyn Error>> {
+        let Ok(walk) = console_input_alphabets::read("thai");
+        let alphabet = one("greek")?;
+        let Ok(found) = along(&walk, alphabet, Step::Forward);
 
         assert_eq!(
-            ok(along(&walk, one("greek"), Step::Forward)).key,
+            found.key,
             "thai",
             "greek is not in the walk, so where it sits is the front and the next is the second"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn where_an_alphabet_sits_is_what_the_compositor_is_handed() {
-        let walk = walk("greek,thai");
+    fn where_an_alphabet_sits_is_what_the_compositor_is_handed() -> Result<(), Box<dyn Error>> {
+        let Ok(walk) = console_input_alphabets::read("greek,thai");
+        let alphabet = one("latin")?;
 
-        assert_eq!(ok(at(&walk, one("latin"))), 0);
-        assert_eq!(ok(at(&walk, one("greek"))), 1);
-        assert_eq!(ok(at(&walk, one("thai"))), 2);
+        assert_eq!(at(&walk, alphabet), Ok(0));
+
+        let alphabet = one("greek")?;
+
+        assert_eq!(at(&walk, alphabet), Ok(1));
+
+        let alphabet = one("thai")?;
+
+        assert_eq!(at(&walk, alphabet), Ok(2));
+
+        Ok(())
     }
 
     #[test]
-    fn a_list_with_one_thing_in_it_stays_where_it_is() {
-        let walk = walk("");
+    fn a_list_with_one_thing_in_it_stays_where_it_is() -> Result<(), Box<dyn Error>> {
+        let Ok(walk) = console_input_alphabets::read("");
+        let alphabet = one("latin")?;
+        let Ok(found) = along(&walk, alphabet, Step::Forward);
 
-        assert_eq!(ok(along(&walk, one("latin"), Step::Forward)).key, "latin");
-        assert_eq!(ok(along(&walk, one("latin"), Step::Back)).key, "latin");
+        assert_eq!(found.key, "latin");
+
+        let alphabet = one("latin")?;
+        let Ok(found) = along(&walk, alphabet, Step::Back);
+
+        assert_eq!(found.key, "latin");
+
+        Ok(())
     }
 }

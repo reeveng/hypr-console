@@ -15,6 +15,7 @@
 //! write that goes nowhere and reports nothing. `Nowhere` writes nothing and
 //! the first press says why.
 
+use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
 use console_input_bindings::moved::Tasks;
@@ -25,7 +26,7 @@ use console_program_contract::{
 
 use crate::rows::{Part, question};
 
-pub const ASKING: &str = "console-asking";
+pub const ASKING: InternalProgram = InternalProgram::Asking;
 
 pub const TABLE: &str = "--table";
 
@@ -82,8 +83,8 @@ impl Program for Setup {
 
         let setting = match after {
             Some(said) => {
-                let Ok(first) = arguments.given(FIRST);
-                let Ok(written) = arguments.given(WRITTEN);
+                let Ok(first) = arguments.flag(FIRST);
+                let Ok(written) = arguments.flag(WRITTEN);
                 let Ok(empty) = Empty::of(first, written);
 
                 Setting::Initial { at: PathBuf::from(said), empty }
@@ -143,7 +144,7 @@ impl Program for Setup {
 
 fn emptied(at: &Path) -> Result<FileWrite, Never> {
     let Ok(none) = Tasks::none();
-    let Ok(contents) = none.written();
+    let Ok(contents) = none.serialize();
 
     Ok(FileWrite { path: at.to_path_buf(), contents })
 }
@@ -154,87 +155,83 @@ mod tests {
 
     use super::*;
 
-    fn opened(words: &[&str]) -> Vec<Effect<MappingEffect>> {
+    fn opened(words: &[&str]) -> Result<Vec<Effect<MappingEffect>>, Never> {
         let Ok(arguments) = Arguments::of(words);
         let Ok(said) = run::<Setup>(&arguments, &[Event::Opened]);
-        let Ok(effects) = said.effects();
 
-        effects
+        said.effects()
     }
 
-    fn pressing(words: &[&str], heard: &[MappingEvent]) -> Vec<Effect<MappingEffect>> {
+    fn pressing(words: &[&str], heard: &[MappingEvent]) -> Result<Vec<Effect<MappingEffect>>, Never> {
         let mut words_said = vec![Event::Opened];
 
         words_said.extend(heard.iter().cloned().map(Event::Custom));
 
         let Ok(arguments) = Arguments::of(words);
         let Ok(said) = run::<Setup>(&arguments, &words_said);
-        let Ok(effects) = said.effects();
 
-        effects
+        said.effects()
     }
 
-    fn part() -> Part {
-        Part {
+    fn part() -> Result<Part, Never> {
+        Ok(Part {
             slug: "open-the-menu".to_string(),
             action: console_input_controller::actions::Action::Menu,
             does: "Open the menu".to_string(),
             on: console_input_bindings::bound::Input::Pad,
             plays: Vec::new(),
             moved: false,
-        }
+        })
     }
 
-    fn nothing_written() -> String {
+    fn nothing_written() -> Result<String, Never> {
         let Ok(none) = Tasks::none();
-        let Ok(what) = none.written();
 
-        what
+        none.serialize()
     }
 
     #[test]
     fn a_first_run_with_nothing_written_writes_the_empty_table() {
-        let said = opened(&[FIRST, TABLE, "/home/someone/.config/console/buttons.toml"]);
+        let Ok(said) = opened(&[FIRST, TABLE, "/home/someone/.config/console/buttons.toml"]);
+        let Ok(contents) = nothing_written();
 
         assert_eq!(said, vec![Effect::Write(FileWrite {
             path: PathBuf::from("/home/someone/.config/console/buttons.toml"),
-            contents: nothing_written(),
+            contents,
         })]);
     }
 
     #[test]
     fn a_first_run_over_a_table_someone_answered_writes_nothing() {
-        assert!(opened(&[FIRST, WRITTEN, TABLE, "/somewhere"]).is_empty());
+        assert_eq!(opened(&[FIRST, WRITTEN, TABLE, "/somewhere"]), Ok(Vec::new()));
     }
 
     #[test]
     fn opening_it_the_ordinary_way_writes_nothing() {
-        assert!(opened(&[TABLE, "/somewhere"]).is_empty());
+        assert_eq!(opened(&[TABLE, "/somewhere"]), Ok(Vec::new()));
     }
 
     #[test]
     fn putting_them_back_asks_before_it_writes() {
-        let asked = pressing(&[TABLE, "/somewhere"], &[MappingEvent::Restore]);
+        let Ok(asked) = pressing(&[TABLE, "/somewhere"], &[MappingEvent::Restore]);
 
         assert_eq!(asked, vec![Effect::Custom(MappingEffect::Sure)]);
 
-        let answered = pressing(&[TABLE, "/somewhere"], &[MappingEvent::Restore, MappingEvent::Sure]);
+        let Ok(answered) = pressing(&[TABLE, "/somewhere"], &[MappingEvent::Restore, MappingEvent::Sure]);
+        let Ok(contents) = nothing_written();
 
-        assert_eq!(answered.last(), Some(&Effect::Write(FileWrite {
-            path: PathBuf::from("/somewhere"),
-            contents: nothing_written(),
-        })));
+        assert_eq!(answered.last(), Some(&Effect::Write(FileWrite { path: PathBuf::from("/somewhere"), contents })));
     }
 
     #[test]
     fn a_machine_that_will_not_say_whose_buttons_these_are_writes_nothing() {
-        assert!(opened(&[FIRST]).is_empty());
-        assert!(opened(&[]).is_empty());
+        assert_eq!(opened(&[FIRST]), Ok(Vec::new()));
+        assert_eq!(opened(&[]), Ok(Vec::new()));
     }
 
     #[test]
     fn a_press_with_nowhere_to_write_says_so_rather_than_writing() {
-        let asked = pressing(&[FIRST], &[MappingEvent::Restore, MappingEvent::Sure]);
+        let Ok(asked) = pressing(&[FIRST], &[MappingEvent::Restore, MappingEvent::Sure]);
 
         assert_eq!(asked, vec![
             Effect::Custom(MappingEffect::Note(NOWHERE.to_string())),
@@ -244,7 +241,8 @@ mod tests {
 
     #[test]
     fn asking_for_a_button_puts_the_card_up_before_the_card_is_started() {
-        let said = pressing(&[TABLE, "/somewhere"], &[MappingEvent::Requested(part())]);
+        let Ok(part) = part();
+        let Ok(said) = pressing(&[TABLE, "/somewhere"], &[MappingEvent::Requested(part)]);
         let Ok(runs) = Command::internal(ASKING, &["open-the-menu", "pad"]);
 
         assert_eq!(said, vec![

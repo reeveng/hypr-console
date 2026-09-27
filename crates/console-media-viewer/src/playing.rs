@@ -149,7 +149,7 @@ impl Captions {
         })
     }
 
-    pub fn chosen(at: u32) -> Result<Captions, Never> {
+    pub fn from_track(at: u32) -> Result<Captions, Never> {
         Ok(match at {
             0 => Captions::Off,
             at => Captions::Track(at.saturating_sub(1)),
@@ -191,7 +191,7 @@ pub fn beside(name: &str) -> Result<Vec<String>, Never> {
     Ok(said)
 }
 
-pub fn said(along: Along) -> Result<String, Never> {
+pub fn format_position(along: Along) -> Result<String, Never> {
     let Ok(at) = positional(Duration::from_secs(along.at));
 
     match along.whole > 0 {
@@ -208,37 +208,35 @@ pub fn said(along: Along) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn along(at: u64, whole: u64) -> Along {
-        Along { at, whole }
-    }
+    const FILM: Along = Along { at: 0, whole: 7325 };
 
-    fn moved(along: Along, by: i64) -> Along {
+    fn moved(along: Along, by: i64) -> Result<u64, Never> {
         let Ok(moved) = along.moved(by);
 
-        moved
+        Ok(moved.at)
     }
 
-    fn sought(along: Along, fraction: f64) -> Along {
+    fn sought(along: Along, fraction: f64) -> Result<u64, Never> {
         let Ok(sought) = along.sought(fraction);
 
-        sought
+        Ok(sought.at)
     }
 
     #[test]
     fn the_words_beside_a_film_are_looked_for_under_both_names() {
         let Ok(said) = beside("holiday.mp4");
 
-        assert!(said.contains(&"holiday.srt".to_string()), "{said:?}");
-        assert!(said.contains(&"holiday.mp4.srt".to_string()), "{said:?}");
-        assert!(said.contains(&"holiday.vtt".to_string()), "{said:?}");
-        assert_eq!(said.first(), Some(&"holiday.srt".to_string()), "the commoner one first");
+        assert!(said.contains(&String::from("holiday.srt")), "{said:?}");
+        assert!(said.contains(&String::from("holiday.mp4.srt")), "{said:?}");
+        assert!(said.contains(&String::from("holiday.vtt")), "{said:?}");
+        assert_eq!(said.first(), Some(&String::from("holiday.srt")), "the commoner one first");
     }
 
     #[test]
     fn a_film_with_no_ending_still_has_words_looked_for() {
         let Ok(said) = beside("holiday");
 
-        assert!(said.contains(&"holiday.srt".to_string()), "{said:?}");
+        assert!(said.contains(&String::from("holiday.srt")), "{said:?}");
         assert!(!said.iter().any(|name| name.starts_with('.')), "{said:?}");
     }
 
@@ -257,13 +255,13 @@ mod tests {
 
         assert_eq!(past, 1.0);
         assert_eq!(slowest, 0.5);
-        assert_eq!(SPEEDS[SPEEDS.len() - 1].1, 2.0);
+        assert_eq!(SPEEDS.last().map(|(_, speed)| *speed), Some(2.0));
     }
 
     #[test]
     fn there_are_no_more_speeds_than_a_card_has_room_for() {
-        let Ok(buttons) = console_core_number_conversion::fitted::<_, i32>(SPEEDS.len() + 1);
-        let across = buttons * console_panel::strip::ANSWER;
+        let Ok(buttons) = console_core_number_conversion::fitted::<_, i32>(SPEEDS.len());
+        let across = buttons.saturating_add(1).saturating_mul(console_panel::strip::ANSWER);
         let Ok(card) = console_panel::shape::part_of(1024);
 
         assert!(across < card, "{across} points of buttons on a {card} point card");
@@ -271,9 +269,9 @@ mod tests {
 
     #[test]
     fn the_first_answer_turns_the_words_off() {
-        assert_eq!(Captions::chosen(0), Ok(Captions::Off));
-        assert_eq!(Captions::chosen(1), Ok(Captions::Track(0)));
-        assert_eq!(Captions::chosen(3), Ok(Captions::Track(2)));
+        assert_eq!(Captions::from_track(0), Ok(Captions::Off));
+        assert_eq!(Captions::from_track(1), Ok(Captions::Track(0)));
+        assert_eq!(Captions::from_track(3), Ok(Captions::Track(2)));
     }
 
     #[test]
@@ -284,12 +282,8 @@ mod tests {
 
     #[test]
     fn a_film_carrying_none_still_offers_the_way_to_turn_them_off() {
-        assert_eq!(captions(0), Ok(vec!["Off".to_string()]));
-        assert_eq!(captions(2), Ok(vec!["Off".to_string(), "Track 1".to_string(), "Track 2".to_string()]));
-    }
-
-    fn film() -> Along {
-        along(0, 7325)
+        assert_eq!(captions(0), Ok(vec![String::from("Off")]));
+        assert_eq!(captions(2), Ok(vec![String::from("Off"), String::from("Track 1"), String::from("Track 2")]));
     }
 
     #[test]
@@ -307,65 +301,65 @@ mod tests {
 
     #[test]
     fn a_press_moves_it_by_the_step() {
-        let step = i64::try_from(STEP).expect("fits");
-        let at = moved(film(), step);
+        let Ok(step) = console_core_number_conversion::fitted::<u64, i64>(STEP);
+        let Ok(at) = FILM.moved(step);
 
         assert_eq!(at.at, 5);
-        assert_eq!(moved(at, -step).at, 0);
+        assert_eq!(moved(at, step.saturating_neg()), Ok(0));
     }
 
     #[test]
     fn going_back_at_the_start_stays_at_the_start() {
-        assert_eq!(moved(film(), -9999).at, 0);
-        assert_eq!(moved(film(), i64::MIN).at, 0);
+        assert_eq!(moved(FILM, -9999), Ok(0));
+        assert_eq!(moved(FILM, i64::MIN), Ok(0));
     }
 
     #[test]
     fn going_on_past_the_end_stops_at_the_end() {
-        assert_eq!(moved(film(), 99_999).at, 7325);
-        assert_eq!(moved(film(), i64::MAX).at, 7325);
+        assert_eq!(moved(FILM, 99_999), Ok(7325));
+        assert_eq!(moved(FILM, i64::MAX), Ok(7325));
     }
 
     #[test]
     fn a_film_of_unknown_length_is_not_held_at_an_end_it_has_not_got() {
-        let unknown = along(10, 0);
+        let unknown = Along { at: 10, whole: 0 };
 
-        assert_eq!(moved(unknown, 90).at, 100);
+        assert_eq!(moved(unknown, 90), Ok(100));
         assert_eq!(unknown.through(), Ok(0.0));
         assert_eq!(unknown.ended_now(), Ok(Ended::No));
     }
 
     #[test]
     fn a_tap_on_the_bar_lands_at_that_fraction_of_it() {
-        assert_eq!(sought(film(), 0.0).at, 0);
-        assert_eq!(sought(film(), 1.0).at, 7325);
-        assert_eq!(sought(film(), 0.5).at, 3662);
-        assert_eq!(sought(film(), 9.0).at, 7325, "a tap off the end of the bar");
-        assert_eq!(sought(film(), -1.0).at, 0);
+        assert_eq!(sought(FILM, 0.0), Ok(0));
+        assert_eq!(sought(FILM, 1.0), Ok(7325));
+        assert_eq!(sought(FILM, 0.5), Ok(3662));
+        assert_eq!(sought(FILM, 9.0), Ok(7325), "a tap off the end of the bar");
+        assert_eq!(sought(FILM, -1.0), Ok(0));
     }
 
     #[test]
     fn how_far_through_runs_from_nothing_to_one() {
-        assert_eq!(along(0, 100).through(), Ok(0.0));
-        assert_eq!(along(50, 100).through(), Ok(0.5));
-        assert_eq!(along(100, 100).through(), Ok(1.0));
+        assert_eq!(Along { at: 0, whole: 100 }.through(), Ok(0.0));
+        assert_eq!(Along { at: 50, whole: 100 }.through(), Ok(0.5));
+        assert_eq!(Along { at: 100, whole: 100 }.through(), Ok(1.0));
     }
 
     #[test]
     fn a_film_that_has_run_out_says_so() {
-        assert_eq!(along(7325, 7325).ended_now(), Ok(Ended::Yes));
-        assert_eq!(along(7324, 7325).ended_now(), Ok(Ended::No));
+        assert_eq!(Along { at: 7325, whole: 7325 }.ended_now(), Ok(Ended::Yes));
+        assert_eq!(Along { at: 7324, whole: 7325 }.ended_now(), Ok(Ended::No));
     }
 
     #[test]
     fn a_length_nothing_has_said_is_not_made_up() {
-        assert_eq!(said(along(12, 0)), Ok("0:12".to_string()));
-        assert_eq!(said(along(12, 249)), Ok("0:12 of 4:09".to_string()));
+        assert_eq!(format_position(Along { at: 12, whole: 0 }), Ok(String::from("0:12")));
+        assert_eq!(format_position(Along { at: 12, whole: 249 }), Ok(String::from("0:12 of 4:09")));
     }
 
     #[test]
     fn the_shoulder_step_is_much_longer_than_the_dpad_step() {
         const _: () = assert!(STRIDE > STEP * 5);
-        assert_eq!(STRIDE / STEP, 12);
+        assert_eq!(STRIDE.div_euclid(STEP), 12);
     }
 }

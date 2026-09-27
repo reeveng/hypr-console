@@ -63,6 +63,7 @@ pub use rights::{Contains, Right, Rights};
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 use core::fmt;
+use core::ops::ControlFlow;
 
 use console_core_never::Never;
 
@@ -290,7 +291,7 @@ impl Kernel {
             (false, _) | (_, false) => return Err(HandleError::BadState),
         }
 
-        let Ok(policy) = held.policy.denying(denied);
+        let Ok(policy) = held.policy.deny(denied);
 
         held.policy = policy;
 
@@ -491,8 +492,8 @@ impl Kernel {
         let entry = self.entry(handle.object)?;
 
         match entry.object {
-            Object::Process(process) => self.ended(process),
-            Object::Job(_) => self.killed(handle.object),
+            Object::Process(process) => self.end(process),
+            Object::Job(_) => self.kill_job(handle.object),
             Object::Endpoint(_) | Object::Memory | Object::ExecutableResource => {
                 Err(HandleError::WrongType(ObjectType::Process))
             },
@@ -500,30 +501,56 @@ impl Kernel {
     }
 
     pub fn exit(&mut self, process: ProcessId) -> Result<(), HandleError> {
-        self.ended(process)
+        self.end(process)
     }
 
-    fn killed(&mut self, job: ObjectId) -> Result<(), HandleError> {
-        let mut killing = alloc::vec![job];
+    fn kill_job(&mut self, job: ObjectId) -> Result<(), HandleError> {
+        self.worked_through(job, Self::killed)
+    }
 
-        while let Some(job) = killing.pop() {
-            let held = self.job(job)?;
+    fn worked_through<T>(
+        &mut self,
+        first: T,
+        each: fn(&mut Self, T) -> Result<Vec<T>, HandleError>,
+    ) -> Result<(), HandleError> {
+        let walked = core::iter::repeat(()).try_fold((self, alloc::vec![first]), |(this, mut waiting), ()| {
+            let next = match waiting.pop() {
+                Some(next) => next,
+                None => return ControlFlow::Break(Ok(())),
+            };
 
-            held.state = JobState::Killed;
+            match each(this, next) {
+                Ok(more) => {
+                    waiting.extend(more);
 
-            let processes: Vec<ProcessId> = held.processes.iter().copied().collect();
-
-            killing.extend(held.jobs.iter().copied());
-
-            for process in processes {
-                self.ended(process)?;
+                    ControlFlow::Continue((this, waiting))
+                },
+                Err(fault) => ControlFlow::Break(Err(fault)),
             }
+        });
+
+        match walked {
+            ControlFlow::Break(worked) => worked,
+            ControlFlow::Continue(_endless) => Ok(()),
+        }
+    }
+
+    fn killed(&mut self, job: ObjectId) -> Result<Vec<ObjectId>, HandleError> {
+        let held = self.job(job)?;
+
+        held.state = JobState::Killed;
+
+        let processes: Vec<ProcessId> = held.processes.iter().copied().collect();
+        let under: Vec<ObjectId> = held.jobs.iter().copied().collect();
+
+        for process in processes {
+            self.end(process)?;
         }
 
-        Ok(())
+        Ok(under)
     }
 
-    fn ended(&mut self, process: ProcessId) -> Result<(), HandleError> {
+    fn end(&mut self, process: ProcessId) -> Result<(), HandleError> {
         let gone = match self.processes.remove(&process) {
             Some(gone) => gone,
             None => return Ok(()),
@@ -566,21 +593,26 @@ impl Kernel {
     }
 
     fn descendants(&self, of: HandleId) -> Result<BTreeSet<HandleId>, Never> {
-        let mut found = BTreeSet::new();
-        let mut walking = alloc::vec![of];
+        let walked = core::iter::repeat(()).try_fold((BTreeSet::new(), alloc::vec![of]), |(mut found, mut walking), ()| {
+            let handle = match walking.pop() {
+                Some(handle) => handle,
+                None => return ControlFlow::Break(found),
+            };
 
-        while let Some(handle) = walking.pop() {
-            let children = self.derived.get(&handle).into_iter().flatten();
-
-            for child in children {
+            for child in self.derived.get(&handle).into_iter().flatten() {
                 match found.insert(*child) {
                     true => walking.push(*child),
                     false => {},
                 }
             }
-        }
 
-        Ok(found)
+            ControlFlow::Continue((found, walking))
+        });
+
+        Ok(match walked {
+            ControlFlow::Break(found) => found,
+            ControlFlow::Continue((found, _endless)) => found,
+        })
     }
 
     fn taken_back(&mut self, revoked: &BTreeSet<HandleId>) -> Result<Vec<Handle>, Never> {
@@ -654,40 +686,38 @@ impl Kernel {
     }
 
     fn release(&mut self, handle: Handle) -> Result<(), HandleError> {
-        let mut released = alloc::vec![handle];
+        self.worked_through(handle, Self::released)
+    }
 
-        while let Some(handle) = released.pop() {
-            let _forgotten = self.derived.remove(&handle.id);
-            let entry = self.entry(handle.object)?;
+    fn released(&mut self, handle: Handle) -> Result<Vec<Handle>, HandleError> {
+        let _forgotten = self.derived.remove(&handle.id);
+        let entry = self.entry(handle.object)?;
 
-            entry.references = entry.references.saturating_sub(1);
+        entry.references = entry.references.saturating_sub(1);
 
-            match (entry.references, &entry.object) {
-                (0, Object::Endpoint(_)) => {},
-                (_, Object::Endpoint(_) | Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_)) => continue,
-            }
-
-            let endpoint = match self.objects.remove(&handle.object) {
-                Some(Entry { object: Object::Endpoint(endpoint), .. }) => endpoint,
-                Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_), .. }) | None => continue,
-            };
-
-            for message in endpoint.waiting {
-                released.extend(message.handles);
-            }
-
-            let peer = match endpoint.peer {
-                Some(peer) => self.objects.get_mut(&peer),
-                None => None,
-            };
-
-            match peer {
-                Some(Entry { object: Object::Endpoint(peer), .. }) => peer.peer = None,
-                Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_), .. }) | None => {},
-            }
+        match (entry.references, &entry.object) {
+            (0, Object::Endpoint(_)) => {},
+            (_, Object::Endpoint(_) | Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_)) => return Ok(Vec::new()),
         }
 
-        Ok(())
+        let endpoint = match self.objects.remove(&handle.object) {
+            Some(Entry { object: Object::Endpoint(endpoint), .. }) => endpoint,
+            Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_), .. }) | None => return Ok(Vec::new()),
+        };
+
+        let carried: Vec<Handle> = endpoint.waiting.into_iter().flat_map(|message| message.handles).collect();
+
+        let peer = match endpoint.peer {
+            Some(peer) => self.objects.get_mut(&peer),
+            None => None,
+        };
+
+        match peer {
+            Some(Entry { object: Object::Endpoint(peer), .. }) => peer.peer = None,
+            Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_), .. }) | None => {},
+        }
+
+        Ok(carried)
     }
 
     fn process(&mut self, id: ProcessId) -> Result<&mut Process, HandleError> {

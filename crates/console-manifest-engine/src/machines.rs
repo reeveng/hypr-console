@@ -246,78 +246,85 @@ matches = Surface Pro
 iptsd
 ";
 
-    fn firmware(whose: &str, said: &[(&str, &str)]) -> std::path::PathBuf {
-        let at = std::env::temp_dir()
-            .join(format!("console-machines-{}-{whose}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&at);
+    type Failure = Box<dyn std::error::Error>;
 
-        std::fs::create_dir_all(&at).expect("somewhere to stand a firmware");
+    fn firmware(whose: &str, said: &[(&str, &str)]) -> Result<std::path::PathBuf, Failure> {
+        let at = console_core_temporary_directories::fresh(&format!("machines-{whose}"))?;
 
         for (named, holds) in said {
-            std::fs::write(at.join(named), format!("{holds}\n")).expect("a firmware file");
+            console_core_atomic_writes::whole(&at.join(named), format!("{holds}\n").as_bytes())?;
         }
 
-        at
-    }
-
-    fn here(said: &str, firmware: &Path) -> String {
-        match super::here(said, firmware) {
-            Ok(out) => out,
-            Err(fault) => panic!("{fault}"),
-        }
+        Ok(at)
     }
 
     #[test]
-    fn a_machine_is_what_its_firmware_calls_it() {
-        let at = firmware("handheld", &[("product_name", "83E1"), ("product_family", "Legion Go")]);
+    fn a_machine_is_what_its_firmware_calls_it() -> Result<(), Failure> {
+        let at = firmware("handheld", &[("product_name", "83E1"), ("product_family", "Legion Go")])?;
+        let said = here(TABLE, &at)?;
 
         assert_eq!(
-            here(TABLE, &at),
+            said,
             "[files]\n/usr/share/inputplumber/devices/50-legion_go.yaml\n\
              /etc/udev/rules.d/92-console-haptics.rules\n\
              [masked]\ncachyos-gamescope-autologin.service\n"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_machine_in_no_block_gets_nothing_rather_than_someone_elses_hardware() {
+    fn a_machine_in_no_block_gets_nothing_rather_than_someone_elses_hardware() -> Result<(), Failure> {
         let at = firmware("laptop", &[
             ("product_name", "21MC001RCK"),
             ("product_family", "ThinkPad T14 Gen 5"),
-        ]);
+        ])?;
+        let said = here(TABLE, &at)?;
 
-        assert_eq!(here(TABLE, &at), "", "a laptop needs no file in this repository");
+        assert_eq!(said, "", "a laptop needs no file in this repository");
+
+        Ok(())
     }
 
     #[test]
-    fn a_part_of_the_name_is_enough_and_case_is_not_a_question() {
-        let at = firmware("tablet", &[("product_name", "Surface Pro 9 for Business")]);
+    fn a_part_of_the_name_is_enough_and_case_is_not_a_question() -> Result<(), Failure> {
+        let at = firmware("tablet", &[("product_name", "Surface Pro 9 for Business")])?;
+        let said = here(TABLE, &at)?;
 
-        assert_eq!(here(TABLE, &at), "[packages]\niptsd\n");
+        assert_eq!(said, "[packages]\niptsd\n");
+
+        Ok(())
     }
 
     #[test]
-    fn firmware_that_says_nothing_at_all_is_a_machine_with_no_block() {
-        let at = firmware("nothing", &[]);
+    fn firmware_that_says_nothing_at_all_is_a_machine_with_no_block() -> Result<(), Failure> {
+        let at = firmware("nothing", &[])?;
+        let said = here(TABLE, &at)?;
 
-        assert_eq!(here(TABLE, &at), "");
+        assert_eq!(said, "");
+
+        Ok(())
     }
 
     #[test]
-    fn a_machine_that_nothing_can_ever_be_is_a_fault_in_the_file() {
+    fn a_machine_that_nothing_can_ever_be_is_a_fault_in_the_file() -> Result<(), Failure> {
         let said = "[legion-go]\n\n[legion-go.files]\n/etc/a\n";
 
+        let refused = here(said, Path::new("/nowhere"));
+
         assert!(
-            super::here(said, Path::new("/nowhere")).is_err(),
-            "a block with no matches line selects nothing and says nothing"
+            matches!(refused, Err(Unapplied::NoMatches(..))),
+            "a block with no matches line selects nothing and says nothing: {refused:?}"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn the_blocks_are_read_in_the_manifests_own_vocabulary() {
-        let at = firmware("vocabulary", &[("product_name", "Legion Go")]);
-        let said = here(TABLE, &at);
-        let read = crate::manifest::Manifest::read(&said).expect("the manifest reads a block");
+    fn the_blocks_are_read_in_the_manifests_own_vocabulary() -> Result<(), Failure> {
+        let at = firmware("vocabulary", &[("product_name", "Legion Go")])?;
+        let said = here(TABLE, &at)?;
+        let read = crate::manifest::Manifest::read(&said)?;
         let Ok(files) = read.of(crate::manifest::Section::Files);
 
         assert_eq!(files.len(), 2);
@@ -325,5 +332,7 @@ iptsd
         let Ok(masked) = read.of(crate::manifest::Section::Masked);
 
         assert_eq!(masked, ["cachyos-gamescope-autologin.service"]);
+
+        Ok(())
     }
 }

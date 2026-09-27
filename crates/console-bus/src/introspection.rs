@@ -170,23 +170,21 @@ pub fn xml(interfaces: &[Interface]) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn named(name: &str) -> Interface {
-        Interface { name: name.to_string(), methods: Vec::new(), signals: Vec::new(), properties: Vec::new() }
+    fn empty_interface(name: &str) -> Result<Interface, Never> {
+        Ok(Interface { name: name.to_string(), methods: Vec::new(), signals: Vec::new(), properties: Vec::new() })
     }
 
-    fn arg(name: &str, shape: &str) -> Argument {
-        Argument { name: name.to_string(), shape: shape.to_string() }
+    fn argument((name, shape): (&str, &str)) -> Result<Argument, Never> {
+        Ok(Argument { name: name.to_string(), shape: shape.to_string() })
     }
 
     #[test]
     fn a_method_says_what_it_takes_and_what_it_gives() {
-        let mut shown = named("org.example.Player");
+        let Ok(mut shown) = empty_interface("org.example.Player");
+        let Ok(uri) = argument(("Uri", "s"));
+        let Ok(opened) = argument(("Opened", "b"));
 
-        shown.methods.push(Method {
-            name: "OpenUri".to_string(),
-            taking: vec![arg("Uri", "s")],
-            giving: vec![arg("Opened", "b")],
-        });
+        shown.methods.push(Method { name: "OpenUri".to_string(), taking: vec![uri], giving: vec![opened] });
 
         let Ok(said) = xml(&[shown]);
 
@@ -198,9 +196,10 @@ mod tests {
 
     #[test]
     fn a_signal_has_no_direction_to_say() {
-        let mut shown = named("org.example.Player");
+        let Ok(mut shown) = empty_interface("org.example.Player");
+        let Ok(position) = argument(("Position", "x"));
 
-        shown.signals.push(Signal { name: "Seeked".to_string(), carrying: vec![arg("Position", "x")] });
+        shown.signals.push(Signal { name: "Seeked".to_string(), carrying: vec![position] });
 
         let Ok(said) = xml(&[shown]);
 
@@ -211,7 +210,7 @@ mod tests {
 
     #[test]
     fn a_property_says_who_may_touch_it() {
-        let mut shown = named("org.example.Player");
+        let Ok(mut shown) = empty_interface("org.example.Player");
 
         shown.properties.push(Property {
             name: "Volume".to_string(),
@@ -226,7 +225,9 @@ mod tests {
 
     #[test]
     fn the_document_is_one_node_with_every_interface_in_it() {
-        let Ok(said) = xml(&[named("org.example.One"), named("org.example.Two")]);
+        let Ok(one) = empty_interface("org.example.One");
+        let Ok(two) = empty_interface("org.example.Two");
+        let Ok(said) = xml(&[one, two]);
 
         assert!(said.starts_with("<!DOCTYPE node"), "{said}");
         assert_eq!(said.matches("<node>").count(), 1, "{said}");

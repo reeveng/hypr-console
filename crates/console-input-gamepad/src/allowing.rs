@@ -118,7 +118,7 @@ impl Program for Allow {
                         ],
                     )
                 }
-                ExitStatus::Failure(_) => stopped("the uinput module would not load"),
+                ExitStatus::Failure(_) => fail("the uinput module would not load"),
             },
 
             (Allowing::Reloading { whom }, Event::Replied(answer)) => match answer.status {
@@ -131,7 +131,7 @@ impl Program for Allow {
                         vec![Effect::Run(triggering)],
                     )
                 }
-                ExitStatus::Failure(_) => stopped("udev would not read the rule that was just written"),
+                ExitStatus::Failure(_) => fail("udev would not read the rule that was just written"),
             },
 
             (Allowing::Triggering { whom }, Event::Replied(answer)) => match answer.status {
@@ -145,16 +145,16 @@ impl Program for Allow {
                             vec![Effect::Run(grouping)],
                         )
                     }
-                    None => listing("no one could be named to put in the input group"),
+                    None => list_uinput("no one could be named to put in the input group"),
                 },
-                ExitStatus::Failure(_) => stopped("udev would not apply the rule to /dev/uinput"),
+                ExitStatus::Failure(_) => fail("udev would not apply the rule to /dev/uinput"),
             },
 
             (Allowing::Grouping(whom), Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => listing(&format!(
+                ExitStatus::Success => list_uinput(&format!(
                     "{whom} is in the input group now, which counts from their next login"
                 )),
-                ExitStatus::Failure(_) => listing(&format!(
+                ExitStatus::Failure(_) => list_uinput(&format!(
                     "{whom} could not be put in the input group; the udev rule is in either way"
                 )),
             },
@@ -177,14 +177,14 @@ impl Program for Allow {
     }
 }
 
-fn stopped(why: &str) -> Result<Update<Allowing, Never>, Never> {
+fn fail(why: &str) -> Result<Update<Allowing, Never>, Never> {
     Update::new(
         Allowing::Opening { whoever: Whoever::Root, whom: None },
         vec![Effect::Stop(Exit::Failure(why.to_string()))],
     )
 }
 
-fn listing(said: &str) -> Result<Update<Allowing, Never>, Never> {
+fn list_uinput(said: &str) -> Result<Update<Allowing, Never>, Never> {
     let listing = Command::external(ExternalProgram::Ls, &["-l", "/dev/uinput"])?;
 
     Update::new(
@@ -199,24 +199,17 @@ mod tests {
 
     use super::*;
 
-    fn well() -> Event<Never> {
+    fn answered(status: ExitStatus) -> Result<Event<Never>, Never> {
         let Ok(ran) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
 
-        Event::Replied(Answer { command: ran, output: String::new(), status: ExitStatus::Success })
+        Ok(Event::Replied(Answer { command: ran, output: String::new(), status }))
     }
 
-    fn badly() -> Event<Never> {
-        let Ok(ran) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
-
-        Event::Replied(Answer { command: ran, output: String::new(), status: ExitStatus::Failure(Some(1)) })
-    }
-
-    fn asked(events: &[Event<Never>]) -> Vec<Effect<Never>> {
+    fn asked(events: &[Event<Never>]) -> Result<Vec<Effect<Never>>, Never> {
         let Ok(arguments) = Arguments::of(&["0", "--for", "someone"]);
         let Ok(said) = run::<Allow>(&arguments, events);
-        let Ok(effects) = said.effects();
 
-        effects
+        said.effects()
     }
 
     #[test]
@@ -234,20 +227,29 @@ mod tests {
 
     #[test]
     fn the_rule_is_only_written_once_the_module_has_loaded() {
-        let first = asked(&[Event::Opened]);
+        let Ok(well) = answered(ExitStatus::Success);
+        let Ok(first) = asked(&[Event::Opened]);
 
         assert!(
             first.iter().all(|effect| !matches!(effect, Effect::Write(_))),
             "the rule was written before the module was known to load"
         );
 
-        let after = asked(&[Event::Opened, well()]);
+        let Ok(after) = asked(&[Event::Opened, well]);
         let written: Vec<&FileWrite> = after
             .iter()
-            .filter_map(|effect| {
-                let Ok(written) = effect.written();
-
-                written
+            .filter_map(|effect| match effect {
+                Effect::Write(writing) => Some(writing),
+                Effect::Run(_)
+                | Effect::Stream(_)
+                | Effect::Prompt(_)
+                | Effect::Spawn(_)
+                | Effect::Subscribe(_)
+                | Effect::Unsubscribe(_)
+                | Effect::Notify(_)
+                | Effect::Print(_)
+                | Effect::Stop(_)
+                | Effect::Custom(_) => None,
             })
             .collect();
 
@@ -258,7 +260,8 @@ mod tests {
 
     #[test]
     fn a_module_that_will_not_load_stops_before_anything_is_written() {
-        let said = asked(&[Event::Opened, badly()]);
+        let Ok(badly) = answered(ExitStatus::Failure(Some(1)));
+        let Ok(said) = asked(&[Event::Opened, badly]);
 
         assert!(said.iter().all(|effect| !matches!(effect, Effect::Write(_))));
         assert!(matches!(said.last(), Some(Effect::Stop(Exit::Failure(_)))));
@@ -266,15 +269,18 @@ mod tests {
 
     #[test]
     fn a_group_that_will_not_take_the_user_is_not_a_failure() {
-        let said = asked(&[Event::Opened, well(), well(), well(), badly(), well()]);
+        let Ok(well) = answered(ExitStatus::Success);
+        let Ok(badly) = answered(ExitStatus::Failure(Some(1)));
+        let Ok(said) = asked(&[Event::Opened, well.clone(), well.clone(), well.clone(), badly, well]);
 
         assert_eq!(said.last(), Some(&Effect::Stop(Exit::Success)));
     }
 
     #[test]
     fn a_machine_with_no_one_to_name_still_gets_the_rule() {
+        let Ok(well) = answered(ExitStatus::Success);
         let Ok(arguments) = Arguments::of(&["0"]);
-        let Ok(said) = run::<Allow>(&arguments, &[Event::Opened, well(), well(), well(), well()]);
+        let Ok(said) = run::<Allow>(&arguments, &[Event::Opened, well.clone(), well.clone(), well.clone(), well]);
         let Ok(effects) = said.effects();
 
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Write(_))));

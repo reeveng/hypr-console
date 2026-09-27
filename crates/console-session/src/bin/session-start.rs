@@ -7,23 +7,23 @@
 //! and none of it is anything someone is waiting to see.
 
 use console_core_never::Never;
-use console_session::{radio, run_each, starting};
+use console_session::{radio, run_each, startup_commands};
 
 fn main() {
-    let Ok(starting) = starting();
+    let Ok(starting) = startup_commands();
     let Ok(()) = run_each("starting", &starting);
     let Ok(()) = putting_back();
 }
 
 fn putting_back() -> Result<(), Never> {
-    let Ok(runtime) = console_core_places::runtime_ours();
+    let Ok(runtime) = console_core_places::application_runtime();
 
     let runtime = match runtime {
         Some(runtime) => runtime,
         None => return Ok(()),
     };
 
-    let before = match radio::remembered(&runtime) {
+    let before = match radio::load_saved(&runtime) {
         Ok(before) => before,
         Err(fault) => {
             eprintln!("session-start: {fault}");
@@ -37,7 +37,7 @@ fn putting_back() -> Result<(), Never> {
         None => return Ok(()),
     }
 
-    let asked = match radio::asked() {
+    let asked = match radio::query_radio() {
         Ok(asked) => asked,
         Err(fault) => {
             eprintln!("session-start: {fault}");

@@ -21,13 +21,15 @@ use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
 use console_core_external_programs::Program as ExternalProgram;
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_internal_programs::InternalProgram;
 use console_login_session::{LoginError, Request, Rules, Session, Transaction, trusted};
-use console_login_window::stored_pattern::{self, Hash, Matched, PatternStoreError, StoredPattern};
+use console_login_window::stored_pattern::{self, Hash, Matched, NOT_THE_PATTERN, PatternStoreError};
 use console_login_window::protocol::{FromGreeter, ToGreeter, from_greeter, line_to_greeter};
 use console_login_window::sessions::{self, CHOSEN, SESSIONS};
 use console_login_window::system::{self, Person, Terminal};
+use console_login_window::way_in::{Autologin, Before, Ended, WayIn, way_in};
 use console_program_lifetime::alongside;
 
 const CONSOLE: &str = "/dev/tty1";
@@ -45,8 +47,6 @@ const AUTOLOGIN: &str = "--autologin";
 const FELL: &str = "--fell";
 
 const TERMINAL: &str = "getty@tty1.service";
-
-const NOT_THE_PATTERN: &str = "that is not the pattern";
 
 enum LoginWindowError {
     Arguments,
@@ -83,12 +83,6 @@ enum Choice {
     Terminal,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ended {
-    Well,
-    Fell,
-}
-
 fn main() -> ExitCode {
     let Ok(ran) = run();
 
@@ -116,12 +110,6 @@ fn run() -> Result<Result<(), LoginWindowError>, Never> {
     Ok(looped(&name, autologin))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Autologin {
-    Yes,
-    No,
-}
-
 fn looped(name: &str, autologin: Autologin) -> Result<(), LoginWindowError> {
     let looked = looked_up(name);
     let person = looked?;
@@ -133,45 +121,69 @@ fn looped(name: &str, autologin: Autologin) -> Result<(), LoginWindowError> {
 
     shown.map_err(LoginWindowError::Console)?;
 
-    let mut ended = Ended::Well;
+    let turned = iterate(Before::Boot, |before| {
+        Ok(match turn(Turn { person: &person, greeter: &greeter, console: &console, autologin }, before) {
+            Ok(Step::Again(before)) => Step::Again(before),
+            Ok(Step::Halt(())) => Step::Halt(Ok(())),
+            Err(fault) => Step::Halt(Err(fault)),
+        })
+    });
 
-    loop {
-        let choice = match (autologin, ended) {
-            (Autologin::Yes, Ended::Well) => {
-                let let_in = let_in(&person);
+    match turned {
+        Ok(turned) => turned,
+        Err(Endless) => Ok(()),
+    }
+}
 
-                let_in?
-            }
-            (Autologin::Yes, Ended::Fell) | (Autologin::No, Ended::Well | Ended::Fell) => {
-                let signed_in = signed_in(&greeter, &person, ended);
+#[derive(Clone, Copy)]
+struct Turn<'a> {
+    person: &'a Person,
+    greeter: &'a Person,
+    console: &'a File,
+    autologin: Autologin,
+}
 
-                signed_in?
-            }
-        };
+fn turn(around: Turn<'_>, before: Before) -> Result<Step<Before, ()>, LoginWindowError> {
+    let Turn { person, greeter, console, autologin } = around;
+    let looked = stored_pattern::stored(&person.home);
+    let stored = looked.map_err(LoginWindowError::Pattern)?;
+    let Ok(way) = way_in(autologin, before, stored);
+    let choice = match way {
+        WayIn::LetIn => {
+            let let_in = let_in(person);
 
-        match choice {
-            Choice::LoggedIn(transaction) => {
-                let ran = desktop(transaction, &person, &console);
-                let now = ran?;
+            let_in?
+        }
+        WayIn::Greet(hash) => {
+            let greeted = greeted(greeter, person, before, &hash);
 
-                ended = now;
-            }
-            Choice::Terminal => {
-                let Ok(mut starting) = ExternalProgram::Systemctl.command();
+            greeted?
+        }
+        WayIn::Refuse => return Err(LoginWindowError::FellWithNoPattern),
+    };
 
-                #[cfg_attr(
-                    dylint_lib = "explicit029_no_asking_per_item",
-                    allow(
-                        explicit029_no_asking_per_item,
-                        reason = "run once, and the loop around it returns straight after: the terminal is the way out of this loop, not a turn of it"
-                    )
-                )]
-                let started = starting.args(["--no-block", "start", TERMINAL]).status();
+    match choice {
+        Choice::LoggedIn(transaction) => {
+            let ran = desktop(transaction, person, console);
+            let now = ran?;
 
-                started.map_err(LoginWindowError::Starting)?;
+            Ok(Step::Again(Before::Desktop(now)))
+        }
+        Choice::Terminal => {
+            let Ok(mut starting) = ExternalProgram::Systemctl.command();
 
-                return Ok(());
-            }
+            #[cfg_attr(
+                dylint_lib = "explicit029_no_asking_per_item",
+                allow(
+                    explicit029_no_asking_per_item,
+                    reason = "run once, and the loop around it returns straight after: the terminal is the way out of this loop, not a turn of it"
+                )
+            )]
+            let started = starting.args(["--no-block", "start", TERMINAL]).status();
+
+            started.map_err(LoginWindowError::Starting)?;
+
+            Ok(Step::Halt(()))
         }
     }
 }
@@ -182,17 +194,6 @@ fn let_in(person: &Person) -> Result<Choice, LoginWindowError> {
     let transaction = begun.map_err(LoginWindowError::Session)?;
 
     Ok(Choice::LoggedIn(transaction))
-}
-
-fn signed_in(greeter: &Person, person: &Person, ended: Ended) -> Result<Choice, LoginWindowError> {
-    let looked = stored_pattern::stored(&person.home);
-    let stored = looked.map_err(LoginWindowError::Pattern)?;
-
-    match (stored, ended) {
-        (StoredPattern::Hash(hash), Ended::Well | Ended::Fell) => greeted(greeter, person, ended, &hash),
-        (StoredPattern::Absent, Ended::Well) => let_in(person),
-        (StoredPattern::Absent, Ended::Fell) => Err(LoginWindowError::FellWithNoPattern),
-    }
 }
 
 fn looked_up(name: &str) -> Result<Person, LoginWindowError> {
@@ -224,7 +225,7 @@ fn opened(transaction: Transaction, person: &Person, class: &str) -> Result<Sess
     let Ok(wanted) = environment(person, class);
     let pairs: Vec<(&str, &str)> = wanted.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
     let terminal = format!("tty{NUMBER}");
-    let session = transaction.opened(&terminal, &pairs);
+    let session = transaction.open_session(&terminal, &pairs);
 
     session.map_err(LoginWindowError::Session)
 }
@@ -249,7 +250,7 @@ fn prepared(command: &mut Command, session: &Session, person: &Person) -> Result
 }
 
 fn desktop(transaction: Transaction, person: &Person, console: &File) -> Result<Ended, LoginWindowError> {
-    let Ok(named) = chosen();
+    let Ok(named) = configured_session();
     let path = Path::new(SESSIONS).join(&named);
     let entry = match fs::read_to_string(&path) {
         Ok(entry) => entry,
@@ -272,7 +273,7 @@ fn desktop(transaction: Transaction, person: &Person, console: &File) -> Result<
     let Ok(()) = system::started_as(&mut starting, person, Terminal::Controlling);
     let spawned = alongside(&mut starting);
     let mut running = spawned.map_err(LoginWindowError::Starting)?;
-    let waited = running.waiting();
+    let waited = running.wait();
     let status = waited.map_err(LoginWindowError::Starting)?;
 
     drop(session);
@@ -283,16 +284,16 @@ fn desktop(transaction: Transaction, person: &Person, console: &File) -> Result<
     })
 }
 
-fn chosen() -> Result<String, Never> {
+fn configured_session() -> Result<String, Never> {
     match fs::read_to_string(CHOSEN) {
-        Ok(text) => sessions::chosen(Some(&text)),
+        Ok(text) => sessions::parse_session(Some(&text)),
         Err(why) => {
             match why.kind() == io::ErrorKind::NotFound {
                 true => {}
                 false => eprintln!("login-window: cannot read {CHOSEN}, so this desktop starts: {why}"),
             }
 
-            sessions::chosen(None)
+            sessions::parse_session(None)
         }
     }
 }
@@ -307,7 +308,7 @@ fn wired(command: &mut Command, console: &File) -> Result<(), LoginWindowError> 
     Ok(())
 }
 
-fn greeted(greeter: &Person, person: &Person, ended: Ended, hash: &Hash) -> Result<Choice, LoginWindowError> {
+fn greeted(greeter: &Person, person: &Person, before: Before, hash: &Hash) -> Result<Choice, LoginWindowError> {
     let request = Request { service: GREETING, person: &greeter.name, rules: Rules::System };
     let begun = trusted(request);
     let transaction = begun.map_err(LoginWindowError::Session)?;
@@ -316,11 +317,11 @@ fn greeted(greeter: &Person, person: &Person, ended: Ended, hash: &Hash) -> Resu
     let Ok(mut starting) = InternalProgram::LoginGreeter.command();
     let Ok(()) = prepared(&mut starting, &session, greeter);
 
-    match ended {
-        Ended::Fell => {
+    match before {
+        Before::Desktop(Ended::Fell) => {
             starting.arg(FELL);
         }
-        Ended::Well => {}
+        Before::Boot | Before::Desktop(Ended::Well) => {}
     }
 
     starting.stdin(Stdio::piped()).stdout(Stdio::piped());
@@ -328,8 +329,8 @@ fn greeted(greeter: &Person, person: &Person, ended: Ended, hash: &Hash) -> Resu
     let Ok(()) = system::started_as(&mut starting, greeter, Terminal::None);
     let spawned = alongside(&mut starting);
     let mut running = spawned.map_err(LoginWindowError::Starting)?;
-    let Ok(reading) = running.reading();
-    let Ok(writing) = running.writing();
+    let Ok(reading) = running.take_stdout();
+    let Ok(writing) = running.take_stdin();
     let (reading, mut writing) = match (reading, writing) {
         (Some(reading), Some(writing)) => (reading, writing),
         (_, _) => return Err(LoginWindowError::GreeterLeft),
@@ -348,7 +349,7 @@ fn greeted(greeter: &Person, person: &Person, ended: Ended, hash: &Hash) -> Resu
                         let let_in = let_in(person);
                         let choice = let_in?;
                         let Ok(()) = send(&mut writing, &ToGreeter::Welcome);
-                        let _ = running.waiting();
+                        let _ = running.wait();
 
                         drop(session);
 

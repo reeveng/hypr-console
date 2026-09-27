@@ -12,22 +12,21 @@
 //! a crate reaching across into another one.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 
 use console_architecture::Architecture;
 use console_architecture::facts::{self, Kind};
+use console_core_never::Never;
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+type Failure = Box<dyn std::error::Error>;
 
-    from.canonicalize().unwrap_or(from)
+fn architecture() -> Result<Architecture, Failure> {
+    let root = console_repository::root()?;
+    let architecture = Architecture::read(&root)?;
+
+    Ok(architecture)
 }
 
-fn architecture() -> Architecture {
-    Architecture::read(&root()).expect("the facts, the manifest and the units")
-}
-
-fn ratchet(rule: &str, found: BTreeSet<String>, excused: &[(&str, &str)]) {
+fn ratchet(rule: &str, found: BTreeSet<String>, excused: &[(&str, &str)]) -> Result<(), Never> {
     let excused: BTreeSet<String> = excused.iter().map(|(named, _why)| String::from(*named)).collect();
     let breaking: Vec<&String> = found.difference(&excused).collect();
     let mended: Vec<&String> = excused.difference(&found).collect();
@@ -37,6 +36,8 @@ fn ratchet(rule: &str, found: BTreeSet<String>, excused: &[(&str, &str)]) {
         mended.is_empty(),
         "{rule} holds now for {mended:?}; take them out of the list of exceptions so it cannot come back"
     );
+
+    Ok(())
 }
 
 const COMPOSITOR_EVENTS_EXCUSED: [(&str, &str); 2] = [
@@ -48,15 +49,18 @@ const COMPOSITOR_EVENTS_EXCUSED: [(&str, &str); 2] = [
 ];
 
 #[test]
-fn nothing_but_the_pool_opens_the_compositors_events() {
-    let Ok(found) = facts::whose(&architecture().facts, Kind::Socket, "Events");
+fn nothing_but_the_pool_opens_the_compositors_events() -> Result<(), Failure> {
+    let architecture = architecture()?;
+    let Ok(found) = facts::whose(&architecture.facts, Kind::Socket, "Events");
 
-    ratchet(
+    let Ok(()) = ratchet(
         "these reach for the compositor's event socket themselves; subscribe to Topic::Compositor through \
          console_events instead",
         found,
         &COMPOSITOR_EVENTS_EXCUSED,
     );
+
+    Ok(())
 }
 
 const COMPOSITOR: &str = "console-compositor";
@@ -73,21 +77,24 @@ const HYPRCTL_EXCUSED: [(&str, &str); 2] = [
     (
         "console-settings",
         "the size tab reads the screens through the card's own `asked`, which runs a program by name and keeps \
-         its answer; it wants `console_compositor::query(Query::Monitors)` and has not been moved onto it",
+         its answer; it wants `console_compositor::ask(Monitors)` and has not been moved onto it",
     ),
 ];
 
 #[test]
-fn nothing_but_the_compositor_crate_runs_hyprctl() {
-    let Ok(found) = facts::whose(&architecture().facts, Kind::Runs, "Hyprctl");
+fn nothing_but_the_compositor_crate_runs_hyprctl() -> Result<(), Failure> {
+    let architecture = architecture()?;
+    let Ok(found) = facts::whose(&architecture.facts, Kind::Runs, "Hyprctl");
     let found = found.into_iter().filter(|package| package != COMPOSITOR && !package.starts_with(TEST_FAMILY)).collect();
 
-    ratchet(
+    let Ok(()) = ratchet(
         "these run hyprctl themselves; ask through console_compositor, which keeps hyprctl's words and \
          answers in the desktop's",
         found,
         &HYPRCTL_EXCUSED,
     );
+
+    Ok(())
 }
 
 const SOURCELESS: [(&str, &str); 1] = [(
@@ -98,10 +105,10 @@ const SOURCELESS: [(&str, &str); 1] = [(
 )];
 
 #[test]
-fn every_topic_the_pool_serves_has_a_source() {
-    let architecture = architecture();
-    let Ok(handled) = facts::said(&architecture.facts, Kind::Handles);
-    let Ok(sourced) = facts::said(&architecture.facts, Kind::Sources);
+fn every_topic_the_pool_serves_has_a_source() -> Result<(), Failure> {
+    let architecture = architecture()?;
+    let Ok(handled) = facts::of_kind(&architecture.facts, Kind::Handles);
+    let Ok(sourced) = facts::of_kind(&architecture.facts, Kind::Sources);
 
     assert!(
         !handled.is_empty(),
@@ -109,11 +116,13 @@ fn every_topic_the_pool_serves_has_a_source() {
          the lint has lost the function"
     );
 
-    ratchet(
+    let Ok(()) = ratchet(
         "these topics can be subscribed to and nothing in console_events::sources::hold says anything on them",
         handled.difference(&sourced).cloned().collect(),
         &SOURCELESS,
     );
+
+    Ok(())
 }
 
 const TICKING: [(&str, &str); 6] = [
@@ -150,16 +159,18 @@ const TICKING: [(&str, &str); 6] = [
 ];
 
 #[test]
-fn nothing_both_subscribes_and_keeps_a_clock() {
-    let architecture = architecture();
+fn nothing_both_subscribes_and_keeps_a_clock() -> Result<(), Failure> {
+    let architecture = architecture()?;
     let Ok(subscribing) = facts::packages(&architecture.facts, Kind::Subscribes);
     let Ok(timing) = facts::packages(&architecture.facts, Kind::Timer);
     let found = subscribing.keys().filter(|package| timing.contains_key(*package)).cloned().collect();
 
-    ratchet(
+    let Ok(()) = ratchet(
         "these subscribe to a topic and also keep a clock of their own; a reading the pool tells about needs no \
          tick behind it",
         found,
         &TICKING,
     );
+
+    Ok(())
 }

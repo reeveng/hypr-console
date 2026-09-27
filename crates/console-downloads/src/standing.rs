@@ -16,6 +16,7 @@
 //! folder is a note and not a fetch: the check is cheap, and a second copy
 //! arriving under a different name is the fault it prevents.
 
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
 
@@ -24,9 +25,9 @@ use crate::looking::Found;
 use crate::rows::{LINE, WAYS_START};
 use crate::store::Kind;
 
-pub const FIND: &str = "downloads-find";
+pub const FIND: InternalProgram = InternalProgram::DownloadsFind;
 
-pub const GET: &str = "downloads-get";
+pub const GET: InternalProgram = InternalProgram::DownloadsGet;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Destination {
@@ -264,18 +265,12 @@ mod tests {
 
     use super::*;
 
-    fn at(state: &Standing, tab: u32) -> Tab {
-        let Ok(at) = state.at(tab);
-
-        at
-    }
-
     const AUDIO: u32 = 0;
 
     const VIDEO: u32 = 1;
 
-    fn found() -> Found {
-        Found {
+    fn found() -> Result<Found, Never> {
+        Ok(Found {
             id: "abc".to_string(),
             title: "A Song".to_string(),
             url: "https://example.invalid/abc".to_string(),
@@ -284,177 +279,167 @@ mod tests {
             views: 12,
             live: false,
             picture: String::new(),
-        }
+        })
     }
 
-    fn said(heard: &[DownloadsEvent]) -> Trace<Standing, DownloadsEvent, DownloadsEffect> {
+    fn said(heard: &[DownloadsEvent]) -> Result<Trace<Standing, DownloadsEvent, DownloadsEffect>, Never> {
         let events: Vec<Event<DownloadsEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        let Ok(said) = run::<Downloads>(&Arguments::default(), &events);
-
-        said
+        run::<Downloads>(&Arguments::default(), &events)
     }
 
-    fn effects(said: &Trace<Standing, DownloadsEvent, DownloadsEffect>) -> Vec<Effect<DownloadsEffect>> {
-        let Ok(effects) = said.effects();
-
-        effects
-    }
-
-    fn on(said: &Trace<Standing, DownloadsEvent, DownloadsEffect>, round: u32) -> Option<Vec<Effect<DownloadsEffect>>> {
-        let Ok(on) = said.on(round);
-
-        on.map(<[Effect<DownloadsEffect>]>::to_vec)
-    }
-
-    fn ours(name: &'static str, arguments: &[&str]) -> Command {
-        let Ok(runs) = Command::internal(name, arguments);
-
-        runs
-    }
-
-    fn typed(tab: u32, word: &str) -> DownloadsEvent {
-        DownloadsEvent::Typed { tab, word: word.to_string() }
+    fn typed(tab: u32, word: &str) -> Result<DownloadsEvent, Never> {
+        Ok(DownloadsEvent::Typed { tab, word: word.to_string() })
     }
 
     #[test]
     fn what_is_typed_in_one_tab_is_still_there_after_the_other_one() {
-        let after = said(&[typed(AUDIO, "a song"), typed(VIDEO, "a film")]);
+        let Ok(song) = typed(AUDIO, "a song");
+        let Ok(film) = typed(VIDEO, "a film");
+        let Ok(after) = said(&[song, film]);
+        let Ok(audio) = after.state.at(AUDIO);
+        let Ok(video) = after.state.at(VIDEO);
 
-        assert_eq!(at(&after.state, AUDIO).typed, "a song");
-        assert_eq!(at(&after.state, VIDEO).typed, "a film");
+        assert_eq!(audio.typed, "a song");
+        assert_eq!(video.typed, "a film");
     }
 
     #[test]
     fn typing_the_same_word_again_does_not_redraw() {
-        let after = said(&[typed(AUDIO, "a song"), typed(AUDIO, "a song")]);
+        let Ok(song) = typed(AUDIO, "a song");
+        let Ok(after) = said(&[song.clone(), song]);
+        let Ok(second) = after.on(1);
 
-        assert_eq!(on(&after, 1).map(|effects| effects.len()), Some(0));
+        assert_eq!(second.map(<[Effect<DownloadsEffect>]>::len), Some(0));
     }
 
     #[test]
     fn looking_for_something_asks_the_finder_for_what_was_typed() {
-        let after = said(&[typed(AUDIO, "  a song  "), DownloadsEvent::LookFor {
-            tab: AUDIO,
-            kind: Kind::Sound,
-        }]);
+        let Ok(song) = typed(AUDIO, "  a song  ");
+        let Ok(after) = said(&[song, DownloadsEvent::LookFor { tab: AUDIO, kind: Kind::Sound }]);
+        let Ok(audio) = after.state.at(AUDIO);
+        let Ok(effects) = after.effects();
+        let Ok(find) = Command::internal(FIND, &["--audio", "a song"]);
 
-        assert_eq!(at(&after.state, AUDIO).asking.as_deref(), Some("a song"));
-        assert!(effects(&after).contains(&Effect::Run(ours(FIND, &["--audio", "a song"]))));
+        assert_eq!(audio.asking.as_deref(), Some("a song"));
+        assert!(effects.contains(&Effect::Run(find)));
     }
 
     #[test]
     fn the_wait_ends_when_the_word_it_was_out_for_comes_back() {
-        let looking = [typed(AUDIO, "a song"), DownloadsEvent::LookFor { tab: AUDIO, kind: Kind::Sound }];
-
-        let other = said(&[
+        let Ok(song) = typed(AUDIO, "a song");
+        let looking = [song, DownloadsEvent::LookFor { tab: AUDIO, kind: Kind::Sound }];
+        let Ok(other) = said(&[
             looking.as_slice(),
             &[DownloadsEvent::Landed { tab: AUDIO, asked: "something else".to_string() }],
         ]
         .concat());
+        let Ok(still) = other.state.at(AUDIO);
 
-        assert_eq!(at(&other.state, AUDIO).asking.as_deref(), Some("a song"));
+        assert_eq!(still.asking.as_deref(), Some("a song"));
 
-        let same = said(&[
+        let Ok(same) = said(&[
             looking.as_slice(),
             &[DownloadsEvent::Landed { tab: AUDIO, asked: "a song".to_string() }],
         ]
         .concat());
+        let Ok(landed) = same.state.at(AUDIO);
 
-        assert_eq!(at(&same.state, AUDIO).asking, None);
+        assert_eq!(landed.asking, None);
     }
 
     #[test]
     fn something_already_in_the_folder_is_said_rather_than_fetched_again() {
-        let after = said(&[DownloadsEvent::Chose {
+        let Ok(found) = found();
+        let Ok(after) = said(&[DownloadsEvent::Chose {
             tab: AUDIO,
             kind: Kind::Sound,
-            found: found(),
+            found,
             have: Have::It,
             into: "Music".to_string(),
         }]);
 
-        assert_eq!(effects(&after), vec![Effect::Custom(DownloadsEffect::Note(
+        assert_eq!(after.effects(), Ok(vec![Effect::Custom(DownloadsEffect::Note(
             "A Song is already in Music".to_string()
-        ))]);
+        ))]));
     }
 
     #[test]
     fn a_book_already_in_the_folder_is_fetched_again_to_replace_it() {
-        let after = said(&[DownloadsEvent::Chose {
+        let Ok(found) = found();
+        let Ok(after) = said(&[DownloadsEvent::Chose {
             tab: AUDIO,
             kind: Kind::Book,
-            found: found(),
+            found,
             have: Have::It,
             into: "Books".to_string(),
         }]);
+        let Ok(get) = Command::internal(GET, &["--book", "https://example.invalid/abc", "A Song"]);
 
-        assert_eq!(effects(&after), vec![
+        assert_eq!(after.effects(), Ok(vec![
             Effect::Custom(DownloadsEffect::Note("Downloading A Song again to Books".to_string())),
-            Effect::Run(ours(GET, &["--book", "https://example.invalid/abc", "A Song"])),
-        ]);
+            Effect::Run(get),
+        ]));
     }
 
     #[test]
     fn something_that_is_not_there_is_said_and_then_fetched() {
-        let after = said(&[DownloadsEvent::Chose {
+        let Ok(found) = found();
+        let Ok(after) = said(&[DownloadsEvent::Chose {
             tab: AUDIO,
             kind: Kind::Sound,
-            found: found(),
+            found,
             have: Have::Not,
             into: "Music".to_string(),
         }]);
+        let Ok(get) = Command::internal(GET, &["--audio", "https://example.invalid/abc", "A Song"]);
 
-        assert_eq!(effects(&after), vec![
+        assert_eq!(after.effects(), Ok(vec![
             Effect::Custom(DownloadsEffect::Note("Downloading A Song to Music".to_string())),
-            Effect::Run(ours(GET, &["--audio", "https://example.invalid/abc", "A Song"])),
-        ]);
+            Effect::Run(get),
+        ]));
     }
 
     #[test]
     fn taking_the_other_way_out_of_the_card_puts_the_list_back_where_it_was() {
-        let after = said(&[
-            DownloadsEvent::Offered { tab: VIDEO, found: found(), from: 4 },
+        let Ok(found) = found();
+        let Ok(after) = said(&[
+            DownloadsEvent::Offered { tab: VIDEO, found: found.clone(), from: 4 },
             DownloadsEvent::Chose {
                 tab: VIDEO,
                 kind: Kind::Sound,
-                found: found(),
+                found,
                 have: Have::Not,
                 into: "Music".to_string(),
             },
         ]);
+        let Ok(video) = after.state.at(VIDEO);
+        let Ok(effects) = after.effects();
 
-        assert_eq!(at(&after.state, VIDEO).onto, Destination::List);
-        assert_eq!(effects(&after).last(), Some(&Effect::Custom(DownloadsEffect::Replace(4))));
+        assert_eq!(video.onto, Destination::List);
+        assert_eq!(effects.last(), Some(&Effect::Custom(DownloadsEffect::Replace(4))));
     }
 
     #[test]
     fn back_walks_out_of_the_card_then_out_of_the_typing_then_out_of_the_panel() {
-        let card = said(&[typed(AUDIO, "a song"), DownloadsEvent::Offered {
-            tab: AUDIO,
-            found: found(),
-            from: 3,
-        }]);
+        let Ok(found) = found();
+        let Ok(song) = typed(AUDIO, "a song");
+        let offered = DownloadsEvent::Offered { tab: AUDIO, found, from: 3 };
+        let back = DownloadsEvent::Back { tab: AUDIO };
+        let Ok(card) = said(&[song.clone(), offered.clone()]);
 
         assert_eq!(closes(&card.state, AUDIO), Ok(Closes::No));
 
-        let out = said(&[
-            typed(AUDIO, "a song"),
-            DownloadsEvent::Offered { tab: AUDIO, found: found(), from: 3 },
-            DownloadsEvent::Back { tab: AUDIO },
-        ]);
+        let Ok(out) = said(&[song.clone(), offered.clone(), back.clone()]);
+        let Ok(list) = out.state.at(AUDIO);
 
-        assert_eq!(at(&out.state, AUDIO).onto, Destination::List);
+        assert_eq!(list.onto, Destination::List);
         assert_eq!(closes(&out.state, AUDIO), Ok(Closes::No));
 
-        let empty = said(&[
-            typed(AUDIO, "a song"),
-            DownloadsEvent::Offered { tab: AUDIO, found: found(), from: 3 },
-            DownloadsEvent::Back { tab: AUDIO },
-            DownloadsEvent::Back { tab: AUDIO },
-        ]);
+        let Ok(empty) = said(&[song, offered, back.clone(), back]);
+        let Ok(typing) = empty.state.at(AUDIO);
 
-        assert_eq!(at(&empty.state, AUDIO).typed, "");
+        assert_eq!(typing.typed, "");
         assert_eq!(closes(&empty.state, AUDIO), Ok(Closes::Yes));
     }
 }

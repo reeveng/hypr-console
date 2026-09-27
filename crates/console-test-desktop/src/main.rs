@@ -7,8 +7,8 @@
 //!                            changing, or --settle N seconds after
 //! console-desktop shot FILE --bare   the same, without a ground to paint
 //! console-desktop shot FILE --until AT   and not before AT has a line in it
-//! console-desktop shot FILE --press S   run S inside, and do not go on until
-//!                            it has finished
+//! console-desktop shot FILE --press S   once the screen is still, run S
+//!                            inside, and do not go on until it has finished
 //! console-desktop pressing AT --then C  once AT has been drawn to, press C,
 //!                            and not return until it has been drawn to again
 //! console-desktop shot FILE --clients AT what windows it had, written to AT
@@ -53,7 +53,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::Duration;
 
 use console_test_desktop::nested::Wallpaper;
-use console_test_desktop::staging::{Screen, Verbosity, environment, staged};
+use console_test_desktop::staging::{Screen, Verbosity, environment, stage_desktop};
 use console_test_desktop::connection::{Inside, Instance, Outcome};
 use console_test_desktop::{Unnested, screen, scope_of, session, stage};
 use console_test_stages::picture::{Picture, where_};
@@ -84,7 +84,7 @@ struct Arguments {
     bare: bool,
 }
 
-fn asked(words: Vec<String>) -> Result<Arguments, Never> {
+fn parse_arguments(words: Vec<String>) -> Result<Arguments, Never> {
     let every = |what: &str| {
         words
             .iter()
@@ -140,15 +140,15 @@ fn asked(words: Vec<String>) -> Result<Arguments, Never> {
 }
 
 fn main() -> ExitCode {
-    let Ok(asked) = asked(std::env::args().skip(1).collect());
+    let Ok(asked) = parse_arguments(std::env::args().skip(1).collect());
 
     let done = match asked.command.as_str() {
         "clean" => clean(),
-        "stage" => staged(Verbosity::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
+        "stage" => stage_desktop(Verbosity::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
         "verify" => verify(),
         "probe" => run(&asked, None, Action::Probing),
         "describe" => run(&asked, None, Action::Describing),
-        "pressing" => pressing(&asked),
+        "pressing" => press_file(&asked),
         "shot" => match asked.file.clone() {
             Some(file) => run(&asked, Some(file), Action::Running),
             None => Err(Unnested::NowhereToWrite),
@@ -173,7 +173,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn pressing(asked: &Arguments) -> Result<u8, Unnested> {
+fn press_file(asked: &Arguments) -> Result<u8, Unnested> {
     let at = match &asked.file {
         Some(at) => at,
         None => return Err(Unnested::NothingToPress),
@@ -195,7 +195,7 @@ fn pressing(asked: &Arguments) -> Result<u8, Unnested> {
         ),
     }
 
-    let Ok(before) = session::lines(at);
+    let Ok(before) = session::presses(at);
 
     let Ok(mut asking) = Program::Sh.command();
 
@@ -209,13 +209,13 @@ fn pressing(asked: &Arguments) -> Result<u8, Unnested> {
         false => eprintln!("console-desktop: {command}: {pressed}"),
     }
 
-    let Ok(again) = session::wait_for_more_than(at, before, session::A_LINE);
+    let Ok(again) = session::wait_for_presses_past(at, before, session::A_LINE);
 
     Ok(match again {
         session::Wrote::Some => 0,
         session::Wrote::None => {
             eprintln!(
-                "console-desktop: {command} drew nothing new to {} in {}s",
+                "console-desktop: {command} was not heard by whoever writes {} in {}s",
                 at.display(),
                 session::A_LINE.as_secs()
             );
@@ -255,7 +255,7 @@ fn clean() -> Result<u8, Unnested> {
 }
 
 fn verify() -> Result<u8, Unnested> {
-    let nested = staged(Verbosity::Quietly, Screen::InAWindow, Wallpaper::Started)?;
+    let nested = stage_desktop(Verbosity::Quietly, Screen::InAWindow, Wallpaper::Started)?;
     let Ok(mut asking) = Program::Hyprland.command();
 
     asking.args(["--verify-config", "-c"]).arg(&nested);
@@ -303,7 +303,7 @@ fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Un
         Ended::ByThis => Wallpaper::Started,
         Ended::ByTheCompositor => Wallpaper::LeftOut,
     };
-    let nested = staged(Verbosity::Quietly, showing, wallpaper)?;
+    let nested = stage_desktop(Verbosity::Quietly, showing, wallpaper)?;
     let Ok(where_) = environment();
     let Ok(()) = out_of_the_way();
     let Ok(here) = stage();
@@ -404,13 +404,13 @@ fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Un
         }
     }
 
-    let Ok(opened) = opening(asked, &inside);
-    let Ok(()) = looking(asked, &inside, probe);
-    let Ok(monitors) = recording(asked, &inside);
+    let Ok(opened) = open_requested(asked, &inside);
+    let Ok(()) = run_probe(asked, &inside, probe);
+    let Ok(monitors) = record_clients(asked, &inside);
 
     match &shot {
         Some(file) => {
-            picturing(asked, &inside, file, &monitors, &go)?;
+            screenshot(asked, &inside, file, &monitors, &go)?;
         }
         None => {},
     }
@@ -435,7 +435,7 @@ fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Un
     Ok(0)
 }
 
-fn opening(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Child)>, Never> {
+fn open_requested(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Child)>, Never> {
     let Ok(was) = inside.surfaces();
 
     #[cfg_attr(
@@ -487,7 +487,7 @@ fn opening(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Child)>, N
     Ok(opened)
 }
 
-fn looking(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Never> {
+fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Never> {
     match probe {
         Action::Probing => {
             for question in ["monitors", "workspaces", "clients"] {
@@ -520,6 +520,13 @@ fn looking(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Neve
 
     match &asked.press {
         Some(script) => {
+            match probe {
+                Action::Running | Action::Probing => {
+                    let Ok(_settled) = inside.wait_for_a_still_screen();
+                }
+                Action::Describing => {},
+            }
+
             let Ok(mut asking) = inside.command("sh");
 
             match asking.args(["-c", script]).status() {
@@ -553,7 +560,7 @@ fn looking(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Neve
     Ok(())
 }
 
-fn recording(asked: &Arguments, inside: &Inside) -> Result<String, Never> {
+fn record_clients(asked: &Arguments, inside: &Inside) -> Result<String, Never> {
     match &asked.clients {
         Some(at) => {
             let Ok(said) = inside.hyprctl(&["clients", "-j"]);
@@ -588,7 +595,7 @@ fn looked_at(asked: &Arguments) -> Result<&'static str, Never> {
     })
 }
 
-fn picturing(
+fn screenshot(
     asked: &Arguments,
     inside: &Inside,
     file: &std::path::Path,
@@ -752,7 +759,7 @@ fn say_what_died(opened: &mut [(String, Child)]) -> Result<(), Never> {
 fn live(monitors: &str, go: &console_screen::Screen) -> Result<Size<u32>, Never> {
     let Ok(declared) = go.logical();
 
-    let monitors = match console_compositor::read_monitors(monitors) {
+    let monitors = match console_compositor::read(console_compositor::Monitors, monitors) {
         Ok(monitors) => monitors,
         Err(_nothing_to_read) => return Ok(declared),
     };

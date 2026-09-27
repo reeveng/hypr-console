@@ -85,7 +85,7 @@ impl Turn {
     }
 }
 
-pub fn standing(screen: &Screen) -> Result<Option<Turn>, Never> {
+pub fn current_turn(screen: &Screen) -> Result<Option<Turn>, Never> {
     Ok(EVERY.into_iter().find(|turn| {
         let Ok(transform) = turn.transform(screen.mode);
 
@@ -93,7 +93,7 @@ pub fn standing(screen: &Screen) -> Result<Option<Turn>, Never> {
     }))
 }
 
-pub fn turned(screen: &Screen, turn: Turn) -> Result<Screen, Never> {
+pub fn rotate(screen: &Screen, turn: Turn) -> Result<Screen, Never> {
     let Ok(transform) = turn.transform(screen.mode);
 
     Ok(Screen { transform, ..*screen })
@@ -105,7 +105,7 @@ pub fn at(
     home: &std::path::Path,
     panel: Output<'_>,
 ) -> Result<std::path::PathBuf, Unnamed> {
-    panel.keeping(home, NAMED)
+    panel.path_for(home, NAMED)
 }
 
 #[cfg(test)]
@@ -113,18 +113,14 @@ mod tests {
     use super::*;
     use console_core_geometry::Size;
 
-    fn panel() -> Screen {
-        Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 }
-    }
+    const PANEL: Screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
 
-    fn laptop() -> Screen {
-        Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: 0 }
-    }
+    const LAPTOP: Screen = Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: 0 };
 
     #[test]
     fn upright_is_the_way_the_panel_is_mounted_and_not_a_transform_of_nothing() {
-        let Ok(handheld) = Turn::Upright.transform(panel().mode);
-        let Ok(desk) = Turn::Upright.transform(laptop().mode);
+        let Ok(handheld) = Turn::Upright.transform(PANEL.mode);
+        let Ok(desk) = Turn::Upright.transform(LAPTOP.mode);
 
         assert_eq!(handheld, 1);
         assert_eq!(desk, 0);
@@ -132,8 +128,8 @@ mod tests {
 
     #[test]
     fn a_quarter_either_way_is_a_quarter_either_side_of_the_mounting() {
-        let Ok(left) = Turn::Left.transform(panel().mode);
-        let Ok(right) = Turn::Right.transform(panel().mode);
+        let Ok(left) = Turn::Left.transform(PANEL.mode);
+        let Ok(right) = Turn::Right.transform(PANEL.mode);
 
         assert_eq!((left, right), (2, 0));
     }
@@ -143,7 +139,7 @@ mod tests {
         let every: Vec<u32> = EVERY
             .into_iter()
             .map(|turn| {
-                let Ok(transform) = turn.transform(panel().mode);
+                let Ok(transform) = turn.transform(PANEL.mode);
 
                 transform
             })
@@ -151,7 +147,7 @@ mod tests {
 
         assert_eq!(every, vec![2, 1, 0, 3]);
 
-        let Ok(over) = Turn::Over.transform(laptop().mode);
+        let Ok(over) = Turn::Over.transform(LAPTOP.mode);
 
         assert_eq!(over, 2, "a half turn is a half turn whichever way a panel is mounted");
     }
@@ -159,8 +155,8 @@ mod tests {
     #[test]
     fn what_a_screen_is_standing_at_is_the_turn_that_would_put_it_there() {
         for turn in EVERY {
-            let Ok(screen) = turned(&panel(), turn);
-            let Ok(standing) = standing(&screen);
+            let Ok(screen) = rotate(&PANEL, turn);
+            let Ok(standing) = current_turn(&screen);
 
             assert_eq!(standing, Some(turn));
         }
@@ -168,8 +164,8 @@ mod tests {
 
     #[test]
     fn turning_the_panel_a_quarter_makes_the_rung_narrower_than_the_panel_it_was() {
-        let Ok(sideways) = turned(&panel(), Turn::Upright);
-        let Ok(portrait) = turned(&panel(), Turn::Left);
+        let Ok(sideways) = rotate(&PANEL, Turn::Upright);
+        let Ok(portrait) = rotate(&PANEL, Turn::Left);
         let Ok(was) = crate::size::Size::Normal.scale_on(&sideways);
         let Ok(now) = crate::size::Size::Normal.scale_on(&portrait);
 

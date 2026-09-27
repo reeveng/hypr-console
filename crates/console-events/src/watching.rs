@@ -41,11 +41,14 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::mem::MaybeUninit;
+use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
+use console_core_directory_listing::Descend;
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_reconnect::{Round, keep};
@@ -64,7 +67,7 @@ pub fn watch(folder: PathBuf, say: Sender<Change>) -> Result<(), Never> {
     })
 }
 
-fn asked() -> Result<WatchFlags, Never> {
+fn watch_flags() -> Result<WatchFlags, Never> {
     Ok(WatchFlags::CLOSE_WRITE
         | WatchFlags::CREATE
         | WatchFlags::DELETE
@@ -93,16 +96,16 @@ fn round(folder: &Path, say: &Sender<Change>) -> Result<Round, Never> {
 
     let Ok(roomy) = index(ROOM);
     let mut room = vec![MaybeUninit::<u8>::uninit(); roomy];
-    let mut reader = inotify::Reader::new(&listening, &mut room);
+    let reader = inotify::Reader::new(&listening, &mut room);
 
-    loop {
+    let watching = iterate((reader, watched), |(mut reader, mut watched)| {
         let (flags, within, name) = match reader.next() {
             Ok(event) => (
                 event.events(),
                 event.wd(),
                 event.file_name().map(|name| OsStr::from_bytes(name.to_bytes()).to_os_string()),
             ),
-            Err(_unreadable) => return Ok(Round::Another),
+            Err(_unreadable) => return Ok(Step::Halt(Round::Another)),
         };
 
         let at = match (watched.get(&within), name) {
@@ -122,7 +125,7 @@ fn round(folder: &Path, say: &Sender<Change>) -> Result<Round, Never> {
                 let _ = watched.remove(&within);
 
                 match watched.is_empty() {
-                    true => return Ok(Round::Another),
+                    true => return Ok(Step::Halt(Round::Another)),
                     false => None,
                 }
             }
@@ -140,60 +143,77 @@ fn round(folder: &Path, say: &Sender<Change>) -> Result<Round, Never> {
 
         let at = match said {
             Some(at) => at,
-            None => continue,
+            None => return Ok(Step::Again((reader, watched))),
         };
 
         let sent = say.send(Change { topic: Topic::Path(folder.to_path_buf()), text: at.display().to_string() });
 
         match sent {
             Ok(()) => {},
-            Err(_nobody_is_left_to_tell) => return Ok(Round::Finished),
+            Err(_nobody_is_left_to_tell) => return Ok(Step::Halt(Round::Finished)),
         }
-    }
+
+        Ok(Step::Again((reader, watched)))
+    });
+
+    Ok(match watching {
+        Ok(round) => round,
+        Err(Endless) => Round::Another,
+    })
 }
 
 fn added(listening: &OwnedFd, from: &Path, watched: &mut BTreeMap<i32, PathBuf>) -> Result<(), Never> {
-    let Ok(flags) = asked();
-    let mut walking = vec![from.to_path_buf()];
+    let Ok(flags) = watch_flags();
+    let Ok(listing) = console_core_directory_listing::recursive(from, |path| {
+        let Ok(shown) = shown(path);
 
-    while let Some(at) = walking.pop() {
+        shown
+    });
+    let mut folders = std::iter::once(from.to_path_buf()).chain(listing.filter_map(|entry| match entry {
+        Ok(path) => {
+            let Ok(shown) = shown(&path);
+
+            match (path.is_dir(), path.is_symlink(), shown) {
+                (true, false, Descend::Into) => Some(path),
+                (true, true, _) | (true, false, Descend::Past) | (false, _, _) => None,
+            }
+        }
+        Err(_unreadable) => None,
+    }));
+
+    let walked = folders.try_fold(watched, |watched, at| {
         let Ok(many) = fitted::<_, u32>(watched.len());
 
         match many >= MOST {
-            true => {
-                eprintln!(
-                    "console-events: {} has more than {MOST} folders under it, and what is deeper \
-                     than that is not watched",
-                    from.display()
-                );
-
-                return Ok(());
-            }
+            true => return ControlFlow::Break(watched),
             false => {},
         }
 
-        let within = match inotify::add_watch(listening, &at, flags) {
-            Ok(within) => within,
-            Err(_gone_or_not_a_folder) => continue,
-        };
-
-        let _ = watched.insert(within, at.clone());
-
-        let reading = match std::fs::read_dir(&at) {
-            Ok(reading) => reading,
-            Err(_unreadable) => continue,
-        };
-
-        for entry in reading.flatten() {
-            let hidden = entry.file_name().as_bytes().first() == Some(&b'.');
-
-            match (hidden, entry.file_type().map(|kind| kind.is_dir())) {
-                (false, Ok(true)) => walking.push(entry.path()),
-                (false, Ok(false)) | (true, Ok(_)) => {},
-                (false | true, Err(_the_kind_is_unknown)) => {},
+        match inotify::add_watch(listening, &at, flags) {
+            Ok(within) => {
+                let _ = watched.insert(within, at);
             }
+            Err(_gone_or_not_a_folder) => {},
         }
+
+        ControlFlow::Continue(watched)
+    });
+
+    match walked {
+        ControlFlow::Break(_full) => eprintln!(
+            "console-events: {} has more than {MOST} folders under it, and what is deeper \
+             than that is not watched",
+            from.display()
+        ),
+        ControlFlow::Continue(_every_folder) => {},
     }
 
     Ok(())
+}
+
+fn shown(path: &Path) -> Result<Descend, Never> {
+    Ok(match path.file_name().map(|name| name.as_bytes().first() == Some(&b'.')) {
+        Some(true) => Descend::Past,
+        Some(false) | None => Descend::Into,
+    })
 }

@@ -59,7 +59,6 @@
 //! separate answers, and it is the caller that decides how loudly to say the
 //! second.
 
-
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
@@ -99,7 +98,7 @@ pub fn curve() -> Result<Vec<Step>, Never> {
     let falling = DUSK.1.saturating_sub(DUSK.0).saturating_div(STEP);
 
     for part in 0..=falling {
-        let Ok(warmth) = between(Kelvin { from: DAYLIGHT, to: WARM }, Along { part, whole: falling });
+        let Ok(warmth) = interpolate(Kelvin { from: DAYLIGHT, to: WARM }, Along { part, whole: falling });
 
         steps.push(Step {
             at: DUSK.0.saturating_add(part.saturating_mul(STEP)),
@@ -110,7 +109,7 @@ pub fn curve() -> Result<Vec<Step>, Never> {
     let climbing = DAWN.saturating_div(STEP);
 
     for part in 1..climbing {
-        let Ok(warmth) = between(Kelvin { from: WARM, to: DAYLIGHT }, Along { part, whole: climbing });
+        let Ok(warmth) = interpolate(Kelvin { from: WARM, to: DAYLIGHT }, Along { part, whole: climbing });
 
         steps.push(Step {
             at: DAY.saturating_sub(DAWN).saturating_add(part.saturating_mul(STEP)),
@@ -172,7 +171,7 @@ struct Kelvin {
     to: u32,
 }
 
-fn between(kelvin: Kelvin, along: Along) -> Result<u32, Never> {
+fn interpolate(kelvin: Kelvin, along: Along) -> Result<u32, Never> {
     let Ok(from) = mired(kelvin.from);
     let Ok(to) = mired(kelvin.to);
     let at = from + (to - from) * f64::from(along.part) / f64::from(along.whole);
@@ -224,7 +223,7 @@ impl NightShift {
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
     Ok(ours.join(NAMED))
 }
@@ -235,7 +234,7 @@ pub enum Standing {
     Invalid(String),
 }
 
-pub fn standing(home: &Path) -> Result<Standing, Never> {
+pub fn load(home: &Path) -> Result<Standing, Never> {
     let Ok(at) = at(home);
     let Ok(held) = console_core_atomic_writes::read(&at);
 
@@ -254,99 +253,91 @@ pub fn standing(home: &Path) -> Result<Standing, Never> {
 mod tests {
     use super::*;
 
-    fn read(held: &str) -> NightShift {
-        let Ok(warmth) = NightShift::read(held);
+    type Failure = Box<dyn std::error::Error>;
 
-        warmth
+    const A_CURVE: &str = "a curve";
+
+    fn pairs(steps: &[Step]) -> Result<Vec<(&Step, &Step)>, Never> {
+        Ok(steps.iter().zip(steps.iter().skip(1)).collect())
     }
 
-    fn other(warmth: NightShift) -> NightShift {
-        let Ok(other) = warmth.other();
-
-        other
-    }
-
-    fn written(warmth: NightShift) -> &'static str {
-        let Ok(written) = warmth.written();
-
-        written
-    }
-
-    fn switched(warmth: NightShift) -> Switched {
-        let Ok(switched) = warmth.switched();
-
-        switched
-    }
-
-    fn curve() -> Vec<Step> {
-        let Ok(steps) = super::curve();
-
-        steps
-    }
-
-    fn configuration() -> String {
-        let Ok(said) = super::configuration();
-
-        said
+    fn warmths(steps: &[Step], (from, to): (u32, u32)) -> Result<Vec<u32>, Never> {
+        Ok(steps
+            .iter()
+            .filter(|step| step.at >= from && step.at <= to)
+            .filter_map(|step| match step.temperature {
+                Temperature::Kelvin(kelvin) => Some(kelvin),
+                Temperature::Neutral => None,
+            })
+            .collect())
     }
 
     #[test]
     fn a_device_that_was_never_asked_follows_the_clock() {
-        assert_eq!(read(""), NightShift::Scheduled);
-        assert_eq!(read("what?\n"), NightShift::Scheduled);
-        assert_eq!(switched(read("")), Switched::On);
+        let Ok(unasked) = NightShift::read("");
+
+        assert_eq!(unasked, NightShift::Scheduled);
+        assert_eq!(NightShift::read("what?\n"), Ok(NightShift::Scheduled));
+        assert_eq!(unasked.switched(), Ok(Switched::On));
     }
 
     #[test]
     fn only_the_refusal_is_remembered() {
-        assert_eq!(read("ordinary\n"), NightShift::Off);
-        assert_eq!(switched(NightShift::Off), Switched::Off);
+        assert_eq!(NightShift::read("ordinary\n"), Ok(NightShift::Off));
+        assert_eq!(NightShift::Off.switched(), Ok(Switched::Off));
     }
 
     #[test]
     fn what_was_written_is_what_is_read_back() {
         for way in [NightShift::Scheduled, NightShift::Off] {
-            assert_eq!(read(written(way)), way);
+            let Ok(written) = way.written();
+
+            assert_eq!(NightShift::read(written), Ok(way));
         }
     }
 
     #[test]
     fn the_switch_has_two_sides_and_they_are_each_other() {
-        assert_eq!(other(NightShift::Scheduled), NightShift::Off);
-        assert_eq!(other(NightShift::Off), NightShift::Scheduled);
+        assert_eq!(NightShift::Scheduled.other(), Ok(NightShift::Off));
+        assert_eq!(NightShift::Off.other(), Ok(NightShift::Scheduled));
     }
 
     #[test]
-    fn the_curve_leaves_daylight_at_dusk_and_comes_back_at_seven() {
-        let steps = curve();
-        let first = steps.first().expect("a curve");
+    fn the_curve_leaves_daylight_at_dusk_and_comes_back_at_seven() -> Result<(), &'static str> {
+        let Ok(steps) = curve();
+        let first = steps.first().ok_or(A_CURVE)?;
+        let bottom = steps.iter().find(|step| step.at == DUSK.1).ok_or("the end of dusk")?;
+        let last = steps.last().ok_or(A_CURVE)?;
+        let morning = DAY.saturating_sub(DAWN);
+
         assert_eq!(first.at, DUSK.0);
         assert_eq!(first.temperature, Temperature::Kelvin(DAYLIGHT));
-
-        let bottom = steps.iter().find(|step| step.at == DUSK.1).expect("the end of dusk");
         assert_eq!(bottom.temperature, Temperature::Kelvin(WARM));
-
         assert!(
-            !steps.iter().any(|step| step.at > DUSK.1 && step.at < DAY - DAWN),
+            !steps.iter().any(|step| step.at > DUSK.1 && step.at < morning),
             "the night is what happens when nothing is said, so nothing is said for it"
         );
-
-        let last = steps.last().expect("a curve");
         assert_eq!(last.at, DAY);
         assert_eq!(last.temperature, Temperature::Neutral);
+
+        Ok(())
     }
 
     #[test]
     fn dusk_falls_and_dawn_climbs() {
-        let steps = curve();
-        let midnights: Vec<&[Step]> = steps.windows(2).filter(|pair| pair[0].at >= pair[1].at).collect();
+        let Ok(steps) = curve();
+        let Ok(pairs) = pairs(&steps);
+        let midnights: Vec<&(&Step, &Step)> = pairs.iter().filter(|(before, after)| before.at >= after.at).collect();
+
         assert_eq!(midnights.len(), 1, "the curve crosses midnight at {midnights:?}");
 
-        let dusk: Vec<u32> = warmths(&steps, DUSK.0, DUSK.1);
-        assert!(dusk.windows(2).all(|two| two[0] > two[1]), "dusk does not fall: {dusk:?}");
+        let Ok(dusk) = warmths(&steps, DUSK);
 
-        let dawn: Vec<u32> = warmths(&steps, DAY - DAWN, DAY);
-        assert!(dawn.windows(2).all(|two| two[0] < two[1]), "dawn does not climb: {dawn:?}");
+        assert!(dusk.iter().zip(dusk.iter().skip(1)).all(|(before, after)| before > after), "dusk does not fall: {dusk:?}");
+
+        let Ok(dawn) = warmths(&steps, (DAY.saturating_sub(DAWN), DAY));
+
+        assert!(dawn.iter().zip(dawn.iter().skip(1)).all(|(before, after)| before < after), "dawn does not climb: {dawn:?}");
         assert!(
             dawn.first().is_some_and(|first| *first > WARM),
             "the climb starts above the night it is leaving"
@@ -359,35 +350,41 @@ mod tests {
 
     #[test]
     fn no_step_is_big_enough_to_notification() {
-        let steps = curve();
-        let biggest = steps
-            .windows(2)
-            .filter_map(|two| match (two[0].temperature, two[1].temperature) {
+        let Ok(steps) = curve();
+        let Ok(pairs) = pairs(&steps);
+        let biggest = pairs
+            .iter()
+            .filter_map(|(before, after)| match (before.temperature, after.temperature) {
                 (Temperature::Kelvin(before), Temperature::Kelvin(after)) => {
                     let Ok(after) = mired(after);
                     let Ok(before) = mired(before);
 
                     Some((after - before).abs())
                 }
-                _ => None,
+                (Temperature::Neutral, Temperature::Kelvin(_) | Temperature::Neutral)
+                | (Temperature::Kelvin(_), Temperature::Neutral) => None,
             })
             .fold(0.0_f64, f64::max);
+
         assert!(biggest < 20.0, "one step moves {biggest} mireds, which is a jump");
     }
 
     #[test]
     fn the_config_is_written_the_way_the_daemon_reads_it() {
-        let said = configuration();
+        let Ok(said) = configuration();
+        let Ok(steps) = curve();
+
         assert!(said.starts_with('#'), "the file says what wrote it");
         assert!(said.contains("profile {\n    time = 19:30\n    temperature = 6500\n}\n"));
         assert!(said.contains("profile {\n    time = 21:30\n    temperature = 3000\n}\n"));
         assert!(said.contains("profile {\n    time = 07:00\n    identity = true\n}\n"));
-        assert_eq!(said.matches("profile {").count(), curve().len());
+        assert_eq!(said.matches("profile {").count(), steps.len());
     }
 
     #[test]
     fn warm_is_a_lamp_rather_than_daylight_or_a_fire() {
         const { assert!(WARM < 4500, "warm is not far enough from daylight to see") };
+
         const { assert!(WARM > 2000, "that is orange rather than warm") };
     }
 
@@ -399,62 +396,45 @@ mod tests {
     }
 
     #[test]
-    fn a_home_with_nothing_written_in_it_follows_the_clock() {
-        let at = std::env::temp_dir().join("console-warm-never-asked");
+    fn a_home_with_nothing_written_in_it_follows_the_clock() -> Result<(), Failure> {
+        let home = console_core_temporary_directories::fresh("warm-never-asked")?;
 
-        let _ = std::fs::remove_dir_all(&at);
-
-        let Ok(standing) = super::standing(&at);
+        let Ok(standing) = load(&home);
 
         assert_eq!(standing, Standing::Loaded(NightShift::Scheduled));
+
+        Ok(())
     }
 
     #[test]
-    fn an_answer_that_will_not_be_read_is_not_an_answer() {
-        let home = std::env::temp_dir().join("console-warm-unreadable");
+    fn an_answer_that_will_not_be_read_is_not_an_answer() -> Result<(), Failure> {
+        let home = console_core_temporary_directories::fresh("warm-unreadable")?;
         let Ok(at) = at(&home);
 
-        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&at)?;
 
-        std::fs::create_dir_all(&at).expect("somewhere to work");
+        let Ok(standing) = load(&home);
 
-        let Ok(standing) = super::standing(&home);
-
-        match standing {
-            Standing::Invalid(_) => {}
-            Standing::Loaded(warmth) => {
-                panic!("a setting that would not be read came back as {warmth:?}")
-            }
-        }
+        assert!(matches!(standing, Standing::Invalid(_)), "a setting that would not be read came back as {standing:?}");
 
         let _ = std::fs::remove_dir_all(&home);
+
+        Ok(())
     }
 
     #[test]
-    fn a_refusal_that_was_written_down_is_read_back() {
-        let home = std::env::temp_dir().join("console-warm-ordinary");
+    fn a_refusal_that_was_written_down_is_read_back() -> Result<(), Failure> {
+        let home = console_core_temporary_directories::fresh("warm-ordinary")?;
         let Ok(at) = at(&home);
 
-        let _ = std::fs::remove_dir_all(&home);
+        console_core_atomic_writes::whole_with_folders(&at, b"ordinary\n")?;
 
-        std::fs::create_dir_all(at.parent().expect("a place to put it")).expect("somewhere to work");
-        std::fs::write(&at, "ordinary\n").expect("something to read back");
-
-        let Ok(standing) = super::standing(&home);
+        let Ok(standing) = load(&home);
 
         assert_eq!(standing, Standing::Loaded(NightShift::Off));
 
         let _ = std::fs::remove_dir_all(&home);
-    }
 
-    fn warmths(steps: &[Step], from: u32, to: u32) -> Vec<u32> {
-        steps
-            .iter()
-            .filter(|step| step.at >= from && step.at <= to)
-            .filter_map(|step| match step.temperature {
-                Temperature::Kelvin(kelvin) => Some(kelvin),
-                Temperature::Neutral => None,
-            })
-            .collect()
+        Ok(())
     }
 }

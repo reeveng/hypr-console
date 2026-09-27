@@ -23,6 +23,14 @@
 //! one. The answers are handed back in this desktop's words, which is what the
 //! crate is for.
 //!
+//! Each question is its own type, and what it is answered with is that type's
+//! own: `ask(Layers)` is a list of layers. It used to be one `Answer` enum for
+//! every question, so a caller that had asked for the layers matched every
+//! other kind of answer to refuse it -- a dozen crates writing an arm for
+//! something that could not happen, some quietly reading it as an empty desktop
+//! and some as a fault, and none of them able to be told apart from a real
+//! refusal. The only way to fail now is the compositor not answering.
+//!
 //! What is not here is which surfaces belong to the system, which namespace the home
 //! screen draws under, and what a window on the workspace in front means for
 //! the wallpaper. This crate walks the shape of an answer;
@@ -171,118 +179,96 @@ pub struct Workspace {
     pub windows: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Answer {
-    Layers(Vec<Layer>),
-    ActiveWorkspace(Option<Workspace>),
-    Workspaces(Vec<Workspace>),
-    Monitors(Vec<Monitor>),
-    EveryMonitor(Vec<Monitor>),
-    Clients(Vec<Window>),
-    Devices(Vec<Keyboard>),
-    Binds(Vec<BoundKey>),
+pub trait Question: Copy {
+    const ASKED: Query;
+
+    type Reply;
+
+    fn said(value: serde_json::Value) -> Result<Self::Reply, HyprctlError>;
 }
 
-pub fn query(query: Query) -> Result<Answer, HyprctlError> {
+macro_rules! questions {
+    ($($question:ident => $said:ty, $parse:ident;)*) => {
+        $(
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            pub struct $question;
+
+            impl Question for $question {
+                const ASKED: Query = Query::$question;
+
+                type Reply = $said;
+
+                fn said(value: serde_json::Value) -> Result<$said, HyprctlError> {
+                    $parse(value)
+                }
+            }
+        )*
+    };
+}
+
+questions! {
+    Layers => Vec<Layer>, parse_layers;
+    ActiveWorkspace => Option<Workspace>, parse_active_workspace;
+    Workspaces => Vec<Workspace>, parse_workspaces;
+    Monitors => Vec<Monitor>, parse_monitors;
+    EveryMonitor => Vec<Monitor>, parse_monitors;
+    Clients => Vec<Window>, parse_clients;
+    Devices => Vec<Keyboard>, parse_devices;
+    Binds => Vec<BoundKey>, parse_binds;
+}
+
+pub fn ask<Q: Question>(question: Q) -> Result<Q::Reply, HyprctlError> {
     let at = socket::socket(socket::Socket::Requests)
-        .map_err(|why| HyprctlError::Socket(query, socket::SocketError::Unplaced(why)))?;
+        .map_err(|why| HyprctlError::Socket(Q::ASKED, socket::SocketError::Unplaced(why)))?;
 
-    query_at(&at, query)
+    ask_at(&at, question)
 }
 
-pub fn query_at(at: &std::path::Path, query: Query) -> Result<Answer, HyprctlError> {
-    let Ok(line) = query.line();
-    let printed = socket::asked_at(at, &line).map_err(|fault| HyprctlError::Socket(query, fault))?;
+pub fn ask_at<Q: Question>(at: &std::path::Path, _question: Q) -> Result<Q::Reply, HyprctlError> {
+    let Ok(line) = Q::ASKED.line();
+    let printed = socket::send_at(at, &line).map_err(|fault| HyprctlError::Socket(Q::ASKED, fault))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&printed).map_err(|fault| HyprctlError::Parse(Q::ASKED, fault))?;
 
-    answered(query, &printed)
+    Q::said(value)
 }
 
-pub fn query_with(mut command: Command, query: Query) -> Result<Answer, HyprctlError> {
-    let Ok(words) = query.words();
+pub fn ask_with<Q: Question>(mut command: Command, _question: Q) -> Result<Q::Reply, HyprctlError> {
+    let Ok(words) = Q::ASKED.words();
 
     let output = command
         .args(words)
         .output()
-        .map_err(|fault| HyprctlError::Spawn(query, fault))?;
+        .map_err(|fault| HyprctlError::Spawn(Q::ASKED, fault))?;
 
     let printed = match output.status.success() {
         true => output.stdout,
         false => {
             return Err(HyprctlError::Failed(
-                query,
+                Q::ASKED,
                 String::from_utf8_lossy(&output.stderr).trim().to_string(),
             ));
         }
     };
 
-    answered(query, &printed)
-}
-
-fn answered(query: Query, printed: &[u8]) -> Result<Answer, HyprctlError> {
     let value: serde_json::Value =
-        serde_json::from_slice(printed).map_err(|fault| HyprctlError::Parse(query, fault))?;
+        serde_json::from_slice(&printed).map_err(|fault| HyprctlError::Parse(Q::ASKED, fault))?;
 
-    answer_of(query, value)
+    Q::said(value)
 }
 
-pub fn read(query: Query, text: &str) -> Result<Answer, HyprctlError> {
+pub fn read<Q: Question>(_question: Q, text: &str) -> Result<Q::Reply, HyprctlError> {
     let value: serde_json::Value = serde_json::from_str(text).map_err(HyprctlError::Json)?;
-    answer_of(query, value)
+
+    Q::said(value)
 }
 
-pub fn read_monitors(text: &str) -> Result<Vec<Monitor>, HyprctlError> {
-    let value: serde_json::Value = serde_json::from_str(text).map_err(HyprctlError::Json)?;
-
-    parse_monitors(value)
+pub fn said_of<Q: Question>(_question: Q, value: serde_json::Value) -> Result<Q::Reply, HyprctlError> {
+    Q::said(value)
 }
 
 pub fn read_value(text: &str) -> Result<serde_json::Value, HyprctlError> {
     serde_json::from_str(text).map_err(HyprctlError::Json)
-}
-
-pub fn answer_of(query: Query, value: serde_json::Value) -> Result<Answer, HyprctlError> {
-    match query {
-        Query::Layers => {
-            let layers = parse_layers(value)?;
-
-            Ok(Answer::Layers(layers))
-        },
-        Query::ActiveWorkspace => {
-            let workspace = parse_active_workspace(value)?;
-
-            Ok(Answer::ActiveWorkspace(workspace))
-        },
-        Query::Workspaces => {
-            let workspaces = parse_workspaces(value)?;
-
-            Ok(Answer::Workspaces(workspaces))
-        },
-        Query::Monitors => {
-            let monitors = parse_monitors(value)?;
-
-            Ok(Answer::Monitors(monitors))
-        },
-        Query::EveryMonitor => {
-            let monitors = parse_monitors(value)?;
-
-            Ok(Answer::EveryMonitor(monitors))
-        },
-        Query::Clients => {
-            let windows = parse_clients(value)?;
-
-            Ok(Answer::Clients(windows))
-        },
-        Query::Devices => {
-            let devices = parse_devices(value)?;
-
-            Ok(Answer::Devices(devices))
-        },
-        Query::Binds => {
-            let binds = parse_binds(value)?;
-
-            Ok(Answer::Binds(binds))
-        },
-    }
 }
 
 fn parse_layers(value: serde_json::Value) -> Result<Vec<Layer>, HyprctlError> {
@@ -643,7 +629,7 @@ pub struct BoundKey {
 }
 
 pub fn switch_layout(name: &str, which: u32) -> Result<DispatchResult, Never> {
-    told(&format!("/{SWITCH} {name} {which}"))
+    dispatch(&format!("/{SWITCH} {name} {which}"))
 }
 
 pub fn switch_layout_with(mut command: Command, name: &str, which: u32) -> Result<DispatchResult, Never> {
@@ -674,7 +660,7 @@ fn result_of(output: &std::process::Output) -> Result<DispatchResult, Never> {
 
     Ok(match output.status.success() {
         true => {
-            let Ok(result) = said(&printed);
+            let Ok(result) = parse_dispatch_result(&printed);
 
             result
         }
@@ -686,7 +672,7 @@ fn result_of(output: &std::process::Output) -> Result<DispatchResult, Never> {
     })
 }
 
-fn said(printed: &str) -> Result<DispatchResult, Never> {
+fn parse_dispatch_result(printed: &str) -> Result<DispatchResult, Never> {
     let read = printed.to_lowercase();
 
     Ok(match !read.contains(COMPLAINED) && !read.contains(BY_THE_PARSER) {
@@ -695,19 +681,19 @@ fn said(printed: &str) -> Result<DispatchResult, Never> {
     })
 }
 
-fn told(line: &str) -> Result<DispatchResult, Never> {
+fn dispatch(line: &str) -> Result<DispatchResult, Never> {
     let at = match socket::socket(socket::Socket::Requests) {
         Ok(at) => at,
         Err(why) => return Ok(DispatchResult::Failure(why.to_string())),
     };
 
-    told_at(&at, line)
+    dispatch_at(&at, line)
 }
 
-pub fn told_at(at: &std::path::Path, line: &str) -> Result<DispatchResult, Never> {
-    Ok(match socket::asked_at(at, line) {
+pub fn dispatch_at(at: &std::path::Path, line: &str) -> Result<DispatchResult, Never> {
+    Ok(match socket::send_at(at, line) {
         Ok(printed) => {
-            let Ok(result) = said(&String::from_utf8_lossy(&printed));
+            let Ok(result) = parse_dispatch_result(&String::from_utf8_lossy(&printed));
 
             result
         }
@@ -731,8 +717,8 @@ pub fn set_layouts_with(command: Command, name: &str, layouts: Layouts<'_>) -> R
 }
 
 fn device_layouts(name: &str, layouts: Layouts<'_>) -> Result<String, Never> {
-    let Ok(quoted_name) = quoted(name);
-    let Ok(offered) = quoted(layouts.0);
+    let Ok(quoted_name) = quote(name);
+    let Ok(offered) = quote(layouts.0);
 
     Ok(format!("hl.device({{ name = {quoted_name}, {KB_LAYOUT} = {offered} }})"))
 }
@@ -750,19 +736,19 @@ pub fn onto(where_: &str, carrying: Carrying) -> Result<String, Never> {
         Carrying::Window => "hl.dsp.window.move",
         Carrying::None => "hl.dsp.focus",
     };
-    let Ok(target) = quoted(where_);
+    let Ok(target) = quote(where_);
 
     Ok(format!("{dispatcher}({{workspace = {target}}})"))
 }
 
-pub fn quoted(text: &str) -> Result<String, Never> {
+pub fn quote(text: &str) -> Result<String, Never> {
     Ok(format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\"")))
 }
 
 pub fn request(request: Request, lua: &str) -> Result<DispatchResult, Never> {
     let Ok(line) = request.line(lua);
 
-    told(&line)
+    dispatch(&line)
 }
 
 impl Request {
@@ -786,7 +772,7 @@ pub fn request_with(mut command: Command, request: Request, lua: &str) -> Result
     })
 }
 
-pub fn dispatched(commands: &[Vec<String>]) -> Result<Vec<String>, Never> {
+pub fn batch_arguments(commands: &[Vec<String>]) -> Result<Vec<String>, Never> {
     let Ok(hyprctl) = Program::Hyprctl.name();
     let Ok(dispatch) = Request::Dispatch.word();
 
@@ -838,7 +824,7 @@ pub enum Visible {
 }
 
 impl Layer {
-    pub fn drawn(&self) -> Result<Visible, Never> {
+    pub fn visibility(&self) -> Result<Visible, Never> {
         Ok(match self.height {
             Some(tall) => match tall > 0 {
                 true => Visible::Yes,
@@ -969,7 +955,7 @@ fn word_in(of: &serde_json::Value, name: &str) -> Result<String, Never> {
     })
 }
 
-fn numbered(of: &serde_json::Value, name: &str) -> Result<i64, Never> {
+fn number_field(of: &serde_json::Value, name: &str) -> Result<i64, Never> {
     Ok(match of.get(name).and_then(serde_json::Value::as_i64) {
         Some(number) => number,
         None => SAID_NO_NUMBER,
@@ -1017,7 +1003,7 @@ pub fn windows_open(clients: &serde_json::Value) -> Result<Vec<Window>, Never> {
             first_title: string_in("initialTitle"),
             workspace: match workspace {
                 Some(workspace) => {
-                    let Ok(id) = numbered(workspace, "id");
+                    let Ok(id) = number_field(workspace, "id");
 
                     id
                 }
@@ -1051,7 +1037,7 @@ pub fn windows_open(clients: &serde_json::Value) -> Result<Vec<Window>, Never> {
             at,
             size,
             pid: {
-                let Ok(pid) = numbered(window, "pid");
+                let Ok(pid) = number_field(window, "pid");
 
                 pid
             },
@@ -1081,10 +1067,7 @@ pub fn instance() -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn json(text: &str) -> serde_json::Value {
-        read_value(text).expect("what hyprctl said")
-    }
+    use std::error::Error;
 
     const TWO_SCREENS: &str = r#"[
         {"name":"eDP-1","width":2560,"height":1600,"scale":2.50,
@@ -1098,11 +1081,9 @@ mod tests {
          "active_keymap":"Thai","main":true}]}"#;
 
     #[test]
-    fn the_board_someone_is_typing_on_is_the_one_the_compositor_leads_with() {
-        let keyboards = match parse_devices(json(TWO_BOARDS)) {
-            Ok(keyboards) => keyboards,
-            Err(fault) => panic!("the fixture would not read: {fault}"),
-        };
+    fn the_board_someone_is_typing_on_is_the_one_the_compositor_leads_with() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_BOARDS)?;
+        let keyboards = parse_devices(value)?;
 
         let leading: Vec<&str> = keyboards
             .iter()
@@ -1112,11 +1093,14 @@ mod tests {
 
         assert_eq!(leading, ["lab31---keyboard"], "{keyboards:?}");
         assert_eq!(keyboards.first().map(|keyboard| keyboard.leading), Some(Leading::No));
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_is_named_measured_and_scaled() {
-        let Ok(monitors) = monitors(&json(TWO_SCREENS));
+    fn a_screen_is_named_measured_and_scaled() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_SCREENS)?;
+        let Ok(monitors) = monitors(&value);
 
         assert_eq!(
             monitors.first(),
@@ -1128,26 +1112,35 @@ mod tests {
                 transform: Some(1),
             })
         );
+
+        Ok(())
     }
 
     #[test]
-    fn every_screen_is_answered_in_the_order_the_compositor_gave_them() {
-        let Ok(monitors) = monitors(&json(TWO_SCREENS));
+    fn every_screen_is_answered_in_the_order_the_compositor_gave_them() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_SCREENS)?;
+        let Ok(monitors) = monitors(&value);
         let named: Vec<&str> = monitors.iter().map(|monitor| monitor.named.as_str()).collect();
 
         assert_eq!(named, ["eDP-1", "HEADLESS-2"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_that_says_nothing_about_a_turn_is_not_a_screen_standing_upright() {
-        let Ok(monitors) = monitors(&json(TWO_SCREENS));
+    fn a_screen_that_says_nothing_about_a_turn_is_not_a_screen_standing_upright() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_SCREENS)?;
+        let Ok(monitors) = monitors(&value);
 
         assert_eq!(monitors.get(1).and_then(|monitor| monitor.transform), None);
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_that_says_no_size_is_a_screen_without_one_rather_than_one_of_zero() {
-        let Ok(monitors) = monitors(&json(r#"[{"name":"HEADLESS-2"}]"#));
+    fn a_screen_that_says_no_size_is_a_screen_without_one_rather_than_one_of_zero() -> Result<(), Box<dyn Error>> {
+        let value = read_value(r#"[{"name":"HEADLESS-2"}]"#)?;
+        let Ok(monitors) = monitors(&value);
 
         assert_eq!(
             monitors.first(),
@@ -1159,97 +1152,138 @@ mod tests {
                 transform: None,
             })
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_turned_screen_is_as_wide_as_it_looks_rather_than_as_wide_as_its_mode() {
-        let Ok(monitors) = monitors(&json(
+    fn a_turned_screen_is_as_wide_as_it_looks_rather_than_as_wide_as_its_mode() -> Result<(), Box<dyn Error>> {
+        let value = read_value(
             r#"[{"name":"HEADLESS-1","width":1600,"height":2560,"scale":2.5,"transform":1}]"#,
-        ));
-        let turned = monitors.first().expect("a screen");
+        )?;
+
+        let Ok(monitors) = monitors(&value);
+        let turned = monitors.first().ok_or("expected a screen")?;
         let Ok(logical) = turned.logical();
 
         assert_eq!(logical, Some(Size { width: 1024, height: 640 }));
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_standing_upright_is_its_mode_over_its_scale() {
-        let Ok(monitors) = monitors(&json(
+    fn a_screen_standing_upright_is_its_mode_over_its_scale() -> Result<(), Box<dyn Error>> {
+        let value = read_value(
             r#"[{"name":"HEADLESS-2","width":2560,"height":1600,"scale":2.0,"transform":0}]"#,
-        ));
-        let upright = monitors.first().expect("a screen");
+        )?;
+
+        let Ok(monitors) = monitors(&value);
+        let upright = monitors.first().ok_or("expected a screen")?;
         let Ok(logical) = upright.logical();
 
         assert_eq!(logical, Some(Size { width: 1280, height: 800 }));
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_that_will_not_say_how_big_it_is_says_nothing_rather_than_zero_by_zero() {
-        let Ok(monitors) = monitors(&json(r#"[{"name":"HEADLESS-2"}]"#));
-        let unmeasured = monitors.first().expect("a screen");
+    fn a_screen_that_will_not_say_how_big_it_is_says_nothing_rather_than_zero_by_zero() -> Result<(), Box<dyn Error>> {
+        let value = read_value(r#"[{"name":"HEADLESS-2"}]"#)?;
+        let Ok(monitors) = monitors(&value);
+        let unmeasured = monitors.first().ok_or("expected a screen")?;
 
         assert_eq!(unmeasured.logical(), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_with_no_name_is_no_screen_anyone_could_ask_after() {
-        let Ok(monitors) = monitors(&json(r#"[{"width":2560,"height":1600}]"#));
+    fn a_screen_with_no_name_is_no_screen_anyone_could_ask_after() -> Result<(), Box<dyn Error>> {
+        let value = read_value(r#"[{"width":2560,"height":1600}]"#)?;
+        let Ok(monitors) = monitors(&value);
 
         assert_eq!(monitors, []);
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_at_all_is_no_screens_rather_than_a_reading_of_the_wrong_thing() {
-        let Ok(monitors) = monitors(&json(r#"{"eDP-1":{"levels":{}}}"#));
+    fn nothing_at_all_is_no_screens_rather_than_a_reading_of_the_wrong_thing() -> Result<(), Box<dyn Error>> {
+        let value = read_value(r#"{"eDP-1":{"levels":{}}}"#)?;
+        let Ok(monitors) = monitors(&value);
 
         assert_eq!(monitors, []);
+
+        Ok(())
     }
 
     const IN_FRONT: &str = r#"{"id":3,"name":"3","windows":2,"lastwindowtitle":"a folder"}"#;
 
     #[test]
-    fn the_workspace_in_front_says_its_name_and_what_it_holds() {
-        assert_eq!(windows(&json(IN_FRONT)), Ok(Some(2)));
-        assert_eq!(workspace(&json(IN_FRONT)), Ok(Some("3")));
+    fn the_workspace_in_front_says_its_name_and_what_it_holds() -> Result<(), Box<dyn Error>> {
+        let value = read_value(IN_FRONT)?;
+
+        assert_eq!(windows(&value), Ok(Some(2)));
+        assert_eq!(workspace(&value), Ok(Some("3")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_workspace_that_counts_nothing_is_not_a_workspace_holding_nothing() {
-        assert_eq!(windows(&json(r#"{"id":3,"name":"3"}"#)), Ok(None));
-        assert_eq!(windows(&json(r#"{"id":3,"name":"3","windows":0}"#)), Ok(Some(0)));
+    fn a_workspace_that_counts_nothing_is_not_a_workspace_holding_nothing() -> Result<(), Box<dyn Error>> {
+        let value = read_value(r#"{"id":3,"name":"3"}"#)?;
+
+        assert_eq!(windows(&value), Ok(None));
+
+        let value = read_value(r#"{"id":3,"name":"3","windows":0}"#)?;
+
+        assert_eq!(windows(&value), Ok(Some(0)));
+
+        Ok(())
     }
 
-    fn one_layer(text: &str) -> Layer {
-        let Ok(layer) = parse_layer(&json(text));
+    fn one_layer(text: &str) -> Result<Layer, Box<dyn Error>> {
+        let value = read_value(text)?;
+        let Ok(layer) = parse_layer(&value);
 
-        match layer {
+        Ok(match layer {
             Some(layer) => layer,
             None => Layer { namespace: String::new(), address: None, x: None, y: None, width: None, height: None },
-        }
+        })
     }
 
     #[test]
-    fn a_surface_stands_where_the_compositor_says_it_does() {
-        let layer = one_layer(r#"{"namespace":"launcher","x":260,"y":140,"w":1400,"h":900}"#);
+    fn a_surface_stands_where_the_compositor_says_it_does() -> Result<(), Box<dyn Error>> {
+        let layer = one_layer(r#"{"namespace":"launcher","x":260,"y":140,"w":1400,"h":900}"#)?;
 
         assert_eq!(
             layer.corner(),
             Ok(Some(Frame { x: 260, y: 140, width: 1400, height: 900 }))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_corner_half_said_is_no_corner_rather_than_a_corner_with_zero_in_it() {
-        let layer = one_layer(r#"{"namespace":"launcher","y":140,"w":1400,"h":900}"#);
+    fn a_corner_half_said_is_no_corner_rather_than_a_corner_with_zero_in_it() -> Result<(), Box<dyn Error>> {
+        let layer = one_layer(r#"{"namespace":"launcher","y":140,"w":1400,"h":900}"#)?;
 
         assert_eq!(layer.corner(), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_surface_the_compositor_gave_no_height_for_is_drawn_rather_than_gone() {
-        assert_eq!(one_layer(r#"{"namespace":"launcher"}"#).drawn(), Ok(Visible::Yes));
-        assert_eq!(one_layer(r#"{"namespace":"launcher","h":0}"#).drawn(), Ok(Visible::No));
-        assert_eq!(one_layer(r#"{"namespace":"launcher","h":900}"#).drawn(), Ok(Visible::Yes));
+    fn a_surface_the_compositor_gave_no_height_for_is_drawn_rather_than_gone() -> Result<(), Box<dyn Error>> {
+        let unsaid = one_layer(r#"{"namespace":"launcher"}"#)?;
+        let flat = one_layer(r#"{"namespace":"launcher","h":0}"#)?;
+        let tall = one_layer(r#"{"namespace":"launcher","h":900}"#)?;
+
+        assert_eq!(unsaid.visibility(), Ok(Visible::Yes));
+        assert_eq!(flat.visibility(), Ok(Visible::No));
+        assert_eq!(tall.visibility(), Ok(Visible::Yes));
+
+        Ok(())
     }
 
     const ON_THE_SCREEN: &str = r#"{"eDP-1":{"levels":{
@@ -1257,33 +1291,53 @@ mod tests {
         "2":[{"namespace":"console-bar","address":"0x2","h":40}],
         "3":[{"namespace":"launcher","address":"0x3","h":0}]}}}"#;
 
-    fn layers_of(text: &str) -> Vec<Layer> {
-        match answer_of(Query::Layers, json(text)) {
-            Ok(Answer::Layers(layers)) => layers,
-            Ok(_not_layers) => Vec::new(),
-            Err(_unreadable) => Vec::new(),
-        }
+    fn layers_of(text: &str) -> Result<Vec<Layer>, Box<dyn Error>> {
+        let value = read_value(text)?;
+        let layers = said_of(Layers, value)?;
+
+        Ok(layers)
     }
 
     #[test]
-    fn every_surface_is_walked_whichever_level_it_is_drawn_on() {
-        let up = layers_of(ON_THE_SCREEN);
+    fn every_surface_is_walked_whichever_level_it_is_drawn_on() -> Result<(), Box<dyn Error>> {
+        let up = layers_of(ON_THE_SCREEN)?;
         let named: Vec<&str> = up.iter().map(|layer| layer.namespace.as_str()).collect();
 
         assert_eq!(named, ["awww-daemon", "console-bar", "launcher"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_surface_no_one_can_see_is_still_a_surface_the_walk_hands_over() {
+    fn a_surface_no_one_can_see_is_still_a_surface_the_walk_hands_over() -> Result<(), Box<dyn Error>> {
+        let layers = layers_of(ON_THE_SCREEN)?;
+
         let hidden: Vec<String> =
-            layers_of(ON_THE_SCREEN).into_iter().filter_map(|layer| layer.address).collect();
+            layers.into_iter().filter_map(|layer| layer.address).collect();
 
         assert_eq!(hidden, ["0x1", "0x2", "0x3"]);
+
+        Ok(())
     }
 
     #[test]
-    fn the_monitors_answer_walked_as_layers_is_nothing_rather_than_a_guess() {
-        assert_eq!(layers_of(TWO_SCREENS).len(), 0);
+    fn the_monitors_answer_walked_as_layers_is_nothing_rather_than_a_guess() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_SCREENS)?;
+        let walked = match said_of(Layers, value) {
+            Ok(_answer) => "an answer",
+            Err(HyprctlError::MissingField(_, _)) => "a field it did not have",
+            Err(
+                HyprctlError::Spawn(_, _)
+                | HyprctlError::Socket(_, _)
+                | HyprctlError::Failed(_, _)
+                | HyprctlError::Parse(_, _)
+                | HyprctlError::Json(_),
+            ) => "some other fault",
+        };
+
+        assert_eq!(walked, "a field it did not have");
+
+        Ok(())
     }
 
     const OPEN: &str = r#"[
@@ -1291,37 +1345,38 @@ mod tests {
         {"address":"0xb","workspace":{"id":4,"name":"4"}}]"#;
 
     #[test]
-    fn a_window_says_where_it_is_and_what_it_is_called() {
-        let open = match answer_of(Query::Clients, json(OPEN)) {
-            Ok(Answer::Clients(open)) => open,
-            Ok(_not_clients) => Vec::new(),
-            Err(_unreadable) => Vec::new(),
-        };
+    fn a_window_says_where_it_is_and_what_it_is_called() -> Result<(), Box<dyn Error>> {
+        let value = read_value(OPEN)?;
+        let open = said_of(Clients, value)?;
         let first = open.first();
 
         assert_eq!(first.map(|window| window.address.as_str()), Some("0xa"));
         assert_eq!(first.map(|window| window.workspace_named.as_str()), Some("3"));
+
+        Ok(())
     }
 
     #[test]
-    fn no_windows_open_is_an_answer_and_not_a_failure() {
-        let value = json("[]");
+    fn no_windows_open_is_an_answer_and_not_a_failure() -> Result<(), Box<dyn Error>> {
+        let value = read_value("[]")?;
         let Ok(clients) = clients(&value);
 
         assert_eq!(clients.count(), 0);
+
+        Ok(())
     }
 
     #[test]
     fn a_question_is_spelled_the_way_hyprctl_spells_it() {
-        assert_eq!(Query::Layers.words(), Ok(&["layers", "-j"][..]));
-        assert_eq!(Query::EveryMonitor.words(), Ok(&["monitors", "all", "-j"][..]));
+        assert_eq!(Query::Layers.words(), Ok(["layers", "-j"].as_slice()));
+        assert_eq!(Query::EveryMonitor.words(), Ok(["monitors", "all", "-j"].as_slice()));
     }
 
     #[test]
     fn what_would_not_be_read_says_so_rather_than_answering() {
         let value = match read_value("hyprland is not running") {
             Ok(_answered) => "it was read as an answer",
-            Err(_why) => "it was not read",
+            Err(_not_an_answer) => "it was not read",
         };
 
         assert_eq!(value, "it was not read", "an answer no one can read is not an empty desktop");
@@ -1338,16 +1393,20 @@ mod tests {
          "at":[0,0],"size":[1024,640],"pid":4243}]"#;
 
     #[test]
-    fn a_window_is_read_by_what_it_was_called_when_it_opened() {
-        let Ok(open) = windows_open(&json(TWO_WINDOWS));
+    fn a_window_is_read_by_what_it_was_called_when_it_opened() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_WINDOWS)?;
+        let Ok(open) = windows_open(&value);
         let first = open.first().map(|window| window.first_class.as_str());
 
         assert_eq!(first, Some("foot"));
+
+        Ok(())
     }
 
     #[test]
-    fn what_a_window_is_doing_is_a_name_rather_than_a_flag() {
-        let Ok(open) = windows_open(&json(TWO_WINDOWS));
+    fn what_a_window_is_doing_is_a_name_rather_than_a_flag() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_WINDOWS)?;
+        let Ok(open) = windows_open(&value);
         let doing = open
             .iter()
             .map(|window| (window.floating, window.pinned, window.filling))
@@ -1360,77 +1419,95 @@ mod tests {
                 (Floating::Yes, Pinned::Yes, Filling::Screen),
             ]
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_workspace_is_kept_by_its_number_and_by_its_name() {
-        let Ok(open) = windows_open(&json(TWO_WINDOWS));
+    fn a_workspace_is_kept_by_its_number_and_by_its_name() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_WINDOWS)?;
+        let Ok(open) = windows_open(&value);
         let sky = open.get(1).map(|window| (window.workspace, window.workspace_named.as_str()));
 
         assert_eq!(sky, Some((-99, "special:sky")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_window_on_no_screen_says_so_rather_than_answering_the_first_one() {
-        let Ok(open) = windows_open(&json(TWO_WINDOWS));
+    fn a_window_on_no_screen_says_so_rather_than_answering_the_first_one() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_WINDOWS)?;
+        let Ok(open) = windows_open(&value);
         let screens = open.iter().map(|window| window.monitor).collect::<Vec<_>>();
 
         assert_eq!(screens, [Some(0), None]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_window_with_no_address_is_not_a_window_this_can_be_told_about() {
-        let Ok(open) = windows_open(&json(r#"[{"title":"untitled"},{"address":"0x3"}]"#));
+    fn a_window_with_no_address_is_not_a_window_this_can_be_told_about() -> Result<(), Box<dyn Error>> {
+        let value = read_value(r#"[{"title":"untitled"},{"address":"0x3"}]"#)?;
+        let Ok(open) = windows_open(&value);
         let addresses = open.iter().map(|window| window.address.as_str()).collect::<Vec<_>>();
 
         assert_eq!(addresses, ["0x3"]);
+
+        Ok(())
     }
 
     #[test]
-    fn where_a_window_is_and_how_big_it_is_come_back_as_pairs() {
-        let Ok(open) = windows_open(&json(TWO_WINDOWS));
+    fn where_a_window_is_and_how_big_it_is_come_back_as_pairs() -> Result<(), Box<dyn Error>> {
+        let value = read_value(TWO_WINDOWS)?;
+        let Ok(open) = windows_open(&value);
         let first = open.first().map(|window| (window.at, window.size));
 
         assert_eq!(first, Some(((10, 20), (800, 600))));
+
+        Ok(())
     }
 
-    fn workspaces_of(value: serde_json::Value) -> Vec<Workspace> {
-        match answer_of(Query::Workspaces, value) {
-            Ok(Answer::Workspaces(found)) => found,
-            Ok(_not_workspaces) => Vec::new(),
-            Err(_unreadable) => Vec::new(),
-        }
+    fn workspaces_of(value: serde_json::Value) -> Result<Vec<Workspace>, Box<dyn Error>> {
+        let found = said_of(Workspaces, value)?;
+
+        Ok(found)
     }
 
     #[test]
-    fn the_workspaces_come_back_in_the_order_a_bar_draws_them() {
+    fn the_workspaces_come_back_in_the_order_a_bar_draws_them() -> Result<(), Box<dyn Error>> {
         let value = serde_json::json!([
             {"id": 3, "name": "3", "windows": 1},
             {"id": 1, "name": "1", "windows": 2},
             {"id": 2, "name": "2", "windows": 0}
         ]);
-        let found = workspaces_of(value);
+        let found = workspaces_of(value)?;
         let numbered: Vec<i64> = found.iter().map(|one| one.id).collect();
 
         assert_eq!(numbered, [1, 2, 3]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_workspace_with_a_name_of_its_own_keeps_it() {
-        let found = workspaces_of(serde_json::json!([{"id": -98, "name": "special:magic"}]));
+    fn a_workspace_with_a_name_of_its_own_keeps_it() -> Result<(), Box<dyn Error>> {
+        let found = workspaces_of(serde_json::json!([{"id": -98, "name": "special:magic"}]))?;
 
         assert_eq!(
             found.first().map(|one| one.named.as_str()),
             Some("special:magic"),
             "{found:?}"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_workspace_nothing_numbered_is_not_a_workspace() {
-        let found = workspaces_of(serde_json::json!([{"name": "3"}, {"id": 4, "name": "4"}]));
+    fn a_workspace_nothing_numbered_is_not_a_workspace() -> Result<(), Box<dyn Error>> {
+        let found = workspaces_of(serde_json::json!([{"name": "3"}, {"id": 4, "name": "4"}]))?;
 
         assert_eq!(found.len(), 1, "{found:?}");
+
+        Ok(())
     }
 
     #[test]
@@ -1443,46 +1520,61 @@ mod tests {
 
     #[test]
     fn a_compositor_that_answered_nothing_says_so_rather_than_naming_a_workspace() {
-        let none = answer_of(Query::Workspaces, serde_json::json!({}));
+        let none = said_of(Workspaces, serde_json::json!({}));
         let no_one = parse_workspace(&serde_json::json!({}));
 
         assert!(matches!(none, Err(HyprctlError::MissingField(Query::Workspaces, "a list"))));
         assert_eq!(no_one, Ok(None));
     }
 
-    fn listening(answer: &'static str) -> (std::path::PathBuf, std::thread::JoinHandle<String>) {
+    type Failure = Box<dyn std::error::Error>;
+
+    type Received = std::thread::JoinHandle<Result<String, std::io::Error>>;
+
+    fn fake_socket(answer: &'static str) -> Result<(std::path::PathBuf, Received), Failure> {
         use std::io::{BufRead, Write};
 
-        let at = std::env::temp_dir().join(format!("console-compositor-{}-{}.sock", std::process::id(), answer.len()));
-        let _ = std::fs::remove_file(&at);
-        let listener = std::os::unix::net::UnixListener::bind(&at).expect("somewhere to listen");
+        let folder = console_core_temporary_directories::fresh(&format!("compositor-{}", answer.len()))?;
+        let at = folder.join("compositor.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&at)?;
         let heard = std::thread::spawn(move || {
-            let (mut asking, _) = listener.accept().expect("a question");
+            let (mut asking, _) = listener.accept()?;
             let asked = {
                 let mut reading = std::io::BufReader::new(&asking);
+                let waiting = reading.fill_buf()?;
 
-                String::from_utf8_lossy(reading.fill_buf().expect("what was asked")).to_string()
+                String::from_utf8_lossy(waiting).to_string()
             };
-            asking.write_all(answer.as_bytes()).expect("an answer");
 
-            asked
+            asking.write_all(answer.as_bytes())?;
+
+            Ok(asked)
         });
 
-        (at, heard)
+        Ok((at, heard))
+    }
+
+    fn what_was_asked(heard: Received) -> Result<String, Failure> {
+        let asked = heard.join().map_err(|_| "the listener stopped before it heard anything")?;
+        let asked = asked?;
+
+        Ok(asked)
     }
 
     #[test]
-    fn a_question_is_asked_on_the_socket_the_way_hyprctl_writes_it() {
-        let (at, heard) = listening(r#"{"id": 2, "name": "2", "windows": 1}"#);
-        let answer = query_at(&at, Query::ActiveWorkspace);
-        let asked = heard.join().expect("the listener");
+    fn a_question_is_asked_on_the_socket_the_way_hyprctl_writes_it() -> Result<(), Failure> {
+        let (at, heard) = fake_socket(r#"{"id": 2, "name": "2", "windows": 1}"#)?;
+        let answer = ask_at(&at, ActiveWorkspace);
+        let asked = what_was_asked(heard)?;
         let _ = std::fs::remove_file(&at);
 
         assert_eq!(asked, "j/activeworkspace");
         assert!(
-            matches!(answer, Ok(Answer::ActiveWorkspace(Some(Workspace { id: 2, .. })))),
+            matches!(answer, Ok(Some(Workspace { id: 2, .. }))),
             "{answer:?}"
         );
+
+        Ok(())
     }
 
     #[test]
@@ -1492,29 +1584,34 @@ mod tests {
     }
 
     #[test]
-    fn a_dispatch_is_told_on_the_socket_and_a_refusal_is_a_failure() {
+    fn a_dispatch_is_told_on_the_socket_and_a_refusal_is_a_failure() -> Result<(), Failure> {
         let Ok(line) = Request::Dispatch.line(CLOSE_WINDOW);
-        let (at, heard) = listening("ok");
-        let Ok(taken) = told_at(&at, &line);
-        let asked = heard.join().expect("the listener");
+        let (at, heard) = fake_socket("ok")?;
+        let Ok(taken) = dispatch_at(&at, &line);
+        let asked = what_was_asked(heard)?;
         let _ = std::fs::remove_file(&at);
 
         assert_eq!(asked, "/dispatch hl.dsp.window.close()");
         assert_eq!(taken, DispatchResult::Success);
 
-        let (at, heard) = listening("error: keyword can't work with non-legacy parsers");
-        let Ok(refused) = told_at(&at, "/keyword general:gaps_in 0");
+        let (at, heard) = fake_socket("error: keyword can't work with non-legacy parsers")?;
+        let Ok(refused) = dispatch_at(&at, "/keyword general:gaps_in 0");
         let _ = heard.join();
         let _ = std::fs::remove_file(&at);
 
         assert!(matches!(refused, DispatchResult::Failure(_)), "{refused:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn nobody_listening_is_a_failure_rather_than_an_answer() {
-        let at = std::env::temp_dir().join(format!("console-compositor-{}-nobody.sock", std::process::id()));
-        let asked = query_at(&at, Query::Layers);
+    fn nobody_listening_is_a_failure_rather_than_an_answer() -> Result<(), Failure> {
+        let folder = console_core_temporary_directories::fresh("compositor-nobody")?;
+        let at = folder.join("compositor-nobody.sock");
+        let asked = ask_at(&at, Layers);
 
         assert!(matches!(asked, Err(HyprctlError::Socket(Query::Layers, socket::SocketError::Unreachable(..)))), "{asked:?}");
+
+        Ok(())
     }
 }

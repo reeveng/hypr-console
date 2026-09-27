@@ -152,9 +152,12 @@ fn own<A: Machine>(start: impl Fn() -> A, inbox: Receiver<Post<A::Message>>) -> 
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::RecvTimeoutError;
     use std::time::Duration;
 
     use super::*;
+
+    type Failure = Box<dyn std::error::Error>;
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     struct Depth(u64);
@@ -173,9 +176,9 @@ mod tests {
         Subscribe(Sender<Depth>),
     }
 
-    fn out_of_a_list(at: Depth) -> Depth {
-        let rows: Vec<Depth> = Vec::new();
-        rows.get(console_core_number_conversion::index(at.0).unwrap()).copied().unwrap()
+    #[cfg_attr(dylint_lib = "explicit004_no_panic", allow(explicit004_no_panic, reason = "a state that falls is what the supervisor is for, and a panic is the only thing that presses it"))]
+    fn fall() -> ! {
+        panic!("the state fell where it was told to")
     }
 
     impl Machine for Walk {
@@ -183,9 +186,9 @@ mod tests {
 
         fn step(self, message: Message) -> Self {
             match message {
-                Message::Down => Walk { depth: Depth(self.depth.0 + 1) },
+                Message::Down => Walk { depth: Depth(self.depth.0.saturating_add(1)) },
                 Message::Up => Walk { depth: Depth(self.depth.0.saturating_sub(1)) },
-                Message::Fall => Walk { depth: out_of_a_list(self.depth) },
+                Message::Fall => fall(),
                 Message::Where(answer) => {
                     let _ = answer.say(self.depth);
                     self
@@ -196,7 +199,7 @@ mod tests {
                 },
                 Message::FallHolding(answer) => {
                     let _ = &answer;
-                    Walk { depth: out_of_a_list(self.depth) }
+                    fall()
                 },
                 Message::Subscribe(said) => {
                     let _ = said.send(self.depth);
@@ -206,134 +209,177 @@ mod tests {
         }
     }
 
-    fn depth(walk: &Running<Message>) -> Depth {
-        walk.address.ask(Message::Where).expect("the machine answered")
-    }
-
     fn within<T: Send + 'static>(patience: Duration, doing: impl FnOnce() -> T + Send + 'static)
-    -> Option<T> {
+    -> Result<T, RecvTimeoutError> {
         let (said, hear) = channel();
-        std::thread::spawn(move || {
+        let asking = std::thread::spawn(move || {
             let _ = said.send(doing());
         });
-        hear.recv_timeout(patience).ok()
+        let Ok(()) = console_program_lifetime::threads::let_go(asking);
+
+        hear.recv_timeout(patience)
     }
 
     #[test]
-    fn it_holds_a_state_without_a_lock() {
+    fn it_holds_a_state_without_a_lock() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
-        let _ = walk.address.tell(Message::Down);
-        let _ = walk.address.tell(Message::Down);
-        let _ = walk.address.tell(Message::Up);
-        assert_eq!(depth(&walk), Depth(1));
+
+        walk.address.tell(Message::Down)?;
+        walk.address.tell(Message::Down)?;
+        walk.address.tell(Message::Up)?;
+
+        let depth = walk.address.ask(Message::Where)?;
+
+        assert_eq!(depth, Depth(1));
+
         let Ok(()) = walk.shutdown();
+
+        Ok(())
     }
 
     #[test]
-    fn a_fall_costs_the_state_and_nothing_else() {
+    fn a_fall_costs_the_state_and_nothing_else() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
-        let _ = walk.address.tell(Message::Down);
-        let _ = walk.address.tell(Message::Down);
-        let _ = walk.address.tell(Message::Fall);
-        let _ = walk.address.tell(Message::Down);
-        assert_eq!(depth(&walk), Depth(1));
+
+        walk.address.tell(Message::Down)?;
+        walk.address.tell(Message::Down)?;
+        walk.address.tell(Message::Fall)?;
+        walk.address.tell(Message::Down)?;
+
+        let depth = walk.address.ask(Message::Where)?;
+
+        assert_eq!(depth, Depth(1));
+
         let Ok(()) = walk.shutdown();
+
+        Ok(())
     }
 
     #[test]
-    fn two_threads_one_owner() {
+    fn two_threads_one_owner() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
-        let readers: Vec<JoinHandle<()>> = (0..8)
-            .map(|_| {
+
+        std::thread::scope(|readers| {
+            for _ in 0..8 {
                 let address = walk.address.clone();
-                std::thread::spawn(move || {
-                    (0..1000).for_each(|_| {
+
+                readers.spawn(move || {
+                    for _ in 0..1000 {
                         let _ = address.tell(Message::Down);
-                    })
-                })
-            })
-            .collect();
-        readers.into_iter().for_each(|reader| {
-            let _ = reader.join();
+                    }
+                });
+            }
         });
-        assert_eq!(depth(&walk), Depth(8000));
+
+        let depth = walk.address.ask(Message::Where)?;
+
+        assert_eq!(depth, Depth(8000));
+
         let Ok(()) = walk.shutdown();
+
+        Ok(())
     }
 
     #[test]
-    fn a_question_no_one_answers_comes_back_rather_than_hanging() {
+    fn a_question_no_one_answers_comes_back_rather_than_hanging() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
         let address = walk.address.clone();
         let said = within(Duration::from_secs(5), move || address.ask(Message::Ignore));
-        assert!(said.is_some(), "asking hung: an unanswered question never came back");
-        assert!(said.is_some_and(|answer| answer.is_err()), "an unanswered question answered");
-        assert_eq!(depth(&walk), Depth::default());
+
+        assert!(matches!(said, Ok(Err(Closed))), "an unanswered question answered, or never came back");
+
+        let depth = walk.address.ask(Message::Where)?;
+
+        assert_eq!(depth, Depth::default());
+
         let Ok(()) = walk.shutdown();
+
+        Ok(())
     }
 
     #[test]
-    fn a_question_the_state_falls_under_is_told_rather_than_left_waiting() {
+    fn a_question_the_state_falls_under_is_told_rather_than_left_waiting() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth(3) });
-        assert!(walk.address.tell(Message::Down).is_ok());
-        assert!(walk.address.tell(Message::Down).is_ok());
-        assert_eq!(depth(&walk), Depth(5), "the state did not move before the fall");
+
+        walk.address.tell(Message::Down)?;
+        walk.address.tell(Message::Down)?;
+
+        let before = walk.address.ask(Message::Where)?;
+
+        assert_eq!(before, Depth(5), "the state did not move before the fall");
 
         let address = walk.address.clone();
         let said = within(Duration::from_secs(5), move || address.ask(Message::FallHolding));
-        assert!(said.is_some(), "asking hung: the state fell and the asker was never told");
-        assert!(said.is_some_and(|answer| answer.is_err()), "a state that fell still answered");
 
-        assert_eq!(depth(&walk), Depth(3), "the machine did not start over after the fall");
+        assert!(matches!(said, Ok(Err(Closed))), "a state that fell still answered, or the asker was never told");
+
+        let after = walk.address.ask(Message::Where)?;
+
+        assert_eq!(after, Depth(3), "the machine did not start over after the fall");
+
         let Ok(()) = walk.shutdown();
+
+        Ok(())
+    }
+
+    struct Echo;
+
+    enum Say {
+        Back(u64, Answer<u64>),
+    }
+
+    impl Machine for Echo {
+        type Message = Say;
+
+        fn step(self, message: Say) -> Self {
+            match message {
+                Say::Back(mine, answer) => {
+                    let _ = answer.say(mine);
+                    self
+                },
+            }
+        }
     }
 
     #[test]
     fn an_answer_goes_back_to_whoever_asked_for_it() {
-        struct Echo;
-        enum Say {
-            Back(u64, Answer<u64>),
-        }
-        impl Machine for Echo {
-            type Message = Say;
-            fn step(self, message: Say) -> Self {
-                match message {
-                    Say::Back(mine, answer) => {
-                        let _ = answer.say(mine);
-                        self
-                    },
-                }
-            }
-        }
-
         let Ok(echo) = supervise(|| Echo);
-        let asking: Vec<JoinHandle<()>> = (0..16_u64)
-            .map(|who| {
+
+        std::thread::scope(|asking| {
+            for who in 0..16_u64 {
                 let address = echo.address.clone();
-                std::thread::spawn(move || {
+
+                asking.spawn(move || {
                     for round in 0..64_u64 {
-                        let mine = who * 1000 + round;
+                        let mine = who.saturating_mul(1000).saturating_add(round);
                         let back = address.ask(|answer| Say::Back(mine, answer));
-                        assert_eq!(back.ok(), Some(mine), "an answer went to the wrong asker");
+
+                        assert_eq!(back.map_err(|closed| closed.to_string()), Ok(mine), "an answer went to the wrong asker");
                     }
-                })
-            })
-            .collect();
-        for thread in asking {
-            assert!(thread.join().is_ok(), "an asker fell");
-        }
+                });
+            }
+        });
+
         let Ok(()) = echo.shutdown();
     }
 
     #[test]
-    fn stopping_works_through_what_was_already_sent() {
+    fn stopping_works_through_what_was_already_sent() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
+
         for _ in 0..500 {
-            assert!(walk.address.tell(Message::Down).is_ok(), "the mailbox closed early");
+            walk.address.tell(Message::Down)?;
         }
+
         let (said, hear) = channel();
-        assert!(walk.address.tell(Message::Subscribe(said)).is_ok(), "the mailbox closed early");
+
+        walk.address.tell(Message::Subscribe(said))?;
+
         let Ok(()) = walk.shutdown();
-        assert_eq!(hear.recv().ok(), Some(Depth(500)), "messages were dropped on the way out");
+
+        assert_eq!(hear.recv(), Ok(Depth(500)), "messages were dropped on the way out");
+
+        Ok(())
     }
 
     #[test]
@@ -342,22 +388,32 @@ mod tests {
         let one = walk.address.clone();
         let other = walk.address.clone();
         let Ok(()) = walk.shutdown();
-        assert!(one.tell(Message::Down).is_err(), "a clone still accepted a message");
+
+        assert!(matches!(one.tell(Message::Down), Err(Closed)), "a clone still accepted a message");
+
         let asked = within(Duration::from_secs(5), move || other.ask(Message::Where));
-        assert!(asked.is_some(), "asking a stopped machine hung");
-        assert!(asked.is_some_and(|answer| answer.is_err()), "a stopped machine answered");
+
+        assert!(matches!(asked, Ok(Err(Closed))), "a stopped machine answered, or asking it hung");
     }
 
     #[test]
-    fn what_was_sent_behind_a_fall_still_arrives() {
+    fn what_was_sent_behind_a_fall_still_arrives() -> Result<(), Failure> {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
-        assert!(walk.address.tell(Message::Down).is_ok());
-        assert!(walk.address.tell(Message::Fall).is_ok());
+
+        walk.address.tell(Message::Down)?;
+        walk.address.tell(Message::Fall)?;
+
         for _ in 0..7 {
-            assert!(walk.address.tell(Message::Down).is_ok(), "the mailbox died with the state");
+            walk.address.tell(Message::Down)?;
         }
-        assert_eq!(depth(&walk), Depth(7), "the seven sent after the fall did not all arrive");
+
+        let depth = walk.address.ask(Message::Where)?;
+
+        assert_eq!(depth, Depth(7), "the seven sent after the fall did not all arrive");
+
         let Ok(()) = walk.shutdown();
+
+        Ok(())
     }
 
     #[test]
@@ -365,6 +421,7 @@ mod tests {
         let Ok(walk) = supervise(|| Walk { depth: Depth::default() });
         let address = walk.address.clone();
         let Ok(()) = walk.shutdown();
-        assert!(address.ask(Message::Where).is_err());
+
+        assert!(matches!(address.ask(Message::Where), Err(Closed)));
     }
 }

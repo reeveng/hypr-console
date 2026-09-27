@@ -61,9 +61,9 @@ pub mod watching;
 #[derive(Debug)]
 pub enum Error {
     Machine(std::io::Error),
+    Scratch(console_core_temporary_directories::Unmade),
     Unwritten(console_core_atomic_writes::Unwritten),
     NoPointer(PathBuf),
-    PointerNotBeside,
     AlreadyTaken(&'static str),
     NoBus(PathBuf),
     TookNoPicture(String),
@@ -104,15 +104,13 @@ impl fmt::Display for Error {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Machine(fault) => write!(to, "{fault}"),
+            Error::Scratch(fault) => write!(to, "{fault}"),
             Error::Unwritten(fault) => write!(to, "{fault}"),
             Error::NoPointer(at) => write!(
                 to,
                 "{} is not there, so nothing would be pressed: cargo build -p console-input-pointer",
                 at.display()
             ),
-            Error::PointerNotBeside => {
-                write!(to, "console-point is not beside console-desktop")
-            }
             Error::AlreadyTaken(what) => {
                 write!(to, "the picture has already been taken; {what} before looking")
             }
@@ -258,27 +256,6 @@ impl From<console_panel::description::RenderError> for Error {
     fn from(fault: console_panel::description::RenderError) -> Self {
         Error::RenderError(fault)
     }
-}
-
-pub fn beside(program: &str) -> Result<std::path::PathBuf, console_core_never::Never> {
-    let running = match std::env::current_exe() {
-        Ok(running) => running,
-        Err(_nothing_says_where_this_is) => return Ok(std::path::PathBuf::from(program)),
-    };
-
-    let beside_it = running.parent().map(std::path::Path::to_path_buf);
-    let above_that = running.parent().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf);
-
-    let built = [beside_it, above_that]
-        .into_iter()
-        .flatten()
-        .map(|at| at.join(program))
-        .find(|at| at.is_file());
-
-    Ok(match built {
-        Some(built) => built,
-        None => std::path::PathBuf::from(program),
-    })
 }
 
 pub fn screen() -> Result<console_screen::Screen, Error> {

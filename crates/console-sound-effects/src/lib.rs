@@ -62,7 +62,7 @@ const A_STEP: NonZeroU32 = match NonZeroU32::new(5) {
 
 impl Degree {
     #[must_use]
-    pub fn climbing(position: u32) -> Result<Degree, Never> {
+    pub fn degree_at(position: u32) -> Result<Degree, Never> {
         let Ok(degree) = fitted::<u32, i32>(position % TWO_OCTAVES);
 
         Ok(Degree(degree))
@@ -98,7 +98,7 @@ pub enum SoundEffects {
 
 impl SoundEffects {
     #[must_use]
-    pub fn chosen() -> Result<SoundEffects, Never> {
+    pub fn current() -> Result<SoundEffects, Never> {
         let told = console_defaults::setting(SETTING)?;
 
         SoundEffects::read(told.as_deref())
@@ -148,7 +148,7 @@ impl fmt::Display for PlaybackError {
 }
 
 pub fn play(cue: &Cue, root: Degree) -> Result<(), PlaybackError> {
-    let Ok(sound) = synthesis::rendered(cue, root);
+    let Ok(sound) = synthesis::render(cue, root);
     let Ok(mut asking) = Program::PwCat.command();
 
     asking
@@ -159,7 +159,7 @@ pub fn play(cue: &Cue, root: Degree) -> Result<(), PlaybackError> {
         .stderr(Stdio::null());
 
     let mut playing = console_program_lifetime::let_go(&mut asking).map_err(PlaybackError::NotStarted)?;
-    let Ok(writing) = playing.writing();
+    let Ok(writing) = playing.take_stdin();
 
     let written = match writing {
         Some(mut input) => input.write_all(&sound).map_err(PlaybackError::NotWritten),
@@ -167,7 +167,7 @@ pub fn play(cue: &Cue, root: Degree) -> Result<(), PlaybackError> {
     };
 
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
-        let _ = playing.waiting();
+        let _ = playing.wait();
     }));
 
     written
@@ -179,10 +179,10 @@ mod tests {
 
     #[test]
     fn climbing_goes_up_two_octaves_and_starts_again() {
-        assert_eq!(Degree::climbing(0), Ok(Degree(0)));
-        assert_eq!(Degree::climbing(9), Ok(Degree(9)));
-        assert_eq!(Degree::climbing(10), Ok(Degree(0)));
-        assert_eq!(Degree::climbing(23), Ok(Degree(3)));
+        assert_eq!(Degree::degree_at(0), Ok(Degree(0)));
+        assert_eq!(Degree::degree_at(9), Ok(Degree(9)));
+        assert_eq!(Degree::degree_at(10), Ok(Degree(0)));
+        assert_eq!(Degree::degree_at(23), Ok(Degree(3)));
     }
 
     #[test]
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn every_step_of_the_rocker_is_its_own_note() {
-        let notes: Vec<i32> = (0..=20u32).map(|step| match Degree::at_level(step * 5) {
+        let notes: Vec<i32> = (0..=20u32).map(|step| match Degree::at_level(step.saturating_mul(5)) {
             Ok(Degree(degree)) => degree,
         }).collect();
 
@@ -206,7 +206,7 @@ mod tests {
     fn the_rocker_climbs_from_the_octave_below_middle_c() {
         let Ok(volume) = catalogue::Sound::Volume.cue();
         let Ok(quietest) = synthesis::hertz(Degree(volume.notes.iter().map(|played| played.degree.0).sum()));
-        let Ok(loudest) = synthesis::hertz(Degree(20 - 5));
+        let Ok(loudest) = synthesis::hertz(Degree(20_i32.saturating_sub(5)));
 
         assert!((quietest - 130.8).abs() < 0.1, "the bottom step is C3, and it was {quietest}");
         assert!(loudest < 2100.0, "the top step stays under C7, and it was {loudest}");

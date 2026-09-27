@@ -13,6 +13,7 @@ path = "src/bin/tap.rs"
 console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-compositor.workspace = true
 console-screen.workspace = true
 console-input-event-devices.workspace = true
 

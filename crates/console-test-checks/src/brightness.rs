@@ -31,14 +31,14 @@ fn brighter_here(stage: &mut Here) -> CheckResult {
 fn brighter_there(stage: &mut Device) -> CheckResult {
     stage.trigger("l2", 1.0)?;
 
-    let Ok(_) = stage.stepped("dpad-left", Device::brightness);
-    let Ok(was) = stage.stepped("dpad-right", Device::brightness);
+    let Ok(_) = stage.press_and_wait("dpad-left", Device::brightness);
+    let Ok(was) = stage.press_and_wait("dpad-right", Device::brightness);
 
     stage.trigger("l2", 0.0)?;
 
     let Ok(now) = stage.brightness();
 
-    now.went(Way::Up, was, UNSAID)
+    now.expect_moved(Way::Up, was, UNSAID)
 }
 
 fn dimmer_here(stage: &mut Here) -> CheckResult {
@@ -50,11 +50,11 @@ fn dimmer_here(stage: &mut Here) -> CheckResult {
 fn dimmer_there(stage: &mut Device) -> CheckResult {
     stage.trigger("l2", 1.0)?;
 
-    let Ok(_) = stage.stepped("dpad-right", Device::brightness);
-    let Ok(was) = stage.stepped("dpad-left", Device::brightness);
-    let Ok(now) = stage.stepped("dpad-right", Device::brightness);
+    let Ok(_) = stage.press_and_wait("dpad-right", Device::brightness);
+    let Ok(was) = stage.press_and_wait("dpad-left", Device::brightness);
+    let Ok(now) = stage.press_and_wait("dpad-right", Device::brightness);
 
     stage.trigger("l2", 0.0)?;
 
-    now.went(Way::Down, was, UNSAID)
+    now.expect_moved(Way::Down, was, UNSAID)
 }

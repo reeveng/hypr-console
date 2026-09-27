@@ -16,5 +16,8 @@ console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-shapes.workspace = true
 
+[dev-dependencies]
+console-core-atomic-writes.workspace = true
+
 [lints]
 workspace = true

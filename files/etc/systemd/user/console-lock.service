@@ -1,0 +1,30 @@
+[Unit]
+Description=Lock Screen
+# Not part of console.target and not wanted by it. The lock is started when
+# the idle daemon asks for it and ends when the pattern is drawn, and a target
+# stopping must not be a way to end it: a lock that could be stopped from
+# outside by stopping something else is not holding anything.
+
+[Service]
+# Ready means locked. `lock-screen` tells systemd once the compositor has said
+# the session is locked, so a `systemctl start` returns only then -- which is
+# what the hook before a suspend waits on. With no pattern chosen it says so
+# at once and exits, and the start returns just as quickly with nothing
+# locked. Ten seconds is a compositor that never answered, and a suspend that
+# goes ahead after it is better than one that never does.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=10
+ExecStart=/usr/local/bin/lock-screen
+ExecStopPost=-/usr/local/bin/console-report-crash %n
+# A lock screen that falls leaves the session locked with nothing drawn on it.
+# The compositor lets a new one take the lock back -- `allow_session_lock_restore`
+# in hyprland.lua -- so a failure is started again rather than left as a screen
+# nobody can get past without another machine.
+Restart=on-failure
+RestartSec=1
+
+# It reads the pattern out of the home directory and writes nothing there.
+ProtectHome=read-only
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX

@@ -10,6 +10,7 @@ name = "console_vocabulary"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-directory-listing.workspace = true
 console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true
 console-core-never.workspace = true

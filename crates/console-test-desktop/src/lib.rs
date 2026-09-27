@@ -84,7 +84,7 @@ impl From<console_screen::Undeclared> for Unnested {
         reason = "CONSOLE_STAGE names which stage tree this run is using, and a stage is what this crate is. What it used to read as well -- PATH, the runtime directory, the compositor's signature -- belongs to other crates and is asked of them now"
     )
 )]
-pub(crate) fn said(name: &str) -> Result<Option<String>, Never> {
+pub(crate) fn env_var(name: &str) -> Result<Option<String>, Never> {
     Ok(match std::env::var(name) {
         Ok(said) => Some(said),
         Err(std::env::VarError::NotPresent) => None,
@@ -122,7 +122,7 @@ pub fn stages() -> Result<PathBuf, Never> {
 }
 
 pub fn stage() -> Result<PathBuf, Never> {
-    let Ok(told) = said("CONSOLE_STAGE");
+    let Ok(told) = env_var("CONSOLE_STAGE");
     let named = match told {
         Some(named) => named,
         None => format!("session-{}", std::process::id()),
@@ -151,4 +151,3 @@ pub fn runtime() -> Result<PathBuf, Never> {
     })
 }
 
-pub const HOME: &str = "/home/@user@";

@@ -8,6 +8,12 @@
 //! menu, and the menu should say so. Restarting and shutting down need no
 //! stop: the machine is going.
 //!
+//! What is on the screen is asked for rather than drawn beside the decision:
+//! a turn that changed the menu, and the first turn of all, ends with
+//! [`Screen::Show`], so a transcript says what a person was looking at when
+//! they pressed and the loop that draws it is the runtime's rather than a
+//! second one written here.
+//!
 //! The words are Apple's, from the screen macOS shows when it cannot start.
 
 use console_core_external_programs::Program as ExternalProgram;
@@ -76,10 +82,15 @@ pub struct Menu {
 
 pub struct Recovery;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    Show(Menu),
+}
+
 impl Program for Recovery {
     type State = Menu;
     type Event = ButtonPress;
-    type Effect = Never;
+    type Effect = Screen;
 
     fn init(_arguments: &Arguments) -> Initial<Menu> {
         let Ok(opening) = Initial::new(Menu { at: 0, status: Status::Idle });
@@ -87,33 +98,62 @@ impl Program for Recovery {
         opening
     }
 
-    fn update(menu: &Menu, event: &Event<ButtonPress>) -> Update<Menu, Never> {
-        let Ok(update) = match (menu.status, event) {
-            (Status::Running(choice), Event::Replied(answer)) => answered(menu, choice, answer.status),
+    fn update(menu: &Menu, event: &Event<ButtonPress>) -> Update<Menu, Screen> {
+        let Ok(Update { state, effects }) = match (menu.status, event) {
+            (Status::Running(choice), Event::Replied(answer)) => handle_exit(menu, choice, answer.status),
             (Status::Running(_), _) => Update::none(*menu),
-            (Status::Idle | Status::Failed(_), Event::Custom(press)) => pressed(menu, *press),
+            (Status::Idle | Status::Failed(_), Event::Custom(press)) => on_press(menu, *press),
             (Status::Idle | Status::Failed(_), _) => Update::none(*menu),
         };
+        let Ok(showing) = showing(menu, &state, event);
+
+        let effects = match showing {
+            Showing::Again => [vec![Effect::Custom(Screen::Show(state))], effects].concat(),
+            Showing::AsItWas => effects,
+        };
+
+        let Ok(update) = Update::new(state, effects);
 
         update
     }
 }
 
-fn pressed(menu: &Menu, press: ButtonPress) -> Result<Update<Menu, Never>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Showing {
+    Again,
+    AsItWas,
+}
+
+fn showing(before: &Menu, after: &Menu, event: &Event<ButtonPress>) -> Result<Showing, Never> {
+    Ok(match before == after {
+        false => Showing::Again,
+        true => match event {
+            Event::Opened => Showing::Again,
+            Event::Custom(_)
+            | Event::Tick(_, _)
+            | Event::Changed(_)
+            | Event::Replied(_)
+            | Event::Chosen(_)
+            | Event::Stopping => Showing::AsItWas,
+        },
+    })
+}
+
+fn on_press(menu: &Menu, press: ButtonPress) -> Result<Update<Menu, Screen>, Never> {
     match press {
-        ButtonPress::Up => moved(menu, Step::Back),
-        ButtonPress::Down => moved(menu, Step::Forward),
+        ButtonPress::Up => step(menu, Step::Back),
+        ButtonPress::Down => step(menu, Step::Forward),
         ButtonPress::Left | ButtonPress::Right | ButtonPress::Back => Update::none(*menu),
         ButtonPress::Choose => chose(menu),
     }
 }
 
-fn moved(menu: &Menu, step: Step) -> Result<Update<Menu, Never>, Never> {
+fn step(menu: &Menu, step: Step) -> Result<Update<Menu, Screen>, Never> {
     let Ok(ring) = Ring::of(&CHOICES);
 
     match ring {
         Some(ring) => {
-            let Ok(at) = ring.stepped(menu.at, step);
+            let Ok(at) = ring.step(menu.at, step);
 
             Update::none(Menu { at, status: Status::Idle })
         }
@@ -121,7 +161,7 @@ fn moved(menu: &Menu, step: Step) -> Result<Update<Menu, Never>, Never> {
     }
 }
 
-fn chose(menu: &Menu) -> Result<Update<Menu, Never>, Never> {
+fn chose(menu: &Menu) -> Result<Update<Menu, Screen>, Never> {
     let Ok(at) = index(menu.at);
 
     let choice = match CHOICES.get(at) {
@@ -134,7 +174,7 @@ fn chose(menu: &Menu) -> Result<Update<Menu, Never>, Never> {
     Update::new(Menu { at: menu.at, status: Status::Running(choice) }, vec![Effect::Run(command)])
 }
 
-fn answered(menu: &Menu, choice: Choice, status: ExitStatus) -> Result<Update<Menu, Never>, Never> {
+fn handle_exit(menu: &Menu, choice: Choice, status: ExitStatus) -> Result<Update<Menu, Screen>, Never> {
     let Ok(leaves) = choice.leaves();
 
     match (status, leaves) {
@@ -194,65 +234,130 @@ mod tests {
     use super::*;
     use console_program_contract::{Answer, run};
 
-    fn arguments() -> Arguments {
-        let Ok(arguments) = Arguments::of(&[]);
-
-        arguments
+    fn systemctl(arguments: &[&str]) -> Result<Command, Never> {
+        Command::external(ExternalProgram::Systemctl, arguments)
     }
 
-    fn systemctl(arguments: &[&str]) -> Command {
-        let Ok(command) = Command::external(ExternalProgram::Systemctl, arguments);
+    fn answer(arguments: &[&str], status: ExitStatus) -> Result<Event<ButtonPress>, Never> {
+        let Ok(command) = systemctl(arguments);
 
-        command
+        Ok(Event::Replied(Answer { command, output: String::new(), status }))
     }
 
-    fn answer(arguments: &[&str], status: ExitStatus) -> Event<ButtonPress> {
-        Event::Replied(Answer { command: systemctl(arguments), output: String::new(), status })
+    fn done(trace: &console_program_contract::Trace<Menu, ButtonPress, Screen>) -> Result<Vec<Effect<Screen>>, Never> {
+        let Ok(effects) = trace.effects();
+
+        Ok(effects.into_iter().filter(|effect| !matches!(effect, Effect::Custom(Screen::Show(_)))).collect())
+    }
+
+    fn shown(trace: &console_program_contract::Trace<Menu, ButtonPress, Screen>) -> Result<Vec<Menu>, Never> {
+        let Ok(effects) = trace.effects();
+
+        Ok(effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Custom(Screen::Show(menu)) => Some(menu),
+                Effect::Run(_)
+                | Effect::Stream(_)
+                | Effect::Prompt(_)
+                | Effect::Spawn(_)
+                | Effect::Subscribe(_)
+                | Effect::Unsubscribe(_)
+                | Effect::Write(_)
+                | Effect::Notify(_)
+                | Effect::Print(_)
+                | Effect::Stop(_) => None,
+            })
+            .collect())
     }
 
     #[test]
     fn choosing_the_desktop_starts_it_and_stops_once_systemd_agrees() {
-        let starts = ["--no-block", "start", DESKTOP];
-        let Ok(trace) = run::<Recovery>(
-            &arguments(),
-            &[Event::Custom(ButtonPress::Choose), answer(&starts, ExitStatus::Success)],
-        );
-        let Ok(effects) = trace.effects();
+        let Ok(arguments) = Arguments::of(&[]);
 
-        assert_eq!(effects, vec![Effect::Run(systemctl(&starts)), Effect::Stop(Exit::Success)]);
+        let starts = ["--no-block", "start", DESKTOP];
+        let Ok(answered) = answer(&starts, ExitStatus::Success);
+
+        let Ok(trace) = run::<Recovery>(
+            &arguments,
+            &[Event::Custom(ButtonPress::Choose), answered],
+        );
+
+        let Ok(effects) = done(&trace);
+        let Ok(command) = systemctl(&starts);
+
+        assert_eq!(effects, vec![Effect::Run(command), Effect::Stop(Exit::Success)]);
     }
 
     #[test]
     fn a_refused_start_stays_on_the_screen_and_says_so() {
-        let starts = ["--no-block", "start", DESKTOP];
-        let Ok(trace) = run::<Recovery>(
-            &arguments(),
-            &[Event::Custom(ButtonPress::Choose), answer(&starts, ExitStatus::Failure(Some(1)))],
-        );
-        let Ok(effects) = trace.effects();
-        let Ok(shown) = screen(&trace.state);
+        let Ok(arguments) = Arguments::of(&[]);
 
-        assert_eq!(effects, vec![Effect::Run(systemctl(&starts))]);
+        let starts = ["--no-block", "start", DESKTOP];
+        let Ok(answered) = answer(&starts, ExitStatus::Failure(Some(1)));
+
+        let Ok(trace) = run::<Recovery>(
+            &arguments,
+            &[Event::Custom(ButtonPress::Choose), answered],
+        );
+
+        let Ok(effects) = done(&trace);
+        let Ok(shown) = screen(&trace.state);
+        let Ok(command) = systemctl(&starts);
+
+        assert_eq!(effects, vec![Effect::Run(command)]);
         assert!(shown.contains("did not work"), "{shown}");
     }
 
     #[test]
     fn up_from_the_top_is_the_bottom() {
-        let Ok(trace) = run::<Recovery>(&arguments(), &[Event::Custom(ButtonPress::Up), Event::Custom(ButtonPress::Choose)]);
-        let Ok(effects) = trace.effects();
+        let Ok(arguments) = Arguments::of(&[]);
+        let Ok(trace) = run::<Recovery>(&arguments, &[Event::Custom(ButtonPress::Up), Event::Custom(ButtonPress::Choose)]);
+        let Ok(effects) = done(&trace);
+        let Ok(command) = systemctl(&["poweroff"]);
 
-        assert_eq!(effects, vec![Effect::Run(systemctl(&["poweroff"]))]);
+        assert_eq!(effects, vec![Effect::Run(command)]);
     }
 
     #[test]
     fn a_press_while_something_is_underway_is_not_a_second_choice() {
+        let Ok(arguments) = Arguments::of(&[]);
+
         let Ok(trace) = run::<Recovery>(
-            &arguments(),
+            &arguments,
             &[Event::Custom(ButtonPress::Down), Event::Custom(ButtonPress::Choose), Event::Custom(ButtonPress::Down), Event::Custom(ButtonPress::Choose)],
         );
-        let Ok(effects) = trace.effects();
 
-        assert_eq!(effects, vec![Effect::Run(systemctl(&["--no-block", "start", TERMINAL]))]);
+        let Ok(effects) = done(&trace);
+        let Ok(command) = systemctl(&["--no-block", "start", TERMINAL]);
+
+        assert_eq!(effects, vec![Effect::Run(command)]);
+    }
+
+    #[test]
+    fn the_menu_is_shown_when_it_opens_and_again_whenever_it_changes_and_not_otherwise() {
+        let Ok(arguments) = Arguments::of(&[]);
+
+        let starts = ["--no-block", "start", DESKTOP];
+        let Ok(answered) = answer(&starts, ExitStatus::Failure(Some(1)));
+
+        let Ok(trace) = run::<Recovery>(
+            &arguments,
+            &[
+                Event::Opened,
+                Event::Custom(ButtonPress::Left),
+                Event::Custom(ButtonPress::Choose),
+                answered,
+            ],
+        );
+
+        let Ok(shown) = shown(&trace);
+
+        assert_eq!(shown, vec![
+            Menu { at: 0, status: Status::Idle },
+            Menu { at: 0, status: Status::Running(Choice::TryAgain) },
+            Menu { at: 0, status: Status::Failed(Choice::TryAgain) },
+        ]);
     }
 
     #[test]

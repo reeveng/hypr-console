@@ -9,7 +9,7 @@
 //! panel that opens the way it did before there was one.
 
 use console_core_never::Never;
-use console_core_places::{Base, OURS};
+use console_core_places::{Base, APPLICATION};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +19,7 @@ pub struct Note<'a> {
 }
 
 pub fn beside(note: Note<'_>) -> Result<Option<PathBuf>, Never> {
-    let state = Base::State.hers()?;
+    let state = Base::State.user()?;
 
     under(state.as_deref(), note)
 }
@@ -27,7 +27,7 @@ pub fn beside(note: Note<'_>) -> Result<Option<PathBuf>, Never> {
 fn under(state: Option<&Path>, note: Note<'_>) -> Result<Option<PathBuf>, Never> {
     let Note { program, called } = note;
 
-    Ok(state.map(|state| state.join(OURS).join("panel").join(format!("{program}.{called}"))))
+    Ok(state.map(|state| state.join(APPLICATION).join("panel").join(format!("{program}.{called}"))))
 }
 
 pub fn write(note: Note<'_>, said: &str) -> Result<(), Never> {

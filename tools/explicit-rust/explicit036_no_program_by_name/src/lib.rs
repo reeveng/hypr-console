@@ -7,7 +7,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT036: a program this desktop runs is named by a variant, not by a
@@ -38,10 +38,6 @@ dylint_linting::declare_late_lint! {
     "a program named by a string literal is a program no list of what this desktop runs can see"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // Asked of the resolved path rather than the spelling, so a `use
 // std::process::Command as Run` does not slip past.
 fn makes_a_command(cx: &LateContext<'_>, called: &Expr<'_>) -> bool {
@@ -69,9 +65,6 @@ fn is_a_spelled_name(expr: &Expr<'_>) -> Option<String> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit036NoProgramByName {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         if expr.span.from_expansion() {
             return;
         }
@@ -79,6 +72,13 @@ impl<'tcx> LateLintPass<'tcx> for Explicit036NoProgramByName {
             return;
         };
         if !makes_a_command(cx, called) {
+            return;
+        }
+        // A literal a macro wrote is not a name somebody spelled. The one that
+        // reaches here is `env!("CARGO_BIN_EXE_...")`, which is cargo handing a
+        // test the path of a binary it built from this crate's own manifest --
+        // answered for already, and by the only thing that knows where it is.
+        if args.first().is_some_and(|arg| arg.span.from_expansion()) {
             return;
         }
         let Some(named) = args.first().and_then(is_a_spelled_name) else {

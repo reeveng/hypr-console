@@ -42,13 +42,13 @@ pub fn milliseconds(took: Duration) -> Result<f64, Never> {
     Ok((took.as_secs_f64() * 10_000.0).round() / 10.0)
 }
 
-fn quoted(said: &str) -> Result<String, Never> {
+fn json_string(said: &str) -> Result<String, Never> {
     Ok(serde_json::Value::String(said.to_string()).to_string())
 }
 
-pub fn written(entry: &Entry) -> Result<String, Never> {
-    let Ok(who) = quoted(&entry.who);
-    let Ok(what) = quoted(&entry.what);
+pub fn serialize(entry: &Entry) -> Result<String, Never> {
+    let Ok(who) = json_string(&entry.who);
+    let Ok(what) = json_string(&entry.what);
     let Ok(waited) = milliseconds(entry.waited);
 
     let mut said = format!(
@@ -57,7 +57,7 @@ pub fn written(entry: &Entry) -> Result<String, Never> {
     );
 
     for (name, took) in &entry.marks {
-        let Ok(name) = quoted(name);
+        let Ok(name) = json_string(name);
         let Ok(took) = milliseconds(*took);
 
         said.push_str(&format!(",{name}:{took:.1}"));
@@ -80,12 +80,12 @@ pub fn written(entry: &Entry) -> Result<String, Never> {
                 let value = match note {
                     Value::Count(many) => many.to_string(),
                     Value::Word(word) => {
-                        let Ok(word) = quoted(word);
+                        let Ok(word) = json_string(word);
 
                         word
                     }
                 };
-                let Ok(name) = quoted(name);
+                let Ok(name) = json_string(name);
 
                 said.push_str(&format!("{name}:{value}"));
             }
@@ -209,9 +209,10 @@ const HEADS: [&str; 7] = ["at", "up", "load", "who", "what", "waited", "with"];
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn an_opening() -> Entry {
-        Entry {
+    fn an_opening() -> Result<Entry, Never> {
+        Ok(Entry {
             at: 1_756_761_123,
             up: 67_932.4,
             load: 0.31,
@@ -226,12 +227,13 @@ mod tests {
                 ("rows".to_string(), Value::Count(73)),
                 ("door".to_string(), Value::Word("menu".to_string())),
             ],
-        }
+        })
     }
 
     #[test]
     fn a_line_holds_the_wait_where_it_went_and_what_it_was_about() {
-        let Ok(said) = written(&an_opening());
+        let Ok(opening) = an_opening();
+        let Ok(said) = serialize(&opening);
 
         assert_eq!(
             said,
@@ -240,26 +242,30 @@ mod tests {
     }
 
     #[test]
-    fn a_name_with_a_quotation_mark_in_it_is_still_one_line_of_json() {
-        let mut entry = an_opening();
-        entry.notes = vec![("folder".to_string(), Value::Word("she said \"go\"".into()))];
+    fn a_name_with_a_quotation_mark_in_it_is_still_one_line_of_json() -> Result<(), Box<dyn Error>> {
+        let Ok(mut entry) = an_opening();
 
-        let Ok(said) = written(&entry);
+        entry.notes = vec![("folder".to_string(), Value::Word("she said \"go\"".to_string()))];
 
-        let held: serde_json::Value = serde_json::from_str(&said).expect("a line is json");
-        assert_eq!(held["with"]["folder"], "she said \"go\"");
+        let Ok(said) = serialize(&entry);
+        let held: serde_json::Value = serde_json::from_str(&said)?;
+
+        assert_eq!(held.pointer("/with/folder").and_then(serde_json::Value::as_str), Some("she said \"go\""));
         assert!(!said.contains('\n'), "a line is one line");
+
+        Ok(())
     }
 
     #[test]
     fn the_stretches_stay_in_the_order_they_happened() {
-        let mut entry = an_opening();
+        let Ok(mut entry) = an_opening();
+
         entry.marks = vec![
             ("gtk".to_string(), Duration::from_millis(1)),
             ("built".to_string(), Duration::from_millis(2)),
             ("frame".to_string(), Duration::from_millis(3)),
         ];
-        let Ok(said) = written(&entry);
+        let Ok(said) = serialize(&entry);
 
         let in_order = said
             .split_once("gtk")
@@ -269,31 +275,30 @@ mod tests {
     }
 
     #[test]
-    fn a_line_read_back_says_what_was_written() {
-        let entry = an_opening();
-
-        let Ok(said) = written(&entry);
-        let back = match read(&said) {
-            Ok(Some(back)) => back,
-            Ok(None) | Err(_) => panic!("a written line reads back"),
-        };
+    fn a_line_read_back_says_what_was_written() -> Result<(), Box<dyn Error>> {
+        let Ok(entry) = an_opening();
+        let Ok(said) = serialize(&entry);
+        let Ok(back) = read(&said);
+        let back = back.ok_or("a written line reads back")?;
 
         assert_eq!(back.who, entry.who);
         assert_eq!(back.what, entry.what);
         assert_eq!(milliseconds(back.waited), milliseconds(entry.waited));
         assert!(back.notes.contains(&("rows".to_string(), Value::Count(73))));
         assert!(back.notes.contains(&("door".to_string(), Value::Word("menu".to_string()))));
+
         let named: Vec<&str> = back.marks.iter().map(|(name, _)| name.as_str()).collect();
         assert!(named.contains(&"press") && named.contains(&"gtk"));
+
+        Ok(())
     }
 
     #[test]
-    fn what_the_line_is_about_is_never_read_as_a_stretch_of_the_wait() {
-        let Ok(said) = written(&an_opening());
-        let back = match read(&said) {
-            Ok(Some(back)) => back,
-            Ok(None) | Err(_) => panic!("a line"),
-        };
+    fn what_the_line_is_about_is_never_read_as_a_stretch_of_the_wait() -> Result<(), Box<dyn Error>> {
+        let Ok(opening) = an_opening();
+        let Ok(said) = serialize(&opening);
+        let Ok(back) = read(&said);
+        let back = back.ok_or("a line")?;
 
         let named: Vec<&str> = back.marks.iter().map(|(name, _)| name.as_str()).collect();
         assert!(!named.contains(&"up"));
@@ -301,6 +306,8 @@ mod tests {
         assert!(!named.contains(&"at"));
         assert!(!named.contains(&"waited"));
         assert!(!named.contains(&"rows"), "a count is not a stretch");
+
+        Ok(())
     }
 
     #[test]

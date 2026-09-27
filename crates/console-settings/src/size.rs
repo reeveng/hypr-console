@@ -179,10 +179,10 @@ pub fn at(
 ) -> Result<std::path::PathBuf, Unnamed> {
     let Ok(shaped) = shaped(shape);
 
-    panel.keeping(home, &format!("{NAMED}-{shaped}"))
+    panel.path_for(home, &format!("{NAMED}-{shaped}"))
 }
 
-pub fn standing(monitors: &[console_compositor::Monitor]) -> Result<Option<Size>, Never> {
+pub fn current_size(monitors: &[console_compositor::Monitor]) -> Result<Option<Size>, Never> {
     let Ok(shown) = console_screen::shown(monitors);
 
     let screen = match shown {
@@ -213,115 +213,85 @@ pub fn lua(panel: Output<'_>, screen: &Screen, scale: f64) -> Result<String, Nev
 mod tests {
     use super::*;
 
-    fn scale(size: Size) -> f64 {
-        let Ok(scale) = size.scale_on(&screen());
+    type Failure = Box<dyn std::error::Error>;
 
-        scale
-    }
-
-    fn scale_on(size: Size, screen: &Screen) -> f64 {
-        let Ok(scale) = size.scale_on(screen);
-
-        scale
-    }
-
-    fn laptop() -> Screen {
-        Screen {
+    fn laptop() -> Result<Screen, Never> {
+        Ok(Screen {
             mode: console_core_geometry::Size { width: 1920, height: 1200 },
             refresh: 60,
             scale: 1.0,
             transform: 0,
+        })
+    }
+
+    fn scales(screen: &Screen) -> Result<Vec<f64>, Never> {
+        Ok(EVERY
+            .into_iter()
+            .map(|size| {
+                let Ok(scale) = size.scale_on(screen);
+
+                scale
+            })
+            .collect())
+    }
+
+    fn current_size_of(text: &str) -> Result<Option<Size>, console_compositor::HyprctlError> {
+        let monitors = console_compositor::read(console_compositor::Monitors, text)?;
+
+        let Ok(size) = current_size(&monitors);
+
+        Ok(size)
+    }
+
+    fn lua_for(screen: &Screen, at: f64) -> Result<String, Never> {
+        lua(Output("eDP-1"), screen, at)
+    }
+
+    fn divides_into_whole_pixels(screen: &Screen) -> Result<(), Never> {
+        let Ok(held) = screen.pixels();
+
+        for size in EVERY {
+            let Ok(scale) = size.scale_on(screen);
+            let Ok(written) = size.written();
+
+            for side in [held.width, held.height] {
+                let logical = f64::from(side) / scale;
+
+                assert_eq!(logical.fract(), 0.0, "{written} leaves {side} at {logical}, which is not a whole number of pixels");
+            }
         }
-    }
 
-    fn written(size: Size) -> &'static str {
-        let Ok(written) = size.written();
-
-        written
-    }
-
-    fn of(said: &str) -> Option<Size> {
-        let Ok(size) = Size::of(said);
-
-        size
-    }
-
-    fn said(text: &str) -> Vec<console_compositor::Monitor> {
-        console_compositor::read_monitors(text).expect("the fixture is the compositor's answer")
-    }
-
-    fn standing(text: &str) -> Option<Size> {
-        let Ok(size) = super::standing(&said(text));
-
-        size
-    }
-
-    fn lua(screen: &Screen, at: f64) -> String {
-        let Ok(said) = super::lua(Output("eDP-1"), screen, at);
-
-        said
-    }
-
-    fn pixels(screen: &Screen) -> console_core_geometry::Size<u32> {
-        let Ok(pixels) = screen.pixels();
-
-        pixels
-    }
-
-    fn screen() -> Screen {
-        console_screen::declared().expect("the compositor's file declares a screen")
+        Ok(())
     }
 
     #[test]
-    fn the_offered_sizes_divide_the_panel_into_whole_pixels() {
-        let screen = screen();
-        let held = pixels(&screen);
-        let (wide, tall) = (held.width, held.height);
-        for size in EVERY {
-            for side in [wide, tall] {
-                let logical = f64::from(side) / scale(size);
-                assert_eq!(
-                    logical.fract(),
-                    0.0,
-                    "{} leaves {side} at {logical}, which is not a whole number of pixels",
-                    written(size)
-                );
-            }
-        }
+    fn the_offered_sizes_divide_the_panel_into_whole_pixels() -> Result<(), Failure> {
+        let screen = console_screen::from_hyprland_config()?;
+        let Ok(()) = divides_into_whole_pixels(&screen);
+
+        Ok(())
     }
 
     #[test]
     fn every_rung_divides_a_laptops_panel_into_whole_pixels_too() {
-        let laptop = laptop();
-        let Ok(held) = laptop.pixels();
-
-        for size in EVERY {
-            for side in [held.width, held.height] {
-                let logical = f64::from(side) / scale_on(size, &laptop);
-
-                assert_eq!(
-                    logical.fract(),
-                    0.0,
-                    "{} leaves {side} at {logical} on a panel this repository has never seen",
-                    written(size)
-                );
-            }
-        }
+        let Ok(laptop) = laptop();
+        let Ok(()) = divides_into_whole_pixels(&laptop);
     }
 
     #[test]
-    fn the_rungs_are_the_numbers_they_always_were_on_this_device() {
-        let every: Vec<f64> = EVERY.into_iter().map(scale).collect();
+    fn the_rungs_are_the_numbers_they_always_were_on_this_device() -> Result<(), Failure> {
+        let screen = console_screen::from_hyprland_config()?;
 
-        assert_eq!(every, vec![1.0, 2.0, 2.5, 3.2, 4.0], "a canvas said as a density");
+        assert_eq!(scales(&screen), Ok(vec![1.0, 2.0, 2.5, 3.2, 4.0]), "a canvas said as a density");
+
+        Ok(())
     }
 
     #[test]
     fn the_same_five_words_are_five_other_densities_on_a_laptop() {
-        let laptop = laptop();
-        let every: Vec<f64> = EVERY.into_iter().map(|size| scale_on(size, &laptop)).collect();
+        let Ok(laptop) = laptop();
 
-        assert_eq!(every, vec![1.0, 1.5, 1.875, 2.4, 3.0]);
+        assert_eq!(scales(&laptop), Ok(vec![1.0, 1.5, 1.875, 2.4, 3.0]));
     }
 
     #[test]
@@ -345,84 +315,109 @@ mod tests {
     }
 
     #[test]
-    fn normal_is_the_size_this_device_is_set_up_as() {
-        assert_eq!(scale(Size::Normal), screen().scale);
+    fn normal_is_the_size_this_device_is_set_up_as() -> Result<(), Failure> {
+        let screen = console_screen::from_hyprland_config()?;
+
+        assert_eq!(Size::Normal.scale_on(&screen), Ok(screen.scale));
+
+        Ok(())
     }
 
     #[test]
-    fn the_ladder_climbs_and_every_step_is_one_anyone_would_see() {
-        for pair in EVERY.windows(2) {
-            let (below, above) = (scale(pair[0]), scale(pair[1]));
-            assert!(below < above, "{:?} is not below {:?}", pair[0], pair[1]);
+    fn the_ladder_climbs_and_every_step_is_one_anyone_would_see() -> Result<(), Failure> {
+        let screen = console_screen::from_hyprland_config()?;
+        let Ok(scales) = scales(&screen);
+
+        for (below, above) in scales.iter().zip(scales.iter().skip(1)) {
+            assert!(below < above, "{below} is not below {above}");
             assert!(above / below > 1.2, "{below} and {above} are the same size to an eye");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_bottom_of_the_ladder_is_the_panel_at_its_own_pixels() {
-        let screen = screen();
-        assert_eq!(EVERY[0], Size::Tiny);
-        let Ok(logical) = screen.logical_at(scale(Size::Tiny));
+    fn the_bottom_of_the_ladder_is_the_panel_at_its_own_pixels() -> Result<(), Failure> {
+        let screen = console_screen::from_hyprland_config()?;
+        let Ok(tiny) = Size::Tiny.scale_on(&screen);
+        let Ok(logical) = screen.logical_at(tiny);
+        let Ok(scales) = scales(&screen);
 
-        assert_eq!(logical, pixels(&screen));
-        assert!(EVERY.into_iter().all(|size| scale(size) >= 1.0), "a rung below the panel");
+        assert_eq!(EVERY.first(), Some(&Size::Tiny));
+        assert_eq!(Ok(logical), screen.pixels());
+        assert!(scales.iter().all(|scale| *scale >= 1.0), "a rung below the panel");
+
+        Ok(())
     }
 
     #[test]
-    fn the_rung_being_stood_on_is_read_out_of_what_the_compositor_says() {
+    fn the_rung_being_stood_on_is_read_out_of_what_the_compositor_says() -> Result<(), Failure> {
         let said = r#"[{"name": "eDP-1", "width": 1600, "height": 2560, "refreshRate": 144.0,
             "scale": 2.5, "transform": 1}]"#;
 
-        assert_eq!(standing(said), Some(Size::Normal));
-        assert_eq!(standing(&said.replace("2.5", "3.2")), Some(Size::Bigger));
+        assert!(matches!(current_size_of(said), Ok(Some(Size::Normal))));
+        assert!(matches!(current_size_of(&said.replace("2.5", "3.2")), Ok(Some(Size::Bigger))));
+
+        Ok(())
     }
 
     #[test]
-    fn the_same_density_is_a_different_rung_on_a_different_panel() {
+    fn the_same_density_is_a_different_rung_on_a_different_panel() -> Result<(), Failure> {
         let said = r#"[{"name": "eDP-1", "width": 1920, "height": 1200, "refreshRate": 60.0,
             "scale": 1.5, "transform": 0}]"#;
 
-        assert_eq!(standing(said), Some(Size::Smaller), "1280 across on a laptop's panel");
-        assert_eq!(standing(&said.replace("1.5", "2.5")), None, "the device's rung, elsewhere");
+        assert!(matches!(current_size_of(said), Ok(Some(Size::Smaller))), "1280 across on a laptop's panel");
+        assert!(matches!(current_size_of(&said.replace("1.5", "2.5")), Ok(None)), "the device's rung, elsewhere");
+
+        Ok(())
     }
 
     #[test]
-    fn a_density_that_is_none_of_the_five_marks_none_of_them() {
+    fn a_density_that_is_none_of_the_five_marks_none_of_them() -> Result<(), Failure> {
         let said = r#"[{"name": "eDP-1", "width": 1600, "height": 2560, "refreshRate": 144.0,
             "scale": 1.75, "transform": 1}]"#;
 
-        assert_eq!(standing(said), None);
+        assert!(matches!(current_size_of(said), Ok(None)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_screen_whose_panel_is_half_said_stands_on_no_rung_at_all() {
-        assert_eq!(
-            standing(r#"[{"name": "eDP-1", "scale": 2.5}]"#),
-            None,
-            "a density is not a rung until the panel it is on is known"
-        );
+    fn a_screen_whose_panel_is_half_said_stands_on_no_rung_at_all() -> Result<(), Failure> {
+        assert!(matches!(current_size_of(r#"[{"name": "eDP-1", "scale": 2.5}]"#), Ok(None)),
+            "a density is not a rung until the panel it is on is known");
 
-        let layers = console_compositor::read(console_compositor::Query::Monitors, r#"{"eDP-1": {"levels": {}}}"#);
-        let nameless = console_compositor::read(console_compositor::Query::Monitors, r#"[{"width": 1600, "scale": 2.5}]"#);
+        let layers = current_size_of(r#"{"eDP-1": {"levels": {}}}"#);
+        let nameless = current_size_of(r#"[{"width": 1600, "scale": 2.5}]"#);
 
-        assert!(layers.is_err(), "an answer about layers is not an answer about screens");
-        assert!(nameless.is_err(), "a screen that will not name itself is not a screen");
+        assert!(matches!(layers, Err(_not_screens)), "an answer about layers is not an answer about screens");
+        assert!(matches!(nameless, Err(_not_a_screen)), "a screen that will not name itself is not a screen");
+
+        Ok(())
     }
 
     #[test]
-    fn the_compositor_is_handed_a_whole_screen_and_not_just_a_number() {
-        let said = lua(&screen(), scale(Size::Bigger));
+    fn the_compositor_is_handed_a_whole_screen_and_not_just_a_number() -> Result<(), Failure> {
+        let screen = console_screen::from_hyprland_config()?;
+        let Ok(bigger) = Size::Bigger.scale_on(&screen);
+        let Ok(said) = lua_for(&screen, bigger);
+
         assert!(said.contains("transform = 1"), "{said}");
         assert!(said.contains("1600x2560@144"), "{said}");
         assert!(said.contains("scale = 3.2"), "{said}");
         assert!(said.contains("eDP-1"), "{said}");
+
+        Ok(())
     }
 
     #[test]
-    fn the_touchscreen_is_read_through_the_quarter_the_picture_is_drawn_at() {
+    fn the_touchscreen_is_read_through_the_quarter_the_picture_is_drawn_at() -> Result<(), Failure> {
+        let declared = console_screen::from_hyprland_config()?;
+
         for transform in 0..4 {
-            let screen = Screen { transform, ..screen() };
-            let said = lua(&screen, 2.5);
+            let screen = Screen { transform, ..declared };
+            let Ok(said) = lua_for(&screen, 2.5);
+
             assert!(said.contains("touchdevice"), "the finger was not told anything: {said}");
             assert_eq!(
                 said.matches(&format!("transform = {transform}")).count(),
@@ -430,6 +425,8 @@ mod tests {
                 "the screen and the finger on it are at two different quarters: {said}"
             );
         }
+
+        Ok(())
     }
 
     #[test]
@@ -448,10 +445,12 @@ mod tests {
     #[test]
     fn the_answer_is_written_down_as_the_rung_it_names() {
         for size in EVERY {
-            assert_eq!(of(written(size)), Some(size));
-        }
-        assert_eq!(of("tiny\n"), Some(Size::Tiny));
-        assert_eq!(of("2.0"), None);
-    }
+            let Ok(written) = size.written();
 
+            assert_eq!(Size::of(written), Ok(Some(size)));
+        }
+
+        assert_eq!(Size::of("tiny\n"), Ok(Some(Size::Tiny)));
+        assert_eq!(Size::of("2.0"), Ok(None));
+    }
 }

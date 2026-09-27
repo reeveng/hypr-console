@@ -9,16 +9,16 @@
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_panel::running::said;
+use console_panel::running::run_output;
 use std::path::Path;
 
-pub use console_music_player::tags::{AS_MUCH, BETWEEN, Tagged, Tags, asking, every, read};
+pub use console_music_player::tags::{AS_MUCH, BETWEEN, Tagged, Tags, ffprobe_arguments, every, read};
 
 pub fn of(path: &Path) -> Result<Tags, Never> {
-    let arguments = asking(path)?;
+    let arguments = ffprobe_arguments(path)?;
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
 
-    let Ok(said) = said(Program::Ffprobe, &words);
+    let Ok(said) = run_output(Program::Ffprobe, &words);
 
     read(&said)
 }

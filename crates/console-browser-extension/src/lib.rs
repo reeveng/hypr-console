@@ -40,34 +40,29 @@ pub fn stamp(home: &Path) -> Result<PathBuf, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn xpi(home: &Path) -> PathBuf {
-        let Ok(named) = super::xpi(home);
-
-        named
-    }
-
-    fn stamp(home: &Path) -> PathBuf {
-        let Ok(named) = super::stamp(home);
-
-        named
-    }
+    use std::error::Error;
 
     #[test]
     fn the_add_on_is_named_where_the_browser_looks_for_it() {
         let home = Path::new("/home/someone");
+
         assert_eq!(
             xpi(home),
-            PathBuf::from("/home/someone/.librewolf/console/extensions/web@console.xpi")
+            Ok(PathBuf::from("/home/someone/.librewolf/console/extensions/web@console.xpi"))
         );
     }
 
     #[test]
-    fn the_note_is_not_left_among_the_add_ons() {
+    fn the_note_is_not_left_among_the_add_ons() -> Result<(), Box<dyn Error>> {
         let home = Path::new("/home/someone");
-        let note = stamp(home);
-        assert!(!note.starts_with(xpi(home).parent().expect("a directory")), "{}", note.display());
+        let Ok(note) = stamp(home);
+        let Ok(add_on) = xpi(home);
+        let add_ons = add_on.parent().ok_or("a directory")?;
+
+        assert!(!note.starts_with(add_ons), "{}", note.display());
         assert_eq!(note, PathBuf::from("/home/someone/.librewolf/console/console-web.stamp"));
+
+        Ok(())
     }
 
     #[test]

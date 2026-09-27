@@ -11,38 +11,46 @@
 //! reaches by typing, and each of them once ran through an `unwrap` on a
 //! directory that might not be there.
 
+use std::error::Error;
 use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use console_core_never::Never;
 use console_resume::session::{Duplicates, Restore, Really, Restoring, Sessions};
-fn scratch(test: &str) -> PathBuf {
-    console_core_temporary_directories::fresh(&format!("resume-{test}")).expect("somewhere to keep them")
+
+fn scratch(test: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let at = console_core_temporary_directories::fresh(&format!("resume-{test}"))?;
+
+    Ok(at)
 }
 
-fn sessions(at: &Path) -> Sessions {
-    Sessions {
+fn sessions(at: &Path) -> Result<Sessions, Never> {
+    Ok(Sessions {
         at: at.to_path_buf(),
         adjusting_for: Duration::from_secs(1),
         really: Really::Simulated,
         restoring: Restoring::StartingItAgain,
         duplicates: Duplicates::OnePerProgram,
-    }
+    })
 }
 
-fn named(sessions: &Sessions) -> Vec<String> {
+fn named(sessions: &Sessions) -> Result<Vec<String>, Never> {
     let Ok(mut saved) = sessions.list();
 
     saved.sort();
 
-    saved
+    Ok(saved)
 }
 
 #[test]
-fn a_directory_no_one_has_saved_into_holds_no_sessions() {
-    let at = scratch("a_directory_no_one_has_saved_into_holds_no_sessions");
+fn a_directory_no_one_has_saved_into_holds_no_sessions() -> Result<(), Box<dyn Error>> {
+    let at = scratch("a_directory_no_one_has_saved_into_holds_no_sessions")?;
+    let Ok(sessions) = sessions(&at);
 
-    assert_eq!(named(&sessions(&at)), Vec::<String>::new());
+    assert_eq!(named(&sessions), Ok(Vec::new()));
+
+    Ok(())
 }
 
 #[test]
@@ -59,63 +67,81 @@ fn a_place_that_does_not_exist_at_all_is_no_sessions_rather_than_a_fault() {
 }
 
 #[test]
-fn every_session_saved_is_one_that_can_be_named_back() {
-    let at = scratch("every_session_saved_is_one_that_can_be_named_back");
+fn every_session_saved_is_one_that_can_be_named_back() -> Result<(), Box<dyn Error>> {
+    let at = scratch("every_session_saved_is_one_that_can_be_named_back")?;
 
     for name in ["monday", "nightly", "yesterday"] {
-        create_dir_all(at.join(name)).expect("a session");
+        create_dir_all(at.join(name))?;
     }
 
-    assert_eq!(named(&sessions(&at)), ["monday", "nightly", "yesterday"]);
+    let Ok(sessions) = sessions(&at);
+    let Ok(named) = named(&sessions);
+
+    assert_eq!(named, ["monday", "nightly", "yesterday"]);
+
+    Ok(())
 }
 
 #[test]
-fn a_file_lying_among_the_sessions_is_not_one_of_them() {
-    let at = scratch("a_file_lying_among_the_sessions_is_not_one_of_them");
+fn a_file_lying_among_the_sessions_is_not_one_of_them() -> Result<(), Box<dyn Error>> {
+    let at = scratch("a_file_lying_among_the_sessions_is_not_one_of_them")?;
 
-    create_dir_all(at.join("monday")).expect("a session");
-    std::fs::write(at.join("notes.txt"), "not a session").expect("a file");
+    create_dir_all(at.join("monday"))?;
+    console_core_atomic_writes::whole(&at.join("notes.txt"), b"not a session")?;
 
-    assert_eq!(named(&sessions(&at)), ["monday"]);
+    let Ok(sessions) = sessions(&at);
+    let Ok(named) = named(&sessions);
+
+    assert_eq!(named, ["monday"]);
+
+    Ok(())
 }
 
 #[test]
-fn throwing_one_away_leaves_the_others_where_they_were() {
-    let at = scratch("throwing_one_away_leaves_the_others_where_they_were");
+fn throwing_one_away_leaves_the_others_where_they_were() -> Result<(), Box<dyn Error>> {
+    let at = scratch("throwing_one_away_leaves_the_others_where_they_were")?;
 
     for name in ["monday", "yesterday"] {
-        create_dir_all(at.join(name)).expect("a session");
+        create_dir_all(at.join(name))?;
     }
 
-    let sessions = sessions(&at);
+    let Ok(sessions) = sessions(&at);
 
-    sessions.delete("monday").expect("thrown away");
-    assert_eq!(named(&sessions), ["yesterday"]);
+    sessions.delete("monday")?;
+
+    let Ok(named) = named(&sessions);
+
+    assert_eq!(named, ["yesterday"]);
+
+    Ok(())
 }
 
 #[test]
-fn a_session_with_nothing_in_it_leaves_the_screen_alone() {
-    let at = scratch("a_session_with_nothing_in_it_leaves_the_screen_alone");
-
-    let said = sessions(&at).load("never-saved");
+fn a_session_with_nothing_in_it_leaves_the_screen_alone() -> Result<(), Box<dyn Error>> {
+    let at = scratch("a_session_with_nothing_in_it_leaves_the_screen_alone")?;
+    let Ok(sessions) = sessions(&at);
+    let said = sessions.load("never-saved")?;
 
     assert_eq!(
-        said.expect("nothing to put back"),
+        said,
         Restore::NothingSaved(at.join("never-saved")),
         "putting back a session no one saved is closing every window and starting nothing"
     );
+
+    Ok(())
 }
 
 #[test]
-fn throwing_away_one_no_one_saved_says_so_rather_than_saying_nothing() {
-    let at = scratch("throwing_away_one_no_one_saved_says_so_rather_than_saying_nothing");
+fn throwing_away_one_no_one_saved_says_so_rather_than_saying_nothing() -> Result<(), Box<dyn Error>> {
+    let at = scratch("throwing_away_one_no_one_saved_says_so_rather_than_saying_nothing")?;
+    let Ok(sessions) = sessions(&at);
 
-    let said = sessions(&at).delete("never-existed");
+    let why = match sessions.delete("never-existed") {
+        Err(why) => why.to_string(),
+        Ok(()) => "a name no one saved was thrown away without a word".to_string(),
+    };
 
-    let why = said.expect_err("a name no one saved is a thing worth being told about");
+    assert!(why.contains("never-existed"), "and the fault should say which name it was: {why}");
 
-    assert!(
-        why.to_string().contains("never-existed"),
-        "and the fault should say which name it was: {why}"
-    );
+    Ok(())
 }

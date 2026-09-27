@@ -103,6 +103,22 @@
 //! and no more. Painting over part of a frame starts from a copy of the one on
 //! the screen, because the spare holds an older one.
 //!
+//! ## A lock is the same surface with another role
+//!
+//! `ext-session-lock-v1` hands out a surface the compositor shows instead of
+//! the whole desktop, and everything after it is sized, scaled and painted the
+//! way a layer is -- so it is a second [`Role`] on the one surface rather than
+//! a second surface type. What is its own is the order: the compositor sends
+//! `locked` only once a frame is on every screen, `unlock_and_destroy` before
+//! that is a protocol error, and so [`Surface::unlock`] answers
+//! [`Unlocked::NotYet`] until [`Lock::Acquired`] rather than letting go of a lock
+//! that was never held. A lock surface is sized by the compositor and nothing
+//! else, which is why resizing one and giving it room are nothing.
+//!
+//! The lock is bound to the first screen only. A handheld has one, and an
+//! output the lock has no surface on is painted a solid color by the
+//! compositor rather than shown -- which is the right fault for a lock to have.
+//!
 //! ## A closed socket is not quiet
 //!
 //! `poll` asked only about `POLLIN` returns immediately and forever on a
@@ -115,15 +131,19 @@ use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
 use std::io;
+use std::ops::ControlFlow;
 use std::os::fd::{AsFd, BorrowedFd};
 use std::time::Duration;
 
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
-    wl_buffer, wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool,
-    wl_surface, wl_touch,
+    wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm,
+    wl_shm_pool, wl_surface, wl_touch,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
+use wayland_protocols::ext::session_lock::v1::client::{
+    ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
+};
 use wayland_protocols::wp::fractional_scale::v1::client::{
     wp_fractional_scale_manager_v1, wp_fractional_scale_v1,
 };
@@ -214,6 +234,19 @@ pub enum KeyboardEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lock {
+    Waiting,
+    Acquired,
+    Denied,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unlocked {
+    Yes,
+    NotYet,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Closed {
     Yes,
     No,
@@ -282,9 +315,20 @@ pub fn on_the_device(part: Part, logical: Size<u32>, device: Size<u32>) -> Resul
     })
 }
 
+enum Role {
+    Layer(zwlr_layer_surface_v1::ZwlrLayerSurfaceV1),
+    Lock(ext_session_lock_surface_v1::ExtSessionLockSurfaceV1),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Settled {
+    Waiting,
+    Settled,
+}
+
 struct Up {
     surface: wl_surface::WlSurface,
-    layer: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+    role: Role,
     viewport: wp_viewport::WpViewport,
     fraction: Option<wp_fractional_scale_v1::WpFractionalScaleV1>,
 }
@@ -307,7 +351,7 @@ impl Frame {
         let long = stride.saturating_mul(size.height);
         let bytes = long.max(4);
         let shared = Shared::of(u64::from(bytes)).map_err(SurfaceError::Memory)?;
-        let Ok(held) = shared.held();
+        let Ok(held) = shared.descriptor();
         let Ok(many) = fitted::<u32, i32>(bytes);
         let pool = shm.create_pool(held.as_fd(), many, hand, ());
         let Ok(wide) = fitted::<u32, i32>(size.width);
@@ -321,7 +365,7 @@ impl Frame {
 }
 
 fn free(spare: &mut Vec<Frame>, shm: &wl_shm::WlShm, hand: &QueueHandle<Bound>, device: Size<u32>) -> Result<Frame, SurfaceError> {
-    let Ok((taken, kept)) = picked(std::mem::take(spare), device, |frame| (frame.size, frame.held));
+    let Ok((taken, kept)) = pick_free(std::mem::take(spare), device, |frame| (frame.size, frame.held));
 
     *spare = kept;
 
@@ -331,7 +375,7 @@ fn free(spare: &mut Vec<Frame>, shm: &wl_shm::WlShm, hand: &QueueHandle<Bound>, 
     }
 }
 
-fn picked<T>(spare: Vec<T>, device: Size<u32>, state: impl Fn(&T) -> (Size<u32>, Buffer)) -> Result<(Option<T>, Vec<T>), Never> {
+fn pick_free<T>(spare: Vec<T>, device: Size<u32>, state: impl Fn(&T) -> (Size<u32>, Buffer)) -> Result<(Option<T>, Vec<T>), Never> {
     let (mut free, mut busy): (Vec<T>, Vec<T>) = spare
         .into_iter()
         .filter(|frame| state(frame).0 == device)
@@ -345,7 +389,7 @@ fn picked<T>(spare: Vec<T>, device: Size<u32>, state: impl Fn(&T) -> (Size<u32>,
 }
 
 impl Bound {
-    fn showing(&mut self, frame: Frame) -> Result<(), Never> {
+    fn present(&mut self, frame: Frame) -> Result<(), Never> {
         let before = self.shown.replace(frame);
 
         self.spare.extend(before);
@@ -365,6 +409,10 @@ pub struct Bound {
     compositor: wl_compositor::WlCompositor,
     shm: wl_shm::WlShm,
     shell: zwlr_layer_shell_v1::ZwlrLayerShellV1,
+    locker: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
+    output: Option<wl_output::WlOutput>,
+    session: Option<ext_session_lock_v1::ExtSessionLockV1>,
+    lock: Lock,
     viewporter: wp_viewporter::WpViewporter,
     fractions: Option<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1>,
     presentation: Option<wp_presentation::WpPresentation>,
@@ -440,11 +488,23 @@ impl Surface {
             }
         };
         let _ = globals.bind::<wl_seat::WlSeat, _, _>(&hand, 1..=7, ());
+        let locker = match globals.bind::<ext_session_lock_manager_v1::ExtSessionLockManagerV1, _, _>(&hand, 1..=1, ()) {
+            Ok(locker) => Some(locker),
+            Err(_not_offered) => None,
+        };
+        let output = match globals.bind::<wl_output::WlOutput, _, _>(&hand, 1..=4, ()) {
+            Ok(output) => Some(output),
+            Err(_not_offered) => None,
+        };
 
         let bound = Bound {
             compositor,
             shm,
             shell,
+            locker,
+            output,
+            session: None,
+            lock: Lock::Waiting,
             viewporter,
             fractions,
             presentation,
@@ -493,9 +553,11 @@ impl Surface {
             &hand,
             (),
         );
-        let Ok(held) = held(wanted.anchor, wanted.size);
+        let Ok(held) = exclusive_zone(wanted.anchor, wanted.size);
+        let Ok(zone) = reserved_size(wanted.room, wanted.anchor, wanted.size);
 
         layer.set_size(held.width, held.height);
+        layer.set_exclusive_zone(zone);
         let Ok(edges) = edges(wanted.anchor);
 
         layer.set_anchor(edges);
@@ -516,16 +578,100 @@ impl Surface {
         self.bound.asked = Some(wanted.size);
         self.bound.anchor = wanted.anchor;
         self.bound.room = wanted.room;
-        self.bound.up = Some(Up { surface, layer, viewport, fraction });
+        self.bound.up = Some(Up { surface, role: Role::Layer(layer), viewport, fraction });
         let Ok(timing) = Frames::shown(&wanted.namespace);
 
         self.bound.timing = Some(timing);
 
-        while self.bound.logical.is_none() && self.bound.closed == Closed::No {
-            self.queue.blocking_dispatch(&mut self.bound).map_err(SurfaceError::Went)?;
+        self.dispatched_until(|bound| match (bound.logical, bound.closed) {
+            (None, Closed::No) => Settled::Waiting,
+            (Some(_), _) | (None, Closed::Yes) => Settled::Settled,
+        })
+    }
+
+    fn dispatched_until(&mut self, settled: impl Fn(&Bound) -> Settled) -> Result<(), SurfaceError> {
+        let dispatched = std::iter::repeat(()).try_fold(self, |this, ()| {
+            match settled(&this.bound) {
+                Settled::Settled => return ControlFlow::Break(Ok(())),
+                Settled::Waiting => {}
+            }
+
+            match this.queue.blocking_dispatch(&mut this.bound) {
+                Ok(_dispatched) => ControlFlow::Continue(this),
+                Err(fault) => ControlFlow::Break(Err(SurfaceError::Went(fault))),
+            }
+        });
+
+        match dispatched {
+            ControlFlow::Break(settled) => settled,
+            ControlFlow::Continue(_endless) => Ok(()),
+        }
+    }
+
+    pub fn lock(&mut self, namespace: &str) -> Result<Lock, SurfaceError> {
+        match self.bound.up {
+            Some(_) => return Ok(self.bound.lock),
+            None => {},
         }
 
-        Ok(())
+        let locker = match self.bound.locker.as_ref() {
+            Some(locker) => locker,
+            None => return Err(SurfaceError::Global("ext_session_lock_manager_v1, which is what makes a lock screen a lock")),
+        };
+        let output = match self.bound.output.as_ref() {
+            Some(output) => output,
+            None => return Err(SurfaceError::Global("wl_output, which is the screen a lock is shown on")),
+        };
+        let hand = self.queue.handle();
+        let session = locker.lock(&hand, ());
+        let surface = self.bound.compositor.create_surface(&hand, ());
+        let viewport = self.bound.viewporter.get_viewport(&surface, &hand, ());
+        let fraction = self
+            .bound
+            .fractions
+            .as_ref()
+            .map(|manager| manager.get_fractional_scale(&surface, &hand, ()));
+        let role = session.get_lock_surface(&surface, output, &hand, ());
+
+        self.bound.logical = None;
+        self.bound.asked = None;
+        self.bound.lock = Lock::Waiting;
+        self.bound.session = Some(session);
+        self.bound.up = Some(Up { surface, role: Role::Lock(role), viewport, fraction });
+        let Ok(timing) = Frames::shown(namespace);
+
+        self.bound.timing = Some(timing);
+
+        self.dispatched_until(|bound| match (bound.logical, bound.lock) {
+            (None, Lock::Waiting) => Settled::Waiting,
+            (Some(_), _) | (None, Lock::Acquired | Lock::Denied) => Settled::Settled,
+        })?;
+
+        Ok(self.bound.lock)
+    }
+
+    pub fn locked(&self) -> Result<Lock, Never> {
+        Ok(self.bound.lock)
+    }
+
+    pub fn unlock(&mut self) -> Result<Unlocked, SurfaceError> {
+        match self.bound.lock {
+            Lock::Acquired => {}
+            Lock::Waiting | Lock::Denied => return Ok(Unlocked::NotYet),
+        }
+
+        let session = match self.bound.session.take() {
+            Some(session) => session,
+            None => return Ok(Unlocked::NotYet),
+        };
+
+        session.unlock_and_destroy();
+        let Ok(()) = self.hide();
+
+        self.bound.lock = Lock::Waiting;
+        self.queue.roundtrip(&mut self.bound).map_err(SurfaceError::Went)?;
+
+        Ok(Unlocked::Yes)
     }
 
     pub fn resize(&mut self, size: Size<u32>) -> Result<(), Never> {
@@ -542,9 +688,13 @@ impl Surface {
             None => {},
         }
 
-        let Ok(held) = held(self.bound.anchor, size);
+        let layer = match &up.role {
+            Role::Layer(layer) => layer,
+            Role::Lock(_) => return Ok(()),
+        };
+        let Ok(held) = exclusive_zone(self.bound.anchor, size);
 
-        up.layer.set_size(held.width, held.height);
+        layer.set_size(held.width, held.height);
         up.surface.commit();
         let _ = self.connection.flush();
 
@@ -569,11 +719,15 @@ impl Surface {
             Some(logical) => logical,
             None => Size { width: 1, height: 1 },
         };
-        let Ok(zone) = reserved(room, self.bound.anchor, asked);
+        let layer = match &up.role {
+            Role::Layer(layer) => layer,
+            Role::Lock(_) => return Ok(()),
+        };
+        let Ok(zone) = reserved_size(room, self.bound.anchor, asked);
         let anything = Size { width: 0, height: 0 };
 
-        up.layer.set_exclusive_zone(zone);
-        up.layer.set_size(anything.width, anything.height);
+        layer.set_exclusive_zone(zone);
+        layer.set_size(anything.width, anything.height);
         up.surface.commit();
         self.bound.asked = Some(anything);
         self.bound.logical = None;
@@ -594,14 +748,20 @@ impl Surface {
         }
 
         up.viewport.destroy();
-        up.layer.destroy();
+
+        match up.role {
+            Role::Layer(layer) => layer.destroy(),
+            Role::Lock(lock) => lock.destroy(),
+        }
+
+
         up.surface.destroy();
         self.bound.shown = None;
         self.bound.spare = Vec::new();
 
         match self.bound.timing.take() {
             Some(timing) => {
-                let Ok(()) = timing.done();
+                let Ok(()) = timing.finish();
             }
             None => {},
         }
@@ -653,7 +813,7 @@ impl Surface {
         let Ok(device) = scale.device(logical);
 
         let mut frame = free(&mut self.bound.spare, &self.bound.shm, &hand, device)?;
-        let Ok(painting) = painting(self.bound.timing.as_ref());
+        let Ok(painting) = start_painting(self.bound.timing.as_ref());
         let Ok(pixels) = frame._shared.pixels();
 
         let Ok(()) = paint(pixels, device, scale);
@@ -668,8 +828,8 @@ impl Surface {
         up.viewport.set_destination(across, down);
         up.surface.damage_buffer(0, 0, wide, tall);
         let held = std::mem::replace(&mut frame.held, Buffer::Acquired);
-        let Ok(()) = self.bound.showing(frame);
-        let Ok(()) = timed(Timing { bound: &mut self.bound, painting, held, hand: &hand });
+        let Ok(()) = self.bound.present(frame);
+        let Ok(()) = record_timing(Timing { bound: &mut self.bound, painting, held, hand: &hand });
         let up = match self.bound.up.as_ref() {
             Some(up) => up,
             None => return Ok(()),
@@ -710,7 +870,7 @@ impl Surface {
         let Ok(before) = under._shared.pixels();
         let before = before.to_vec();
         let mut frame = free(&mut self.bound.spare, &self.bound.shm, &hand, device)?;
-        let Ok(painting) = painting(self.bound.timing.as_ref());
+        let Ok(painting) = start_painting(self.bound.timing.as_ref());
         let Ok(pixels) = frame._shared.pixels();
 
         pixels.copy_from_slice(&before);
@@ -725,8 +885,8 @@ impl Surface {
         up.viewport.set_destination(across, down);
         up.surface.damage_buffer(damaged.at.x, damaged.at.y, damaged.size.width, damaged.size.height);
         let held = std::mem::replace(&mut frame.held, Buffer::Acquired);
-        let Ok(()) = self.bound.showing(frame);
-        let Ok(()) = timed(Timing { bound: &mut self.bound, painting, held, hand: &hand });
+        let Ok(()) = self.bound.present(frame);
+        let Ok(()) = record_timing(Timing { bound: &mut self.bound, painting, held, hand: &hand });
         let up = match self.bound.up.as_ref() {
             Some(up) => up,
             None => return Ok(Visible::NotYet),
@@ -823,7 +983,7 @@ impl Drop for Surface {
     }
 }
 
-fn painting(timing: Option<&Frames>) -> Result<Option<console_response_times::frames::Painting>, Never> {
+fn start_painting(timing: Option<&Frames>) -> Result<Option<console_response_times::frames::Painting>, Never> {
     Ok(match timing {
         Some(timing) => {
             let Ok(painting) = timing.painting();
@@ -841,7 +1001,7 @@ struct Timing<'a> {
     hand: &'a QueueHandle<Bound>,
 }
 
-fn timed(timing: Timing<'_>) -> Result<(), Never> {
+fn record_timing(timing: Timing<'_>) -> Result<(), Never> {
     let Timing { bound, painting, held, hand } = timing;
 
     let (tally, painting) = match (bound.timing.as_mut(), painting) {
@@ -861,7 +1021,7 @@ fn timed(timing: Timing<'_>) -> Result<(), Never> {
     Ok(())
 }
 
-fn reserved(room: Room, anchor: Anchor, logical: Size<u32>) -> Result<i32, Never> {
+fn reserved_size(room: Room, anchor: Anchor, logical: Size<u32>) -> Result<i32, Never> {
     let along = match anchor {
         Anchor::Top | Anchor::Bottom => logical.height,
         Anchor::TopRight | Anchor::Whole => logical.width,
@@ -875,7 +1035,7 @@ fn reserved(room: Room, anchor: Anchor, logical: Size<u32>) -> Result<i32, Never
     })
 }
 
-fn held(anchor: Anchor, size: Size<u32>) -> Result<Size<u32>, Never> {
+fn exclusive_zone(anchor: Anchor, size: Size<u32>) -> Result<Size<u32>, Never> {
     Ok(match anchor {
         Anchor::Whole => Size { width: 0, height: 0 },
         Anchor::Top | Anchor::Bottom => Size { width: 0, height: size.height },
@@ -944,7 +1104,7 @@ mod tests {
 
     #[test]
     fn a_bar_along_the_top_reserves_how_deep_it_is_and_not_how_wide() {
-        let Ok(zone) = reserved(Room::Reserves, Anchor::Top, Size { width: 1024, height: 38 });
+        let Ok(zone) = reserved_size(Room::Reserves, Anchor::Top, Size { width: 1024, height: 38 });
 
         assert_eq!(zone, 38);
     }
@@ -952,7 +1112,7 @@ mod tests {
     #[test]
     fn a_surface_that_takes_no_room_reserves_nothing_whichever_edge_it_is_on() {
         for anchor in [Anchor::Top, Anchor::TopRight, Anchor::Bottom, Anchor::Whole] {
-            let Ok(zone) = reserved(Room::Over, anchor, Size { width: 1024, height: 38 });
+            let Ok(zone) = reserved_size(Room::Over, anchor, Size { width: 1024, height: 38 });
 
             assert_eq!(zone, -1, "{anchor:?}");
         }
@@ -962,10 +1122,10 @@ mod tests {
     fn a_surface_held_by_opposite_edges_is_never_given_a_size_along_them() {
         let screen = Size { width: 1024, height: 640 };
 
-        assert_eq!(held(Anchor::Whole, screen), Ok(Size { width: 0, height: 0 }), "a keyboard coming up would push it off the screen");
-        assert_eq!(held(Anchor::Top, screen), Ok(Size { width: 0, height: 640 }));
-        assert_eq!(held(Anchor::Bottom, screen), Ok(Size { width: 0, height: 640 }));
-        assert_eq!(held(Anchor::TopRight, screen), Ok(screen));
+        assert_eq!(exclusive_zone(Anchor::Whole, screen), Ok(Size { width: 0, height: 0 }), "a keyboard coming up would push it off the screen");
+        assert_eq!(exclusive_zone(Anchor::Top, screen), Ok(Size { width: 0, height: 640 }));
+        assert_eq!(exclusive_zone(Anchor::Bottom, screen), Ok(Size { width: 0, height: 640 }));
+        assert_eq!(exclusive_zone(Anchor::TopRight, screen), Ok(screen));
     }
 
     #[test]
@@ -995,13 +1155,13 @@ mod tests {
         let smaller = Size { width: 2, height: 2 };
         let spare = vec![("held", size, Buffer::Acquired), ("other size", smaller, Buffer::Released), ("free", size, Buffer::Released)];
 
-        let Ok((taken, kept)) = picked(spare, size, |frame| (frame.1, frame.2));
+        let Ok((taken, kept)) = pick_free(spare, size, |frame| (frame.1, frame.2));
         let kept: Vec<&str> = kept.iter().map(|frame| frame.0).collect();
 
         assert_eq!(taken.map(|frame| frame.0), Some("free"));
         assert_eq!(kept, vec!["held"]);
 
-        let Ok((taken, kept)) = picked(vec![("held", size, Buffer::Acquired)], size, |frame| (frame.1, frame.2));
+        let Ok((taken, kept)) = pick_free(vec![("held", size, Buffer::Acquired)], size, |frame| (frame.1, frame.2));
 
         assert_eq!(taken, None, "the only buffer is still on the screen, so a new one has to be cut");
         assert_eq!(kept.len(), 1);
@@ -1041,13 +1201,64 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Bound {
                 layer.ack_configure(serial);
 
                 let logical = Size { width: width.max(1), height: height.max(1) };
-                let Ok(zone) = reserved(bound.room, bound.anchor, logical);
+                let Ok(zone) = reserved_size(bound.room, bound.anchor, logical);
 
                 layer.set_exclusive_zone(zone);
 
                 bound.logical = Some(logical);
             }
             zwlr_layer_surface_v1::Event::Closed => bound.closed = Closed::Yes,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ext_session_lock_v1::ExtSessionLockV1, ()> for Bound {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
+    fn event(
+        bound: &mut Self,
+        _session: &ext_session_lock_v1::ExtSessionLockV1,
+        event: ext_session_lock_v1::Event,
+        _held: &(),
+        _connection: &Connection,
+        _hand: &QueueHandle<Self>,
+    ) {
+        match event {
+            ext_session_lock_v1::Event::Locked => bound.lock = Lock::Acquired,
+            ext_session_lock_v1::Event::Finished => bound.lock = Lock::Denied,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, ()> for Bound {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
+    fn event(
+        bound: &mut Self,
+        surface: &ext_session_lock_surface_v1::ExtSessionLockSurfaceV1,
+        event: ext_session_lock_surface_v1::Event,
+        _held: &(),
+        _connection: &Connection,
+        _hand: &QueueHandle<Self>,
+    ) {
+        match event {
+            ext_session_lock_surface_v1::Event::Configure { serial, width, height } => {
+                surface.ack_configure(serial);
+
+                bound.logical = Some(Size { width: width.max(1), height: height.max(1) });
+            }
             _ => {}
         }
     }
@@ -1269,7 +1480,7 @@ impl Dispatch<wl_touch::WlTouch, ()> for Bound {
             wl_touch::Event::Cancel => Touch::Cancelled,
             _ => return,
         };
-        let Ok(heard) = bound.fingers.heard(touch);
+        let Ok(heard) = bound.fingers.handle_touch(touch);
 
         bound.pointer_events.extend(heard);
     }
@@ -1280,6 +1491,8 @@ delegate_noop!(Bound: ignore wl_surface::WlSurface);
 delegate_noop!(Bound: ignore wl_shm::WlShm);
 delegate_noop!(Bound: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Bound: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Bound: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
+delegate_noop!(Bound: ignore wl_output::WlOutput);
 delegate_noop!(Bound: ignore wp_viewporter::WpViewporter);
 delegate_noop!(Bound: ignore wp_viewport::WpViewport);
 delegate_noop!(Bound: ignore wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1);

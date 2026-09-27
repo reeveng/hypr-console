@@ -17,7 +17,7 @@ use console_core_geometry::Point;
 use serde::Deserialize;
 use console_core_never::Never;
 use console_test_stages::Error;
-use console_test_stages::checking::{Body, Check, CheckResult, cannot, same, seen};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, same, expect_ready};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::device::{A_MOMENT, Device, Ready};
 
@@ -53,7 +53,7 @@ struct Table {
     pictures: Vec<Named>,
 }
 
-pub fn named() -> Result<Vec<String>, Unchecked> {
+pub fn picture_names() -> Result<Vec<String>, Unchecked> {
     let Ok(root) = console_test_stages::root();
 
     let at = root.join("theme/sky.toml");
@@ -253,7 +253,7 @@ fn desktop(stage: &mut Desktop) -> CheckResult {
 }
 
 fn device(stage: &mut Device) -> CheckResult {
-    let names = named()?;
+    let names = picture_names()?;
     let Ok(said) = stage.wallpaper();
 
     let picture = showing_a_picture(&said, &names)?;
@@ -275,7 +275,7 @@ fn device(stage: &mut Device) -> CheckResult {
         let Ok(_) = stage.changed(Device::workspace, &was, A_MOMENT);
     }
 
-    seen(clear, || "could not get to a workspace with nothing on it".to_string())?;
+    expect_ready(clear, || "could not get to a workspace with nothing on it".to_string())?;
 
     let ground = ground()?;
     let behind = stage.background()?;
@@ -309,10 +309,12 @@ mod tests {
     }
 
     #[test]
-    fn the_still_of_a_picture_the_table_names_is_a_picture_the_table_names() {
+    fn the_still_of_a_picture_the_table_names_is_a_picture_the_table_names() -> Result<(), Unchecked> {
         let names = vec!["campfire".to_string(), "lazy-river".to_string()];
         let said = "eDP-1: currently displaying: image: /usr/share/backgrounds/console/campfire.still.webp";
-        assert!(showing_a_picture(said, &names).is_ok());
+
+        showing_a_picture(said, &names)?;
+        Ok(())
     }
 
     #[test]
@@ -326,6 +328,7 @@ mod tests {
     #[test]
     fn a_daemon_showing_no_picture_is_a_failure_that_says_so() {
         let names = vec!["campfire".to_string()];
+
         for said in ["", "no daemon is running", "eDP-1: currently displaying: color: #110b12"] {
             let fault = showing_a_picture(said, &names).expect_err("no picture");
             assert!(fault.to_string().contains("showing"), "{fault}");
@@ -333,15 +336,21 @@ mod tests {
     }
 
     #[test]
-    fn the_ground_is_the_color_the_unit_fills_the_screen_with() {
-        let ground = ground().expect("the unit sets one");
+    fn the_ground_is_the_color_the_unit_fills_the_screen_with() -> Result<(), Unchecked> {
+        let ground = ground()?;
+
         assert_eq!(ground.len(), 6, "{ground:?}");
         assert!(ground.chars().all(|digit| digit.is_ascii_hexdigit()), "{ground:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn the_table_names_some_pictures() {
-        let names = named().expect("a table");
+    fn the_table_names_some_pictures() -> Result<(), Unchecked> {
+        let names = picture_names()?;
+
         assert!(!names.is_empty(), "theme/sky.toml names no pictures");
+
+        Ok(())
     }
 }

@@ -107,34 +107,52 @@ mod tests {
 </entry>
 </feed>"#;
 
-    fn found() -> Vec<Found> {
-        let Ok(found) = found_in(ANSWER);
+    type Failure = Box<dyn std::error::Error>;
 
-        found
+    fn found() -> Result<Vec<Found>, Never> {
+        found_in(ANSWER)
+    }
+
+    fn first() -> Result<Found, Failure> {
+        let Ok(found) = found();
+        let first = found.into_iter().next().ok_or("no book found")?;
+
+        Ok(first)
     }
 
     #[test]
     fn a_heading_is_not_a_book_and_a_book_needs_a_title() {
-        let titles: Vec<String> = found().into_iter().map(|found| found.title).collect();
+        let Ok(found) = found();
+        let titles: Vec<String> = found.into_iter().map(|found| found.title).collect();
 
         assert_eq!(titles, vec!["Meditations", "The Imitation of Christ"]);
     }
 
     #[test]
     fn the_author_is_said_as_the_library_says_it() {
-        assert_eq!(found()[0].by, "Emperor of Rome Marcus Aurelius");
-        assert_eq!(found()[1].by, "\u{e0} Kempis Thomas");
+        let Ok(found) = found();
+        let by: Vec<&str> = found.iter().map(|book| book.by.as_str()).collect();
+
+        assert_eq!(by, ["Emperor of Rome Marcus Aurelius", "\u{e0} Kempis Thomas"]);
     }
 
     #[test]
-    fn the_cover_is_the_one_the_library_keeps_for_that_number() {
-        assert_eq!(found()[0].picture, "https://www.gutenberg.org/cache/epub/2680/pg2680.cover.medium.jpg");
+    fn the_cover_is_the_one_the_library_keeps_for_that_number() -> Result<(), Failure> {
+        let first = first()?;
+
+        assert_eq!(first.picture, "https://www.gutenberg.org/cache/epub/2680/pg2680.cover.medium.jpg");
+
+        Ok(())
     }
 
     #[test]
-    fn a_book_is_fetched_from_gutenberg_whatever_link_the_answer_carried() {
-        assert_eq!(found()[0].url, "https://www.gutenberg.org/ebooks/2680");
-        assert_eq!(publication(&found()[0].url), Ok("https://www.gutenberg.org/ebooks/2680.epub3.images".to_string()));
+    fn a_book_is_fetched_from_gutenberg_whatever_link_the_answer_carried() -> Result<(), Failure> {
+        let first = first()?;
+
+        assert_eq!(first.url, "https://www.gutenberg.org/ebooks/2680");
+        assert_eq!(publication(&first.url), Ok("https://www.gutenberg.org/ebooks/2680.epub3.images".to_string()));
+
+        Ok(())
     }
 
     #[test]

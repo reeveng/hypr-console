@@ -56,7 +56,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::config::CrateType;
 
 dylint_linting::declare_late_lint! {
@@ -67,10 +67,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT039_NO_READING_THE_CLOCK,
     Deny,
     "a clock read inside a library; the instant belongs to the caller"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // The edge of a program is its binary. A crate compiled as an executable is
@@ -124,10 +120,6 @@ fn what_is_called(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit039NoReadingTheClock {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if is_the_edge(cx) {
             return;
         }

@@ -22,7 +22,7 @@ use console_core_number_conversion::index;
 use crate::codes::{AbsoluteAxisCode, EventType, MiscCode, PropType, RelativeAxisCode};
 use crate::device::INPUT;
 use crate::event::InputEvent;
-use crate::kernel::{self, AbsInfo, AbsoluteSetup, InputId, checked, ioctl};
+use crate::kernel::{self, AbsInfo, AbsoluteSetup, InputId, check, ioctl};
 use crate::keys::KeyCode;
 
 const UINPUT: &str = "/dev/uinput";
@@ -106,8 +106,8 @@ impl VirtualDevice {
         device.codes(setup)?;
         device.axes(&setup.absolute_axes)?;
         device.plugged(setup.physical_path.as_deref())?;
-        device.described(setup)?;
-        device.asked(Step::Creating, kernel::CREATE, 0)?;
+        device.set_name(setup)?;
+        device.ioctl(Step::Creating, kernel::CREATE, 0)?;
 
         Ok(device)
     }
@@ -123,7 +123,7 @@ impl VirtualDevice {
         for (kind, none) in sent {
             match none {
                 true => {}
-                false => self.asked(Step::Kinds, kernel::SET_EVENT_TYPE, kind.0)?,
+                false => self.ioctl(Step::Kinds, kernel::SET_EVENT_TYPE, kind.0)?,
             }
         }
 
@@ -140,7 +140,7 @@ impl VirtualDevice {
 
         for (step, request, codes) in every {
             for code in codes {
-                self.asked(step, request, code)?;
+                self.ioctl(step, request, code)?;
             }
         }
 
@@ -151,13 +151,13 @@ impl VirtualDevice {
         for (axis, information) in axes {
             let setup = AbsoluteSetup { code: axis.0, information: *information };
 
-            self.asked(Step::AbsoluteAxes, kernel::SET_ABSOLUTE_AXIS, axis.0)?;
+            self.ioctl(Step::AbsoluteAxes, kernel::SET_ABSOLUTE_AXIS, axis.0)?;
 
             // SAFETY: an open file, and a struct the size the request
             // number says, which the kernel only reads.
             let told = unsafe { ioctl(self.file.as_raw_fd(), kernel::ABSOLUTE_SETUP, &raw const setup) };
 
-            refused(Step::AbsoluteAxes, told)?;
+            check_step(Step::AbsoluteAxes, told)?;
         }
 
         Ok(())
@@ -177,10 +177,10 @@ impl VirtualDevice {
         // before the call returns.
         let told = unsafe { ioctl(self.file.as_raw_fd(), kernel::SET_PHYSICAL_PATH, physical_path.as_ptr()) };
 
-        refused(Step::PhysicalPath, told)
+        check_step(Step::PhysicalPath, told)
     }
 
-    fn described(&self, setup: &Setup) -> Result<(), Unmade> {
+    fn set_name(&self, setup: &Setup) -> Result<(), Unmade> {
         let mut name: [c_char; 80] = [0; 80];
         let written = setup.name.as_bytes();
         let Ok(room) = index(kernel::NAME);
@@ -200,14 +200,14 @@ impl VirtualDevice {
         // says, which the kernel only reads.
         let told = unsafe { ioctl(self.file.as_raw_fd(), kernel::SETUP, &raw const described) };
 
-        refused(Step::Describing, told)
+        check_step(Step::Describing, told)
     }
 
-    fn asked(&self, step: Step, request: c_ulong, argument: u16) -> Result<(), Unmade> {
+    fn ioctl(&self, step: Step, request: c_ulong, argument: u16) -> Result<(), Unmade> {
         // SAFETY: an open file, and a request that takes an int by value.
         let told = unsafe { ioctl(self.file.as_raw_fd(), request, c_int::from(argument)) };
 
-        refused(step, told)
+        check_step(step, told)
     }
 
     pub fn emit(&mut self, events: &[InputEvent]) -> io::Result<()> {
@@ -230,7 +230,7 @@ impl VirtualDevice {
         // says, which the kernel writes into and nothing else holds.
         let told = unsafe { ioctl(self.file.as_raw_fd(), kernel::GET_SYSTEM_NAME, buffer.as_mut_ptr()) };
 
-        checked(told)?;
+        check(told)?;
 
         let named = match buffer.split(|byte| *byte == 0).next() {
             Some(named) => String::from_utf8_lossy(named).into_owned(),
@@ -264,8 +264,8 @@ fn uinput() -> Result<File, Unmade> {
     }
 }
 
-fn refused(step: Step, told: c_int) -> Result<(), Unmade> {
-    match checked(told) {
+fn check_step(step: Step, told: c_int) -> Result<(), Unmade> {
+    match check(told) {
         Ok(_) => Ok(()),
         Err(why) => Err(Unmade::Rejected { step, why }),
     }

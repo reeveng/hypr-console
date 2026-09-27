@@ -30,50 +30,51 @@
 
 mod reading;
 
-use reading::{naming, root};
+use reading::{Failure, missing, naming, read};
 
 const EXCUSED: [&str; 3] = ["console-core-places", "console-login-window", "console-test-desktop"];
 
 #[test]
-fn one_crate_asks_where_a_person_lives() {
-    let asking = naming("\"HOME\"", &EXCUSED);
+fn one_crate_asks_where_a_person_lives() -> Result<(), Failure> {
+    let asking = naming("\"HOME\"", &EXCUSED)?;
 
     assert!(
         asking.is_empty(),
         "these work out where a person's home is for themselves; ask \
          console_core_places::home and meet the None: {asking:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn nobody_asks_a_toolkit_where_a_person_lives_either() {
-    let asking = naming("home_dir", &EXCUSED);
+fn nobody_asks_a_toolkit_where_a_person_lives_either() -> Result<(), Failure> {
+    let asking = naming("home_dir", &EXCUSED)?;
 
     assert!(
         asking.is_empty(),
         "a toolkit is asked where a person's home is; ask console_core_places::home \
          and meet the None: {asking:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_crate_that_answers_still_carries_the_absence() {
-    let answering = root().join("crates/console-core-places/src/lib.rs");
-    let said = std::fs::read_to_string(answering).expect("the crate that holds the answer");
+fn the_crate_that_answers_still_carries_the_absence() -> Result<(), Failure> {
+    let said = read("crates/console-core-places/src/lib.rs")?;
 
     assert!(
         said.contains("pub fn home() -> Result<Option<PathBuf>, Never>"),
         "an absent home is no longer absent, and /root is back within reach"
     );
+
+    Ok(())
 }
 
 #[test]
 fn every_excused_crate_is_a_crate() {
-    let missing: Vec<&str> = EXCUSED
-        .iter()
-        .filter(|named| !root().join("crates").join(named).is_dir())
-        .copied()
-        .collect();
+    let Ok(missing) = missing(&EXCUSED);
 
     assert!(missing.is_empty(), "excused from a rule but not in the tree: {missing:?}");
 }

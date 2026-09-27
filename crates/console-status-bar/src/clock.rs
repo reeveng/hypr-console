@@ -70,7 +70,7 @@ fn changed(at: &Path) -> Result<Duration, Never> {
     since(when)
 }
 
-fn kept() -> Result<Duration, Never> {
+fn settings_changed() -> Result<Duration, Never> {
     let Ok(at) = console_defaults::where_();
 
     match at {
@@ -79,10 +79,10 @@ fn kept() -> Result<Duration, Never> {
     }
 }
 
-pub fn standing() -> Result<Standing, Never> {
+pub fn current() -> Result<Standing, Never> {
     let Ok(minute) = minute();
     let Ok(zone) = changed(Path::new(ZONE));
-    let Ok(told) = kept();
+    let Ok(told) = settings_changed();
 
     Ok(Standing { minute, zone, told })
 }
@@ -102,7 +102,7 @@ pub fn until_the_minute_turns() -> Result<Duration, Never> {
     Ok(Duration::from_secs(MINUTE.saturating_sub(into)))
 }
 
-pub fn said(clock: Clock) -> Result<String, Never> {
+pub fn format_time(clock: Clock) -> Result<String, Never> {
     let Ok(shape) = clock.shape();
 
     let mut command = match Program::Date.command() {
@@ -121,7 +121,7 @@ pub fn said(clock: Clock) -> Result<String, Never> {
 pub fn now() -> Result<String, Never> {
     let Ok(clock) = clock::clock();
 
-    said(clock)
+    format_time(clock)
 }
 
 #[cfg(test)]
@@ -138,8 +138,8 @@ mod tests {
 
     #[test]
     fn the_clock_is_the_minute_the_zone_and_the_shape_someone_chose() {
-        let Ok(one) = standing();
-        let Ok(again) = standing();
+        let Ok(one) = current();
+        let Ok(again) = current();
 
         assert_eq!(one, again, "two readings a moment apart disagreed");
     }

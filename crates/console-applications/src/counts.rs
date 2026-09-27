@@ -23,11 +23,11 @@ pub fn read(said: &str) -> Result<BTreeMap<String, u64>, Never> {
         .collect())
 }
 
-pub fn written(counts: &BTreeMap<String, u64>) -> Result<String, Never> {
+pub fn serialize(counts: &BTreeMap<String, u64>) -> Result<String, Never> {
     Ok(counts.iter().map(|(name, number)| format!("{number} {name}\n")).collect())
 }
 
-pub fn bumped(mut counts: BTreeMap<String, u64>, name: &str) -> Result<BTreeMap<String, u64>, Never> {
+pub fn increment(mut counts: BTreeMap<String, u64>, name: &str) -> Result<BTreeMap<String, u64>, Never> {
     let count = counts.entry(name.to_string()).or_insert(0);
     *count = count.saturating_add(1);
 
@@ -52,56 +52,58 @@ pub fn order(names: &[String], counts: &BTreeMap<String, u64>) -> Result<Vec<Str
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn names(said: &[&str]) -> Vec<String> {
-        said.iter().map(|name| (*name).to_string()).collect()
+    fn names(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|name| (*name).to_string()).collect())
     }
 
     #[test]
     fn a_count_is_a_number_and_a_name() {
-        let counts = ok(read("3 Firefox\n1 A Long Name\n"));
-        assert_eq!(counts["Firefox"], 3);
-        assert_eq!(counts["A Long Name"], 1, "a name with spaces in it is one name");
+        let Ok(counts) = read("3 Firefox\n1 A Long Name\n");
+
+        assert_eq!(counts.get("Firefox"), Some(&3));
+        assert_eq!(counts.get("A Long Name"), Some(&1), "a name with spaces in it is one name");
     }
 
     #[test]
     fn a_line_that_is_not_a_count_is_not_one() {
-        assert!(ok(read("what\n\nFirefox 3\n")).is_empty());
+        let Ok(counts) = read("what\n\nFirefox 3\n");
+
+        assert!(counts.is_empty());
     }
 
     #[test]
     fn what_is_read_is_what_is_written() {
         let said = "1 Alacritty\n3 Firefox\n";
-        assert_eq!(ok(written(&ok(read(said)))), said);
+        let Ok(counts) = read(said);
+
+        assert_eq!(serialize(&counts), Ok(said.to_string()));
     }
 
     #[test]
     fn the_ones_opened_most_come_first() {
-        let counts = ok(read("3 Firefox\n1 Alacritty\n"));
-        assert_eq!(
-            ok(order(&names(&["Zed", "Alacritty", "Firefox", "Blender"]), &counts)),
-            names(&["Firefox", "Alacritty", "Blender", "Zed"])
-        );
+        let Ok(counts) = read("3 Firefox\n1 Alacritty\n");
+        let Ok(opened) = names(&["Zed", "Alacritty", "Firefox", "Blender"]);
+
+        assert_eq!(order(&opened, &counts), names(&["Firefox", "Alacritty", "Blender", "Zed"]));
     }
 
     #[test]
     fn everything_else_is_alphabetical_whatever_case_it_is_written_in() {
         let counts = BTreeMap::new();
-        assert_eq!(
-            ok(order(&names(&["gimp", "Blender", "alacritty"]), &counts)),
-            names(&["alacritty", "Blender", "gimp"])
-        );
+        let Ok(opened) = names(&["gimp", "Blender", "alacritty"]);
+
+        assert_eq!(order(&opened, &counts), names(&["alacritty", "Blender", "gimp"]));
     }
 
     #[test]
     fn opening_one_counts_it() {
-        let counts = ok(bumped(ok(read("1 Firefox\n")), "Firefox"));
-        assert_eq!(counts["Firefox"], 2);
-        assert_eq!(ok(bumped(counts, "Zed"))["Zed"], 1);
+        let Ok(counts) = read("1 Firefox\n");
+        let Ok(counts) = increment(counts, "Firefox");
+
+        assert_eq!(counts.get("Firefox"), Some(&2));
+
+        let Ok(counts) = increment(counts, "Zed");
+
+        assert_eq!(counts.get("Zed"), Some(&1));
     }
 }

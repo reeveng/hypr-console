@@ -81,8 +81,8 @@ pub fn last(note: &str) -> Result<String, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Output<'a>(&'a str);
 
-pub fn said(note: &str, program: Program, rest: &[&str]) -> Result<String, Never> {
-    let Ok(said) = running::said(program, rest);
+pub fn run_and_note(note: &str, program: Program, rest: &[&str]) -> Result<String, Never> {
+    let Ok(said) = running::run_output(program, rest);
     let Ok(()) = keep(note, Output(&said));
 
     Ok(said)

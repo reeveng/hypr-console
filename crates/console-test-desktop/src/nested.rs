@@ -228,36 +228,36 @@ hl.config({{ misc = {{ disable_watchdog_warning = true }} }})
 mod tests {
     use super::*;
 
-    fn go() -> Screen {
-        Screen {
-            mode: console_core_geometry::Size { width: 2560, height: 1600 },
-            refresh: 144,
-            scale: 2.5,
-            transform: 1,
-        }
-    }
+    const GO: Screen = Screen {
+        mode: console_core_geometry::Size { width: 2560, height: 1600 },
+        refresh: 144,
+        scale: 2.5,
+        transform: 1,
+    };
 
     #[test]
     fn a_picture_is_taken_at_the_devices_own_pixels() {
-        let said = headless(&go()).expect("the screens");
+        let Ok(said) = headless(&GO);
+
         assert!(said.contains("2560x1600@144"), "{said}");
         assert!(said.contains("HEADLESS-1") && said.contains("HEADLESS-2"));
     }
 
     #[test]
     fn a_window_too_large_for_this_screen_gives_up_pixels_and_not_layout() {
-        let said = in_a_window(&go(), 1.25).expect("the window");
+        let Ok(said) = in_a_window(&GO, 1.25);
+
         assert!(said.contains("1280x800@144"), "{said}");
         assert!(said.contains("scale     = 1.25"), "{said}");
     }
 
     #[test]
     fn the_nested_config_reads_the_devices_own() {
-        let said = configuration(
+        let Ok(said) = configuration(
             Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
             Wallpaper::Started,
-        )
-        .expect("the config");
+        );
+
         assert!(said.contains(r#"dofile("/somewhere/hyprland.lua")"#));
         assert!(
             said.contains("rgb(ff00ff)"),
@@ -267,23 +267,25 @@ mod tests {
 
     #[test]
     fn a_session_nothing_is_left_to_stop_starts_no_wallpaper() {
-        let started = session_start("/k", Wallpaper::Started).expect("the session's start");
+        let Ok(started) = session_start("/k", Wallpaper::Started);
+
         assert!(
             started.contains("awww-daemon"),
             "the session that stops the daemon does not start it: {started}"
         );
 
-        let alone = session_start("/k", Wallpaper::LeftOut).expect("the session's start");
+        let Ok(alone) = session_start("/k", Wallpaper::LeftOut);
+
         assert!(
             !alone.contains("awww"),
             "a daemon whose only way out is a core file is started here: {alone}"
         );
 
-        let said = configuration(
+        let Ok(said) = configuration(
             Names { screen: "-- a screen", device: "/somewhere/hyprland.lua" },
             Wallpaper::LeftOut,
-        )
-        .expect("the config");
+        );
+
         assert!(
             !said.contains("ff00ff"),
             "nothing paints this ground, so a color nothing is is all anyone would see: {said}"

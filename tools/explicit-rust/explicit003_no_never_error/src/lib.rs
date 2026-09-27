@@ -5,7 +5,7 @@ extern crate rustc_hir;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{AmbigArg, GenericArg, QPath, Ty, TyKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT003: `Result<T, !>` is forbidden. Give the error a name -- one
@@ -23,12 +23,6 @@ dylint_linting::declare_late_lint! {
     "`Result<T, !>` is forbidden; name the error, `Never` where nothing can go wrong"
 }
 
-// Tests are exempt, as everywhere in this suite: the harness build of a target
-// is skipped, and the ordinary build of the same code is linted as production.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // The last segment of the written path, so that `Result<..>`, `std::result::Result<..>`
 // and a `use`d alias all answer the same way.
 fn is_written_result(ty: &Ty<'_>) -> Option<&'static str> {
@@ -41,9 +35,6 @@ fn is_written_result(ty: &Ty<'_>) -> Option<&'static str> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit003NoNeverError {
     fn check_ty(&mut self, cx: &LateContext<'tcx>, ty: &'tcx Ty<'tcx, AmbigArg>) {
-        if is_test_build(cx) {
-            return;
-        }
         let ty: &Ty<'tcx> = ty.as_unambig_ty();
         if is_written_result(ty).is_none() {
             return;

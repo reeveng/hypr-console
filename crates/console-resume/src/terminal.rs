@@ -35,6 +35,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 use crate::starting::quote_word;
@@ -160,7 +161,7 @@ fn configuration(binary: &str) -> Result<Option<Configuration>, Never> {
     }))
 }
 
-pub fn restored(arguments: &[String], pid: i32) -> Result<Option<Vec<String>>, Never> {
+pub fn restore_command(arguments: &[String], pid: i32) -> Result<Option<Vec<String>>, Never> {
     let occupant = inspect(pid)?;
 
     restore(arguments, &occupant)
@@ -188,7 +189,7 @@ pub fn inspect(pid: i32) -> Result<Occupant, Never> {
 
     let program = match foreground {
         Some(foreground) => {
-            let Ok(running) = running(foreground);
+            let Ok(running) = running_command(foreground);
 
             running
         },
@@ -223,7 +224,7 @@ pub fn inspect(pid: i32) -> Result<Occupant, Never> {
     Ok(Occupant { directory, program, shell: named })
 }
 
-fn running(pid: i32) -> Result<Option<Vec<String>>, Never> {
+fn running_command(pid: i32) -> Result<Option<Vec<String>>, Never> {
     let Ok(said) = argv_of(pid);
 
     let words = match said {
@@ -442,20 +443,22 @@ fn never_resumed() -> Result<Vec<String>, Never> {
 fn never_resume_path() -> Result<Option<PathBuf>, Never> {
     let ours = console_core_places::Base::Configuration.ours()?;
 
-    Ok(ours.map(|at| at.join(crate::OURS).join(NEVER_RESUME_NAME)))
+    Ok(ours.map(|at| at.join(crate::APPLICATION).join(NEVER_RESUME_NAME)))
 }
 
 fn shell_within(pid: i32) -> Result<Option<i32>, Never> {
     let Ok(first) = children(pid);
 
-    let mut queue = VecDeque::from(first);
-    let mut examined: u32 = 0;
+    let searched = console_core_iteration::iterate((VecDeque::from(first), 0_u32), |(mut queue, examined)| {
+        let candidate = match queue.pop_front() {
+            Some(candidate) => candidate,
+            None => return Ok(Step::Halt(None)),
+        };
 
-    while let Some(candidate) = queue.pop_front() {
-        examined = examined.saturating_add(1);
+        let examined = examined.saturating_add(1);
 
         match examined > SEARCH_LIMIT {
-            true => return Ok(None),
+            true => return Ok(Step::Halt(None)),
             false => {},
         }
 
@@ -471,19 +474,24 @@ fn shell_within(pid: i32) -> Result<Option<i32>, Never> {
         };
 
         match is_shell {
-            true => return Ok(Some(candidate)),
+            true => return Ok(Step::Halt(Some(candidate))),
             false => {},
         }
 
         let Ok(more) = children(candidate);
 
         queue.extend(more);
-    }
 
-    Ok(None)
+        Ok(Step::Again((queue, examined)))
+    });
+
+    Ok(match searched {
+        Ok(found) => found,
+        Err(_endless) => None,
+    })
 }
 
-fn numbered(word: &str) -> Result<Option<i32>, Never> {
+fn parse_pid(word: &str) -> Result<Option<i32>, Never> {
     Ok(match word.parse::<i32>() {
         Ok(number) => Some(number),
         Err(_that_is_not_a_process) => None,
@@ -502,7 +510,7 @@ fn children(pid: i32) -> Result<Vec<i32>, Never> {
         match std::fs::read_to_string(task.path().join("children")) {
             Ok(listed) => {
                 found.extend(listed.split_whitespace().filter_map(|word| {
-                    let Ok(numbered) = numbered(word);
+                    let Ok(numbered) = parse_pid(word);
 
                     numbered
                 }));
@@ -537,7 +545,7 @@ fn stat(pid: i32) -> Result<Option<FileStatus>, Never> {
 
         match fields.get(which) {
             Some(said) => {
-                let Ok(numbered) = numbered(said);
+                let Ok(numbered) = parse_pid(said);
 
                 numbered
             },
@@ -595,43 +603,55 @@ fn binary(word: &str) -> Result<&str, Never> {
 mod tests {
     use super::*;
 
-    fn arguments(words: &[&str]) -> Vec<String> {
-        words.iter().map(|word| (*word).to_string()).collect()
+    fn arguments(words: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(words.iter().map(|word| (*word).to_string()).collect())
     }
 
-    fn occupant(directory: &str, program: &[&str]) -> Occupant {
-        Occupant {
+    fn occupant(directory: &str, program: &[&str]) -> Result<Occupant, Never> {
+        let Ok(program_words) = arguments(program);
+
+        Ok(Occupant {
             directory: Some(directory.to_string()),
             program: match program.is_empty() {
                 true => None,
-                false => Some(arguments(program)),
+                false => Some(program_words),
             },
             shell: Some("/usr/bin/zsh".to_string()),
-        }
+        })
     }
 
-    fn restore(words: &[&str], occupant: &Occupant) -> Option<Vec<String>> {
-        let Ok(line) = super::restore(&arguments(words), occupant);
+    fn restore(words: &[&str], occupant: &Occupant) -> Result<Option<Vec<String>>, Never> {
+        let Ok(words) = arguments(words);
 
-        line
+        super::restore(&words, occupant)
+    }
+
+    fn comes_back_as(words: &[&str]) -> Result<Option<Vec<String>>, Never> {
+        let Ok(words) = arguments(words);
+
+        Ok(Some(words))
     }
 
     #[test]
     fn brings_back_the_directory_the_shell_was_in() {
+        let Ok(occupant) = occupant("/home/ada/Documents/projects/website", &[]);
+
         assert_eq!(
             restore(
                 &["foot", "--working-directory=/home/ada"],
-                &occupant("/home/ada/Documents/projects/website", &[])
+                &occupant
             ),
-            Some(arguments(&["foot", "--working-directory=/home/ada/Documents/projects/website"]))
+            comes_back_as(&["foot", "--working-directory=/home/ada/Documents/projects/website"])
         );
     }
 
     #[test]
     fn brings_back_the_program_through_the_shell_that_ran_it() {
+        let Ok(occupant) = occupant("/home/ada/notes", &["nvim", "today.md"]);
+
         assert_eq!(
-            restore(&["foot"], &occupant("/home/ada/notes", &["nvim", "today.md"])),
-            Some(arguments(&[
+            restore(&["foot"], &occupant),
+            comes_back_as(&[
                 "foot",
                 "--working-directory=/home/ada/notes",
                 "-e",
@@ -639,13 +659,14 @@ mod tests {
                 "-i",
                 "-c",
                 "nvim today.md; exec /usr/bin/zsh -i",
-            ]))
+            ])
         );
     }
 
     #[test]
     fn quotes_a_program_argument_that_would_otherwise_be_shell_syntax() {
-        let line = restore(&["foot"], &occupant("/tmp", &["nvim", "two words"]));
+        let Ok(occupant) = occupant("/tmp", &["nvim", "two words"]);
+        let Ok(line) = restore(&["foot"], &occupant);
 
         assert_eq!(
             line.as_ref().and_then(|line| line.last()).map(String::as_str),
@@ -655,21 +676,25 @@ mod tests {
 
     #[test]
     fn steps_into_the_directory_when_the_terminal_has_no_option_for_it() {
+        let Ok(occupant) = occupant("/home/ada/notes", &["nvim"]);
+
         assert_eq!(
-            restore(&["xterm"], &occupant("/home/ada/notes", &["nvim"])),
-            Some(arguments(&[
+            restore(&["xterm"], &occupant),
+            comes_back_as(&[
                 "xterm",
                 "-e",
                 "/usr/bin/zsh",
                 "-i",
                 "-c",
                 "cd /home/ada/notes; nvim; exec /usr/bin/zsh -i",
-            ]))
+            ])
         );
     }
 
     #[test]
     fn replaces_the_options_it_sets_and_keeps_the_rest() {
+        let Ok(occupant) = occupant("/tmp", &["nvim", "new.md"]);
+
         assert_eq!(
             restore(
                 &[
@@ -680,9 +705,9 @@ mod tests {
                     "nvim",
                     "old.md"
                 ],
-                &occupant("/tmp", &["nvim", "new.md"])
+                &occupant
             ),
-            Some(arguments(&[
+            comes_back_as(&[
                 "foot",
                 "--font=Mono:size=12",
                 "--working-directory=/tmp",
@@ -691,26 +716,30 @@ mod tests {
                 "-i",
                 "-c",
                 "nvim new.md; exec /usr/bin/zsh -i",
-            ]))
+            ])
         );
     }
 
     #[test]
     fn reads_a_directory_option_that_stands_apart_from_its_value() {
+        let Ok(occupant) = occupant("/tmp", &[]);
+
         assert_eq!(
             restore(
                 &["alacritty", "--working-directory", "/home/ada", "--title", "x"],
-                &occupant("/tmp", &[])
+                &occupant
             ),
-            Some(arguments(&["alacritty", "--title", "x", "--working-directory", "/tmp"]))
+            comes_back_as(&["alacritty", "--title", "x", "--working-directory", "/tmp"])
         );
     }
 
     #[test]
     fn puts_a_subcommand_first_and_a_command_last() {
+        let Ok(occupant) = occupant("/tmp", &["btop"]);
+
         assert_eq!(
-            restore(&["wezterm", "start", "--cwd", "/home/ada"], &occupant("/tmp", &["btop"])),
-            Some(arguments(&[
+            restore(&["wezterm", "start", "--cwd", "/home/ada"], &occupant),
+            comes_back_as(&[
                 "wezterm",
                 "start",
                 "--cwd",
@@ -720,18 +749,20 @@ mod tests {
                 "-i",
                 "-c",
                 "btop; exec /usr/bin/zsh -i",
-            ]))
+            ])
         );
     }
 
     #[test]
     fn drops_the_command_a_terminal_carries_without_an_option() {
+        let Ok(occupant) = occupant("/tmp", &["nvim", "new.md"]);
+
         assert_eq!(
             restore(
                 &["kitty", "--directory", "/home/ada", "nvim", "old.md"],
-                &occupant("/tmp", &["nvim", "new.md"])
+                &occupant
             ),
-            Some(arguments(&[
+            comes_back_as(&[
                 "kitty",
                 "--directory",
                 "/tmp",
@@ -739,18 +770,20 @@ mod tests {
                 "-i",
                 "-c",
                 "nvim new.md; exec /usr/bin/zsh -i",
-            ]))
+            ])
         );
     }
 
     #[test]
     fn leaves_alone_a_window_that_is_not_a_terminal_it_knows() {
-        assert_eq!(restore(&["librewolf"], &occupant("/home/ada", &["nvim"])), None);
+        let Ok(occupant) = occupant("/home/ada", &["nvim"]);
+
+        assert_eq!(restore(&["librewolf"], &occupant), Ok(None));
     }
 
     #[test]
     fn leaves_alone_a_terminal_whose_tree_said_nothing() {
-        assert_eq!(restore(&["foot"], &Occupant::default()), None);
+        assert_eq!(restore(&["foot"], &Occupant::default()), Ok(None));
     }
 
     #[test]

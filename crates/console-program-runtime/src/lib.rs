@@ -39,6 +39,19 @@
 //! and the loop does nothing with it, because what a program subscribed to
 //! after a gap is the replay that is already following it.
 //!
+//! **A program can be woken by what only its interpreter can reach.** A
+//! device node, a socket someone else opened -- the runtime has no way to wait
+//! on either, and recovery and the wallpaper each wrote the whole loop again
+//! rather than go without. [`Interpreter::listen`] is handed a [`Tell`] once,
+//! before the first turn, and whatever it sends arrives as [`Event::Custom`]
+//! through the same wait the pool's changes come through: the pool is carried
+//! onto that one channel by a thread of its own, so there is still one wait
+//! and not a poll across two. An interpreter that listens keeps the program
+//! alive with no timer and no topic, and [`Tell::end`] is how the thread it
+//! started says the thing it was waiting on has gone -- a program waiting on a
+//! pad that can no longer be read is finished, and saying so is the only way
+//! it stops rather than waiting on a channel that will never speak again.
+//!
 //! **A timer that cannot fall due is not a timer.** `Instant::checked_add`
 //! refuses when the answer would be hundreds of years out, so nothing on a
 //! machine reaches it -- but the arm has to say something, and there are only
@@ -59,12 +72,13 @@
 
 use std::collections::VecDeque;
 use std::process::{self, ExitCode, Stdio};
-use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::Instant;
 
-use console_events::subscription::{self, Desired, Received, Subscriber};
-use console_program_lifetime::{Detached, Still, let_go};
+use console_events::subscription::{self, Desired, Received, Subscriptions};
+use console_program_lifetime::{Detached, Still, let_go, threads};
 use console_core_external_programs::Program as ExternalProgram;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_program_contract::{
     Answer, Arguments, Change, Choice, Effect, Exit, Executable, Initial, Program, Prompt, Timer, Command,
@@ -79,6 +93,46 @@ pub trait Interpreter {
 
     fn tick(&mut self, _timer: &Timer, _since: Elapsed) -> Result<Vec<Event<Self::Event>>, Never> {
         Ok(Vec::new())
+    }
+
+    fn listen(&mut self, _tell: Tell<Self::Event>) -> Result<Subscribed, Never> {
+        Ok(Subscribed::No)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subscribed {
+    Yes,
+    No,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    Yes,
+    Gone,
+}
+
+enum Arrived<E> {
+    Pool(Received),
+    Custom(E),
+    Ended(Exit),
+}
+
+pub struct Tell<E>(Sender<Arrived<E>>);
+
+impl<E> Tell<E> {
+    pub fn tell(&self, event: E) -> Result<Delivery, Never> {
+        Ok(match self.0.send(Arrived::Custom(event)) {
+            Ok(()) => Delivery::Yes,
+            Err(_the_loop_has_ended) => Delivery::Gone,
+        })
+    }
+
+    pub fn end(&self, how: Exit) -> Result<Delivery, Never> {
+        Ok(match self.0.send(Arrived::Ended(how)) {
+            Ok(()) => Delivery::Yes,
+            Err(_the_loop_has_ended) => Delivery::Gone,
+        })
     }
 }
 
@@ -98,23 +152,45 @@ struct Waiting {
     due: Instant,
 }
 
-enum Woke {
+enum Woke<E> {
     Tick(Timer),
     Changed(Change),
+    Custom(E),
+    Ended(Exit),
     Finished,
+}
+
+struct Waits<'a, E> {
+    arrived: &'a Receiver<Arrived<E>>,
+    subscriptions: &'a Subscriptions,
+    listening: Subscribed,
 }
 
 pub fn run<P, C>(called: &str, arguments: &Arguments, interpreter: &mut C) -> Result<ExitCode, Never>
 where
     P: Program,
+    P::Event: Send + 'static,
     C: Interpreter<Event = P::Event, Effect = P::Effect>,
 {
     let Initial { state, subscriptions } = P::init(arguments);
-    let mut held = state;
     let mut timers: Vec<Waiting> = Vec::new();
     let mut queue: VecDeque<Event<P::Event>> = VecDeque::new();
-    let mut running: Vec<Detached> = Vec::new();
     let Ok(subscriber) = subscription::connect(&[]);
+    let Ok((topics, pool)) = subscriber.split();
+    let (telling, arrived) = channel::<Arrived<P::Event>>();
+    let carrying = telling.clone();
+
+    let Ok(()) = threads::let_go(std::thread::spawn(move || {
+        for received in pool.iter() {
+            match carrying.send(Arrived::Pool(received)) {
+                Ok(()) => {},
+                Err(_the_loop_has_ended) => return,
+            }
+        }
+    }));
+
+    let Ok(listening) = interpreter.listen(Tell(telling));
+    let waits = Waits { arrived: &arrived, subscriptions: &topics, listening };
 
     #[cfg_attr(
         dylint_lib = "explicit039_no_reading_the_clock",
@@ -126,137 +202,217 @@ where
     let began = Instant::now();
 
     for want in &subscriptions {
-        let Ok(()) = subscribe(called, &mut timers, &subscriber, want, began);
+        let Ok(()) = subscribe(called, &mut timers, &topics, want, began);
     }
 
     queue.push_back(Event::Opened);
 
-    loop {
-        let word = match queue.pop_front() {
-            Some(word) => word,
-            None => {
-                let Ok(woke) = woke(called, &mut timers, &subscriber);
+    let turning = Turning { held: state, timers, queue, running: Vec::new(), interpreter };
+    let asked = Context { called, topics: &topics, waits: &waits, began };
 
-                match woke {
-                    Woke::Tick(timer) => {
-                        let since = began.elapsed();
+    Ok(match console_core_iteration::iterate(turning, |turning| turned::<P, C>(turning, &asked)) {
+        Ok(ended) => ended,
+        Err(endless) => {
+            eprintln!("{called}: {endless}");
 
-                        let Ok(events) = interpreter.tick(&timer, since);
+            ExitCode::FAILURE
+        }
+    })
+}
 
-                        queue.extend(events);
-                        queue.push_back(Event::Tick(timer, since));
+struct Turning<'i, S, E, C> {
+    held: S,
+    timers: Vec<Waiting>,
+    queue: VecDeque<Event<E>>,
+    running: Vec<Detached>,
+    interpreter: &'i mut C,
+}
 
-                        continue;
-                    }
-                    Woke::Changed(change) => {
-                        queue.push_back(Event::Changed(change));
+struct Context<'a, E> {
+    called: &'a str,
+    topics: &'a Subscriptions,
+    waits: &'a Waits<'a, E>,
+    began: Instant,
+}
 
-                        continue;
-                    }
-                    Woke::Finished => Event::Stopping,
+type Turned<'i, P, C> = Step<Turning<'i, <P as Program>::State, <P as Program>::Event, C>, ExitCode>;
+
+fn turned<'i, P, C>(
+    mut turning: Turning<'i, P::State, P::Event, C>,
+    asked: &Context<'_, P::Event>,
+) -> Result<Turned<'i, P, C>, Never>
+where
+    P: Program,
+    C: Interpreter<Event = P::Event, Effect = P::Effect>,
+{
+    let word = match turning.queue.pop_front() {
+        Some(word) => word,
+        None => {
+            let Ok(woke) = woke(asked.called, &mut turning.timers, asked.waits);
+
+            match woke {
+                Woke::Tick(timer) => {
+                    let since = asked.began.elapsed();
+
+                    let Ok(events) = turning.interpreter.tick(&timer, since);
+
+                    turning.queue.extend(events);
+                    turning.queue.push_back(Event::Tick(timer, since));
+
+                    return Ok(Step::Again(turning));
                 }
-            },
-        };
+                Woke::Changed(change) => {
+                    turning.queue.push_back(Event::Changed(change));
 
-        let last = matches!(word, Event::Stopping);
-        let Update { state: next, effects } = P::update(&held, &word);
-        held = next;
-        let mut ending: Option<Exit> = None;
+                    return Ok(Step::Again(turning));
+                }
+                Woke::Custom(event) => {
+                    turning.queue.push_back(Event::Custom(event));
 
-        for effect in &effects {
-            match effect {
-                Effect::Run(command) => {
-                    let Ok(answer) = asked(called, command);
+                    return Ok(Step::Again(turning));
+                }
+                Woke::Ended(how) => {
+                    let Ok(ended) = ended(asked.called, how);
 
-                    queue.push_back(Event::Replied(answer));
+                    return Ok(Step::Halt(ended));
                 }
-                Effect::Stream(command) => {
-                    let Ok(answer) = watched(called, command);
+                Woke::Finished => Event::Stopping,
+            }
+        },
+    };
 
-                    queue.push_back(Event::Replied(answer));
-                }
-                Effect::Prompt(prompt) => {
-                    let Ok(chose) = chose(prompt);
+    let last = matches!(word, Event::Stopping);
+    let Update { state: next, effects } = P::update(&turning.held, &word);
+    turning.held = next;
 
-                    queue.push_back(Event::Chosen(chose));
-                }
-                Effect::Spawn(command) => {
-                    let Ok(child) = started(called, command);
+    let Ok(ending) = carried_out::<P, C>(&effects, &mut turning, asked);
 
-                    running.extend(child);
-                }
-                Effect::Subscribe(want) => {
-                    #[cfg_attr(
-                        dylint_lib = "explicit039_no_reading_the_clock",
-                        allow(
-                            explicit039_no_reading_the_clock,
-                            reason = "a timer asked for part way through a life falls due from when it was asked, and the loop is the only thing that knows when that was"
-                        )
-                    )]
-                    let Ok(()) = subscribe(called, &mut timers, &subscriber, want, Instant::now());
-                }
-                Effect::Unsubscribe(want) => {
-                    let Ok(()) = unsubscribe(&mut timers, &subscriber, want);
-                }
-                Effect::Write(write) => {
-                    let Ok(()) = wrote(called, write);
-                }
-                Effect::Notify(notification) => {
-                    let Ok(()) = notify(called, notification);
-                }
+    let Ok(still) = reap(turning.running);
+
+    turning.running = still;
+
+    Ok(match (ending, last) {
+        (Some(how), _) => {
+            let Ok(ended) = ended(asked.called, how);
+
+            Step::Halt(ended)
+        }
+        (None, true) => Step::Halt(ExitCode::SUCCESS),
+        (None, false) => Step::Again(turning),
+    })
+}
+
+fn carried_out<P, C>(
+    effects: &[Effect<P::Effect>],
+    turning: &mut Turning<'_, P::State, P::Event, C>,
+    asked: &Context<'_, P::Event>,
+) -> Result<Option<Exit>, Never>
+where
+    P: Program,
+    C: Interpreter<Event = P::Event, Effect = P::Effect>,
+{
+    let called = asked.called;
+    let mut ending: Option<Exit> = None;
+
+    for effect in effects {
+        match effect {
+            Effect::Run(command) => {
+                let Ok(answer) = run_captured(called, command);
+
+                turning.queue.push_back(Event::Replied(answer));
+            }
+            Effect::Stream(command) => {
+                let Ok(answer) = run_attached(called, command);
+
+                turning.queue.push_back(Event::Replied(answer));
+            }
+            Effect::Prompt(prompt) => {
+                let Ok(chose) = chose(prompt);
+
+                turning.queue.push_back(Event::Chosen(chose));
+            }
+            Effect::Spawn(command) => {
+                let Ok(child) = spawn_scoped(called, command);
+
+                turning.running.extend(child);
+            }
+            Effect::Subscribe(want) => {
                 #[cfg_attr(
-                    dylint_lib = "explicit041_no_unsaid_printing",
+                    dylint_lib = "explicit039_no_reading_the_clock",
                     allow(
-                        explicit041_no_unsaid_printing,
-                        reason = "this is what carries `Effect::Print` out, so something at the bottom has to be the thing that prints"
+                        explicit039_no_reading_the_clock,
+                        reason = "a timer asked for part way through a life falls due from when it was asked, and the loop is the only thing that knows when that was"
                     )
                 )]
-                Effect::Print(line) => println!("{line}"),
-                Effect::Stop(how) => ending = Some(how.clone()),
-                Effect::Custom(effect) => queue.extend(interpreter.interpret(effect)),
+                let Ok(()) = subscribe(called, &mut turning.timers, asked.topics, want, Instant::now());
             }
-        }
-
-        let Ok(still) = reaped(running);
-
-        running = still;
-
-        match (ending, last) {
-            (Some(Exit::Success), _) | (None, true) => return Ok(ExitCode::SUCCESS),
-            (Some(Exit::Failure(fault)), _) => {
-                eprintln!("{called}: {fault}");
-
-                return Ok(ExitCode::FAILURE);
+            Effect::Unsubscribe(want) => {
+                let Ok(()) = unsubscribe(&mut turning.timers, asked.topics, want);
             }
-            (None, false) => {},
+            Effect::Write(write) => {
+                let Ok(()) = wrote(called, write);
+            }
+            Effect::Notify(notification) => {
+                let Ok(()) = notify(called, notification);
+            }
+            #[cfg_attr(
+                dylint_lib = "explicit041_no_unsaid_printing",
+                allow(
+                    explicit041_no_unsaid_printing,
+                    reason = "this is what carries `Effect::Print` out, so something at the bottom has to be the thing that prints"
+                )
+            )]
+            Effect::Print(line) => println!("{line}"),
+            Effect::Stop(how) => ending = Some(how.clone()),
+            Effect::Custom(effect) => turning.queue.extend(turning.interpreter.interpret(effect)),
         }
     }
+
+    Ok(ending)
 }
 
-fn woke(called: &str, timers: &mut Vec<Waiting>, subscriber: &Subscriber) -> Result<Woke, Never> {
-    loop {
-        let Ok(waited) = waited(called, timers, subscriber);
+fn ended(called: &str, how: Exit) -> Result<ExitCode, Never> {
+    Ok(match how {
+        Exit::Success => ExitCode::SUCCESS,
+        Exit::Failure(fault) => {
+            eprintln!("{called}: {fault}");
 
-        match waited {
-            Some(woke) => return Ok(woke),
-            None => {},
+            ExitCode::FAILURE
         }
-    }
+    })
 }
 
-fn waited(called: &str, timers: &mut Vec<Waiting>, subscriber: &Subscriber) -> Result<Option<Woke>, Never> {
+fn woke<E>(called: &str, timers: &mut Vec<Waiting>, waits: &Waits<'_, E>) -> Result<Woke<E>, Never> {
+    let woke = console_core_iteration::iterate(timers, |timers| {
+        let Ok(waited) = wait(called, timers, waits);
+
+        Ok(match waited {
+            Some(woke) => Step::Halt(woke),
+            None => Step::Again(timers),
+        })
+    });
+
+    Ok(match woke {
+        Ok(woke) => woke,
+        Err(_endless) => Woke::Finished,
+    })
+}
+
+fn wait<E>(called: &str, timers: &mut Vec<Waiting>, waits: &Waits<'_, E>) -> Result<Option<Woke<E>>, Never> {
     let soonest = timers.iter().map(|waiting| waiting.due).min();
-    let Ok(received) = subscriber.received();
-    let Ok(wanting) = subscriber.desired();
+    let Ok(wanting) = waits.subscriptions.desired();
 
-    match (soonest, wanting) {
-        (None, Desired::None) => Ok(Some(Woke::Finished)),
-        (None, Desired::Some) => Ok(match received.recv() {
-            Ok(Received::Event(change)) => Some(Woke::Changed(change)),
-            Ok(Received::Connected) => None,
+    match (soonest, wanting, waits.listening) {
+        (None, Desired::None, Subscribed::No) => Ok(Some(Woke::Finished)),
+        (None, Desired::Some, _) | (None, Desired::None, Subscribed::Yes) => Ok(match waits.arrived.recv() {
+            Ok(arrived) => {
+                let Ok(woke) = arrival(arrived);
+
+                woke
+            }
             Err(_the_sender_has_gone) => Some(Woke::Finished),
         }),
-        (Some(soonest), Desired::Some | Desired::None) => {
+        (Some(soonest), Desired::Some | Desired::None, _) => {
             #[cfg_attr(
                 dylint_lib = "explicit039_no_reading_the_clock",
                 allow(
@@ -266,9 +422,8 @@ fn waited(called: &str, timers: &mut Vec<Waiting>, subscriber: &Subscriber) -> R
             )]
             let waiting = soonest.saturating_duration_since(Instant::now());
 
-            match received.recv_timeout(waiting) {
-                Ok(Received::Event(change)) => Ok(Some(Woke::Changed(change))),
-                Ok(Received::Connected) => Ok(None),
+            match waits.arrived.recv_timeout(waiting) {
+                Ok(arrived) => arrival(arrived),
                 Err(RecvTimeoutError::Timeout) => {
                     let Ok(fell) = fell_due(called, timers);
 
@@ -280,7 +435,16 @@ fn waited(called: &str, timers: &mut Vec<Waiting>, subscriber: &Subscriber) -> R
     }
 }
 
-fn fell_due(called: &str, timers: &mut Vec<Waiting>) -> Result<Woke, Never> {
+fn arrival<E>(arrived: Arrived<E>) -> Result<Option<Woke<E>>, Never> {
+    Ok(match arrived {
+        Arrived::Pool(Received::Event(change)) => Some(Woke::Changed(change)),
+        Arrived::Pool(Received::Connected) => None,
+        Arrived::Custom(event) => Some(Woke::Custom(event)),
+        Arrived::Ended(how) => Some(Woke::Ended(how)),
+    })
+}
+
+fn fell_due<E>(called: &str, timers: &mut Vec<Waiting>) -> Result<Woke<E>, Never> {
     #[cfg_attr(
         dylint_lib = "explicit039_no_reading_the_clock",
         allow(
@@ -315,7 +479,7 @@ fn fell_due(called: &str, timers: &mut Vec<Waiting>) -> Result<Woke, Never> {
 fn subscribe(
     called: &str,
     timers: &mut Vec<Waiting>,
-    subscriber: &Subscriber,
+    subscriptions: &Subscriptions,
     want: &Subscription,
     now: Instant,
 ) -> Result<(), Never> {
@@ -330,26 +494,26 @@ fn subscribe(
             }
         }
         Subscription::Topic(topic) => {
-            let Ok(()) = subscriber.subscribe(topic);
+            let Ok(()) = subscriptions.subscribe(topic);
         }
     }
 
     Ok(())
 }
 
-fn unsubscribe(timers: &mut Vec<Waiting>, subscriber: &Subscriber, want: &Subscription) -> Result<(), Never> {
+fn unsubscribe(timers: &mut Vec<Waiting>, subscriptions: &Subscriptions, want: &Subscription) -> Result<(), Never> {
     match want {
         Subscription::Timer(timer) => timers.retain(|waiting| waiting.timer != *timer),
         Subscription::Topic(topic) => {
-            let Ok(()) = subscriber.unsubscribe(topic);
+            let Ok(()) = subscriptions.unsubscribe(topic);
         }
     }
 
     Ok(())
 }
 
-fn asked(called: &str, command: &Command) -> Result<Answer, Never> {
-    let Ok(mut starting) = starting(command);
+fn run_captured(called: &str, command: &Command) -> Result<Answer, Never> {
+    let Ok(mut starting) = build_command(command);
 
     let said = starting.stderr(Stdio::inherit()).output();
 
@@ -372,8 +536,8 @@ fn asked(called: &str, command: &Command) -> Result<Answer, Never> {
     })
 }
 
-fn watched(called: &str, command: &Command) -> Result<Answer, Never> {
-    let Ok(mut starting) = starting(command);
+fn run_attached(called: &str, command: &Command) -> Result<Answer, Never> {
+    let Ok(mut starting) = build_command(command);
 
     let went = starting.stdout(Stdio::inherit()).stderr(Stdio::inherit()).status();
 
@@ -414,11 +578,11 @@ fn chose(prompt: &Prompt) -> Result<Choice, Never> {
     match terminal.read_line(&mut said) {
         Ok(0) => Ok(prompt.default),
         Err(_the_terminal_failed) => Ok(prompt.default),
-        Ok(_) => meant(said.trim(), prompt.default),
+        Ok(_) => parse_choice(said.trim(), prompt.default),
     }
 }
 
-fn meant(said: &str, default: Choice) -> Result<Choice, Never> {
+fn parse_choice(said: &str, default: Choice) -> Result<Choice, Never> {
     Ok(match said.to_lowercase().as_str() {
         "y" | "yes" => Choice::Yes,
         "n" | "no" => Choice::No,
@@ -426,7 +590,7 @@ fn meant(said: &str, default: Choice) -> Result<Choice, Never> {
     })
 }
 
-fn started(called: &str, command: &Command) -> Result<Option<Detached>, Never> {
+fn spawn_scoped(called: &str, command: &Command) -> Result<Option<Detached>, Never> {
     let Ok(mut starting) = ExternalProgram::SystemdRun.command();
     let Ok(name) = command.program.name();
 
@@ -447,7 +611,7 @@ fn started(called: &str, command: &Command) -> Result<Option<Detached>, Never> {
     })
 }
 
-fn reaped(running: Vec<Detached>) -> Result<Vec<Detached>, Never> {
+fn reap(running: Vec<Detached>) -> Result<Vec<Detached>, Never> {
     Ok(running
         .into_iter()
         .filter_map(|mut child| {
@@ -461,14 +625,18 @@ fn reaped(running: Vec<Detached>) -> Result<Vec<Detached>, Never> {
         .collect())
 }
 
-fn starting(command: &Command) -> Result<process::Command, Never> {
+fn build_command(command: &Command) -> Result<process::Command, Never> {
     let mut starting = match command.program {
         Executable::External(program) => {
             let Ok(starting) = program.command();
 
             starting
         }
-        Executable::Internal(name) => process::Command::new(name),
+        Executable::Internal(program) => {
+            let Ok(starting) = program.command();
+
+            starting
+        }
     };
 
     starting.args(&command.arguments);

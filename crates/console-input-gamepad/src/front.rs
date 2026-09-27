@@ -46,7 +46,7 @@ pub const BUS: &str = "org.shadowblip.InputPlumber";
 pub const OBJECT: &str = "/org/shadowblip/InputPlumber/CompositeDevice0";
 pub const INTERFACE: &str = "org.shadowblip.Input.CompositeDevice";
 
-pub fn asking() -> Result<Vec<&'static str>, Never> {
+pub fn capabilities_command() -> Result<Vec<&'static str>, Never> {
     let Ok(busctl) = Program::Busctl.name();
 
     Ok(vec![
@@ -60,7 +60,7 @@ pub fn asking() -> Result<Vec<&'static str>, Never> {
     ])
 }
 
-pub fn wearing() -> Result<Vec<&'static str>, Never> {
+pub fn profile_path_command() -> Result<Vec<&'static str>, Never> {
     let Ok(busctl) = Program::Busctl.name();
 
     Ok(vec![
@@ -74,7 +74,7 @@ pub fn wearing() -> Result<Vec<&'static str>, Never> {
     ])
 }
 
-pub fn loading(path: &str) -> Result<Vec<String>, Never> {
+pub fn load_profile_command(path: &str) -> Result<Vec<String>, Never> {
     Program::Busctl.arguments(&[
         "--system",
         "call",
@@ -128,7 +128,7 @@ impl Front {
         })
     }
 
-    pub fn missing<'a>(&self, buttons: &[&'a str]) -> Result<Vec<&'a str>, Never> {
+    pub fn missing_buttons<'a>(&self, buttons: &[&'a str]) -> Result<Vec<&'a str>, Never> {
         match self.capabilities.is_some() {
             true => {},
             false => return Ok(Vec::new()),
@@ -294,12 +294,6 @@ fn properties(line: &str) -> Result<Properties, Never> {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
     const SAID: &str = r#"as 41 "Gamepad:Trigger:RightTouchpadForce" "Gyroscope:Center" "Gamepad:Button:DPadLeft" "Gamepad:Button:LeftPaddle1" "Gamepad:Button:QuickAccess" "Gamepad:Button:South" "Gamepad:Axis:LeftStick" "Gamepad:Button:RightPaddle3""#;
 
     const LISTED: &str = "\
@@ -319,29 +313,32 @@ B: ABS=10000000003
 ";
 
     #[test]
-    fn what_the_machine_said_is_read_as_what_it_has() {
-        let front = ok(Front::of(Read { said: SAID, devices: LISTED }));
-        let has = front.capabilities.expect("it answered");
+    fn what_the_machine_said_is_read_as_what_it_has() -> Result<(), &'static str> {
+        let Ok(front) = Front::of(Read { said: SAID, devices: LISTED });
+        let has = front.capabilities.ok_or("it answered nothing")?;
+
         assert!(has.contains("Gamepad:Button:LeftPaddle1"));
         assert!(has.contains("Gamepad:Axis:LeftStick"));
         assert_eq!(has.len(), 8);
+
+        Ok(())
     }
 
     #[test]
     fn a_button_this_machine_cannot_send_is_the_one_that_comes_back() {
-        let front = ok(Front::of(Read { said: SAID, devices: LISTED }));
-        assert_eq!(ok(front.missing(&["South", "RightPaddle1"])), ["RightPaddle1"]);
+        let Ok(front) = Front::of(Read { said: SAID, devices: LISTED });
+        assert_eq!(front.missing_buttons(&["South", "RightPaddle1"]), Ok(vec!["RightPaddle1"]));
         assert_eq!(front.can_send("South"), Ok(Has::Yes));
         assert_eq!(front.can_send("RightPaddle1"), Ok(Has::No));
     }
 
     #[test]
     fn a_machine_that_could_not_be_asked_is_missing_nothing() {
-        let quiet = ok(Front::of(Read { said: "", devices: "" }));
+        let Ok(quiet) = Front::of(Read { said: "", devices: "" });
         assert_eq!(quiet.capabilities, None);
         assert_eq!(quiet.touchscreen, None);
-        assert!(ok(quiet.missing(&["South"])).is_empty());
-        assert!(ok(quiet.spare(&[])).is_empty());
+        assert_eq!(quiet.missing_buttons(&["South"]), Ok(Vec::new()));
+        assert_eq!(quiet.spare(&[]), Ok(Vec::new()));
         assert_eq!(
             quiet.can_send("RightPaddle1"),
             Ok(Has::Yes),
@@ -351,8 +348,8 @@ B: ABS=10000000003
 
     #[test]
     fn a_button_nothing_is_bound_to_is_one_the_setup_screen_can_offer() {
-        let front = ok(Front::of(Read { said: SAID, devices: LISTED }));
-        let spare = ok(front.spare(&["South"]));
+        let Ok(front) = Front::of(Read { said: SAID, devices: LISTED });
+        let Ok(spare) = front.spare(&["South"]);
         assert!(spare.contains(&"Gamepad:Button:RightPaddle3".to_string()), "{spare:?}");
         assert!(!spare.contains(&"Gamepad:Button:South".to_string()), "{spare:?}");
         assert!(spare.iter().all(|said| said.starts_with("Gamepad:Button:")), "{spare:?}");
@@ -412,7 +409,7 @@ B: ABS=3003f
 
     #[test]
     fn a_profile_is_read_again_by_the_path_it_is_at() {
-        let asked = ok(loading("/etc/inputplumber/profiles/tabs.yaml"));
+        let Ok(asked) = load_profile_command("/etc/inputplumber/profiles/tabs.yaml");
         assert_eq!(asked.first().map(String::as_str), Some("busctl"));
         assert!(asked.contains(&"LoadProfilePath".to_string()));
         assert_eq!(asked.last().map(String::as_str), Some("/etc/inputplumber/profiles/tabs.yaml"));
@@ -420,8 +417,9 @@ B: ABS=3003f
 
     #[test]
     fn the_question_is_the_one_the_daemon_answers() {
-        let asking = ok(asking());
-        assert_eq!(asking[0], "busctl");
+        let Ok(asking) = capabilities_command();
+
+        assert_eq!(asking.first(), Some(&"busctl"));
         assert!(asking.contains(&"--system"));
         assert!(asking.contains(&"Capabilities"));
     }

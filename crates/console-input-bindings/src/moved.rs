@@ -32,7 +32,7 @@ use crate::bound::{Binding, Played};
 pub const NAMED: &str = "buttons.toml";
 
 pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
     Ok(ours.join(NAMED))
 }
@@ -104,7 +104,7 @@ impl Tasks {
         Ok(Tasks::default())
     }
 
-    pub fn moved(&self) -> Result<Rebound, Never> {
+    pub fn rebound(&self) -> Result<Rebound, Never> {
         Ok(match self.moved.is_empty() {
             true => Rebound::None,
             false => Rebound::Some,
@@ -115,7 +115,7 @@ impl Tasks {
         Ok(self.moved.get(job).map(Vec::as_slice))
     }
 
-    pub fn adding(
+    pub fn add(
         &mut self,
         every: &BTreeMap<String, Vec<Binding>>,
         job: &str,
@@ -163,7 +163,7 @@ impl Tasks {
         })
     }
 
-    pub fn removing(
+    pub fn remove(
         &mut self,
         every: &BTreeMap<String, Vec<Binding>>,
         job: &str,
@@ -176,7 +176,7 @@ impl Tasks {
         Ok(())
     }
 
-    pub fn written(&self) -> Result<String, Never> {
+    pub fn serialize(&self) -> Result<String, Never> {
         let mut said = String::from(
             "# What each thing this desktop does is bound to, on this machine.\n\
              #\n\
@@ -216,7 +216,7 @@ fn without(bound: Option<&Vec<Binding>>, off: &Binding) -> Result<Vec<Binding>, 
 
     match left.is_empty() {
         true => {
-            let nothing = Binding::nothing()?;
+            let nothing = Binding::unbound()?;
 
             Ok(vec![nothing])
         }
@@ -227,56 +227,56 @@ fn without(bound: Option<&Vec<Binding>>, off: &Binding) -> Result<Vec<Binding>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     use crate::bound::{Input, Played};
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
     #[test]
-    fn the_file_holds_one_answer_or_several() {
+    fn the_file_holds_one_answer_or_several() -> Result<(), Box<dyn Error>> {
         let jobs = Tasks::read(
             "[jobs]\nscreenshot = \"l2 + right-paddle-bottom\"\nkeyboard = [\"x\", \"keyboard\"]\n",
-        )
-        .expect("a table");
+        )?;
+        let Ok(screenshot) = jobs.bound("screenshot");
+        let Ok(keyboard) = jobs.bound("keyboard");
 
-        assert_eq!(ok(jobs.bound("screenshot")).expect("one").len(), 1);
-        assert_eq!(ok(jobs.bound("keyboard")).expect("two").len(), 2);
+        assert_eq!(screenshot.map(<[Binding]>::len), Some(1));
+        assert_eq!(keyboard.map(<[Binding]>::len), Some(2));
         assert_eq!(jobs.bound("menu"), Ok(None));
+        Ok(())
     }
 
     #[test]
-    fn a_job_can_be_on_one_input_and_another_at_once() {
-        let jobs =
-            Tasks::read("[jobs]\nsettings = [\"legion-right\", \"keyboard: super + i\"]\n")
-                .expect("a table");
-        let bound = ok(jobs.bound("settings")).expect("two");
+    fn a_job_can_be_on_one_input_and_another_at_once() -> Result<(), Box<dyn Error>> {
+        let jobs = Tasks::read("[jobs]\nsettings = [\"legion-right\", \"keyboard: super + i\"]\n")?;
+        let Ok(bound) = jobs.bound("settings");
+        let bound = bound.ok_or("settings is bound to nothing")?;
 
         assert_eq!(bound.iter().map(|one| one.on).collect::<Vec<Input>>(), vec![
             Input::Pad,
             Input::Keyboard
         ]);
+        Ok(())
     }
 
     #[test]
-    fn what_is_written_reads_back_the_same() {
+    fn what_is_written_reads_back_the_same() -> Result<(), Box<dyn Error>> {
         let said = "[jobs]\nkeyboard = [\"x\", \"keyboard\"]\nmenu = \"\"\nscreenshot = \"keyboard: ctrl + shift + p\"\n";
-        let jobs = Tasks::read(said).expect("a table");
-        let again = Tasks::read(&ok(jobs.written())).expect("what it wrote");
+        let jobs = Tasks::read(said)?;
+        let Ok(written) = jobs.serialize();
+        let again = Tasks::read(&written)?;
 
         assert_eq!(jobs, again);
+        Ok(())
     }
 
     #[test]
-    fn a_file_written_before_there_was_more_than_a_pad_still_reads() {
-        let jobs = Tasks::read("[jobs]\nscreenshot = \"l2 + right-paddle-bottom\"\n")
-            .expect("a table");
-        let bound = ok(jobs.bound("screenshot")).expect("one");
+    fn a_file_written_before_there_was_more_than_a_pad_still_reads() -> Result<(), Box<dyn Error>> {
+        let jobs = Tasks::read("[jobs]\nscreenshot = \"l2 + right-paddle-bottom\"\n")?;
+        let Ok(bound) = jobs.bound("screenshot");
+        let bound = bound.ok_or("the screenshot is bound to nothing")?;
 
         assert_eq!(bound.first().map(|one| one.on), Some(Input::Pad));
+        Ok(())
     }
 
     #[test]
@@ -290,134 +290,147 @@ mod tests {
         );
     }
 
-    fn every() -> BTreeMap<String, Vec<Binding>> {
-        [
-            ("menu".to_string(), vec![ok(Binding::pad("left-paddle-top"))]),
-            (
-                "screenshot".to_string(),
-                vec![ok(Binding::holding(Input::Pad, &["l2"], "b"))],
-            ),
-        ]
-        .into_iter()
-        .collect()
+    fn every() -> Result<BTreeMap<String, Vec<Binding>>, Never> {
+        let Ok(top_paddle) = Binding::pad("left-paddle-top");
+        let Ok(held_b) = Binding::chord(Input::Pad, &["l2"], "b");
+
+        Ok([("menu".to_string(), vec![top_paddle]), ("screenshot".to_string(), vec![held_b])]
+            .into_iter()
+            .collect())
     }
 
     #[test]
     fn a_free_button_is_added_beside_the_one_a_job_already_has() {
-        let mut jobs = ok(Tasks::none());
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(every) = every();
+        let Ok(top_paddle) = Binding::pad("left-paddle-top");
+        let Ok(menu) = Binding::pad("menu");
 
-        assert_eq!(jobs.adding(&every(), "menu", &ok(Binding::pad("menu"))), Ok(Moved::Onto));
-        assert_eq!(
-            jobs.bound("menu"),
-            Ok(Some([ok(Binding::pad("left-paddle-top")), ok(Binding::pad("menu"))].as_slice()))
-        );
+        assert_eq!(jobs.add(&every, "menu", &menu), Ok(Moved::Onto));
+        assert_eq!(jobs.bound("menu"), Ok(Some([top_paddle, menu].as_slice())));
         assert_eq!(jobs.bound("screenshot"), Ok(None));
     }
 
     #[test]
     fn adding_a_button_another_job_is_on_takes_the_button() {
-        let mut jobs = ok(Tasks::none());
-        let onto = ok(Binding::pad("left-paddle-top"));
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(every) = every();
+        let Ok(onto) = Binding::pad("left-paddle-top");
 
-        assert_eq!(jobs.adding(&every(), "screenshot", &onto), Ok(Moved::TookFrom("menu".into())));
-        assert!(ok(jobs.bound("screenshot")).is_some_and(|bound| bound.contains(&onto)));
+        assert_eq!(jobs.add(&every, "screenshot", &onto), Ok(Moved::TookFrom("menu".to_string())));
+
+        let Ok(screenshot) = jobs.bound("screenshot");
+        let Ok(menu) = jobs.bound("menu");
+
+        assert!(screenshot.is_some_and(|bound| bound.contains(&onto)));
         assert_eq!(
-            ok(jobs.bound("menu")).and_then(|bound| bound.first()).map(|one| one.played()),
+            menu.and_then(|bound| bound.first()).map(|one| one.played()),
             Some(Ok(Played::ByNothing))
         );
     }
 
     #[test]
     fn a_chord_does_not_take_the_button_it_is_held_over() {
-        let mut jobs = ok(Tasks::none());
-        let mut every = every();
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(mut every) = every();
+        let Ok(b) = Binding::pad("b");
 
-        every.insert("back".to_string(), vec![ok(Binding::pad("b"))]);
+        every.insert("back".to_string(), vec![b]);
 
-        let onto = ok(Binding::holding(Input::Pad, &["r2"], "b"));
+        let Ok(onto) = Binding::chord(Input::Pad, &["r2"], "b");
 
-        assert_eq!(jobs.adding(&every, "menu", &onto), Ok(Moved::Onto));
+        assert_eq!(jobs.add(&every, "menu", &onto), Ok(Moved::Onto));
         assert_eq!(jobs.bound("back"), Ok(None), "b on its own is still back");
     }
 
     #[test]
-    fn a_key_does_not_take_a_button_and_leaves_the_pad_where_it_was() {
-        let mut jobs = ok(Tasks::none());
-        let onto = ok(Binding::holding(Input::Keyboard, &["super"], "m"));
+    fn a_key_does_not_take_a_button_and_leaves_the_pad_where_it_was() -> Result<(), Box<dyn Error>> {
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(every) = every();
+        let Ok(onto) = Binding::chord(Input::Keyboard, &["super"], "m");
+        let Ok(top_paddle) = Binding::pad("left-paddle-top");
 
-        assert_eq!(jobs.adding(&every(), "menu", &onto), Ok(Moved::Onto));
+        assert_eq!(jobs.add(&every, "menu", &onto), Ok(Moved::Onto));
 
-        let bound = ok(jobs.bound("menu")).expect("the menu");
+        let Ok(bound) = jobs.bound("menu");
+        let bound = bound.ok_or("the menu is bound to nothing")?;
 
         assert_eq!(bound.len(), 2, "the paddle it was on is still the paddle it is on");
-        assert!(bound.contains(&ok(Binding::pad("left-paddle-top"))));
+        assert!(bound.contains(&top_paddle));
         assert!(bound.contains(&onto));
+        Ok(())
     }
 
     #[test]
-    fn a_second_key_for_one_job_is_kept_beside_the_first() {
-        let mut jobs = ok(Tasks::none());
-        let first = ok(Binding::holding(Input::Keyboard, &["super"], "m"));
+    fn a_second_key_for_one_job_is_kept_beside_the_first() -> Result<(), Box<dyn Error>> {
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(every) = every();
+        let Ok(first) = Binding::chord(Input::Keyboard, &["super"], "m");
+        let Ok(_) = jobs.add(&every, "menu", &first);
+        let Ok(mut now) = self::every();
+        let Ok(menu) = jobs.bound("menu");
+        let menu = menu.ok_or("the menu is bound to nothing")?;
 
-        let Ok(_) = jobs.adding(&every(), "menu", &first);
+        now.insert("menu".to_string(), menu.to_vec());
 
-        let mut now = every();
-
-        now.insert("menu".to_string(), ok(jobs.bound("menu")).unwrap_or_default().to_vec());
-
-        let second = ok(Binding::holding(Input::Keyboard, &["ctrl"], "m"));
-        let Ok(_) = jobs.adding(&now, "menu", &second);
-
-        let bound = ok(jobs.bound("menu")).expect("the menu");
+        let Ok(second) = Binding::chord(Input::Keyboard, &["ctrl"], "m");
+        let Ok(_) = jobs.add(&now, "menu", &second);
+        let Ok(bound) = jobs.bound("menu");
+        let bound = bound.ok_or("the menu is bound to nothing")?;
 
         assert!(bound.contains(&second));
         assert!(bound.contains(&first), "one job, as many places as someone gave it");
+        Ok(())
     }
 
     #[test]
     fn a_button_added_to_a_job_with_nothing_on_it_is_the_whole_of_it() {
-        let mut jobs = ok(Tasks::none());
-        let mut every = every();
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(mut every) = every();
+        let Ok(nothing) = Binding::unbound();
+        let Ok(y) = Binding::pad("y");
 
-        every.insert("menu".to_string(), vec![ok(Binding::nothing())]);
+        every.insert("menu".to_string(), vec![nothing]);
 
-        let Ok(_) = jobs.adding(&every, "menu", &ok(Binding::pad("y")));
+        let Ok(_) = jobs.add(&every, "menu", &y);
 
-        assert_eq!(jobs.bound("menu"), Ok(Some([ok(Binding::pad("y"))].as_slice())));
+        assert_eq!(jobs.bound("menu"), Ok(Some([y].as_slice())));
     }
 
     #[test]
     fn removing_one_place_leaves_the_others() {
-        let mut jobs = ok(Tasks::none());
-        let key = ok(Binding::holding(Input::Keyboard, &["super"], "m"));
-        let mut every = every();
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(key) = Binding::chord(Input::Keyboard, &["super"], "m");
+        let Ok(top_paddle) = Binding::pad("left-paddle-top");
+        let Ok(mut every) = every();
 
-        every.insert("menu".to_string(), vec![ok(Binding::pad("left-paddle-top")), key.clone()]);
+        every.insert("menu".to_string(), vec![top_paddle.clone(), key.clone()]);
 
-        let Ok(()) = jobs.removing(&every, "menu", &ok(Binding::pad("left-paddle-top")));
+        let Ok(()) = jobs.remove(&every, "menu", &top_paddle);
 
         assert_eq!(jobs.bound("menu"), Ok(Some([key].as_slice())));
     }
 
     #[test]
     fn removing_the_last_place_leaves_a_job_with_nothing_on_it_rather_than_its_default() {
-        let mut jobs = ok(Tasks::none());
-
-        let Ok(()) = jobs.removing(&every(), "menu", &ok(Binding::pad("left-paddle-top")));
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(every) = every();
+        let Ok(top_paddle) = Binding::pad("left-paddle-top");
+        let Ok(()) = jobs.remove(&every, "menu", &top_paddle);
+        let Ok(menu) = jobs.bound("menu");
 
         assert_eq!(
-            ok(jobs.bound("menu")).and_then(|bound| bound.first()).map(|one| one.played()),
+            menu.and_then(|bound| bound.first()).map(|one| one.played()),
             Some(Ok(Played::ByNothing))
         );
     }
 
     #[test]
     fn pressing_the_button_a_job_is_already_on_is_not_a_move() {
-        let mut jobs = ok(Tasks::none());
+        let Ok(mut jobs) = Tasks::none();
+        let Ok(every) = every();
+        let Ok(top_paddle) = Binding::pad("left-paddle-top");
 
-        assert_eq!(
-            jobs.adding(&every(), "menu", &ok(Binding::pad("left-paddle-top"))),
-            Ok(Moved::Already)
-        );
+        assert_eq!(jobs.add(&every, "menu", &top_paddle), Ok(Moved::Already));
     }
 }

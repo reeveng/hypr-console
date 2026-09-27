@@ -66,7 +66,7 @@ fn steps(log: &mut Vec<String>) -> Result<(), HandleError> {
     let lent = lend(&mut kernel, root, &browser, executable_resource, log)?;
     let renderer = start_renderer(&mut kernel, &browser, &lent, log)?;
 
-    refused(&mut kernel, &browser, &lent, log)?;
+    expect_refused(&mut kernel, &browser, &lent, log)?;
     kernel.revoke(root, executable_resource)?;
 
     match kernel.handle_rights(browser.process, lent.resource) {
@@ -145,7 +145,7 @@ fn start_renderer(kernel: &mut Kernel, browser: &Browser, lent: &Lent, log: &mut
     Ok(renderer.id)
 }
 
-fn refused(kernel: &mut Kernel, browser: &Browser, lent: &Lent, log: &mut Vec<String>) -> Result<(), HandleError> {
+fn expect_refused(kernel: &mut Kernel, browser: &Browser, lent: &Lent, log: &mut Vec<String>) -> Result<(), HandleError> {
     match kernel.replace_as_executable(browser.process, lent.memory, lent.resource) {
         Err(error) => log.push(format!("the browser holds the executable resource and was still refused: {error}")),
         Ok(_) => return Err(HandleError::DeniedByPolicy(Condition::ReplaceAsExecutable)),

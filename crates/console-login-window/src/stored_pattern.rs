@@ -26,6 +26,8 @@ use console_core_places::Base;
 
 pub const FILE_NAME: &str = "login-pattern";
 
+pub const NOT_THE_PATTERN: &str = "that is not the pattern";
+
 const YESCRYPT: &CStr = c"$y$";
 
 const DATA: c_int = 32768;
@@ -89,7 +91,7 @@ impl std::fmt::Display for PatternStoreError {
 impl std::error::Error for PatternStoreError {}
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::Configuration.ours_under(home);
+    let Ok(ours) = Base::Configuration.application_under(home);
 
     Ok(ours.join(FILE_NAME))
 }
@@ -221,28 +223,26 @@ fn crypted(letters: &str, setting: &CStr) -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn hash(letters: &str) -> Hash {
-        match hashed(letters) {
-            Ok(hash) => hash,
-            Err(why) => panic!("{why}"),
-        }
-    }
+    use std::error::Error;
 
     #[test]
-    fn the_pattern_that_was_kept_is_the_one_that_opens() {
-        let kept = hash("gbn");
+    fn the_pattern_that_was_kept_is_the_one_that_opens() -> Result<(), Box<dyn Error>> {
+        let kept = hashed("gbn")?;
 
         assert!(kept.0.starts_with("$y$"));
         assert_eq!(matches("gbn", &kept), Ok(Matched::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn another_pattern_does_not_open() {
-        let kept = hash("gbn");
+    fn another_pattern_does_not_open() -> Result<(), Box<dyn Error>> {
+        let kept = hashed("gbn")?;
 
         assert_eq!(matches("gb", &kept), Ok(Matched::No));
         assert_eq!(matches("gbnm", &kept), Ok(Matched::No));
+
+        Ok(())
     }
 
     #[test]
@@ -251,36 +251,51 @@ mod tests {
     }
 
     #[test]
-    fn two_keepings_of_one_pattern_are_salted_apart() {
-        assert_ne!(hash("gbn"), hash("gbn"));
+    fn two_keepings_of_one_pattern_are_salted_apart() -> Result<(), Box<dyn Error>> {
+        let first = hashed("gbn")?;
+        let second = hashed("gbn")?;
+
+        assert_ne!(first, second);
+
+        Ok(())
     }
 
     #[test]
-    fn a_home_with_no_pattern_in_it_asks_for_none() {
-        let home = std::env::temp_dir().join("console-login-stored-nobody");
+    fn a_home_with_no_pattern_in_it_asks_for_none() -> Result<(), Box<dyn Error>> {
+        let home = console_core_temporary_directories::fresh("login-stored-nobody")?;
 
         assert!(matches!(stored(&home), Ok(StoredPattern::Absent)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_kept_pattern_is_read_back_and_forgotten() {
-        let home = std::env::temp_dir().join("console-login-stored-round");
-        let kept_one = hash("gbn");
+    fn a_kept_pattern_is_read_back_and_forgotten() -> Result<(), Box<dyn Error>> {
+        let home = console_core_temporary_directories::fresh("login-stored-round")?;
+        let kept_one = hashed("gbn")?;
 
-        assert!(store(&home, &kept_one).is_ok());
+        store(&home, &kept_one)?;
+
         assert!(matches!(stored(&home), Ok(StoredPattern::Hash(read)) if read == kept_one));
-        assert!(remove(&home).is_ok());
+
+        remove(&home)?;
+
         assert!(matches!(stored(&home), Ok(StoredPattern::Absent)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_link_where_the_pattern_goes_is_not_followed() {
-        let home = std::env::temp_dir().join("console-login-stored-linked");
+    fn a_link_where_the_pattern_goes_is_not_followed() -> Result<(), Box<dyn Error>> {
+        let home = console_core_temporary_directories::fresh("login-stored-linked")?;
         let Ok(path) = at(&home);
         let _ = fs::remove_file(&path);
-        let _ = fs::create_dir_all(path.parent().unwrap_or(&home));
+        let folder = path.parent().ok_or("the pattern's path has no folder")?;
+        let _ = fs::create_dir_all(folder);
         let _ = std::os::unix::fs::symlink("/etc/hostname", &path);
 
         assert!(matches!(stored(&home), Err(PatternStoreError::NotAFile(_))));
+
+        Ok(())
     }
 }

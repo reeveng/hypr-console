@@ -20,6 +20,7 @@
 //! one press and the next.
 
 pub mod card;
+pub mod covers;
 pub mod getting;
 pub mod gutenberg;
 pub mod looking;

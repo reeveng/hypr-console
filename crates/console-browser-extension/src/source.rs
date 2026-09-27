@@ -20,7 +20,7 @@ pub const FILES: [(&str, &str); 7] = [
 
 pub const VERSION: &str = "@version@";
 
-pub fn hosted(palette: &str) -> Result<Option<String>, Never> {
+pub fn with_host_selector(palette: &str) -> Result<Option<String>, Never> {
     Ok(match palette.contains(":host, :root") {
         true => Some(palette.to_string()),
         false => match palette.contains(":root") {
@@ -59,66 +59,66 @@ pub fn hash(palette: &str) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const PALETTE: &str = ":root {\n  --pink: #ffb5e2;\n}\n";
 
-    fn hosted(palette: &str) -> Option<String> {
-        let Ok(said) = super::hosted(palette);
-
-        said
-    }
-
-    fn every(version: &str, palette: Palette<'_>) -> Vec<(String, Vec<u8>)> {
-        let Ok(files) = super::every(version, palette);
-
-        files
-    }
-
-    fn hash(palette: &str) -> String {
-        let Ok(said) = super::hash(palette);
-
-        said
-    }
-
     #[test]
-    fn the_version_is_filled_in_where_the_mark_is() {
-        let files = every("1.0.9", Palette(PALETTE));
-        let (_, manifest) = files.iter().find(|(name, _)| name == "manifest.json").expect("it");
-        let said = String::from_utf8(manifest.clone()).expect("json");
+    fn the_version_is_filled_in_where_the_mark_is() -> Result<(), Box<dyn Error>> {
+        let Ok(files) = every("1.0.9", Palette(PALETTE));
+        let (_, manifest) = files.iter().find(|(name, _)| name == "manifest.json").ok_or("it")?;
+        let said = String::from_utf8(manifest.clone())?;
+
         assert!(said.contains("\"version\": \"1.0.9\""), "{said}");
         assert!(!said.contains(VERSION));
+
+        Ok(())
     }
 
     #[test]
-    fn the_manifest_leaves_the_version_to_be_filled_in() {
-        let (_, manifest) = FILES[0];
+    fn the_manifest_leaves_the_version_to_be_filled_in() -> Result<(), Box<dyn Error>> {
+        let (_, manifest) = FILES.first().ok_or("the manifest")?;
+
         assert!(manifest.contains(VERSION));
+
+        Ok(())
     }
 
     #[test]
-    fn the_palette_is_packed_beside_them() {
-        let files = every("1.0.0", Palette(PALETTE));
-        let (_, said) = files.iter().find(|(name, _)| name == "palette.css").expect("the palette");
+    fn the_palette_is_packed_beside_them() -> Result<(), Box<dyn Error>> {
+        let Ok(files) = every("1.0.0", Palette(PALETTE));
+        let (_, said) = files.iter().find(|(name, _)| name == "palette.css").ok_or("the palette")?;
+
         assert_eq!(said, PALETTE.as_bytes());
+
+        Ok(())
     }
 
     #[test]
-    fn a_palette_a_shadow_root_can_read_says_both_names() {
-        let said = hosted(PALETTE).expect("a palette");
+    fn a_palette_a_shadow_root_can_read_says_both_names() -> Result<(), Box<dyn Error>> {
+        let Ok(said) = with_host_selector(PALETTE);
+        let said = said.ok_or("a palette")?;
+
         assert!(said.starts_with(":host, :root {"));
         assert!(said.contains("--pink: #ffb5e2;"));
+
+        Ok(())
     }
 
     #[test]
     fn a_file_that_names_nothing_to_dress_is_not_a_palette() {
-        assert_eq!(hosted("/* nothing here */"), None);
+        assert_eq!(with_host_selector("/* nothing here */"), Ok(None));
     }
 
     #[test]
     fn nothing_here_holds_a_color_of_its_own() {
         for (name, body) in FILES {
             for line in body.lines() {
-                let said = line.split("/*").next().unwrap_or("").trim();
+                let said = match line.split_once("/*") {
+                    Some((said, _comment)) => said.trim(),
+                    None => line.trim(),
+                };
+
                 assert!(!said.contains('#') || !said.contains(';'), "{name}: {line}");
                 assert!(!said.contains("rgb("), "{name}: {line}");
             }

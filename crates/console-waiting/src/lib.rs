@@ -43,6 +43,7 @@
 
 pub mod woken;
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 use std::time::{Duration, Instant};
 
@@ -92,11 +93,11 @@ pub fn until(
     until_handed(patience, &mut ask, |ask| ask())
 }
 
-pub fn found<T>(
+pub fn until_some<T>(
     patience: Schedule,
     mut look: impl FnMut() -> Result<Option<T>, Never>,
 ) -> Result<Option<T>, Never> {
-    found_handed(patience, &mut look, |look| look())
+    until_some_handed(patience, &mut look, |look| look())
 }
 
 pub fn until_handed<M>(
@@ -104,7 +105,7 @@ pub fn until_handed<M>(
     handed: &mut M,
     ask: impl Fn(&mut M) -> Result<Ready, Never>,
 ) -> Result<Outcome, Never> {
-    let Ok(found) = found_handed(patience, handed, |handed| {
+    let Ok(found) = until_some_handed(patience, handed, |handed| {
         let Ok(seen) = ask(handed);
 
         Ok(match seen {
@@ -126,31 +127,33 @@ pub fn until_handed<M>(
         reason = "the elapsing is what was asked for here: this crate is the one that waits, and a patience with no clock under it is a loop that never ends"
     )
 )]
-pub fn found_handed<M, T>(
+pub fn until_some_handed<M, T>(
     patience: Schedule,
     handed: &mut M,
     look: impl Fn(&mut M) -> Result<Option<T>, Never>,
 ) -> Result<Option<T>, Never> {
     let by = Instant::now() + patience.until;
-
-    loop {
+    let ended = console_core_iteration::iterate(handed, |handed| {
         let Ok(found) = look(handed);
 
-        match found {
-            Some(found) => return Ok(Some(found)),
-            None => {},
-        }
+        Ok(match (found, Instant::now() >= by) {
+            (Some(found), _) => Step::Halt(Some(found)),
+            (None, true) => Step::Halt(None),
+            (None, false) => {
+                let Ok(()) = pause(patience.between);
 
-        match Instant::now() >= by {
-            true => return Ok(None),
-            false => {},
-        }
+                Step::Again(handed)
+            }
+        })
+    });
 
-        let Ok(()) = between(patience.between);
-    }
+    Ok(match ended {
+        Ok(found) => found,
+        Err(_endless) => None,
+    })
 }
 
-fn between(gap: Duration) -> Result<(), Never> {
+fn pause(gap: Duration) -> Result<(), Never> {
     #[cfg_attr(
         dylint_lib = "explicit021_no_sleeping",
         allow(
@@ -166,6 +169,7 @@ fn between(gap: Duration) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn a_thing_that_is_already_there_is_not_waited_for() {
@@ -191,13 +195,13 @@ mod tests {
 
     #[test]
     fn a_thing_that_arrives_part_way_through_is_met() {
-        let mut asks = 0;
+        let asks = Cell::new(0_u32);
         let Ok(waited) = until(
             Schedule { until: Duration::from_secs(10), between: Duration::from_millis(1) },
             || {
-                asks += 1;
+                asks.set(asks.get().saturating_add(1));
 
-                Ok(match asks >= 3 {
+                Ok(match asks.get() >= 3 {
                     true => Ready::Yes,
                     false => Ready::NotYet,
                 })
@@ -205,34 +209,34 @@ mod tests {
         );
 
         assert_eq!(waited, Outcome::Happened);
-        assert_eq!(asks, 3);
+        assert_eq!(asks.get(), 3);
     }
 
     #[test]
     fn the_patience_that_runs_out_still_asked_once() {
-        let mut asks = 0;
+        let asks = Cell::new(0_u32);
         let Ok(waited) = until(
             Schedule { until: Duration::from_millis(0), between: Duration::from_secs(30) },
             || {
-                asks += 1;
+                asks.set(asks.get().saturating_add(1));
 
                 Ok(Ready::NotYet)
             },
         );
 
         assert_eq!(waited, Outcome::RanOut);
-        assert_eq!(asks, 1, "a patience of nothing at all still gets one look");
+        assert_eq!(asks.get(), 1, "a patience of nothing at all still gets one look");
     }
 
     #[test]
     fn what_was_looked_for_comes_back_with_it() {
-        let mut asks = 0;
-        let Ok(found) = found(
+        let asks = Cell::new(0_u32);
+        let Ok(found) = until_some(
             Schedule { until: Duration::from_secs(10), between: Duration::from_millis(1) },
             || {
-                asks += 1;
+                asks.set(asks.get().saturating_add(1));
 
-                Ok(match asks >= 2 {
+                Ok(match asks.get() >= 2 {
                     true => Some("here"),
                     false => None,
                 })
@@ -244,7 +248,7 @@ mod tests {
 
     #[test]
     fn nothing_found_is_nothing_rather_than_a_wait_that_looked_like_one() {
-        let Ok(found) = found(
+        let Ok(found) = until_some(
             Schedule { until: Duration::from_millis(20), between: Duration::from_millis(5) },
             || Ok(None::<u8>),
         );
@@ -264,12 +268,12 @@ mod tests {
 
     #[test]
     fn what_a_wait_was_handed_is_written_by_the_question_and_kept() {
-        let mut asks = 0;
+        let mut asks = 0_u32;
         let Ok(waited) = until_handed(
             Schedule { until: Duration::from_secs(10), between: Duration::from_millis(1) },
             &mut asks,
             |asks| {
-                *asks += 1;
+                *asks = (*asks).saturating_add(1);
 
                 Ok(match *asks >= 3 {
                     true => Ready::Yes,
@@ -285,7 +289,7 @@ mod tests {
     #[test]
     fn a_look_brings_back_what_it_found_and_what_it_was_handed() {
         let mut said = String::new();
-        let Ok(found) = found_handed(
+        let Ok(found) = until_some_handed(
             Schedule { until: Duration::from_millis(20), between: Duration::from_millis(5) },
             &mut said,
             |said| {

@@ -5,125 +5,123 @@
 //! out of the slice -- which is the whole claim this crate makes about itself,
 //! that the drawing can be pressed on a machine with nothing to draw on.
 
-use console_core_color::{Oklch, Rgba};
-use console_core_geometry::{Point, Size};
+use std::error::Error;
 use std::sync::Arc;
 
+use console_core_color::{Oklch, Rgba};
+use console_core_geometry::{Point, Size};
+use console_core_never::Never;
+use console_core_number_conversion::{fitted, index};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Weight, Text};
-use console_draw_painting::{Frame, Run, measured, onto, over};
+use console_draw_painting::{Frame, Run, measure_text, onto, over};
 
 const WIDE: u32 = 40;
 
 const TALL: u32 = 20;
 
-fn font() -> Font {
-    Font { family: "Noto Sans".to_string(), height: 10 }
+const WHOLE: Frame = Frame { device: Size { width: WIDE, height: TALL }, points: Size { width: WIDE, height: TALL } };
+
+const NOTHING: [u8; 4] = [0, 0, 0, 0];
+
+fn font() -> Result<Font, Never> {
+    Ok(Font { family: "Noto Sans".to_string(), height: 10 })
 }
 
-fn inked(pixels: &[u8]) -> u32 {
-    u32::try_from(pixels.chunks_exact(4).filter(|pixel| pixel.iter().any(|byte| *byte > 0)).count()).unwrap()
+fn inked_pixels(pixels: &[u8]) -> Result<u32, Never> {
+    fitted(pixels.chunks_exact(4).filter(|pixel| *pixel != NOTHING).count())
 }
 
-fn slab() -> Vec<u8> {
+fn slab() -> Result<Vec<u8>, Never> {
     let long = WIDE.saturating_mul(TALL).saturating_mul(4);
+    let Ok(long) = index(long);
 
-    vec![0; long.try_into().unwrap()]
+    Ok(vec![0; long])
 }
 
-fn at(pixels: &[u8], across: u32, down: u32) -> [u8; 4] {
-    let stride = WIDE.saturating_mul(4);
-    let start = down.saturating_mul(stride).saturating_add(across.saturating_mul(4));
-    let held = pixels.get(start.try_into().unwrap()..start.saturating_add(4).try_into().unwrap()).unwrap_or(&[]);
+fn at(pixels: &[u8], point: Point<u32>) -> Result<Option<[u8; 4]>, Never> {
+    let Ok(position) = index(point.y.saturating_mul(WIDE).saturating_add(point.x));
 
-    match held {
-        [blue, green, red, alpha] => [*blue, *green, *red, *alpha],
-        _ => [0, 0, 0, 0],
-    }
+    Ok(pixels.chunks_exact(4).nth(position).and_then(<[u8]>::first_chunk::<4>).copied())
 }
 
-fn color(six: &str) -> Oklch {
-    let channels = match Rgba::of(six) {
-        Ok(channels) => channels,
-        Err(why) => panic!("{six} should read: {why}"),
-    };
+fn color(six: &str) -> Result<Oklch, Box<dyn Error>> {
+    let channels = Rgba::of(six).map_err(|why| format!("{six} should read: {why}"))?;
     let Ok(oklch) = Oklch::of(channels);
 
-    oklch
-}
-
-fn whole() -> Frame {
-    Frame { device: Size { width: WIDE, height: TALL }, points: Size { width: WIDE, height: TALL } }
+    Ok(oklch)
 }
 
 #[test]
-fn a_panel_puts_its_color_where_it_was_put_and_nowhere_else() {
-    let mut pixels = slab();
+fn a_panel_puts_its_color_where_it_was_put_and_nowhere_else() -> Result<(), Box<dyn Error>> {
+    let red = color("ff0000")?;
+    let Ok(mut pixels) = slab();
     let shapes = vec![Shape::Panel(Panel {
         at: Point { x: 10, y: 5 },
         size: Size { width: 10, height: 10 },
         round: Round(0),
-        fill: color("ff0000"),
+        fill: red,
         edge: Edge::None,
     })];
 
-    match onto(&mut pixels, whole(), &shapes) {
-        Ok(()) => {}
-        Err(why) => panic!("the panel should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, &shapes)?;
 
-    assert_eq!(at(&pixels, 15, 10), [0x00, 0x00, 0xff, 0xff], "the middle of the panel");
-    assert_eq!(at(&pixels, 2, 2), [0, 0, 0, 0], "outside it");
+    assert_eq!(at(&pixels, Point { x: 15, y: 10 }), Ok(Some([0x00, 0x00, 0xff, 0xff])), "the middle of the panel");
+    assert_eq!(at(&pixels, Point { x: 2, y: 2 }), Ok(Some([0, 0, 0, 0])), "outside it");
+
+    Ok(())
 }
 
 #[test]
-fn a_frame_of_device_pixels_puts_a_panel_where_the_points_said() {
-    let mut pixels = slab();
+fn a_frame_of_device_pixels_puts_a_panel_where_the_points_said() -> Result<(), Box<dyn Error>> {
+    let green = color("00ff00")?;
+    let Ok(mut pixels) = slab();
     let frame = Frame {
         device: Size { width: WIDE, height: TALL },
-        points: Size { width: WIDE / 2, height: TALL / 2 },
+        points: Size { width: WIDE.div_euclid(2), height: TALL.div_euclid(2) },
     };
     let shapes = vec![Shape::Panel(Panel {
         at: Point { x: 5, y: 0 },
         size: Size { width: 5, height: 5 },
         round: Round(0),
-        fill: color("00ff00"),
+        fill: green,
         edge: Edge::None,
     })];
 
-    match onto(&mut pixels, frame, &shapes) {
-        Ok(()) => {}
-        Err(why) => panic!("the panel should draw: {why}"),
-    }
+    onto(&mut pixels, frame, &shapes)?;
 
-    assert_eq!(at(&pixels, 12, 4), [0x00, 0xff, 0x00, 0xff], "twice as far across and down");
-    assert_eq!(at(&pixels, 4, 4), [0, 0, 0, 0], "before where the panel starts");
+    assert_eq!(at(&pixels, Point { x: 12, y: 4 }), Ok(Some([0x00, 0xff, 0x00, 0xff])), "twice as far across and down");
+    assert_eq!(at(&pixels, Point { x: 4, y: 4 }), Ok(Some([0, 0, 0, 0])), "before where the panel starts");
+
+    Ok(())
 }
 
 #[test]
-fn an_edge_is_drawn_in_its_own_color_over_the_fill() {
-    let mut pixels = slab();
+fn an_edge_is_drawn_in_its_own_color_over_the_fill() -> Result<(), Box<dyn Error>> {
+    let white = color("ffffff")?;
+    let black = color("000000")?;
+    let Ok(mut pixels) = slab();
     let shapes = vec![Shape::Panel(Panel {
         at: Point { x: 0, y: 0 },
         size: Size { width: WIDE, height: TALL },
         round: Round(0),
-        fill: color("000000"),
-        edge: Edge::Of { wide: 2, color: color("ffffff") },
+        fill: black,
+        edge: Edge::Of { wide: 2, color: white },
     })];
 
-    match onto(&mut pixels, whole(), &shapes) {
-        Ok(()) => {}
-        Err(why) => panic!("the panel should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, &shapes)?;
 
-    assert_eq!(at(&pixels, 0, 10), [0xff, 0xff, 0xff, 0xff], "on the edge");
-    assert_eq!(at(&pixels, 20, 10), [0x00, 0x00, 0x00, 0xff], "well inside it");
+    assert_eq!(at(&pixels, Point { x: 0, y: 10 }), Ok(Some([0xff, 0xff, 0xff, 0xff])), "on the edge");
+    assert_eq!(at(&pixels, Point { x: 20, y: 10 }), Ok(Some([0x00, 0x00, 0x00, 0xff])), "well inside it");
+
+    Ok(())
 }
 
 #[test]
 fn a_run_of_words_wraps_taller_the_narrower_it_is_given() {
+    let Ok(font) = font();
     let said = "the desktop has said something worth reading twice";
-    let Ok(roomy) = measured(Run { said, weight: Weight::Plain, width: 400 }, &font());
-    let Ok(tight) = measured(Run { said, weight: Weight::Plain, width: 80 }, &font());
+    let Ok(roomy) = measure_text(Run { said, weight: Weight::Plain, width: 400 }, &font);
+    let Ok(tight) = measure_text(Run { said, weight: Weight::Plain, width: 80 }, &font);
 
     assert!(tight.height > roomy.height, "{tight:?} should be taller than {roomy:?}");
     assert!(tight.width <= 80, "a wrapped run should stay inside its width: {tight:?}");
@@ -131,9 +129,10 @@ fn a_run_of_words_wraps_taller_the_narrower_it_is_given() {
 
 #[test]
 fn a_face_asked_for_in_pixels_is_drawn_that_many_pixels_tall() {
+    let Ok(font) = font();
     let run = |tall| {
         let Ok(size) =
-            measured(Run { said: "Hg", weight: Weight::Plain, width: 400 }, &Font { height: tall, ..font() });
+            measure_text(Run { said: "Hg", weight: Weight::Plain, width: 400 }, &Font { height: tall, ..font.clone() });
 
         size
     };
@@ -150,38 +149,42 @@ fn a_face_asked_for_in_pixels_is_drawn_that_many_pixels_tall() {
 
 #[test]
 fn bold_is_not_the_same_run_as_plain() {
+    let Ok(font) = font();
     let said = "notification";
-    let Ok(plain) = measured(Run { said, weight: Weight::Plain, width: 400 }, &font());
-    let Ok(bold) = measured(Run { said, weight: Weight::Bold, width: 400 }, &font());
+    let Ok(plain) = measure_text(Run { said, weight: Weight::Plain, width: 400 }, &font);
+    let Ok(bold) = measure_text(Run { said, weight: Weight::Bold, width: 400 }, &font);
 
     assert!(bold.width > plain.width, "bold {bold:?} should be wider than plain {plain:?}");
 }
 
 #[test]
-fn words_put_ink_on_the_frame_where_nothing_was() {
-    let mut pixels = slab();
+fn words_put_ink_on_the_frame_where_nothing_was() -> Result<(), Box<dyn Error>> {
+    let white = color("ffffff")?;
+    let Ok(font) = font();
+    let Ok(mut pixels) = slab();
     let shapes = vec![Shape::Text(Text {
         at: Point { x: 0, y: 0 },
         width: WIDE,
         said: "HHHH".to_string(),
         weight: Weight::Bold,
-        font: font(),
-        ink: color("ffffff"),
+        font,
+        ink: white,
     })];
 
-    match onto(&mut pixels, whole(), &shapes) {
-        Ok(()) => {}
-        Err(why) => panic!("the words should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, &shapes)?;
 
-    let inked = inked(&pixels);
+    let Ok(inked) = inked_pixels(&pixels);
 
     assert!(inked > 0, "nothing was drawn");
     assert!(inked < 400, "the whole frame was filled rather than some letters: {inked}");
+
+    Ok(())
 }
 
 #[test]
-fn two_runs_in_one_frame_are_set_in_the_two_faces_they_each_asked_for() {
+fn two_runs_in_one_frame_are_set_in_the_two_faces_they_each_asked_for() -> Result<(), Box<dyn Error>> {
+    let white = color("ffffff")?;
+    let Ok(font) = font();
     let run = |font: Font, down| {
         Shape::Text(Text {
             at: Point { x: 0, y: down },
@@ -189,39 +192,32 @@ fn two_runs_in_one_frame_are_set_in_the_two_faces_they_each_asked_for() {
             said: "HH".to_string(),
             weight: Weight::Plain,
             font,
-            ink: color("ffffff"),
+            ink: white,
         })
     };
-    let small = Font { height: 5, ..font() };
-    let large = Font { height: 12, ..font() };
+    let small = Font { height: 5, ..font.clone() };
+    let large = Font { height: 12, ..font.clone() };
+    let Ok(mut both) = slab();
 
-    let mut both = slab();
+    onto(&mut both, WHOLE, &[run(small.clone(), 0), run(large, 8)])?;
 
-    match onto(&mut both, whole(), &[run(small.clone(), 0), run(large, 8)]) {
-        Ok(()) => {}
-        Err(why) => panic!("both runs should draw: {why}"),
-    }
+    let Ok(mut twice) = slab();
 
-    let mut twice = slab();
+    onto(&mut twice, WHOLE, &[run(small.clone(), 0), run(small, 8)])?;
 
-    match onto(&mut twice, whole(), &[run(small.clone(), 0), run(small, 8)]) {
-        Ok(()) => {}
-        Err(why) => panic!("both runs should draw: {why}"),
-    }
+    let Ok(both) = inked_pixels(&both);
+    let Ok(twice) = inked_pixels(&twice);
 
-    assert!(
-        inked(&both) > inked(&twice),
-        "the second run was drawn in the first one's face: {} against {}",
-        inked(&both),
-        inked(&twice)
-    );
+    assert!(both > twice, "the second run was drawn in the first one's face: {both} against {twice}");
+
+    Ok(())
 }
 
 #[test]
-fn a_run_drawn_in_the_width_it_measured_stays_on_one_line() {
+fn a_run_drawn_in_the_width_it_measured_stays_on_one_line() -> Result<(), Box<dyn Error>> {
     let font = Font { family: "Noto Sans".to_string(), height: 11 };
     let said = "100%";
-    let Ok(one) = measured(Run { said, weight: Weight::Plain, width: u32::MAX }, &font);
+    let Ok(one) = measure_text(Run { said, weight: Weight::Plain, width: u32::MAX }, &font);
     let points = Size { width: one.width, height: one.height.saturating_mul(3) };
     let shapes = [Shape::Text(Text {
         at: Point { x: 0, y: 0 },
@@ -238,29 +234,30 @@ fn a_run_drawn_in_the_width_it_measured_stays_on_one_line() {
             height: points.height.saturating_mul(scale),
         };
         let long = device.width.saturating_mul(device.height).saturating_mul(4);
-        let mut pixels = vec![0_u8; long.try_into().unwrap()];
+        let Ok(long) = index(long);
+        let mut pixels = vec![0_u8; long];
 
-        match onto(&mut pixels, Frame { device, points }, &shapes) {
-            Ok(()) => {}
-            Err(why) => panic!("the run should draw: {why}"),
-        }
+        onto(&mut pixels, Frame { device, points }, &shapes)?;
 
         let stride = device.width.saturating_mul(4);
         let under = one.height.saturating_mul(scale);
-        let below = pixels.get(under.saturating_mul(stride).try_into().unwrap()..).unwrap_or(&[]);
+        let Ok(start) = index(under.saturating_mul(stride));
+        let below = pixels.get(start..).ok_or("the run drew nothing below where it measure_text")?;
 
         assert_eq!(
-            inked(below),
-            0,
-            "at {scale}x, {said} measured {one:?} and drew a second line under it, \
+            inked_pixels(below),
+            Ok(0),
+            "at {scale}x, {said} measure_text {one:?} and drew a second line under it, \
              so the width it was placed at is not the width it takes"
         );
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_picture_lands_where_it_was_put_in_the_colors_it_was_handed() {
-    let mut pixels = slab();
+fn a_picture_lands_where_it_was_put_in_the_colors_it_was_handed() -> Result<(), Box<dyn Error>> {
+    let Ok(mut pixels) = slab();
     let red = [255u8, 0, 0, 255];
     let green = [0u8, 255, 0, 255];
     let bytes: Vec<u8> = [red, green, green, red].concat();
@@ -270,26 +267,26 @@ fn a_picture_lands_where_it_was_put_in_the_colors_it_was_handed() {
         pixels: Pixels { width: 2, height: 2, stride: 8, bytes: Arc::new(bytes) },
     })];
 
-    match onto(&mut pixels, whole(), &shapes) {
-        Ok(()) => {},
-        Err(why) => panic!("the picture should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, &shapes)?;
 
-    assert_eq!(at(&pixels, 4, 2), [0, 0, 255, 255], "its first pixel is where it was put");
-    assert_eq!(at(&pixels, 5, 2), [0, 255, 0, 255], "and the one beside it is the next one");
-    assert_eq!(at(&pixels, 3, 2), [0, 0, 0, 0], "and nothing is drawn before it");
-    assert_eq!(at(&pixels, 6, 2), [0, 0, 0, 0], "or past the size it was given");
+    assert_eq!(at(&pixels, Point { x: 4, y: 2 }), Ok(Some([0, 0, 255, 255])), "its first pixel is where it was put");
+    assert_eq!(at(&pixels, Point { x: 5, y: 2 }), Ok(Some([0, 255, 0, 255])), "and the one beside it is the next one");
+    assert_eq!(at(&pixels, Point { x: 3, y: 2 }), Ok(Some([0, 0, 0, 0])), "and nothing is drawn before it");
+    assert_eq!(at(&pixels, Point { x: 6, y: 2 }), Ok(Some([0, 0, 0, 0])), "or past the size it was given");
+
+    Ok(())
 }
 
 #[test]
-fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it() {
-    let mut pixels = slab();
+fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it() -> Result<(), Box<dyn Error>> {
+    let white = color("ffffff")?;
+    let Ok(mut pixels) = slab();
     let shapes = vec![
         Shape::Panel(Panel {
             at: Point { x: 0, y: 0 },
             size: Size { width: WIDE, height: TALL },
             round: Round(0),
-            fill: color("ffffff"),
+            fill: white,
             edge: Edge::None,
         }),
         Shape::Picture(Picture {
@@ -304,20 +301,20 @@ fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it() {
         }),
     ];
 
-    match onto(&mut pixels, whole(), &shapes) {
-        Ok(()) => {},
-        Err(why) => panic!("the picture should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, &shapes)?;
 
-    let [blue, green, red, alpha] = at(&pixels, 0, 0);
+    let Ok(corner) = at(&pixels, Point { x: 0, y: 0 });
+    let [blue, green, red, alpha] = corner.ok_or("the corner is outside the frame")?;
 
     assert_eq!(alpha, 255, "what was under it is still opaque");
     assert!(blue > 200 && green > 200 && red > 200, "and still the color it was");
+
+    Ok(())
 }
 
 #[test]
-fn a_picture_given_a_bigger_box_than_itself_fills_the_box() {
-    let mut pixels = slab();
+fn a_picture_given_a_bigger_box_than_itself_fills_the_box() -> Result<(), Box<dyn Error>> {
+    let Ok(mut pixels) = slab();
     let red = [255u8, 0, 0, 255];
     let shapes = vec![Shape::Picture(Picture {
         at: Point { x: 0, y: 0 },
@@ -325,49 +322,45 @@ fn a_picture_given_a_bigger_box_than_itself_fills_the_box() {
         pixels: Pixels { width: 2, height: 2, stride: 8, bytes: Arc::new([red; 4].concat()) },
     })];
 
-    match onto(&mut pixels, whole(), &shapes) {
-        Ok(()) => {},
-        Err(why) => panic!("the picture should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, &shapes)?;
 
-    let [_blue, _green, red, alpha] = at(&pixels, 6, 6);
+    let Ok(corner) = at(&pixels, Point { x: 6, y: 6 });
+    let [_blue, _green, red, alpha] = corner.ok_or("the far corner is outside the frame")?;
 
     assert_eq!(alpha, 255, "the far corner of the box was drawn on");
     assert!(red > 200, "in the color the picture is");
-    assert_eq!(at(&pixels, 9, 9), [0, 0, 0, 0], "and nothing past the box was");
+    assert_eq!(at(&pixels, Point { x: 9, y: 9 }), Ok(Some([0, 0, 0, 0])), "and nothing past the box was");
+
+    Ok(())
 }
 
-fn red_square(across: i32) -> Shape {
-    Shape::Panel(Panel {
+fn red_square(across: i32) -> Result<Shape, Box<dyn Error>> {
+    let red = color("ff0000")?;
+
+    Ok(Shape::Panel(Panel {
         at: Point { x: across, y: 5 },
         size: Size { width: 10, height: 10 },
         round: Round(0),
-        fill: color("ff0000"),
+        fill: red,
         edge: Edge::None,
-    })
+    }))
 }
 
 #[test]
-fn a_frame_drawn_over_keeps_what_was_there_and_one_drawn_onto_does_not() {
-    let mut pixels = slab();
+fn a_frame_drawn_over_keeps_what_was_there_and_one_drawn_onto_does_not() -> Result<(), Box<dyn Error>> {
+    let Ok(mut pixels) = slab();
+    let first = red_square(0)?;
+    let second = red_square(25)?;
 
-    match onto(&mut pixels, whole(), &[red_square(0)]) {
-        Ok(()) => {}
-        Err(why) => panic!("the first square should draw: {why}"),
-    }
+    onto(&mut pixels, WHOLE, std::slice::from_ref(&first))?;
+    over(&mut pixels, WHOLE, std::slice::from_ref(&second))?;
 
-    match over(&mut pixels, whole(), &[red_square(25)]) {
-        Ok(()) => {}
-        Err(why) => panic!("the second square should draw: {why}"),
-    }
+    assert_eq!(at(&pixels, Point { x: 5, y: 10 }), Ok(Some([0x00, 0x00, 0xff, 0xff])), "what was there is kept");
+    assert_eq!(at(&pixels, Point { x: 30, y: 10 }), Ok(Some([0x00, 0x00, 0xff, 0xff])), "what was drawn over it is there");
 
-    assert_eq!(at(&pixels, 5, 10), [0x00, 0x00, 0xff, 0xff], "what was there is kept");
-    assert_eq!(at(&pixels, 30, 10), [0x00, 0x00, 0xff, 0xff], "what was drawn over it is there");
+    onto(&mut pixels, WHOLE, std::slice::from_ref(&second))?;
 
-    match onto(&mut pixels, whole(), &[red_square(25)]) {
-        Ok(()) => {}
-        Err(why) => panic!("the square should draw again: {why}"),
-    }
+    assert_eq!(at(&pixels, Point { x: 5, y: 10 }), Ok(Some([0, 0, 0, 0])), "a whole frame starts from nothing");
 
-    assert_eq!(at(&pixels, 5, 10), [0, 0, 0, 0], "a whole frame starts from nothing");
+    Ok(())
 }

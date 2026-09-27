@@ -39,7 +39,7 @@ pub fn volume(level: i32, muted: Muted) -> Result<String, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Step(pub i32);
 
-pub fn stepped(level: i32, step: Step) -> Result<i32, Never> {
+pub fn apply_step(level: i32, step: Step) -> Result<i32, Never> {
     Ok(level.saturating_add(step.0.saturating_mul(STEP)).clamp(0, 100))
 }
 
@@ -67,8 +67,8 @@ mod tests {
 
     #[test]
     fn a_level_never_steps_past_either_end() {
-        assert_eq!(stepped(98, Step(1)), Ok(100));
-        assert_eq!(stepped(2, Step(-1)), Ok(0));
-        assert_eq!(stepped(50, Step(1)), Ok(50 + STEP));
+        assert_eq!(apply_step(98, Step(1)), Ok(100));
+        assert_eq!(apply_step(2, Step(-1)), Ok(0));
+        assert_eq!(apply_step(50, Step(1)), Ok(50_i32.saturating_add(STEP)));
     }
 }

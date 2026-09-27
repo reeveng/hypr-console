@@ -166,7 +166,7 @@ pub fn code(word: &str) -> Result<Option<KeyCode>, Never> {
     })
 }
 
-pub fn spoken(code: KeyCode) -> Result<Option<String>, Never> {
+pub fn key_name(code: KeyCode) -> Result<Option<String>, Never> {
     let Ok(every) = every();
 
     Ok(every.into_iter().find(|word| {
@@ -229,23 +229,19 @@ pub fn mask(held: &[String]) -> Result<Option<u64>, Never> {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
+    use std::error::Error;
 
     #[test]
     fn a_letter_is_the_key_of_that_name() {
-        assert_eq!(ok(code("i")), Some(KeyCode::KEY_I));
-        assert_eq!(ok(code("f5")), Some(KeyCode::KEY_F5));
-        assert_eq!(ok(code("space")), Some(KeyCode::KEY_SPACE));
+        assert_eq!(code("i"), Ok(Some(KeyCode::KEY_I)));
+        assert_eq!(code("f5"), Ok(Some(KeyCode::KEY_F5)));
+        assert_eq!(code("space"), Ok(Some(KeyCode::KEY_SPACE)));
     }
 
     #[test]
     fn the_words_a_person_uses_are_not_always_the_kernels() {
-        assert_eq!(ok(code("escape")), Some(KeyCode::KEY_ESC));
-        assert_eq!(ok(code("period")), Some(KeyCode::KEY_DOT));
+        assert_eq!(code("escape"), Ok(Some(KeyCode::KEY_ESC)));
+        assert_eq!(code("period"), Ok(Some(KeyCode::KEY_DOT)));
     }
 
     #[test]
@@ -260,40 +256,44 @@ mod tests {
     }
 
     #[test]
-    fn a_key_is_said_back_the_way_it_was_written() {
-        for word in ok(every()) {
-            let Ok(code) = code(&word);
-            let code = code.unwrap_or_else(|| panic!("{word} is offered and is no key"));
+    fn a_key_is_said_back_the_way_it_was_written() -> Result<(), Box<dyn Error>> {
+        let Ok(every) = every();
 
-            assert_eq!(ok(spoken(code)), Some(word.clone()), "{word}");
+        for word in every {
+            let Ok(code) = code(&word);
+            let code = code.ok_or_else(|| format!("{word} is offered and is no key"))?;
+
+            assert_eq!(key_name(code), Ok(Some(word.clone())), "{word}");
         }
+
+        Ok(())
     }
 
     #[test]
     fn what_is_held_is_a_number_the_compositor_says_back() {
-        assert_eq!(ok(mask(&[])), Some(0));
-        assert_eq!(ok(mask(&["super".to_string()])), Some(64));
+        assert_eq!(mask(&[]), Ok(Some(0)));
+        assert_eq!(mask(&["super".to_string()]), Ok(Some(64)));
         assert_eq!(
-            ok(mask(&["super".to_string(), "shift".to_string()])),
-            ok(mask(&["shift".to_string(), "super".to_string()])),
+            mask(&["super".to_string(), "shift".to_string()]),
+            mask(&["shift".to_string(), "super".to_string()]),
             "a mask is what is held and not the order it was written in"
         );
-        assert_eq!(ok(mask(&["nonesuch".to_string()])), None);
+        assert_eq!(mask(&["nonesuch".to_string()]), Ok(None));
     }
 
     #[test]
     fn nothing_this_desktop_cannot_say_is_a_key() {
-        assert_eq!(ok(code("leftmeta")), None, "a modifier is held, not pressed");
-        assert_eq!(ok(code("nonesuch")), None);
-        assert!(key_named("nonesuch").is_err());
+        assert_eq!(code("leftmeta"), Ok(None), "a modifier is held, not pressed");
+        assert_eq!(code("nonesuch"), Ok(None));
+        assert!(matches!(key_named("nonesuch"), Err(Unbound::NoSuchKey(ref said)) if said == "nonesuch"));
     }
 
     #[test]
     fn a_modifier_is_held_and_the_compositor_has_its_own_word_for_it() {
         assert_eq!(is_a_modifier("super"), Ok(KeyKind::AModifier));
         assert_eq!(is_a_modifier("i"), Ok(KeyKind::AKey));
-        assert_eq!(ok(held_as("ctrl")), Some("CTRL"));
-        assert_eq!(ok(modifier_of(KeyCode::KEY_RIGHTSHIFT)), Some("shift"));
+        assert_eq!(held_as("ctrl"), Ok(Some("CTRL")));
+        assert_eq!(modifier_of(KeyCode::KEY_RIGHTSHIFT), Ok(Some("shift")));
     }
 
     #[test]
@@ -301,16 +301,16 @@ mod tests {
         let held = vec!["super".to_string()];
 
         assert_eq!(
-            ok(bind(&held, "i")),
-            Some(format!("SUPER+code:{}", KeyCode::KEY_I.0.saturating_add(X11)))
+            bind(&held, "i"),
+            Ok(Some(format!("SUPER+code:{}", KeyCode::KEY_I.0.saturating_add(X11))))
         );
     }
 
     #[test]
     fn a_key_on_its_own_is_a_bind_with_nothing_in_front_of_it() {
         assert_eq!(
-            ok(bind(&[], "f5")),
-            Some(format!("code:{}", KeyCode::KEY_F5.0.saturating_add(X11)))
+            bind(&[], "f5"),
+            Ok(Some(format!("code:{}", KeyCode::KEY_F5.0.saturating_add(X11))))
         );
     }
 }

@@ -14,6 +14,7 @@
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_input_event_devices::{EventType, KeyCode};
 use console_input_controller::actions::Table;
 use console_button_guide::guide::{Section, sections};
@@ -21,7 +22,7 @@ use console_button_guide::printed::{COLORED, PLAIN, guide};
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_input_bindings::moved::{Tasks, path_in};
-use console_input_gamepad::vocabulary::{TRIGGERS, spoken_for};
+use console_input_gamepad::vocabulary::{spoken_for, trigger_spoken};
 use console_input_focus::{self as claim, CONTROLLER, Claim, InputEvent, Direction, DeviceKind};
 
 fn read() -> Result<Vec<Section>, Never> {
@@ -111,10 +112,10 @@ fn ink() -> Result<console_button_guide::printed::HexColor, Never> {
 }
 
 fn identify() -> Result<(), Unidentified> {
-    let mut claim = match Claim::of(&CONTROLLER) {
+    let claim = match Claim::of(&CONTROLLER) {
         Ok(claim) => claim,
         Err(refused) => {
-            let Ok(said) = refused.said();
+            let Ok(said) = refused.message();
 
             return Err(Unidentified::NoController(said));
         }
@@ -123,11 +124,11 @@ fn identify() -> Result<(), Unidentified> {
     println!("Press a button. Ctrl-C to stop.\n");
     let Ok(ink) = ink();
 
-    loop {
-        let Ok(heard) = claim.arrived();
+    let listened = iterate(claim, |mut claim| {
+        let Ok(heard) = claim.receive();
 
         'over_presses: for (which, event) in heard.events {
-            let Ok(said) = pressed(which, event.kind, event.code, event.value);
+            let Ok(said) = describe_event(which, event.kind, event.code, event.value);
 
             let said = match said {
                 Some(said) => said,
@@ -141,7 +142,8 @@ fn identify() -> Result<(), Unidentified> {
             true => {}
             false => {
                 eprintln!("console-buttons: the controller was unplugged");
-                return Ok(());
+
+                return Ok(Step::Halt(()));
             }
         }
 
@@ -153,10 +155,17 @@ fn identify() -> Result<(), Unidentified> {
             )
         )]
         std::thread::sleep(WAIT);
+
+        Ok(Step::Again(claim))
+    });
+
+    match listened {
+        Ok(()) => Ok(()),
+        Err(Endless) => Ok(()),
     }
 }
 
-fn pressed(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<Option<String>, Never> {
+fn describe_event(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<Option<String>, Never> {
     let Ok(device) = which.said();
 
     let raw = match kind {
@@ -164,7 +173,7 @@ fn pressed(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<
         _ => format!("axis {code} at {value}, on the {device}"),
     };
 
-    let Ok(said) = claim::said(which, kind, code, value);
+    let Ok(said) = claim::translate(which, kind, code, value);
 
     Ok(match said {
         InputEvent::Pressed { button, direction: Direction::Down } => {
@@ -173,12 +182,16 @@ fn pressed(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<
             Some(format!("{spoken}  ({raw})"))
         }
         InputEvent::Trigger { trigger, direction: Direction::Down } => {
-            let Ok(held) = held(trigger);
+            let Ok(spoken) = trigger_spoken(trigger);
+            let held = match spoken {
+                Some(spoken) => spoken,
+                None => trigger,
+            };
 
             Some(format!("{held}  ({raw})"))
         }
         InputEvent::Typed { code, direction: Direction::Down } => {
-            let Ok(spoken) = console_input_bindings::keys::spoken(KeyCode(code));
+            let Ok(spoken) = console_input_bindings::keys::key_name(KeyCode(code));
 
             Some(match spoken {
                 Some(word) => format!("{word}  ({raw})"),
@@ -192,12 +205,9 @@ fn pressed(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<
         | InputEvent::Trigger { trigger: _, direction: Direction::Up }
         | InputEvent::Typed { code: _, direction: Direction::Up }
         | InputEvent::Unnamed { code: _, direction: Direction::Up }
+        | InputEvent::Pulled { trigger: _, value: _ }
         | InputEvent::None => None,
     })
-}
-
-fn held(trigger: &str) -> Result<&str, Never> {
-    Ok(TRIGGERS.iter().find(|(_, named)| *named == trigger).map_or(trigger, |(spoken, _)| *spoken))
 }
 
 const WAIT: std::time::Duration = std::time::Duration::from_millis(10);

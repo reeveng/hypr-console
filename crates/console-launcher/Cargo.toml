@@ -13,6 +13,7 @@ path = "src/bin/launcher.rs"
 console-default-applications.workspace = true
 console-core-external-programs.workspace = true
 console-home-screen.workspace = true
+console-screen.workspace = true
 console-applications.workspace = true
 console-core-places.workspace = true
 console-core-atomic-writes.workspace = true

@@ -16,6 +16,7 @@
 //! because what is worth knowing is what the script does and not what
 //! libnotify does.
 
+use std::error::Error;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,51 +25,58 @@ const UPDATING: &str = env!("CARGO_BIN_EXE_console-updating");
 
 const ID: &str = "7";
 
+type Failure = Box<dyn Error>;
+
 struct Subscriber {
     here: PathBuf,
 }
 
 impl Subscriber {
-    fn new(named: &str) -> Self {
-        let named = format!("console-updating-{named}-{}", std::process::id());
-        let here = std::env::temp_dir().join(named);
-        let _ = std::fs::remove_dir_all(&here);
-        std::fs::create_dir_all(here.join("bin")).expect("somewhere to listen");
-        std::fs::create_dir_all(here.join("run")).expect("somewhere to count");
+    fn new(named: &str) -> Result<Self, Failure> {
+        let here = console_core_temporary_directories::fresh(&format!("console-updating-{named}"))?;
+
+        std::fs::create_dir_all(here.join("bin"))?;
+        std::fs::create_dir_all(here.join("run"))?;
+
         let at = here.join("bin/notify-send");
         let script = format!(
             "#!/bin/sh\necho \"$@\" >> {}\necho {ID}\n",
             here.join("shown").display()
         );
-        std::fs::write(&at, script).expect("a stub");
-        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).expect("runnable");
-        Subscriber { here }
+
+        console_core_atomic_writes::whole(&at, script.as_bytes())?;
+        std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755))?;
+
+        Ok(Subscriber { here })
     }
 
-    fn run(&self, word: &str) {
-        let path = format!(
-            "{}:{}",
-            self.here.join("bin").display(),
-            std::env::var("PATH").unwrap_or_default()
-        );
-        Command::new(UPDATING)
+    fn run(&self, word: &str) -> Result<(), Failure> {
+        #[cfg_attr(
+            dylint_lib = "explicit026_env_read_once",
+            allow(
+                explicit026_env_read_once,
+                reason = "the program is run with the stub in front of the path this test was given, so the path it was given is what is read"
+            )
+        )]
+        let given = std::env::var("PATH")?;
+        let path = format!("{}:{given}", self.here.join("bin").display());
+        let _status = Command::new(UPDATING)
             .arg(word)
             .env("PATH", path)
             .env("XDG_RUNTIME_DIR", self.here.join("run"))
-            .status()
-            .expect("it runs");
+            .status()?;
+
+        Ok(())
     }
 
-    fn shown(&self) -> Vec<String> {
-        std::fs::read_to_string(self.here.join("shown"))
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_string)
-            .collect()
+    fn shown(&self) -> Result<Vec<String>, console_core_atomic_writes::Unread> {
+        let shown = console_core_atomic_writes::text_or_empty(&self.here.join("shown"))?;
+
+        Ok(shown.lines().map(str::to_string).collect())
     }
 
-    fn kept(&self) -> String {
-        std::fs::read_to_string(self.here.join("run/console/updating")).unwrap_or_default()
+    fn kept(&self) -> Result<String, console_core_atomic_writes::Unread> {
+        console_core_atomic_writes::text_or_empty(&self.here.join("run/console/updating"))
     }
 }
 
@@ -79,59 +87,93 @@ impl Drop for Subscriber {
 }
 
 #[test]
-fn the_notification_that_says_it_finished_replaces_the_one_that_said_it_started() {
-    let listening = Subscriber::new("replaces");
-    listening.run("start");
-    listening.run("done");
-    let shown = listening.shown();
-    assert_eq!(shown.len(), 2, "two notifications, not {}: {shown:?}", shown.len());
-    assert!(
-        !shown[0].contains("--replace-id"),
-        "the first replaced something that was not there: {}",
-        shown[0]
-    );
-    assert!(
-        shown[1].contains(&format!("--replace-id={ID}")),
-        "the second was a new notification rather than the same one: {}",
-        shown[1]
-    );
+fn the_notification_that_says_it_finished_replaces_the_one_that_said_it_started() -> Result<(), Failure> {
+    let listening = Subscriber::new("replaces")?;
+
+    listening.run("start")?;
+    listening.run("done")?;
+
+    let shown = listening.shown()?;
+
+    match shown.as_slice() {
+        [started, finished] => {
+            assert!(
+                !started.contains("--replace-id"),
+                "the first replaced something that was not there: {started}"
+            );
+            assert!(
+                finished.contains(&format!("--replace-id={ID}")),
+                "the second was a new notification rather than the same one: {finished}"
+            );
+
+            Ok(())
+        }
+        other => Err(Box::from(format!("two notifications, not {}: {other:?}", other.len()))),
+    }
 }
 
 #[test]
-fn the_one_that_stands_while_the_apply_runs_does_not_time_out() {
-    let listening = Subscriber::new("standing");
-    listening.run("start");
-    let shown = listening.shown();
+fn the_one_that_stands_while_the_apply_runs_does_not_time_out() -> Result<(), Failure> {
+    let listening = Subscriber::new("standing")?;
+
+    listening.run("start")?;
+
+    let shown = listening.shown()?;
+    let standing = shown.first().ok_or("nothing was shown")?;
+
     assert!(
-        shown[0].contains("--expire-time=0"),
-        "it would have gone by itself: {}",
-        shown[0]
+        standing.contains("--expire-time=0"),
+        "it would have gone by itself: {standing}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_number_is_kept_while_the_notification_stands_and_let_go_when_it_does_not() {
-    let listening = Subscriber::new("kept");
-    listening.run("start");
-    assert_eq!(listening.kept().trim(), ID);
-    listening.run("done");
-    assert_eq!(listening.kept(), "", "the number outlived the notification");
+fn the_number_is_kept_while_the_notification_stands_and_let_go_when_it_does_not() -> Result<(), Failure> {
+    let listening = Subscriber::new("kept")?;
+
+    listening.run("start")?;
+
+    let standing = listening.kept()?;
+
+    assert_eq!(standing.trim(), ID);
+
+    listening.run("done")?;
+
+    let finished = listening.kept()?;
+
+    assert_eq!(finished, "", "the number outlived the notification");
+
+    Ok(())
 }
 
 #[test]
-fn an_apply_that_did_not_finish_says_so_and_stays_on_the_screen() {
-    let listening = Subscriber::new("failed");
-    listening.run("start");
-    listening.run("failed");
-    let said = listening.shown().pop().expect("something shown");
+fn an_apply_that_did_not_finish_says_so_and_stays_on_the_screen() -> Result<(), Failure> {
+    let listening = Subscriber::new("failed")?;
+
+    listening.run("start")?;
+    listening.run("failed")?;
+
+    let mut shown = listening.shown()?;
+    let said = shown.pop().ok_or("nothing was shown")?;
+
     assert!(said.contains("--urgency=critical"), "said quietly: {said}");
     assert!(said.contains("--expire-time=0"), "it would have gone by itself: {said}");
     assert!(said.contains("didn't finish"), "it did not say what happened: {said}");
+
+    Ok(())
 }
 
 #[test]
-fn a_word_it_does_not_know_is_refused() {
-    let listening = Subscriber::new("unknown");
-    listening.run("sideways");
-    assert!(listening.shown().is_empty(), "it showed something for a word it does not know");
+fn a_word_it_does_not_know_is_refused() -> Result<(), Failure> {
+    let listening = Subscriber::new("unknown")?;
+
+    listening.run("sideways")?;
+
+    let shown = listening.shown()?;
+
+    assert!(shown.is_empty(), "it showed something for a word it does not know");
+
+    Ok(())
 }

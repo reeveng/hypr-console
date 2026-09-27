@@ -63,7 +63,7 @@ pub enum Confirmed {
         reason = "the variable that turns this on, read in the module that is what it turns on"
     )
 )]
-pub fn asked() -> Result<Confirmed, Never> {
+pub fn confirmation_state() -> Result<Confirmed, Never> {
     Ok(match std::env::var(ASKED) {
         Err(_unset) => Confirmed::No,
         Ok(_) => Confirmed::Yes,
@@ -71,7 +71,7 @@ pub fn asked() -> Result<Confirmed, Never> {
 }
 
 pub fn to<T>(doing: &str, work: impl FnOnce() -> T) -> Result<T, Never> {
-    let Ok(asked) = asked();
+    let Ok(asked) = confirmation_state();
 
     timing(asked, doing, work)
 }
@@ -109,7 +109,7 @@ fn took_since(started: Instant) -> Result<Duration, Never> {
 
 pub fn ended(doing: &str, started: Instant) -> Result<Duration, Never> {
     let Ok(took) = took_since(started);
-    let Ok(asked) = asked();
+    let Ok(asked) = confirmation_state();
     let Ok(()) = printed(asked, doing, took);
 
     Ok(took)
@@ -194,7 +194,7 @@ pub fn chosen_in(owner_home: &Path) -> Result<Measuring, Never> {
     measuring::read(chosen)
 }
 
-pub fn kept(owner_home: &Path, stages: &[(&'static str, Duration)], took: Duration) -> Result<(), Never> {
+pub fn record_timings(owner_home: &Path, stages: &[(&'static str, Duration)], took: Duration) -> Result<(), Never> {
     let Ok(chosen) = chosen_in(owner_home);
 
     match chosen {
@@ -204,7 +204,7 @@ pub fn kept(owner_home: &Path, stages: &[(&'static str, Duration)], took: Durati
 
     let Ok(moment) = now();
     let Ok(entry) = entry(stages, took, moment);
-    let Ok(said) = line::written(&entry);
+    let Ok(said) = line::serialize(&entry);
 
     #[cfg_attr(
         dylint_lib = "explicit040_no_torn_write",
@@ -226,6 +226,7 @@ pub fn kept(owner_home: &Path, stages: &[(&'static str, Duration)], took: Durati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn the_work_is_handed_back_whatever_it_says() {
@@ -247,7 +248,7 @@ mod tests {
     fn being_timed_does_not_change_what_the_work_says() {
         let Ok(number) = timing(Confirmed::Yes, "nothing", || 7);
         let Ok(word) = timing(Confirmed::Yes, "a word", || "written".to_string());
-        let Ok(done) = timing(Confirmed::Yes, "failing", || Err::<(), String>("would not".into()));
+        let Ok(done) = timing(Confirmed::Yes, "failing", || Err::<(), String>("would not".to_string()));
 
         assert_eq!(number, 7);
         assert_eq!(word, "written");
@@ -255,12 +256,12 @@ mod tests {
     }
 
     #[test]
-    fn an_apply_is_one_line_whose_stages_come_in_the_order_they_ran() {
+    fn an_apply_is_one_line_whose_stages_come_in_the_order_they_ran() -> Result<(), Box<dyn std::error::Error>> {
         let stages = [("built", Duration::from_millis(61_000)), ("files", Duration::from_millis(1_500))];
         let Ok(entry) = entry(&stages, Duration::from_millis(70_000), Moment { at: 1_758_000_000, up: 3_600.0, load: 1.5 });
-        let Ok(said) = line::written(&entry);
+        let Ok(said) = line::serialize(&entry);
         let Ok(back) = line::read(&said);
-        let back = back.expect("a line this module wrote reads back");
+        let back = back.ok_or("a line this module wrote did not read back")?;
 
         assert_eq!((back.who.as_str(), back.what.as_str()), ("console", "apply"));
         assert_eq!(back.waited, Duration::from_millis(70_000));
@@ -268,33 +269,38 @@ mod tests {
             back.marks.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(),
             vec!["built", "files"]
         );
+
+        Ok(())
     }
 
     #[test]
-    fn with_measuring_off_in_the_owners_home_nothing_is_kept() {
-        let home = std::env::temp_dir().join(format!("console-apply-measuring-{}", std::process::id()));
+    fn with_measuring_off_in_the_owners_home_nothing_is_kept() -> Result<(), Box<dyn std::error::Error>> {
+        let home = console_core_temporary_directories::fresh("apply-measuring")?;
         let Ok(at) = console_defaults::under(&home);
-        let _ = std::fs::create_dir_all(at.parent().expect("the defaults file is under a directory"));
-        let _ = std::fs::write(&at, "measuring=off\n");
+
+        console_core_atomic_writes::whole_with_folders(&at, b"measuring=off\n")?;
 
         assert_eq!(chosen_in(&home), Ok(Measuring::Off));
 
-        let _ = std::fs::write(&at, "search=ddg\n");
+        console_core_atomic_writes::whole(&at, b"search=ddg\n")?;
 
         assert_eq!(chosen_in(&home), Ok(Measuring::On));
+
         let _ = std::fs::remove_dir_all(&home);
+
+        Ok(())
     }
 
     #[test]
     fn the_work_runs_once_either_way() {
-        let mut ran = 0;
-        let Ok(()) = timing(Confirmed::No, "quiet", || ran += 1);
+        let ran = Cell::new(0_u32);
+        let Ok(()) = timing(Confirmed::No, "quiet", || ran.set(ran.get().saturating_add(1)));
 
-        assert_eq!(ran, 1, "untimed work did not run exactly once");
+        assert_eq!(ran.get(), 1, "untimed work did not run exactly once");
 
-        let mut ran = 0;
-        let Ok(()) = timing(Confirmed::Yes, "loud", || ran += 1);
+        let ran = Cell::new(0_u32);
+        let Ok(()) = timing(Confirmed::Yes, "loud", || ran.set(ran.get().saturating_add(1)));
 
-        assert_eq!(ran, 1, "timed work did not run exactly once");
+        assert_eq!(ran.get(), 1, "timed work did not run exactly once");
     }
 }

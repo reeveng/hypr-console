@@ -101,9 +101,9 @@ pub fn put_away(sharing: &Sharing) -> Result<Option<wifi::Network>, Never> {
 }
 
 pub fn rows(network: &wifi::Network) -> Result<Vec<Row>, Never> {
-    let row = match written(network) {
-        Ok(at) => Row::showing(Picture::Showing(Some(at))),
-        Err(fault) => Row::said(&fault.to_string(), Aside("")),
+    let row = match write_qr_code(network) {
+        Ok(at) => Row::picture(Picture::Showing(Some(at))),
+        Err(fault) => Row::text(&fault.to_string(), Aside("")),
     };
     let Ok(row) = row;
 
@@ -111,7 +111,7 @@ pub fn rows(network: &wifi::Network) -> Result<Vec<Row>, Never> {
 }
 
 fn folder() -> Result<Option<PathBuf>, Never> {
-    let runtime = console_core_places::runtime_ours()?;
+    let runtime = console_core_places::application_runtime()?;
 
     Ok(runtime.map(|at| at.join(FOLDER)))
 }
@@ -134,7 +134,7 @@ fn password(network: &wifi::Network) -> Result<String, Unshared> {
     }
 }
 
-fn named(said: &str) -> Result<String, Never> {
+fn file_name_for(said: &str) -> Result<String, Never> {
     let mut hashing = DefaultHasher::new();
 
     said.hash(&mut hashing);
@@ -142,7 +142,7 @@ fn named(said: &str) -> Result<String, Never> {
     Ok(format!("{:016x}.ppm", hashing.finish()))
 }
 
-fn written(network: &wifi::Network) -> Result<PathBuf, Unshared> {
+fn write_qr_code(network: &wifi::Network) -> Result<PathBuf, Unshared> {
     let password = password(network)?;
 
     let Ok(said) = console_core_qr_codes::wifi(console_core_qr_codes::Network { name: &network.name, password: &password });
@@ -153,7 +153,7 @@ fn written(network: &wifi::Network) -> Result<PathBuf, Unshared> {
         None => return Err(Unshared::TooLong(network.name.clone())),
     };
 
-    let Ok(drawn) = code.drawn(SCALE);
+    let Ok(drawn) = code.render(SCALE);
     let Ok(bytes) = console_pictures::portable_pixmap(Size { width: drawn.side, height: drawn.side }, &drawn.rgb);
     let Ok(folder) = folder();
 
@@ -164,7 +164,7 @@ fn written(network: &wifi::Network) -> Result<PathBuf, Unshared> {
 
     std::fs::create_dir_all(&folder).map_err(|fault| Unshared::Making(folder.clone(), fault))?;
 
-    let Ok(name) = named(&said);
+    let Ok(name) = file_name_for(&said);
     let at = folder.join(name);
 
     writes::whole(&at, &bytes).map_err(Unshared::Unwritten)?;
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn a_code_is_named_by_what_it_says_so_a_new_password_is_a_new_picture() {
-        assert_eq!(named("WIFI:T:WPA;S:Home;P:one;;"), named("WIFI:T:WPA;S:Home;P:one;;"));
-        assert_ne!(named("WIFI:T:WPA;S:Home;P:one;;"), named("WIFI:T:WPA;S:Home;P:two;;"));
+        assert_eq!(file_name_for("WIFI:T:WPA;S:Home;P:one;;"), file_name_for("WIFI:T:WPA;S:Home;P:one;;"));
+        assert_ne!(file_name_for("WIFI:T:WPA;S:Home;P:one;;"), file_name_for("WIFI:T:WPA;S:Home;P:two;;"));
     }
 }

@@ -63,7 +63,7 @@ pub fn names(folder: &Path) -> Result<Vec<String>, Never> {
 }
 
 pub fn cache_folder(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::Cache.ours_under(home);
+    let Ok(ours) = Base::Cache.application_under(home);
 
     Ok(ours.join("books"))
 }
@@ -80,15 +80,6 @@ pub fn format_of(name: &str) -> Result<Option<Format>, Never> {
         "cbz" => Some(Format::Comic),
         _ => None,
     })
-}
-
-pub fn title_from_name(name: &str) -> Result<String, Never> {
-    let stem = match name.rsplit_once('.') {
-        Some((stem, _)) => stem,
-        None => name,
-    };
-
-    Ok(stem.replace('_', " ").trim().to_string())
 }
 
 pub fn read_catalog(text: &str) -> Result<BTreeMap<String, CatalogEntry>, Never> {
@@ -139,7 +130,7 @@ pub fn books(folder: &Path, names: &[String], catalog: &BTreeMap<String, Catalog
         let (title, cover) = match catalog.get(name) {
             Some(cataloged) => (cataloged.title.clone(), cataloged.cover.clone()),
             None => {
-                let Ok(title) = title_from_name(name);
+                let Ok(title) = console_core_file_names::title(name);
 
                 (title, None)
             },
@@ -163,8 +154,8 @@ pub fn search<'a>(books: &'a [Book], search: &str) -> Result<Vec<&'a Book>, Neve
 mod tests {
     use super::*;
 
-    fn names(text: &[&str]) -> Vec<String> {
-        text.iter().map(|name| (*name).to_string()).collect()
+    fn names(text: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(text.iter().map(|name| (*name).to_string()).collect())
     }
 
     #[test]
@@ -175,7 +166,8 @@ mod tests {
             CatalogEntry { title: "Moby Dick".to_string(), cover: Some(PathBuf::from("/c/moby.jpg")) },
         );
 
-        let Ok(books) = books(Path::new("/b"), &names(&["pg2701.epub", "notes.txt", "Akira_01.cbz", "manual.PDF"]), &catalog);
+        let Ok(names) = names(&["pg2701.epub", "notes.txt", "Akira_01.cbz", "manual.PDF"]);
+        let Ok(books) = books(Path::new("/b"), &names, &catalog);
         let titles: Vec<(&str, Format)> = books.iter().map(|book| (book.title.as_str(), book.format)).collect();
 
         assert_eq!(titles, vec![("Akira 01", Format::Comic), ("manual", Format::PortableDocument), ("Moby Dick", Format::Publication)]);
@@ -183,8 +175,18 @@ mod tests {
     }
 
     #[test]
+    fn a_book_downloads_kept_is_on_the_shelf_under_the_title_downloads_showed() {
+        let Ok(names) = names(&["Meditations [2680].epub"]);
+        let Ok(books) = books(Path::new("/b"), &names, &BTreeMap::new());
+        let titles: Vec<&str> = books.iter().map(|book| book.title.as_str()).collect();
+
+        assert_eq!(titles, vec!["Meditations"]);
+    }
+
+    #[test]
     fn a_search_is_any_part_of_a_title_in_any_case() {
-        let Ok(books) = books(Path::new("/b"), &names(&["The Martian.epub", "Moby Dick.epub", "Martian Chronicles.pdf"]), &BTreeMap::new());
+        let Ok(names) = names(&["The Martian.epub", "Moby Dick.epub", "Martian Chronicles.pdf"]);
+        let Ok(books) = books(Path::new("/b"), &names, &BTreeMap::new());
         let Ok(found) = search(&books, " marTIAN ");
         let titles: Vec<&str> = found.iter().map(|book| book.title.as_str()).collect();
 

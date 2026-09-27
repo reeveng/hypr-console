@@ -65,7 +65,7 @@ impl Ring {
         Ok(which % self.0)
     }
 
-    pub fn stepped(&self, from: u32, step: Step) -> Result<u32, Never> {
+    pub fn step(&self, from: u32, step: Step) -> Result<u32, Never> {
         let Ok(here) = self.at(from);
 
         Ok(match step {
@@ -85,7 +85,7 @@ impl Ring {
         })
     }
 
-    pub fn walked(&self, from: u32, by: i32) -> Result<u32, Never> {
+    pub fn walk(&self, from: u32, by: i32) -> Result<u32, Never> {
         let Ok(away) = self.at(by.unsigned_abs());
 
         let forward = match by < 0 {
@@ -118,12 +118,14 @@ pub fn where_it_is<T: PartialEq>(every: &[T], wanted: &T) -> Result<Option<u32>,
 mod tests {
     use super::*;
 
-    fn ring(many: u32) -> Ring {
+    use std::error::Error;
+
+    fn ring(many: u32) -> Result<Ring, Box<dyn Error>> {
         let Ok(round) = Ring::round(many);
 
         match round {
-            Some(ring) => ring,
-            None => Ring(NonZeroU32::MIN),
+            Some(ring) => Ok(ring),
+            None => Err(Box::from("a ring of nothing")),
         }
     }
 
@@ -136,53 +138,74 @@ mod tests {
     }
 
     #[test]
-    fn a_step_forward_off_the_end_comes_back_to_the_front() {
-        let Ok(went) = ring(3).stepped(2, Step::Forward);
+    fn a_step_forward_off_the_end_comes_back_to_the_front() -> Result<(), Box<dyn Error>> {
+        let ring = ring(3)?;
+        let Ok(went) = ring.step(2, Step::Forward);
 
         assert_eq!(went, 0);
+
+        Ok(())
     }
 
     #[test]
-    fn a_step_back_off_the_front_comes_round_to_the_end() {
-        let Ok(went) = ring(3).stepped(0, Step::Back);
+    fn a_step_back_off_the_front_comes_round_to_the_end() -> Result<(), Box<dyn Error>> {
+        let ring = ring(3)?;
+        let Ok(went) = ring.step(0, Step::Back);
 
         assert_eq!(went, 2);
+
+        Ok(())
     }
 
     #[test]
-    fn a_position_past_the_end_is_wrapped_rather_than_refused() {
-        let Ok(at) = ring(3).at(7);
+    fn a_position_past_the_end_is_wrapped_rather_than_refused() -> Result<(), Box<dyn Error>> {
+        let ring = ring(3)?;
+        let Ok(at) = ring.at(7);
 
         assert_eq!(at, 1);
+
+        Ok(())
     }
 
     #[test]
-    fn walking_backwards_is_walking_the_long_way_round() {
-        let Ok(went) = ring(5).walked(1, -3);
+    fn walking_backwards_is_walking_the_long_way_round() -> Result<(), Box<dyn Error>> {
+        let ring = ring(5)?;
+        let Ok(went) = ring.walk(1, -3);
 
         assert_eq!(went, 3);
+
+        Ok(())
     }
 
     #[test]
-    fn walking_further_than_the_ring_is_long_lands_where_the_remainder_does() {
-        let Ok(went) = ring(4).walked(0, 9);
+    fn walking_further_than_the_ring_is_long_lands_where_the_remainder_does() -> Result<(), Box<dyn Error>> {
+        let ring = ring(4)?;
+        let Ok(went) = ring.walk(0, 9);
 
         assert_eq!(went, 1);
+
+        Ok(())
     }
 
     #[test]
-    fn the_steps_between_two_places_are_counted_the_way_round_they_go() {
-        let Ok(forward) = ring(4).steps(Between { from: 3, to: 1 });
+    fn the_steps_between_two_places_are_counted_the_way_round_they_go() -> Result<(), Box<dyn Error>> {
+        let ring = ring(4)?;
+        let Ok(forward) = ring.steps(Between { from: 3, to: 1 });
 
         assert_eq!(forward, 2);
+
+        Ok(())
     }
 
     #[test]
-    fn a_single_place_ring_never_goes_anywhere() {
-        let Ok(forward) = ring(1).stepped(0, Step::Forward);
-        let Ok(back) = ring(1).stepped(0, Step::Back);
+    fn a_single_place_ring_never_goes_anywhere() -> Result<(), Box<dyn Error>> {
+        let ring = ring(1)?;
+        let Ok(forward) = ring.step(0, Step::Forward);
+        let Ok(back) = ring.step(0, Step::Back);
 
         assert_eq!((forward, back), (0, 0));
+
+        Ok(())
     }
 
     #[test]

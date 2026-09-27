@@ -22,18 +22,27 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::spend::tests::blossom;
 
     #[test]
-    fn it_is_drawn_in_the_one_color_a_border_is_drawn_in() {
-        let svg = spend(&blossom()).expect("every color it spends is declared");
-        assert_eq!(svg.matches(&format!("#{}", blossom().must("edge").expect("a declared color"))).count(), 2);
+    fn it_is_drawn_in_the_one_color_a_border_is_drawn_in() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let svg = spend(&palette)?;
+        let edge = palette.must("edge")?;
+
+        assert_eq!(svg.matches(&format!("#{}", edge)).count(), 2);
+
+        Ok(())
     }
 
     #[test]
-    fn it_sits_inside_its_own_box() {
-        let svg = spend(&blossom()).expect("every color it spends is declared");
+    fn it_sits_inside_its_own_box() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let svg = spend(&palette)?;
         assert!(svg.contains(r#"viewBox="0 0 64 64""#));
         assert!(svg.contains(r#"x="8.5""#) && svg.contains(r#"stroke-width="3""#));
+
+        Ok(())
     }
 }

@@ -72,7 +72,7 @@ fn ladder(which: u32) -> Result<i64, Never> {
     fitted::<_, i64>(which)
 }
 
-fn between(under: (u32, i64), over: (u32, i64), which: u32) -> Result<i64, Never> {
+fn interpolate(under: (u32, i64), over: (u32, i64), which: u32) -> Result<i64, Never> {
     let (low, at_low) = under;
     let (high, at_high) = over;
 
@@ -88,7 +88,7 @@ fn between(under: (u32, i64), over: (u32, i64), which: u32) -> Result<i64, Never
 }
 
 impl Levels {
-    pub fn nothing() -> Result<Self, Never> {
+    pub fn empty() -> Result<Self, Never> {
         let Ok(many) = index(BANDS);
 
         Ok(Levels { bands: vec![None; many] })
@@ -149,7 +149,7 @@ impl Levels {
         Ok(Levels { bands })
     }
 
-    pub fn asked(&self, band: Band) -> Result<Option<i64>, Never> {
+    pub fn level_for(&self, band: Band) -> Result<Option<i64>, Never> {
         let Band(which) = band;
         let Ok(at) = index(which);
 
@@ -168,7 +168,7 @@ impl Levels {
 
         let climbed = match (under, over) {
             (Some(under), Some(over)) => {
-                let Ok(climbed) = between(under, over, which);
+                let Ok(climbed) = interpolate(under, over, which);
 
                 Some(climbed)
             }
@@ -181,7 +181,7 @@ impl Levels {
     }
 
     pub fn read(held: &str) -> Result<Self, Never> {
-        let Ok(nothing) = Levels::nothing();
+        let Ok(nothing) = Levels::empty();
 
         Ok(held.lines().fold(nothing, |levels, line| {
             let mut said = line.split_whitespace();
@@ -210,7 +210,7 @@ impl Levels {
         }))
     }
 
-    pub fn written(&self) -> Result<String, Never> {
+    pub fn serialize(&self) -> Result<String, Never> {
         Ok(self
             .bands
             .iter()
@@ -221,7 +221,7 @@ impl Levels {
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
     Ok(ours.join(NAMED))
 }
@@ -232,7 +232,7 @@ pub enum Standing {
     Invalid(String),
 }
 
-pub fn standing(home: &Path) -> Result<Standing, Never> {
+pub fn load(home: &Path) -> Result<Standing, Never> {
     let Ok(at) = at(home);
     let Ok(held) = console_core_atomic_writes::read(&at);
 
@@ -243,7 +243,7 @@ pub fn standing(home: &Path) -> Result<Standing, Never> {
             Standing::Loaded(levels)
         }
         Stored::Absent => {
-            let Ok(nothing) = Levels::nothing();
+            let Ok(nothing) = Levels::empty();
 
             Standing::Loaded(nothing)
         }
@@ -272,7 +272,7 @@ impl Following {
         })
     }
 
-    pub fn written(self) -> Result<&'static str, Never> {
+    pub fn as_str(self) -> Result<&'static str, Never> {
         Ok(match self {
             Following::Yes => "yes",
             Following::No => "no",
@@ -281,7 +281,7 @@ impl Following {
 }
 
 pub fn asked_at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
     Ok(ours.join(ASKED))
 }
@@ -299,7 +299,7 @@ pub fn following(home: &Path) -> Result<Following, Never> {
 
 pub fn keep(home: &Path, levels: &Levels) -> Result<(), console_core_atomic_writes::Unwritten> {
     let Ok(at) = at(home);
-    let Ok(written) = levels.written();
+    let Ok(written) = levels.serialize();
 
     console_core_atomic_writes::whole(&at, written.as_bytes())
 }

@@ -140,15 +140,15 @@ pub struct Wearing {
 
 impl Wearing {
     pub fn out_of(spent: &BTreeMap<String, String>) -> Result<Wearing, PaletteError> {
-        let panel = named(spent, "panel")?;
-        let text = named(spent, "text")?;
-        let edge = named(spent, "edge")?;
-        let soft = named(spent, "soft")?;
-        let coral = named(spent, "coral")?;
-        let ground = named(spent, "ground")?;
-        let fill = named(spent, "fill")?;
-        let night = named(spent, "night")?;
-        let pink = named(spent, "pink")?;
+        let panel = find_color(spent, "panel")?;
+        let text = find_color(spent, "text")?;
+        let edge = find_color(spent, "edge")?;
+        let soft = find_color(spent, "soft")?;
+        let coral = find_color(spent, "coral")?;
+        let ground = find_color(spent, "ground")?;
+        let fill = find_color(spent, "fill")?;
+        let night = find_color(spent, "night")?;
+        let pink = find_color(spent, "pink")?;
 
         Ok(Wearing { panel, text, edge, soft, coral, ground, fill, night, pink })
     }
@@ -161,7 +161,7 @@ impl Wearing {
     }
 }
 
-pub fn named(
+pub fn find_color(
     spent: &BTreeMap<String, String>,
     what: &'static str,
 ) -> Result<Oklch, PaletteError> {
@@ -184,8 +184,8 @@ mod tests {
     fn a_color_is_a_word_and_six_digits() {
         let Ok(found) = read("pink=FF7BAC\nnight=191724\nsomething=else\n# ground=000000\n");
 
-        assert_eq!(found["pink"], "ff7bac");
-        assert_eq!(found["night"], "191724");
+        assert_eq!(found.get("pink").map(String::as_str), Some("ff7bac"));
+        assert_eq!(found.get("night").map(String::as_str), Some("191724"));
         assert!(!found.contains_key("something"), "that is not a color");
     }
 

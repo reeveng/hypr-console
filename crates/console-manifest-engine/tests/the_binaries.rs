@@ -34,29 +34,25 @@
 
 mod reading;
 
-use reading::section;
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, BTreeSet};
+
+use console_core_never::Never;
+use reading::{Failure, Section, section, read, root};
 
 const THE_ENGINE: &str = "console";
 
 const FAMILIES: [&str; 5] = ["core", "input", "manifest", "program", "test"];
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-
-    from.canonicalize().unwrap_or(from)
-}
-
-fn manifest() -> String {
-    std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
-}
-
-fn built_by() -> BTreeMap<String, String> {
+fn built_by() -> Result<BTreeMap<String, String>, Failure> {
+    let Ok(root) = root();
     let mut held = BTreeMap::new();
-    let crates = std::fs::read_dir(root().join("crates")).expect("crates");
 
-    for at in crates.flatten().map(|entry| entry.path()) {
+    let entries = std::fs::read_dir(root.join("crates"))?;
+
+
+    for entry in entries {
+        let entry = entry?;
+        let at = entry.path();
         let named = match at.file_name().and_then(|named| named.to_str()) {
             Some(named) => named.to_string(),
             None => continue,
@@ -85,45 +81,54 @@ fn built_by() -> BTreeMap<String, String> {
         }
     }
 
-    held
+    Ok(held)
 }
 
-fn subject(crate_: &str) -> Vec<String> {
-    let said = crate_.strip_prefix("console-").unwrap_or(crate_);
+fn subject(crate_: &str) -> Result<BTreeSet<String>, Never> {
+    let said = crate_.strip_prefix("console-").map_or(crate_, |rest| rest);
     let words: Vec<&str> = said.split('-').collect();
 
     let kept = match words.split_first() {
-        Some((first, rest)) if FAMILIES.contains(first) && !rest.is_empty() => rest.to_vec(),
-        _ => words,
+        Some((first, rest)) => match FAMILIES.contains(first) && !rest.is_empty() {
+            true => rest.to_vec(),
+            false => words,
+        },
+        None => words,
     };
 
-    kept.into_iter().map(str::to_string).collect()
+    Ok(kept.into_iter().map(str::to_string).collect())
 }
 
 #[test]
-fn every_program_the_manifest_builds_is_one_a_crate_here_declares() {
-    let built = built_by();
-    let strange: Vec<String> =
-        section(&manifest(), "build").into_iter().filter(|named| !built.contains_key(named)).collect();
+fn every_program_the_manifest_builds_is_one_a_crate_here_declares() -> Result<(), Failure> {
+    let built = built_by()?;
+    let held = read("desktop.conf")?;
+    let named = section(&held, Section::Build)?;
+    let strange: Vec<String> = named.into_iter().filter(|named| !built.contains_key(named)).collect();
 
     assert!(
         strange.is_empty(),
         "[build] names what no crate builds: {strange:?}",
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_part_is_named_for_the_crate_it_came_out_of() {
-    let built = built_by();
+fn a_part_is_named_for_the_crate_it_came_out_of() -> Result<(), Failure> {
+    let built = built_by()?;
+    let held = read("desktop.conf")?;
+    let named = section(&held, Section::Build)?;
 
-    let strange: Vec<String> = section(&manifest(), "build")
+    let strange: Vec<String> = named
         .into_iter()
         .filter(|named| named != THE_ENGINE && !named.starts_with("console-"))
         .filter_map(|named| built.get(&named).map(|crate_| (named.clone(), crate_.clone())))
         .filter(|(named, crate_)| {
-            let opening = named.split('-').next().unwrap_or(named);
+            let opening = named.split_once('-').map_or(named.as_str(), |(opening, _)| opening);
+            let Ok(subject) = subject(crate_);
 
-            !subject(crate_).iter().any(|word| word == opening)
+            !subject.contains(opening)
         })
         .map(|(named, crate_)| format!("{named}, out of {crate_}"))
         .collect();
@@ -134,4 +139,6 @@ fn a_part_is_named_for_the_crate_it_came_out_of() {
          or a part, which is reached for by something else and opens with a word of the crate \
          it came out of -- these are neither: {strange:?}",
     );
+
+    Ok(())
 }

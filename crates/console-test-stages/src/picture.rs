@@ -18,7 +18,6 @@
 //! is the compositor that took the picture; reading the wrong row looks exactly
 //! like a surface that does not paint.
 
-
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i64, toward_zero_u32};
@@ -93,7 +92,7 @@ impl Picture {
         let Ok(column) = fitted(across);
         let Ok(row) = fitted(down);
         let Ok(band) = self.band(Point { x: column, y: row });
-        let Ok(said) = said(band);
+        let Ok(said) = hex(band);
 
         Ok(said)
     }
@@ -135,7 +134,7 @@ impl Picture {
             *band = much;
         }
 
-        said(bands)
+        hex(bands)
     }
 
     pub fn most_common(&self) -> Result<String, Never> {
@@ -148,7 +147,7 @@ impl Picture {
         for down in (0..self.height).step_by(rows) {
             for across in (0..self.width).step_by(columns) {
                 let Ok(band) = self.band(Point { x: across, y: down });
-                let Ok(said) = said(band);
+                let Ok(said) = hex(band);
                 let often = seen.entry(said).or_insert(0);
 
                 *often = often.saturating_add(1);
@@ -164,7 +163,7 @@ impl Picture {
     }
 }
 
-fn said([red, green, blue]: [u8; 3]) -> Result<String, Never> {
+fn hex([red, green, blue]: [u8; 3]) -> Result<String, Never> {
     Ok(format!("{red:02x}{green:02x}{blue:02x}"))
 }
 
@@ -182,70 +181,88 @@ pub fn where_(
 mod tests {
     use super::*;
 
-    fn drawn(named: &str, width: i32, height: i32, paint: impl Fn(&cairo::Context)) -> Picture {
-        let surface = cairo::ImageSurface::create(cairo::Format::Rgb24, width, height)
-            .expect("a surface");
-        let context = cairo::Context::new(&surface).expect("a context");
+    type Failure = Box<dyn std::error::Error>;
+
+    fn paint_picture(named: &str, size: Size<i32>, paint: impl Fn(&cairo::Context)) -> Result<Picture, Failure> {
+        let surface = cairo::ImageSurface::create(cairo::Format::Rgb24, size.width, size.height)?;
+        let context = cairo::Context::new(&surface)?;
+
         paint(&context);
         drop(context);
-        let at = std::env::temp_dir().join(format!("console-picture-{named}.png"));
-        let mut file = std::fs::File::create(&at).expect("somewhere to write");
-        surface.write_to_png(&mut file).expect("a png");
-        drop(file);
-        let picture = Picture::read(&at).expect("a picture");
+
+        let fresh = console_core_temporary_directories::fresh(&format!("picture-{named}"))?;
+        let at = fresh.join("picture.png");
+        let mut png = Vec::new();
+
+        surface.write_to_png(&mut png)?;
+        console_core_atomic_writes::whole(&at, &png)?;
+
+        let picture = Picture::read(&at)?;
         let _ = std::fs::remove_file(&at);
-        picture
+
+        Ok(picture)
     }
 
-    fn plain(named: &str, width: i32, height: i32, color: (f64, f64, f64)) -> Picture {
-        drawn(named, width, height, |context| {
+    fn plain(named: &str, size: Size<i32>, color: (f64, f64, f64)) -> Result<Picture, Failure> {
+        paint_picture(named, size, |context| {
             context.set_source_rgb(color.0, color.1, color.2);
             let _ = context.paint();
         })
     }
 
     #[test]
-    fn a_color_is_read_as_a_stylesheet_would_write_it() {
-        let picture = plain("one-color", 8, 8, (1.0, 0.0, 0.5));
-        assert_eq!(
-            picture.at(Point { x: 0.0, y: 0.0 }).expect("a color"),
-            "ff0080"
-        );
+    fn a_color_is_read_as_a_stylesheet_would_write_it() -> Result<(), Failure> {
+        let picture = plain("one-color", Size { width: 8, height: 8 }, (1.0, 0.0, 0.5))?;
+
+        let color = picture.at(Point { x: 0.0, y: 0.0 })?;
+
+        assert_eq!(color, "ff0080");
+
+        Ok(())
     }
 
     #[test]
-    fn somewhere_off_the_edge_is_said_rather_than_answered() {
-        let picture = plain("off-the-edge", 8, 8, (0.0, 0.0, 0.0));
-        assert!(picture.at(Point { x: 8.0, y: 0.0 }).is_err());
-        assert!(picture.at(Point { x: -1.0, y: 0.0 }).is_err());
+    fn somewhere_off_the_edge_is_said_rather_than_answered() -> Result<(), Failure> {
+        let picture = plain("off-the-edge", Size { width: 8, height: 8 }, (0.0, 0.0, 0.0))?;
+
+        assert!(matches!(picture.at(Point { x: 8.0, y: 0.0 }), Err(Error::OffTheEdge(..))));
+        assert!(matches!(picture.at(Point { x: -1.0, y: 0.0 }), Err(Error::OffTheEdge(..))));
+
+        Ok(())
     }
 
     #[test]
-    fn a_patch_is_the_average_of_what_is_in_it() {
-        let picture = drawn("halves", 100, 100, |context| {
+    fn a_patch_is_the_average_of_what_is_in_it() -> Result<(), Failure> {
+        let picture = paint_picture("halves", Size { width: 100, height: 100 }, |context| {
             context.set_source_rgb(0.0, 0.0, 0.0);
             let _ = context.paint();
             context.set_source_rgb(1.0, 1.0, 1.0);
             context.rectangle(0.0, 0.0, 50.0, 100.0);
             let _ = context.fill();
-        });
+        })?;
+
         assert_eq!(picture.average(Point { x: 0.25, y: 0.5 }, 0.02), Ok("ffffff".to_string()));
         assert_eq!(picture.average(Point { x: 0.75, y: 0.5 }, 0.02), Ok("000000".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn the_commonest_color_is_what_most_of_the_screen_is() {
-        let picture = drawn("a-square", 100, 100, |context| {
+    fn the_commonest_color_is_what_most_of_the_screen_is() -> Result<(), Failure> {
+        let picture = paint_picture("a-square", Size { width: 100, height: 100 }, |context| {
             context.set_source_rgb(0.1, 0.1, 0.1);
             let _ = context.paint();
             context.set_source_rgb(1.0, 1.0, 1.0);
             context.rectangle(0.0, 0.0, 20.0, 20.0);
             let _ = context.fill();
-        });
+        })?;
+
         assert_eq!(
             picture.most_common(),
             Ok("191919".to_string()),
             "the ground, not the square on it"
         );
+
+        Ok(())
     }
 }

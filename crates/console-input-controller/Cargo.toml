@@ -27,6 +27,7 @@ console-program-lifetime.workspace = true
 console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-core-number-conversion.workspace = true
+console-core-iteration.workspace = true
 console-response-times.workspace = true
 console-cpu-boost.workspace = true
 console-onscreen.workspace = true
@@ -46,7 +47,10 @@ console-input-event-devices.workspace = true
 rustix.workspace = true
 
 [dev-dependencies]
+console-waiting.workspace = true
+console-core-directory-listing.workspace = true
 console-input-gamepad = { workspace = true, features = ["read"] }
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

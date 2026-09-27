@@ -32,7 +32,7 @@ fn sorted(mut every: Vec<u16>) -> Result<Vec<u16>, Never> {
     Ok(every)
 }
 
-fn described(device: &Device) -> Result<Descriptor, Unread> {
+fn describe(device: &Device) -> Result<Descriptor, Unread> {
     let id = device.id;
     let axes = device.absolute().map_err(Unread)?;
     let mut absolute: Vec<Axis> = axes
@@ -58,12 +58,12 @@ fn described(device: &Device) -> Result<Descriptor, Unread> {
         bustype: id.bus.0,
         capabilities: Capabilities { absolute, force_feedback, key, miscellaneous, relative },
         name: {
-            let Ok(name) = finding::named(device);
+            let Ok(name) = finding::device_name(device);
 
             name
         },
         phys: {
-            let Ok(phys) = finding::wired(device);
+            let Ok(phys) = finding::physical_path(device);
 
             phys
         },
@@ -81,7 +81,7 @@ fn main() -> ExitCode {
     let Ok(every) = Device::every();
 
     for device in every {
-        let Ok(name) = finding::named(&device);
+        let Ok(name) = finding::device_name(&device);
 
         let at = match (0_u32..).zip(ROLES.iter()).find(|(_, (wanted, _))| *wanted == name) {
             Some((at, _)) => at,
@@ -93,7 +93,7 @@ fn main() -> ExitCode {
             false => {},
         }
 
-        let said = match described(&device) {
+        let said = match describe(&device) {
             Ok(said) => said,
             Err(why) => {
                 eprintln!("{name} would not be read: {why}");

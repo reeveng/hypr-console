@@ -27,6 +27,7 @@ console-music.workspace = true
 console-core-internal-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-battery.workspace = true
 console-defaults.workspace = true
@@ -47,3 +48,6 @@ workspace = true
 
 [dev-dependencies]
 console-settings.workspace = true
+# The picture of the bar a test writes when someone asks to look at one,
+# written the way every other file on this desktop is.
+console-core-atomic-writes.workspace = true

@@ -41,45 +41,49 @@ pub fn spliced(held: &str, body: Body<'_>) -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
+    use std::error::Error;
 
     const HELD: &str = "before\n# console-palette:begin\nold\nlines\n# console-palette:end\nafter\n";
 
     #[test]
-    fn what_lies_between_the_markers_is_replaced() {
-        let got = ok(spliced(HELD, Body("new"))).expect("one pair of markers");
+    fn what_lies_between_the_markers_is_replaced() -> Result<(), Box<dyn Error>> {
+        let Ok(got) = spliced(HELD, Body("new"));
+        let got = got.ok_or("one pair of markers")?;
         assert_eq!(
             got,
             "before\n# console-palette:begin\nnew\n# console-palette:end\nafter\n"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn what_lies_outside_them_is_left_alone() {
-        let got = ok(spliced(HELD, Body("new"))).expect("one pair of markers");
+    fn what_lies_outside_them_is_left_alone() -> Result<(), Box<dyn Error>> {
+        let Ok(got) = spliced(HELD, Body("new"));
+        let got = got.ok_or("one pair of markers")?;
         assert!(got.starts_with("before\n"), "{got}");
         assert!(got.ends_with("after\n"), "{got}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_body_is_written_with_exactly_one_newline_after_it() {
+    fn a_body_is_written_with_exactly_one_newline_after_it() -> Result<(), Box<dyn Error>> {
         for body in ["new", "new\n", "new\n\n\n"] {
-            let got = ok(spliced(HELD, Body(body))).expect("one pair of markers");
+            let Ok(got) = spliced(HELD, Body(body));
+        let got = got.ok_or("one pair of markers")?;
             assert!(got.contains("new\n# console-palette:end"), "{body:?} gave {got:?}");
         }
+
+        Ok(())
     }
 
     #[test]
     fn an_empty_region_is_filled() {
         let held = "# console-palette:begin\n# console-palette:end\n";
         assert_eq!(
-            ok(spliced(held, Body("new"))).expect("one pair"),
-            "# console-palette:begin\nnew\n# console-palette:end\n"
+            spliced(held, Body("new")),
+            Ok(Some("# console-palette:begin\nnew\n# console-palette:end\n".to_string()))
         );
     }
 

@@ -14,8 +14,13 @@ console-core-atomic-writes.workspace = true
 console-program-contract.workspace = true
 console-core-external-programs.workspace = true
 console-program-lifetime.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-events.workspace = true
+
+[dev-dependencies]
+console-waiting.workspace = true
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

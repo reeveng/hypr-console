@@ -19,6 +19,7 @@
 //! of them was ever ported, and a field no one reads is a field the next
 //! person to read this believes in.
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use std::env;
@@ -153,46 +154,42 @@ fn apply_environment(configuration: &mut Configuration, environment: &impl Fn(&s
 }
 
 fn parse_args(configuration: &mut Configuration, arguments: &[String]) -> Result<(), Error> {
-    let mut position: u32 = 1;
+    let parsed = console_core_iteration::iterate((configuration, arguments.iter().skip(1)), |(configuration, mut words)| {
+        Ok(match words.next() {
+            None => Step::Halt(Ok(())),
+            Some(flag) => match parse_flag(configuration, flag, &mut words) {
+                Ok(()) => Step::Again((configuration, words)),
+                Err(fault) => Step::Halt(Err(fault)),
+            },
+        })
+    });
 
-    loop {
-        let Ok(at) = index(position);
-
-        let flag = match arguments.get(at).cloned() {
-            Some(flag) => flag,
-            None => break,
-        };
-
-        position = position.saturating_add(1);
-
-        match flag.as_str() {
-            "-v" | "--version" => return Err(Error::MissingValue(String::from("--version"))),
-            "-h" | "--help" => return Err(Error::MissingValue(String::from("--help"))),
-            "-hidden" | "--hidden" => configuration.hidden = true,
-            "-no-popup" | "--no-popup" => {}
-            "-list-layers" | "--list-layers" => {
-                return Err(Error::MissingValue(String::from("--list-layers")))
-            }
-            _ => {
-                let value = take_value(arguments, &mut position, &flag)?;
-                apply_flag(configuration, &flag, Value(&value))?;
-            }
-        }
+    match parsed {
+        Ok(parsed) => parsed,
+        Err(_endless) => Ok(()),
     }
-
-    Ok(())
 }
 
-fn take_value(arguments: &[String], position: &mut u32, flag: &str) -> Result<String, Error> {
-    let Ok(at) = index(*position);
+fn parse_flag<'a>(
+    configuration: &mut Configuration,
+    flag: &str,
+    words: &mut impl Iterator<Item = &'a String>,
+) -> Result<(), Error> {
+    match flag {
+        "-v" | "--version" => Err(Error::MissingValue(String::from("--version"))),
+        "-h" | "--help" => Err(Error::MissingValue(String::from("--help"))),
+        "-hidden" | "--hidden" => {
+            configuration.hidden = true;
 
-    let value = match arguments.get(at).cloned() {
-        Some(value) => value,
-        None => return Err(Error::MissingValue(flag.to_string())),
-    };
-
-    *position = position.saturating_add(1);
-    Ok(value)
+            Ok(())
+        }
+        "-no-popup" | "--no-popup" => Ok(()),
+        "-list-layers" | "--list-layers" => Err(Error::MissingValue(String::from("--list-layers"))),
+        _ => match words.next() {
+            Some(value) => apply_flag(configuration, flag, Value(value)),
+            None => Err(Error::MissingValue(flag.to_string())),
+        },
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,109 +327,118 @@ pub fn from_environment(arguments: &[String]) -> Result<Configuration, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
-    fn empty_environment(_: &str) -> Option<String> {
-        None
+    const LAYERS: &str = "VIRTUAL_KEYBOARD_LAYERS";
+
+    fn given_with(flags: &[&str], (name, value): (&str, Option<&str>)) -> Result<Configuration, Error> {
+        let arguments: Vec<String> = flags.iter().map(|flag| flag.to_string()).collect();
+        let env = |asked: &str| (asked == name).then(|| value.map(str::to_string)).flatten();
+
+        parse(&arguments, &env)
     }
 
-    fn with_environment<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
-        let map: HashMap<String, String> = pairs
-            .iter()
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .collect();
-        move |name| map.get(name).cloned()
-    }
-
-    fn arguments(flags: &[&str]) -> Vec<String> {
-        flags.iter().map(|flag| flag.to_string()).collect()
+    fn given(flags: &[&str]) -> Result<Configuration, Error> {
+        given_with(flags, (LAYERS, None))
     }
 
     #[test]
-    fn defaults_match_the_c_binarys_compiled_in_palette() {
-        let configuration = parse(&arguments(&["console-keyboard"]), &empty_environment).expect("defaults");
-        assert_eq!(Ok(configuration.schemes[0].background), Color::from_hex("000000"));
-        assert_eq!(Ok(configuration.schemes[0].foreground), Color::from_hex("f0f0f0"));
+    fn defaults_match_the_c_binarys_compiled_in_palette() -> Result<(), Error> {
+        let configuration = given(&["console-keyboard"])?;
+        let [letters, _] = configuration.schemes;
+
+        assert_eq!(Ok(letters.background), Color::from_hex("000000"));
+        assert_eq!(Ok(letters.foreground), Color::from_hex("f0f0f0"));
         assert_eq!(configuration.height, 260);
+
+        Ok(())
     }
 
     #[test]
-    fn a_flag_only_the_c_understands_is_taken_and_dropped() {
-        let with = parse(
-            &arguments(&["console-keyboard", "--no-popup", "--swipe", "ffb5e2", "--text-swipe", "110b12"]),
-            &empty_environment,
-        )
-        .expect("the C's flags are taken");
-        assert_eq!(with, parse(&arguments(&["console-keyboard"]), &empty_environment).expect("plain"));
+    fn a_flag_only_the_c_understands_is_taken_and_dropped() -> Result<(), Error> {
+        let with = given(&["console-keyboard", "--no-popup", "--swipe", "ffb5e2", "--text-swipe", "110b12"])?;
 
-        let error = parse(&arguments(&["console-keyboard", "--swipe", "ffbac"]), &empty_environment)
-            .expect_err("five digits is still five digits");
-        assert_eq!(error, Error::Unknown("ffbac".into()));
+        assert_eq!(Ok(with), given(&["console-keyboard"]));
+        assert_eq!(
+            given(&["console-keyboard", "--swipe", "ffbac"]),
+            Err(Error::Unknown(String::from("ffbac"))),
+            "five digits is still five digits"
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn a_color_flag_overrides_the_default() {
-        let configuration = parse(&arguments(&["console-keyboard", "--bg", "110b12"]), &empty_environment).expect("bg");
-        assert_eq!(Ok(configuration.schemes[0].background), Color::from_hex("110b12"));
-        assert_eq!(Ok(configuration.schemes[1].background), Color::from_hex("000000"));
+    fn a_color_flag_overrides_the_default() -> Result<(), Error> {
+        let configuration = given(&["console-keyboard", "--bg", "110b12"])?;
+        let [letters, others] = configuration.schemes;
+
+        assert_eq!(Ok(letters.background), Color::from_hex("110b12"));
+        assert_eq!(Ok(others.background), Color::from_hex("000000"));
+
+        Ok(())
     }
 
     #[test]
-    fn the_sp_suffix_targets_the_non_letter_scheme() {
-        let configuration = parse(&arguments(&["console-keyboard", "--fg-sp", "382a38"]), &empty_environment).expect("fg-sp");
-        assert_eq!(Ok(configuration.schemes[1].foreground), Color::from_hex("382a38"));
-        assert_eq!(Ok(configuration.schemes[0].foreground), Color::from_hex("f0f0f0"));
+    fn the_sp_suffix_targets_the_non_letter_scheme() -> Result<(), Error> {
+        let configuration = given(&["console-keyboard", "--fg-sp", "382a38"])?;
+        let [letters, others] = configuration.schemes;
+
+        assert_eq!(Ok(others.foreground), Color::from_hex("382a38"));
+        assert_eq!(Ok(letters.foreground), Color::from_hex("f0f0f0"));
+
+        Ok(())
     }
 
     #[test]
-    fn height_takes_the_landscape_value_too() {
-        let configuration = parse(&arguments(&["console-keyboard", "-L", "300"]), &empty_environment).expect("-L");
+    fn height_takes_the_landscape_value_too() -> Result<(), Error> {
+        let configuration = given(&["console-keyboard", "-L", "300"])?;
+
         assert_eq!(configuration.height, 300);
         assert_eq!(configuration.landscape_height, 300);
+
+        Ok(())
     }
 
     #[test]
-    fn environment_layers_split_on_commas() {
-        let configuration = parse(
-            &arguments(&["console-keyboard"]),
-            &with_environment(&[("VIRTUAL_KEYBOARD_LAYERS", "latin,thai,emoji")]),
-        )
-        .expect("env");
-        assert_eq!(configuration.layers, vec!["latin", "thai", "emoji"]);
+    fn environment_layers_split_on_commas() -> Result<(), Error> {
+        let configuration = given_with(&["console-keyboard"], (LAYERS, Some("latin,thai,emoji")))?;
+
+        assert_eq!(configuration.layers, ["latin", "thai", "emoji"]);
+
+        Ok(())
     }
 
     #[test]
-    fn an_argv_layer_overrides_an_environment_one() {
-        let configuration = parse(
-            &arguments(&["console-keyboard", "-l", "simple"]),
-            &with_environment(&[("VIRTUAL_KEYBOARD_LAYERS", "latin,thai")]),
-        )
-        .expect("override");
-        assert_eq!(configuration.layers, vec!["simple"]);
+    fn an_argv_layer_overrides_an_environment_one() -> Result<(), Error> {
+        let configuration = given_with(&["console-keyboard", "-l", "simple"], (LAYERS, Some("latin,thai")))?;
+
+        assert_eq!(configuration.layers, ["simple"]);
+
+        Ok(())
     }
 
     #[test]
     fn missing_value_for_a_flag_refuses() {
-        let error = parse(&arguments(&["console-keyboard", "--bg"]), &empty_environment).expect_err("no value");
-        assert_eq!(error, Error::MissingValue("--bg".into()));
+        assert_eq!(given(&["console-keyboard", "--bg"]), Err(Error::MissingValue(String::from("--bg"))));
     }
 
     #[test]
     fn an_unknown_flag_refuses() {
-        let error = parse(&arguments(&["console-keyboard", "--nonsense"]), &empty_environment).expect_err("nonsense");
-        assert_eq!(error, Error::MissingValue("--nonsense".into()));
+        assert_eq!(given(&["console-keyboard", "--nonsense"]), Err(Error::MissingValue(String::from("--nonsense"))));
     }
 
     #[test]
     fn a_color_with_too_few_digits_refuses() {
-        let error = parse(&arguments(&["console-keyboard", "--bg", "ff"]), &empty_environment).expect_err("short");
-        assert_eq!(error, Error::Unknown("ff".into()));
+        assert_eq!(given(&["console-keyboard", "--bg", "ff"]), Err(Error::Unknown(String::from("ff"))));
     }
 
     #[test]
-    fn short_and_long_forms_are_equivalent() {
-        let short = parse(&arguments(&["console-keyboard", "-H", "400"]), &empty_environment).expect("-H");
-        let long = parse(&arguments(&["console-keyboard", "--H", "400"]), &empty_environment).expect("--H");
+    fn short_and_long_forms_are_equivalent() -> Result<(), Error> {
+        let short = given(&["console-keyboard", "-H", "400"])?;
+        let long = given(&["console-keyboard", "--H", "400"])?;
+
         assert_eq!(short.height, long.height);
+
+        Ok(())
     }
 }

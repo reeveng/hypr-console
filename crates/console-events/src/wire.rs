@@ -133,23 +133,31 @@ fn escaped(at: &str) -> Result<String, Never> {
     Ok(at.replace('\\', "\\\\").replace(' ', "\\s"))
 }
 
-fn plain(at: &str) -> Result<String, Never> {
-    let mut plain = String::new();
-    let mut said = at.chars();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pending {
+    Backslash,
+    None,
+}
 
-    while let Some(letter) = said.next() {
-        match letter {
-            '\\' => match said.next() {
-                Some('s') => plain.push(' '),
-                Some('\\') => plain.push('\\'),
-                Some(other) => {
-                    plain.push('\\');
-                    plain.push(other);
-                }
-                None => plain.push('\\'),
-            },
-            other => plain.push(other),
+fn plain(at: &str) -> Result<String, Never> {
+    let (mut plain, pending) = at.chars().fold((String::new(), Pending::None), |(mut plain, pending), letter| {
+        match (pending, letter) {
+            (Pending::Backslash, 's') => plain.push(' '),
+            (Pending::Backslash, '\\') => plain.push('\\'),
+            (Pending::Backslash, other) => {
+                plain.push('\\');
+                plain.push(other);
+            }
+            (Pending::None, '\\') => return (plain, Pending::Backslash),
+            (Pending::None, other) => plain.push(other),
         }
+
+        (plain, Pending::None)
+    });
+
+    match pending {
+        Pending::Backslash => plain.push('\\'),
+        Pending::None => {},
     }
 
     Ok(plain)
@@ -159,11 +167,10 @@ fn plain(at: &str) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn round(message: &Message) -> Option<Message> {
+    fn round(message: &Message) -> Result<Option<Message>, Never> {
         let Ok(spelled) = encoded(message);
-        let Ok(read) = decoded(&spelled);
 
-        read
+        decoded(&spelled)
     }
 
     #[test]
@@ -179,7 +186,7 @@ mod tests {
             Topic::Units,
             Topic::Player,
         ] {
-            assert_eq!(round(&Message::Subscribe(topic.clone())), Some(Message::Subscribe(topic)));
+            assert_eq!(round(&Message::Subscribe(topic.clone())), Ok(Some(Message::Subscribe(topic))));
         }
     }
 
@@ -188,7 +195,7 @@ mod tests {
         let at = PathBuf::from("/home/someone/My Pictures/a\\b");
         let message = Message::Subscribe(Topic::Path(at.clone()));
 
-        assert_eq!(round(&message), Some(Message::Subscribe(Topic::Path(at))));
+        assert_eq!(round(&message), Ok(Some(Message::Subscribe(Topic::Path(at)))));
     }
 
     #[test]
@@ -198,14 +205,14 @@ mod tests {
             text: "openwindow>>a1b2,1,alacritty,a terminal".to_string(),
         };
 
-        assert_eq!(round(&Message::Publish(change.clone())), Some(Message::Publish(change)));
+        assert_eq!(round(&Message::Publish(change.clone())), Ok(Some(Message::Publish(change))));
     }
 
     #[test]
     fn a_word_with_nothing_after_it_is_still_a_word() {
         let change = Change { topic: Topic::Sound, text: String::new() };
 
-        assert_eq!(round(&Message::Publish(change.clone())), Some(Message::Publish(change)));
+        assert_eq!(round(&Message::Publish(change.clone())), Ok(Some(Message::Publish(change))));
     }
 
     #[test]

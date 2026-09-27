@@ -14,7 +14,7 @@
 //! transcript of someone pressing buttons a test.
 
 use console_input_gamepad::routing::{self, Hat};
-use console_input_gamepad::vocabulary::TRIGGER_BUTTONS;
+use console_input_gamepad::vocabulary::{trigger_of_axis, trigger_of_button};
 use console_core_never::Never;
 use console_input_event_devices::EventType;
 
@@ -30,17 +30,18 @@ pub enum Direction {
 pub enum InputEvent {
     Pressed { button: &'static str, direction: Direction },
     Trigger { trigger: &'static str, direction: Direction },
+    Pulled { trigger: &'static str, value: i32 },
     Typed { code: u16, direction: Direction },
     Unnamed { code: u16, direction: Direction },
     None,
 }
 
-pub fn said(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<InputEvent, Never> {
+pub fn translate(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result<InputEvent, Never> {
     Ok(match which {
         DeviceKind::Touch => InputEvent::None,
         DeviceKind::Typing => match kind {
             EventType::KEY => {
-                let Ok(typed) = typed(code, value);
+                let Ok(typed) = key_event(code, value);
 
                 typed
             }
@@ -53,16 +54,23 @@ pub fn said(which: DeviceKind, kind: EventType, code: u16, value: i32) -> Result
                 key
             }
             EventType::ABSOLUTE => {
-                let Ok(hat) = hat(code, value);
+                let Ok(pulled) = trigger_of_axis(code);
 
-                hat
+                match pulled {
+                    Some(trigger) => InputEvent::Pulled { trigger, value },
+                    None => {
+                        let Ok(hat) = hat(code, value);
+
+                        hat
+                    }
+                }
             }
             _ => InputEvent::None,
         },
     })
 }
 
-fn typed(code: u16, value: i32) -> Result<InputEvent, Never> {
+fn key_event(code: u16, value: i32) -> Result<InputEvent, Never> {
     Ok(match value {
         1 => InputEvent::Typed { code, direction: Direction::Down },
         0 => InputEvent::Typed { code, direction: Direction::Up },
@@ -94,7 +102,7 @@ fn key(which: DeviceKind, code: u16, value: i32) -> Result<InputEvent, Never> {
 }
 
 fn trigger(code: u16, direction: Direction) -> Result<InputEvent, Never> {
-    let pulled = TRIGGER_BUTTONS.iter().find(|(_, key)| key.0 == code).map(|(named, _)| *named);
+    let Ok(pulled) = trigger_of_button(code);
 
     Ok(match pulled {
         Some(trigger) => InputEvent::Trigger { trigger, direction },
@@ -123,99 +131,106 @@ mod tests {
     use super::*;
     use console_input_event_devices::{AbsoluteAxisCode, KeyCode};
 
-    fn ok(which: DeviceKind, kind: EventType, code: u16, value: i32) -> InputEvent {
-        let Ok(said) = said(which, kind, code, value);
-
-        said
-    }
-
     #[test]
     fn a_face_button_is_named_off_the_pad() {
         assert_eq!(
-            ok(DeviceKind::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1),
-            InputEvent::Pressed { button: "South", direction: Direction::Down }
+            translate(DeviceKind::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 1),
+            Ok(InputEvent::Pressed { button: "South", direction: Direction::Down })
         );
         assert_eq!(
-            ok(DeviceKind::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0),
-            InputEvent::Pressed { button: "South", direction: Direction::Up }
+            translate(DeviceKind::Pad, EventType::KEY, KeyCode::BTN_SOUTH.0, 0),
+            Ok(InputEvent::Pressed { button: "South", direction: Direction::Up })
         );
     }
 
     #[test]
     fn the_same_code_off_the_other_device_is_a_different_button() {
-        assert_eq!(ok(DeviceKind::Keys, EventType::KEY, KeyCode::BTN_SOUTH.0, 1), InputEvent::Unnamed {
+        assert_eq!(translate(DeviceKind::Keys, EventType::KEY, KeyCode::BTN_SOUTH.0, 1), Ok(InputEvent::Unnamed {
             code: KeyCode::BTN_SOUTH.0,
             direction: Direction::Down
-        });
+        }));
         assert_eq!(
-            ok(DeviceKind::Keys, EventType::KEY, KeyCode::KEY_F22.0, 1),
-            InputEvent::Pressed { button: "North", direction: Direction::Down },
+            translate(DeviceKind::Keys, EventType::KEY, KeyCode::KEY_F22.0, 1),
+            Ok(InputEvent::Pressed { button: "North", direction: Direction::Down }),
             "X arrives as a key, and the keyboard is the device it arrives on"
         );
-        assert_eq!(ok(DeviceKind::Pad, EventType::KEY, KeyCode::KEY_F22.0, 1), InputEvent::Unnamed {
+        assert_eq!(translate(DeviceKind::Pad, EventType::KEY, KeyCode::KEY_F22.0, 1), Ok(InputEvent::Unnamed {
             code: KeyCode::KEY_F22.0,
             direction: Direction::Down
-        });
+        }));
     }
 
     #[test]
     fn a_key_held_down_is_not_pressed_again() {
-        assert_eq!(ok(DeviceKind::Keys, EventType::KEY, KeyCode::KEY_F13.0, 2), InputEvent::None);
+        assert_eq!(translate(DeviceKind::Keys, EventType::KEY, KeyCode::KEY_F13.0, 2), Ok(InputEvent::None));
     }
 
     #[test]
     fn the_dpad_is_a_hat_and_the_middle_is_no_ones_end_of_it() {
         assert_eq!(
-            ok(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, -1),
-            InputEvent::Pressed { button: "DPadUp", direction: Direction::Down }
+            translate(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, -1),
+            Ok(InputEvent::Pressed { button: "DPadUp", direction: Direction::Down })
         );
         assert_eq!(
-            ok(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 0),
-            InputEvent::None
+            translate(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_HAT0Y.0, 0),
+            Ok(InputEvent::None)
         );
     }
 
     #[test]
     fn a_stick_is_nothing_here_and_is_read_where_a_range_is_known() {
         assert_eq!(
-            ok(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 20000),
-            InputEvent::None
+            translate(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RX.0, 20000),
+            Ok(InputEvent::None)
         );
     }
 
     #[test]
     fn a_trigger_is_held_rather_than_pressed() {
         assert_eq!(
-            ok(DeviceKind::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1),
-            InputEvent::Trigger { trigger: "LeftTrigger", direction: Direction::Down },
+            translate(DeviceKind::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1),
+            Ok(InputEvent::Trigger { trigger: "LeftTrigger", direction: Direction::Down }),
             "a layer held is not a button with no name"
+        );
+    }
+
+    #[test]
+    fn a_trigger_pulled_is_said_with_how_far_and_left_to_the_reader_to_weigh() {
+        assert_eq!(
+            translate(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Z.0, 900),
+            Ok(InputEvent::Pulled { trigger: "LeftTrigger", value: 900 }),
+            "a trigger is not a hat, and is not nothing"
+        );
+        assert_eq!(
+            translate(DeviceKind::Pad, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_RZ.0, 0),
+            Ok(InputEvent::Pulled { trigger: "RightTrigger", value: 0 })
         );
     }
 
     #[test]
     fn a_key_off_a_keyboard_someone_plugged_in_is_a_key_and_not_a_button() {
         assert_eq!(
-            ok(DeviceKind::Typing, EventType::KEY, KeyCode::KEY_I.0, 1),
-            InputEvent::Typed { code: KeyCode::KEY_I.0, direction: Direction::Down }
+            translate(DeviceKind::Typing, EventType::KEY, KeyCode::KEY_I.0, 1),
+            Ok(InputEvent::Typed { code: KeyCode::KEY_I.0, direction: Direction::Down })
         );
         assert_eq!(
-            ok(DeviceKind::Typing, EventType::KEY, KeyCode::KEY_F22.0, 1),
-            InputEvent::Typed { code: KeyCode::KEY_F22.0, direction: Direction::Down },
+            translate(DeviceKind::Typing, EventType::KEY, KeyCode::KEY_F22.0, 1),
+            Ok(InputEvent::Typed { code: KeyCode::KEY_F22.0, direction: Direction::Down }),
             "a paddle's key is a paddle only on the device the paddles arrive on"
         );
     }
 
     #[test]
     fn a_finger_is_not_a_press() {
-        assert_eq!(ok(DeviceKind::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1), InputEvent::None);
+        assert_eq!(translate(DeviceKind::Touch, EventType::KEY, KeyCode::BTN_TOUCH.0, 1), Ok(InputEvent::None));
         assert_eq!(
-            ok(DeviceKind::Touch, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_X.0, 300),
-            InputEvent::None
+            translate(DeviceKind::Touch, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_X.0, 300),
+            Ok(InputEvent::None)
         );
     }
 
     #[test]
     fn a_sync_is_nothing() {
-        assert_eq!(ok(DeviceKind::Pad, EventType::SYNCHRONIZATION, 0, 0), InputEvent::None);
+        assert_eq!(translate(DeviceKind::Pad, EventType::SYNCHRONIZATION, 0, 0), Ok(InputEvent::None));
     }
 }

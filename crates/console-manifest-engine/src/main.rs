@@ -42,6 +42,7 @@ use crate::install::User;
 use console_core_atomic_writes::Stored;
 use console_how_far::Progress;
 use console_core_external_programs::Program;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_manifest_migrations::done::Outstanding;
@@ -190,7 +191,7 @@ fn line(color: &str, said: StatusLine<'_>) -> Result<(), Never> {
     Ok(())
 }
 
-fn settled(ok: Settled) -> Result<&'static str, Never> {
+fn status_color(ok: Settled) -> Result<&'static str, Never> {
     Ok(match ok {
         Settled::Yes => GREEN,
         Settled::No => RED,
@@ -206,7 +207,7 @@ fn list(manifest: &Manifest) -> Result<(), Never> {
         println!("{YELLOW}[{name}]{OFF}");
 
         for entry in entries {
-            let Ok(written) = manifest.written(entry);
+            let Ok(written) = manifest.write_policy(entry);
 
             match written {
                 manifest::Written::Once => println!("  {entry} {}", manifest::ONCE),
@@ -242,7 +243,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     let drift = [
         confirmation::to("packages", || {
             let Ok(drift) = under("packages", named, |package| {
-                let Ok(held) = packages::held(&have, &asked_for, package);
+                let Ok(held) = packages::package_state(&have, &asked_for, package);
                 let Ok(settled) = held.settled();
                 let Ok(name) = held.name();
 
@@ -265,7 +266,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         }),
         confirmation::to("files", || {
             let Ok(drift) = under("files", files, |path| {
-                let Ok(written) = manifest.written(path);
+                let Ok(written) = manifest.write_policy(path);
                 let Ok(state) = install::state(&source, path, User(whoever), written);
                 let Ok(settled) = state.settled();
                 let Ok(said) = state.name();
@@ -292,7 +293,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     .fold(0_u32, u32::saturating_add);
 
     let Ok(home) = home();
-    let Ok(standing) = buttons::standing(root, &home);
+    let Ok(standing) = buttons::check_buttons(root, &home);
     let Ok(()) = front(&standing);
 
     Ok(match drift {
@@ -551,7 +552,7 @@ fn under<T>(
         .iter()
         .map(state)
         .filter(|(ok, said, about)| {
-            let Ok(color) = settled(*ok);
+            let Ok(color) = status_color(*ok);
             let Ok(()) = line(color, StatusLine { state: said, about });
 
             *ok == Settled::No
@@ -574,7 +575,7 @@ impl Updating {
         Ok(Updating { finished: false })
     }
 
-    fn done(mut self) -> Result<(), Never> {
+    fn finish(mut self) -> Result<(), Never> {
         self.finished = true;
 
         let Ok(()) = machine::in_the_session("console-updating done");
@@ -642,7 +643,7 @@ fn the_levels() -> Result<console_battery::Levels, Never> {
     }
 }
 
-fn standing(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unapplied> {
+fn health_check(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unapplied> {
     let source = root.join("files");
     let Ok(user) = machine::whoever();
     let mut standing = health::Standing::default();
@@ -653,7 +654,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unappl
 
     standing.unfinished = match unfinished {
         Some(generation) => {
-            let Ok(named) = generation.named();
+            let Ok(named) = generation.label();
 
             Some(named)
         }
@@ -690,7 +691,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unappl
         let Ok(on) = install::on_machine(live, User(user));
         let at = Path::new(&on);
         let Ok(staged) = laying::staged(at);
-        let Ok(kept) = laying::kept(at);
+        let Ok(kept) = laying::backup_path(at);
 
         let over = [staged, kept].into_iter().flatten().any(|beside| beside.exists());
 
@@ -701,7 +702,7 @@ fn standing(root: &Path, manifest: &Manifest) -> Result<health::Standing, Unappl
     }
 
     for live in files {
-        let Ok(written) = manifest.written(live);
+        let Ok(written) = manifest.write_policy(live);
         let Ok(state) = install::state(&source, live, User(user), written);
         let Ok(settled) = state.settled();
 
@@ -836,7 +837,7 @@ fn room(root: &Path) -> Result<ExitCode, Never> {
 }
 
 fn health(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
-    let standing = match standing(root, manifest) {
+    let standing = match health_check(root, manifest) {
         Ok(standing) => standing,
         Err(fault) => {
             eprintln!("{RED}{fault}{OFF}");
@@ -846,9 +847,9 @@ fn health(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     };
     let kind = "health";
 
-    let Ok(card) = console_notifications::saying::StatePath::named(kind);
+    let Ok(card) = console_notifications::saying::StatePath::new(kind);
 
-    let Ok(said) = standing.said();
+    let Ok(said) = standing.problem();
 
     let (summary, body) = match said {
         Some((summary, body)) => (summary, body),
@@ -948,7 +949,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 
     enough_to_apply(root)?;
 
-    let Ok(asked) = console_awake::taking(console_awake::InhibitReason::FromStopping);
+    let Ok(asked) = console_awake::inhibit(console_awake::InhibitReason::FromStopping);
     let _staying = match asked {
         console_awake::InhibitResult::Acquired(held) => Some(held),
         console_awake::InhibitResult::Failed(said) => {
@@ -965,7 +966,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 
     generations::remember(Path::new(generations::KEPT), &running)?;
 
-    let Ok(about) = running.named();
+    let Ok(about) = running.label();
     let Ok(()) = line(YELLOW, StatusLine { state: "generation", about: &about });
     let Ok(whoever) = machine::whoever();
 
@@ -1059,7 +1060,7 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
     generations::remember(Path::new(generations::KEPT), &done)?;
 
     let Ok(()) = timed(going, applying, whoever);
-    let Ok(()) = saying.done();
+    let Ok(()) = saying.finish();
     let Ok(()) = told_the_front(root);
 
     println!("\n{GREEN}Done.{OFF}");
@@ -1068,10 +1069,10 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
 }
 
 fn timed(going: going::Going, applying: std::time::Instant, whoever: &str) -> Result<(), Never> {
-    let Ok(stages) = going.done();
+    let Ok(stages) = going.finish();
     let Ok(took) = confirmation::ended("apply", applying);
 
-    confirmation::kept(&Path::new("/home").join(whoever), &stages, took)
+    confirmation::record_timings(&Path::new("/home").join(whoever), &stages, took)
 }
 
 fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
@@ -1124,7 +1125,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
 
         asked_for
     });
-    let Ok(missing) = packages::missing(named, &have);
+    let Ok(missing) = packages::missing_packages(named, &have);
     let Ok(installed) = going.during(going::PACKAGES, |moving| {
         match missing.is_empty() {
             true => return Ran::Fine,
@@ -1142,7 +1143,7 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
             .collect();
         let mut fetching = Fetching { moving, done: 0 };
         let Ok(ran) = machine::run_watched(&arguments, &mut fetching, |fetching, line| {
-            let Ok(said) = installing::said(line);
+            let Ok(said) = installing::parse_line(line);
             let Ok(()) = fetching.moving.say(line);
 
             match said {
@@ -1154,8 +1155,8 @@ fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Un
                 }
 
                 installing::PacmanOutput::Installing { done, many, name } => {
-                    let Ok(far) = installing::done(Progress { done, many });
-                    let Ok(counted) = console_how_far::counted(Progress { done, many });
+                    let Ok(far) = installing::overall_fraction(Progress { done, many });
+                    let Ok(counted) = console_how_far::format_count(Progress { done, many });
                     let Ok(()) = fetching.moving.far(far, &format!("{counted} {name}"));
                 }
 
@@ -1372,7 +1373,7 @@ fn told_what_there_is_to_come_back_to(was: &[snapshot::Snapshot]) -> Result<(), 
     println!("{YELLOW}before{OFF}");
 
     for held in was {
-        let Ok(said) = held.said();
+        let Ok(said) = held.describe();
 
         match held {
             snapshot::Snapshot::Made { .. } => {
@@ -1428,7 +1429,7 @@ fn told_the_browsers() -> Result<(), Never> {
 
 fn told_the_front(root: &Path) -> Result<(), Never> {
     let Ok(home) = home();
-    let Ok(standing) = buttons::standing(root, &home);
+    let Ok(standing) = buttons::check_buttons(root, &home);
     let Ok(settled) = standing.settled();
 
     match !standing.asked || settled == Settled::Yes {
@@ -1438,7 +1439,7 @@ fn told_the_front(root: &Path) -> Result<(), Never> {
 
     let Ok(summary) = standing.summary();
     let Ok(body) = standing.body();
-    let Ok(said) = said(&["console-say", "buttons", &summary, &body]);
+    let Ok(said) = shell_quote_all(&["console-say", "buttons", &summary, &body]);
 
     println!("{YELLOW}saying{OFF} {summary}");
 
@@ -1456,7 +1457,7 @@ fn told_the_front(root: &Path) -> Result<(), Never> {
     Ok(())
 }
 
-fn said(arguments: &[&str]) -> Result<String, Never> {
+fn shell_quote_all(arguments: &[&str]) -> Result<String, Never> {
     Ok(arguments
         .iter()
         .map(|word| format!("'{}'", word.replace('\'', "'\\''")))
@@ -1579,7 +1580,7 @@ fn compile(
 
     for (done, name) in staging.into_iter().enumerate() {
         let Ok(live) = build::live(name);
-        let Ok(made) = build::made(root, name);
+        let Ok(made) = build::built_path(root, name);
 
         let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {live}"));
         let Ok(done) = fitted::<_, u32>(done);
@@ -1619,7 +1620,7 @@ fn cargo(
         console_program_lifetime::alongside(&mut starting)
             .map_err(Unapplied::CargoUnrun)?;
 
-    let Ok(erring) = child.erring();
+    let Ok(erring) = child.take_stderr();
 
     match erring {
         Some(said) => {
@@ -1629,41 +1630,35 @@ fn cargo(
                     let _ = say.send(line);
                 }
             });
-            let mut steps = 0.0;
-            let mut crate_name = String::new();
-
-            loop {
-                let step = match heard.recv_timeout(building::TICK) {
+            let _disconnected = console_core_iteration::iterate((&mut *moving, 0.0, String::new()), |(moving, steps, crate_name)| {
+                let (step, crate_name) = match heard.recv_timeout(building::TICK) {
                     Ok(line) => {
                         let Ok(names) = building::names_a_crate(&line);
                         let Ok(()) = moving.say(&line);
 
                         match names {
-                            Names::ACrate(name) => {
-                                crate_name = name;
-
-                                1.0
-                            }
-
-                            Names::SomethingElse => 0.0,
+                            Names::ACrate(name) => (1.0, name),
+                            Names::SomethingElse => (0.0, crate_name),
                         }
                     }
 
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => building::A_TICK,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => (building::A_TICK, crate_name),
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(Step::Halt(())),
                 };
-                steps += step;
+                let steps = steps + step;
 
                 let Ok(far) = building::far(steps);
                 let Ok(()) = moving.far(far, &crate_name);
-            }
+
+                Ok(Step::Again((moving, steps, crate_name)))
+            });
 
             let _ = reading.join();
         }
         None => {},
     }
 
-    child.waiting().map_err(Unapplied::CargoUnwaited)
+    child.wait().map_err(Unapplied::CargoUnwaited)
 }
 
 fn write(
@@ -1682,7 +1677,7 @@ fn write(
         let Ok(done) = fitted::<_, u32>(done);
         let Ok(()) = moving.at(Progress { done, many }, path);
 
-        let Ok(written) = manifest.written(path);
+        let Ok(written) = manifest.write_policy(path);
         let Ok(state) = install::state(source, path, User(whoever), written);
 
         match state {
@@ -1735,7 +1730,7 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), Unappl
         [] => files
             .iter()
             .filter(|path| {
-                let Ok(written) = manifest.written(path);
+                let Ok(written) = manifest.write_policy(path);
                 let Ok(state) = install::state(&source, path, User(whoever), written);
 
                 state == install::State::Differs

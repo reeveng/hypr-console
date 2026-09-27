@@ -17,6 +17,7 @@
 //! words rather than as a failure, and a page with a stray tag in it is a page
 //! with a stray tag in it.
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,16 +76,13 @@ fn named_entity(text: &str) -> Result<Option<char>, Never> {
 const LONGEST_ENTITY: u32 = 10;
 
 pub fn unescape(text: &str) -> Result<String, Never> {
-    let mut unescaped = String::new();
-    let mut rest = text;
-
-    loop {
+    let unescaped = iterate((text, String::new()), |(rest, mut unescaped)| {
         let (before, after) = match rest.split_once('&') {
             Some(both) => both,
             None => {
                 unescaped.push_str(rest);
 
-                return Ok(unescaped);
+                return Ok(Step::Halt(unescaped));
             },
         };
 
@@ -103,7 +101,7 @@ pub fn unescape(text: &str) -> Result<String, Never> {
             None => None,
         };
 
-        rest = match (letter, named) {
+        let rest = match (letter, named) {
             (Some(letter), Some((_, past))) => {
                 unescaped.push(letter);
 
@@ -115,36 +113,46 @@ pub fn unescape(text: &str) -> Result<String, Never> {
                 after
             },
         };
-    }
+
+        Ok(Step::Again((rest, unescaped)))
+    });
+
+    Ok(match unescaped {
+        Ok(unescaped) => unescaped,
+        Err(Endless) => text.to_string(),
+    })
 }
 
 fn attributes(text: &str) -> Result<Vec<(String, String)>, Never> {
-    let mut found = Vec::new();
-    let mut rest = text.trim_start();
-
-    loop {
+    let found = iterate((text.trim_start(), Vec::new()), |(rest, mut found)| {
         let (name, after) = match rest.split_once('=') {
             Some(both) => both,
-            None => return Ok(found),
+            None => return Ok(Step::Halt(found)),
         };
 
         let after = after.trim_start();
         let quote = match after.chars().next() {
             Some(quote @ ('"' | '\'')) => quote,
-            Some(_) | None => return Ok(found),
+            Some(_) | None => return Ok(Step::Halt(found)),
         };
 
         let (value, past) = match after.get(1..).and_then(|inside| inside.split_once(quote)) {
             Some(both) => both,
-            None => return Ok(found),
+            None => return Ok(Step::Halt(found)),
         };
 
         let Ok(name) = local_name(name.trim());
         let Ok(value) = unescape(value);
 
         found.push((name, value));
-        rest = past.trim_start();
-    }
+
+        Ok(Step::Again((past.trim_start(), found)))
+    });
+
+    Ok(match found {
+        Ok(found) => found,
+        Err(Endless) => Vec::new(),
+    })
 }
 
 fn parse_tag(inside: &str) -> Result<Vec<Token>, Never> {
@@ -204,16 +212,13 @@ fn push_text(text: &str, into: &mut Vec<Token>) -> Result<(), Never> {
 }
 
 pub fn tokenize(page: &str) -> Result<Vec<Token>, Never> {
-    let mut found = Vec::new();
-    let mut rest = page;
-
-    loop {
+    let found = iterate((page, Vec::new()), |(rest, mut found)| {
         let (before, after) = match rest.split_once('<') {
             Some(both) => both,
             None => {
                 let Ok(()) = push_text(rest, &mut found);
 
-                return Ok(found);
+                return Ok(Step::Halt(found));
             },
         };
 
@@ -222,7 +227,7 @@ pub fn tokenize(page: &str) -> Result<Vec<Token>, Never> {
         let (comment, data, declared) =
             (after.strip_prefix("!--"), after.strip_prefix("![CDATA["), after.starts_with(['!', '?']));
 
-        rest = match (comment, data, declared) {
+        let rest = match (comment, data, declared) {
             (Some(comment), _, _) => {
                 let Ok(past) = skip_past(comment, Delimiter("-->"));
 
@@ -258,7 +263,14 @@ pub fn tokenize(page: &str) -> Result<Vec<Token>, Never> {
                 },
             },
         };
-    }
+
+        Ok(Step::Again((rest, found)))
+    });
+
+    Ok(match found {
+        Ok(found) => found,
+        Err(Endless) => Vec::new(),
+    })
 }
 
 pub fn attribute<'a>(attributes: &'a [(String, String)], name: &str) -> Result<Option<&'a str>, Never> {
@@ -269,50 +281,54 @@ pub fn attribute<'a>(attributes: &'a [(String, String)], name: &str) -> Result<O
 mod tests {
     use super::*;
 
-    fn open(name: &str, attributes: &[(&str, &str)]) -> Token {
-        Token::StartTag {
+    fn open(name: &str, attributes: &[(&str, &str)]) -> Result<Token, Never> {
+        Ok(Token::StartTag {
             name: name.to_string(),
             attributes: attributes.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect(),
-        }
+        })
     }
 
-    fn close(name: &str) -> Token {
-        Token::EndTag { name: name.to_string() }
+    fn close(name: &str) -> Result<Token, Never> {
+        Ok(Token::EndTag { name: name.to_string() })
     }
 
-    fn words(text: &str) -> Token {
-        Token::Text(text.to_string())
+    fn words(text: &str) -> Result<Token, Never> {
+        Ok(Token::Text(text.to_string()))
     }
 
     #[test]
     fn a_paragraph_is_a_tag_its_words_and_the_tag_closing() {
-        assert_eq!(
-            tokenize("<p class=\"first\">Call me Ishmael.</p>"),
-            Ok(vec![open("p", &[("class", "first")]), words("Call me Ishmael."), close("p")])
-        );
+        let Ok(opened) = open("p", &[("class", "first")]);
+        let Ok(said) = words("Call me Ishmael.");
+        let Ok(closed) = close("p");
+
+        assert_eq!(tokenize("<p class=\"first\">Call me Ishmael.</p>"), Ok(vec![opened, said, closed]));
     }
 
     #[test]
     fn an_empty_tag_opens_and_closes_at_once_and_a_namespace_is_dropped() {
-        assert_eq!(
-            tokenize("<svg:image xlink:href='cover.jpg'/>"),
-            Ok(vec![open("image", &[("href", "cover.jpg")]), close("image")])
-        );
+        let Ok(opened) = open("image", &[("href", "cover.jpg")]);
+        let Ok(closed) = close("image");
+
+        assert_eq!(tokenize("<svg:image xlink:href='cover.jpg'/>"), Ok(vec![opened, closed]));
     }
 
     #[test]
     fn entities_become_the_letters_they_stand_for() {
-        assert_eq!(
-            tokenize("Tom &amp; Jerry &#8212; &#x2019;&hellip; &unknown; & more"),
-            Ok(vec![words("Tom & Jerry \u{2014} \u{2019}\u{2026} &unknown; & more")])
-        );
+        let Ok(said) = words("Tom & Jerry \u{2014} \u{2019}\u{2026} &unknown; & more");
+
+        assert_eq!(tokenize("Tom &amp; Jerry &#8212; &#x2019;&hellip; &unknown; & more"), Ok(vec![said]));
     }
 
     #[test]
     fn comments_and_declarations_are_stepped_over() {
+        let Ok(opened) = open("b", &[]);
+        let Ok(said) = words("bold");
+        let Ok(closed) = close("b");
+
         assert_eq!(
             tokenize("<?xml version=\"1.0\"?><!DOCTYPE html><!-- a <b>note</b> --><b>bold</b>"),
-            Ok(vec![open("b", &[]), words("bold"), close("b")])
+            Ok(vec![opened, said, closed])
         );
     }
 }

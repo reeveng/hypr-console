@@ -45,7 +45,7 @@ pub enum Command {
     None,
 }
 
-pub fn asked(words: &[String]) -> Result<Command, Never> {
+pub fn parse_command(words: &[String]) -> Result<Command, Never> {
     let doing = match words.first() {
         Some(doing) => doing,
         None => return Ok(Command::None),
@@ -120,25 +120,19 @@ pub fn would_not(says: &str, said: Reply<'_>) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn words(arguments: &[String]) -> Vec<&str> {
-        arguments.iter().map(String::as_str).collect()
+    fn words(arguments: &[String]) -> Result<Vec<&str>, Never> {
+        Ok(arguments.iter().map(String::as_str).collect())
     }
 
     #[test]
     fn the_one_that_can_wait_for_ever_is_the_one_told_how_long() {
         let Ok(pairing) = pairing("AA:BB:CC:DD:EE:FF");
 
-        assert_eq!(words(&pairing), [
-            "bluetoothctl",
-            "--timeout",
-            PATIENCE,
-            "pair",
-            "AA:BB:CC:DD:EE:FF"
-        ]);
+        assert_eq!(words(&pairing), Ok(vec!["bluetoothctl", "--timeout", PATIENCE, "pair", "AA:BB:CC:DD:EE:FF"]));
 
         let Ok(trusting) = trusting("AA:BB:CC:DD:EE:FF");
 
-        assert_eq!(words(&trusting), ["bluetoothctl", "trust", "AA:BB:CC:DD:EE:FF"]);
+        assert_eq!(words(&trusting), Ok(vec!["bluetoothctl", "trust", "AA:BB:CC:DD:EE:FF"]));
     }
 
     #[test]
@@ -157,22 +151,21 @@ mod tests {
         assert_eq!(joined("Failed to connect: org.bluez.Error.AlreadyConnected"), Ok(Went::Well));
     }
 
-    fn asking(words: &[&str]) -> Command {
+    fn parse_command_of(words: &[&str]) -> Result<Command, Never> {
         let words: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
-        let Ok(asked) = asked(&words);
 
-        asked
+        parse_command(&words)
     }
 
     #[test]
     fn nothing_but_the_word_and_an_address_is_a_press_this_understands() {
         assert_eq!(
-            asking(&[INTRODUCE, "AA:BB:CC:DD:EE:FF"]),
-            Command::Introduce("AA:BB:CC:DD:EE:FF".to_string())
+            parse_command_of(&[INTRODUCE, "AA:BB:CC:DD:EE:FF"]),
+            Ok(Command::Introduce("AA:BB:CC:DD:EE:FF".to_string()))
         );
-        assert_eq!(asking(&[INTRODUCE]), Command::None);
-        assert_eq!(asking(&["forget", "AA:BB:CC:DD:EE:FF"]), Command::None);
-        assert_eq!(asking(&[]), Command::None);
+        assert_eq!(parse_command_of(&[INTRODUCE]), Ok(Command::None));
+        assert_eq!(parse_command_of(&["forget", "AA:BB:CC:DD:EE:FF"]), Ok(Command::None));
+        assert_eq!(parse_command_of(&[]), Ok(Command::None));
     }
 
     #[test]

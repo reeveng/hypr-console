@@ -158,7 +158,7 @@ impl Step {
         Ok(Some(step))
     }
 
-    pub fn done<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), GamepadError> {
+    pub fn run<S: Sink, C: Clock>(&self, go: &mut LegionGo<S, C>) -> Result<(), GamepadError> {
         match self {
             Step::Profile(name) => go.load_profile(name),
             Step::ButtonPress(buttons) => {
@@ -232,7 +232,7 @@ pub fn play<S: Sink, C: Clock>(
     let steps = read(text)?;
 
     for step in &steps {
-        step.done(go)?;
+        step.run(go)?;
     }
 
     Ok(steps)
@@ -255,52 +255,74 @@ pub const VERBS: &str = "\
 mod tests {
     use super::*;
 
-    fn step(line: &str) -> Option<Step> {
-        Step::read(line).expect("a line this knows")
+    fn step(line: &str) -> Result<Option<Step>, GamepadError> {
+        Step::read(line)
     }
 
     #[test]
-    fn a_blank_line_and_a_comment_are_nothing() {
-        assert_eq!(step(""), None);
-        assert_eq!(step("   "), None);
-        assert_eq!(step("# what someone did"), None);
+    fn a_blank_line_and_a_comment_are_nothing() -> Result<(), GamepadError> {
+        let blank = step("")?;
+        let spaces = step("   ")?;
+        let comment = step("# what someone did")?;
+
+        assert_eq!(blank, None);
+        assert_eq!(spaces, None);
+        assert_eq!(comment, None);
+
+        Ok(())
     }
 
     #[test]
-    fn a_comment_after_a_step_is_still_a_comment() {
-        assert_eq!(step("press a  # click"), Some(Step::ButtonPress(vec!["a".into()])));
+    fn a_comment_after_a_step_is_still_a_comment() -> Result<(), GamepadError> {
+        let press = step("press a  # click")?;
+
+        assert_eq!(press, Some(Step::ButtonPress(vec!["a".to_string()])));
+
+        Ok(())
     }
 
     #[test]
-    fn a_stick_is_the_same_stick_by_either_name() {
-        let both = [step("stick left 1 0"), step("stick left-stick 1 0")];
-        assert_eq!(both[0], both[1]);
+    fn a_stick_is_the_same_stick_by_either_name() -> Result<(), GamepadError> {
+        let short = step("stick left 1 0")?;
+        let long = step("stick left-stick 1 0")?;
+
+        assert_eq!(short, long);
         assert_eq!(
-            both[0],
+            short,
             Some(Step::Stick {
-                which: "left-stick".into(),
+                which: "left-stick".to_string(),
                 to: Point { x: 1.0, y: 0.0 },
             })
         );
+
+        Ok(())
     }
 
     #[test]
-    fn releasing_nothing_is_releasing_everything() {
-        assert_eq!(step("release"), Some(Step::Release(vec![])));
+    fn releasing_nothing_is_releasing_everything() -> Result<(), GamepadError> {
+        let release = step("release")?;
+
+        assert_eq!(release, Some(Step::Release(vec![])));
+
+        Ok(())
     }
 
     #[test]
-    fn a_tap_with_nowhere_named_lands_in_the_middle() {
+    fn a_tap_with_nowhere_named_lands_in_the_middle() -> Result<(), GamepadError> {
+        let tap = step("tap")?;
+
+        assert_eq!(tap, Some(Step::Tap { at: Point { x: MIDDLE, y: MIDDLE } }));
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_drag_may_say_how_long_it_takes_or_not() -> Result<(), GamepadError> {
+        let at_once = step("drag 0 0 10 10")?;
+        let slowly = step("drag 0 0 10 10 0.5")?;
+
         assert_eq!(
-            step("tap"),
-            Some(Step::Tap { at: Point { x: MIDDLE, y: MIDDLE } })
-        );
-    }
-
-    #[test]
-    fn a_drag_may_say_how_long_it_takes_or_not() {
-        assert_eq!(
-            step("drag 0 0 10 10"),
+            at_once,
             Some(Step::Drag {
                 from: Point { x: 0, y: 0 },
                 to: Point { x: 10, y: 10 },
@@ -308,26 +330,25 @@ mod tests {
             })
         );
         assert_eq!(
-            step("drag 0 0 10 10 0.5"),
+            slowly,
             Some(Step::Drag {
                 from: Point { x: 0, y: 0 },
                 to: Point { x: 10, y: 10 },
                 seconds: 0.5,
             })
         );
+
+        Ok(())
     }
 
     #[test]
     fn a_line_that_is_not_a_step_says_which_line_it_was() {
-        let fault = read("press a\nsqueeze b\n").expect_err("no such verb");
+        let read = read("press a\nsqueeze b\n");
 
-        match fault {
-            GamepadError::AtLine(2, ref inner) => match **inner {
-                GamepadError::NoSuchStep(ref said) => assert_eq!(said, "squeeze"),
-                ref other => panic!("{other:?}"),
-            },
-            ref other => panic!("{other:?}"),
-        }
+        assert!(
+            matches!(&read, Err(GamepadError::AtLine(2, inner)) if matches!(inner.as_ref(), GamepadError::NoSuchStep(said) if said == "squeeze")),
+            "{read:?}"
+        );
     }
 
     #[test]

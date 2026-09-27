@@ -21,11 +21,12 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 use serde_json::{Value, json};
 
-use crate::library::{self, Thing};
+use crate::library::Thing;
 use crate::tags::Tags;
 
 const ENOUGH: u32 = 4000;
@@ -46,7 +47,7 @@ impl Song {
             None => String::new(),
         };
 
-        let named = library::named(&name)?;
+        let named = console_core_file_names::title(&name)?;
 
         Ok(Song { name: named, path: path.to_path_buf(), ..Song::default() })
     }
@@ -87,21 +88,22 @@ pub fn under(
     folder: &Path,
     read: &dyn Fn(&Path) -> Result<Vec<Thing>, Never>,
 ) -> Result<Vec<PathBuf>, Never> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    let mut waiting = VecDeque::from([folder.to_path_buf()]);
-    let mut read_so_far: u32 = 0;
+    let first = (Vec::new(), VecDeque::from([folder.to_path_buf()]), 0_u32);
 
-    while let Some(at) = waiting.pop_front() {
+    let walked = console_core_iteration::iterate(first, |(mut found, mut waiting, read_so_far): (Vec<PathBuf>, VecDeque<PathBuf>, u32)| {
+        let at = match waiting.pop_front() {
+            Some(at) => at,
+            None => return Ok(Step::Halt(found)),
+        };
+
         let Ok(many) = console_core_number_conversion::fitted::<_, u32>(found.len());
 
         match many >= ENOUGH || read_so_far >= FAR {
-            true => break,
+            true => return Ok(Step::Halt(found)),
             false => {},
         }
 
-        read_so_far = read_so_far.saturating_add(1);
-
-        let things = read(&at)?;
+        let Ok(things) = read(&at);
 
         for thing in things {
             match thing.folder {
@@ -109,9 +111,14 @@ pub fn under(
                 false => found.push(thing.path),
             }
         }
-    }
 
-    Ok(found)
+        Ok(Step::Again((found, waiting, read_so_far.saturating_add(1))))
+    });
+
+    Ok(match walked {
+        Ok(found) => found,
+        Err(_endless) => Vec::new(),
+    })
 }
 
 pub fn songs(
@@ -146,7 +153,7 @@ pub fn at(cache: &Path) -> Result<PathBuf, Never> {
     Ok(cache.join("console").join("music").join("songs.json"))
 }
 
-pub fn written(songs: &[Song]) -> Result<String, Never> {
+pub fn serialize(songs: &[Song]) -> Result<String, Never> {
     let held: Vec<Value> = songs
         .iter()
         .filter(|song| song.read)
@@ -170,7 +177,7 @@ pub fn written(songs: &[Song]) -> Result<String, Never> {
     })
 }
 
-pub fn kept(said: &str) -> Result<Vec<Song>, Never> {
+pub fn parse(said: &str) -> Result<Vec<Song>, Never> {
     let held: Value = match serde_json::from_str(said) {
         Ok(held) => held,
 
@@ -309,7 +316,7 @@ mod tests {
                 name: match folder {
                     true => name.to_string(),
                     false => {
-                        let Ok(named) = library::named(name);
+                        let Ok(named) = console_core_file_names::title(name);
 
                         named
                     }
@@ -329,44 +336,37 @@ mod tests {
         })
     }
 
-    fn a_song(name: &str, title: &str, artist: &str, rest: &str) -> Song {
+    fn a_song(name: &str, tags: Tags) -> Result<Song, Never> {
         let Ok(song) = Song::of(Path::new(name));
 
-        Song {
-            read: true,
-            tags: Tags {
-                title: title.to_string(),
-                artist: artist.to_string(),
-                rest: rest.to_string(),
-            },
-            ..song
-        }
+        Ok(Song { read: true, tags, ..song })
     }
 
-    fn library() -> Vec<Song> {
-        vec![
-            a_song("/music/505.opus", "505", "Arctic Monkeys", "Favourite Worst Nightmare"),
-            a_song("/music/Aruarian Dance.mp3", "", "Nujabes", "Samurai Champloo"),
-            a_song("/music/Nujabes Tribute.opus", "Nujabes Tribute", "Someone", ""),
-            a_song("/music/Luv Sic.opus", "Luv (sic) Part 3", "Shing02", "by Nujabes"),
+    fn library() -> Result<Vec<Song>, Never> {
+        [
+            ("/music/505.opus", Tags { title: "505".to_string(), artist: "Arctic Monkeys".to_string(), rest: "Favourite Worst Nightmare".to_string() }),
+            ("/music/Aruarian Dance.mp3", Tags { title: String::new(), artist: "Nujabes".to_string(), rest: "Samurai Champloo".to_string() }),
+            ("/music/Nujabes Tribute.opus", Tags { title: "Nujabes Tribute".to_string(), artist: "Someone".to_string(), rest: String::new() }),
+            ("/music/Luv Sic.opus", Tags { title: "Luv (sic) Part 3".to_string(), artist: "Shing02".to_string(), rest: "by Nujabes".to_string() }),
         ]
+        .into_iter()
+        .map(|(name, tags)| a_song(name, tags))
+        .collect()
     }
 
-    fn said(found: &[&Song]) -> Vec<String> {
-        found
+    fn titles(found: &[&Song]) -> Result<Vec<String>, Never> {
+        Ok(found
             .iter()
             .map(|song| {
                 let Ok(says) = song.says();
 
                 says.to_string()
             })
-            .collect()
+            .collect())
     }
 
-    fn found<'a>(songs: &'a [Song], word: &str) -> Vec<&'a Song> {
-        let Ok(found) = ranked(songs, word);
-
-        found
+    fn search<'a>(songs: &'a [Song], word: &str) -> Result<Vec<&'a Song>, Never> {
+        ranked(songs, word)
     }
 
     #[test]
@@ -384,40 +384,51 @@ mod tests {
     }
 
     #[test]
-    fn a_song_no_one_has_read_is_still_a_song() {
-        let known = vec![a_song("/music/505 [qU9mHegkTc4].opus", "505", "Arctic Monkeys", "")];
+    fn a_song_no_one_has_read_is_still_a_song() -> Result<(), &'static str> {
+        let Ok(known) = a_song("/music/505 [qU9mHegkTc4].opus", Tags { title: "505".to_string(), artist: "Arctic Monkeys".to_string(), rest: String::new() });
+        let known = vec![known];
 
         let Ok(songs) = songs(Path::new("/music"), &tree, &known);
+        let (first, second) = match songs.as_slice() {
+            [first, second] => (first, second),
+            _other => return Err("the tree holds two songs"),
+        };
 
-        assert_eq!(songs.len(), 2);
-        assert_eq!(songs[0].says(), Ok("505"));
-        assert!(songs[0].read);
-        assert_eq!(songs[1].says(), Ok("aruarian dance"));
-        assert!(!songs[1].read);
+        assert_eq!(first.says(), Ok("505"));
+        assert!(first.read);
+        assert_eq!(second.says(), Ok("aruarian dance"));
+        assert!(!second.read);
         assert_eq!(unread(&songs), Ok(1));
+
+        Ok(())
     }
 
     #[test]
-    fn a_song_that_was_read_and_said_nothing_counts_as_read() {
-        let Ok(written) = written(&[a_song("/music/quiet.opus", "", "", "")]);
+    fn a_song_that_was_read_and_said_nothing_counts_as_read() -> Result<(), &'static str> {
+        let Ok(quiet) = a_song("/music/quiet.opus", Tags { title: String::new(), artist: String::new(), rest: String::new() });
+        let Ok(written) = serialize(&[quiet]);
 
-        let Ok(songs) = kept(&written);
+        let Ok(songs) = parse(&written);
+        let song = songs.first().ok_or("the song written down was not read back")?;
 
         assert_eq!(unread(&songs), Ok(0));
-        assert_eq!(songs[0].tags.anything(), Ok(Tagged::None));
+        assert_eq!(song.tags.tagged(), Ok(Tagged::None));
+
+        Ok(())
     }
 
     #[test]
     fn what_was_written_down_is_what_is_read_back() {
-        let Ok(written) = written(&library());
+        let Ok(library) = library();
+        let Ok(written) = serialize(&library);
 
-        let Ok(songs) = kept(&written);
+        let Ok(songs) = parse(&written);
 
-        let Ok(nothing) = kept("");
+        let Ok(nothing) = parse("");
 
-        let Ok(rubbish) = kept("not json");
+        let Ok(rubbish) = parse("not json");
 
-        assert_eq!(songs, library());
+        assert_eq!(songs, library);
         assert!(nothing.is_empty());
         assert!(rubbish.is_empty());
     }
@@ -435,37 +446,64 @@ mod tests {
     #[test]
     fn the_case_it_was_typed_in_does_not_matter() {
         assert_eq!(how("Arctic Monkeys", Wanted("ARCTIC")), Ok(Some(How::Start)));
-        assert_eq!(said(&found(&library(), "ARCTIC")), ["505"]);
+        let Ok(library) = library();
+        let Ok(found) = search(&library, "ARCTIC");
+
+        assert_eq!(titles(&found), Ok(vec!["505".to_string()]));
     }
 
     #[test]
-    fn the_song_ranks_above_the_artist_and_the_artist_above_the_rest() {
-        let library = library();
-        let found = found(&library, "nujabes");
+    fn the_song_ranks_above_the_artist_and_the_artist_above_the_rest() -> Result<(), &'static str> {
+        let Ok(library) = library();
+        let Ok(found) = search(&library, "nujabes");
+        let (song, artist, rest) = match found.as_slice() {
+            [song, artist, rest] => (*song, *artist, *rest),
+            _other => return Err("three songs are found"),
+        };
 
-        assert_eq!(said(&found), ["Nujabes Tribute", "Aruarian Dance", "Luv (sic) Part 3"]);
-        assert_eq!(rank(found[0], "nujabes"), Ok(Some((MatchedIn::Song, How::Start))));
-        assert_eq!(rank(found[1], "nujabes"), Ok(Some((MatchedIn::Artist, How::Whole))));
-        assert_eq!(rank(found[2], "nujabes"), Ok(Some((MatchedIn::Else, How::Word))));
+        assert_eq!(
+            titles(&found),
+            Ok(vec!["Nujabes Tribute".to_string(), "Aruarian Dance".to_string(), "Luv (sic) Part 3".to_string()])
+        );
+        assert_eq!(rank(song, "nujabes"), Ok(Some((MatchedIn::Song, How::Start))));
+        assert_eq!(rank(artist, "nujabes"), Ok(Some((MatchedIn::Artist, How::Whole))));
+        assert_eq!(rank(rest, "nujabes"), Ok(Some((MatchedIn::Else, How::Word))));
+
+        Ok(())
     }
 
     #[test]
     fn a_song_with_no_title_is_found_by_the_name_of_the_file() {
-        assert_eq!(said(&found(&library(), "aruarian")), ["Aruarian Dance"]);
+        let Ok(library) = library();
+        let Ok(found) = search(&library, "aruarian");
+
+        assert_eq!(titles(&found), Ok(vec!["Aruarian Dance".to_string()]));
     }
 
     #[test]
     fn a_word_the_library_says_nothing_about_finds_nothing() {
-        assert!(found(&library(), "kangaroo").is_empty());
-        assert!(found(&library(), "").is_empty());
+        let Ok(library) = library();
+        let Ok(kangaroo) = search(&library, "kangaroo");
+        let Ok(nothing) = search(&library, "");
+
+        assert!(kangaroo.is_empty());
+        assert!(nothing.is_empty());
     }
 
     #[test]
-    fn a_row_says_whose_the_song_is_or_where_it_is() {
+    fn a_row_says_whose_the_song_is_or_where_it_is() -> Result<(), &'static str> {
         let Ok(songs) = songs(Path::new("/music"), &tree, &[]);
+        let (loose, filed) = match songs.as_slice() {
+            [loose, filed] => (loose, filed),
+            _other => return Err("the tree holds two songs"),
+        };
+        let Ok(library) = library();
+        let known = library.first().ok_or("the library is empty")?;
 
-        assert_eq!(songs[1].aside(Path::new("/music")), Ok("Nujabes".to_string()));
-        assert_eq!(songs[0].aside(Path::new("/music")), Ok(String::new()));
-        assert_eq!(library()[0].aside(Path::new("/music")), Ok("Arctic Monkeys".to_string()));
+        assert_eq!(filed.aside(Path::new("/music")), Ok("Nujabes".to_string()));
+        assert_eq!(loose.aside(Path::new("/music")), Ok(String::new()));
+        assert_eq!(known.aside(Path::new("/music")), Ok("Arctic Monkeys".to_string()));
+
+        Ok(())
     }
 }

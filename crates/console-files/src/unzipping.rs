@@ -105,69 +105,62 @@ pub fn while_unpacking(archive: &str) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn kind(said: &str) -> Packed {
+    fn kind(said: &str) -> Result<Packed, Never> {
         let Ok(packed) = packed(said);
 
-        packed
+        Ok(packed)
     }
 
-    fn named(archive: &str) -> String {
-        let Ok(named) = named_for(archive);
-
-        named
-    }
-
-    fn free(name: &str, taken: &[&str]) -> Option<String> {
+    fn free(name: &str, taken: &[&str]) -> Result<Option<String>, Never> {
         let taken: Vec<String> = taken.iter().map(|name| name.to_string()).collect();
-
         let Ok(beside) = beside(name, |tried| taken.iter().any(|held| held == tried));
 
-        beside
+        Ok(beside)
     }
 
-    fn inside(names: &[(&str, Is)]) -> Lift {
+    fn inside(names: &[(&str, Is)]) -> Result<Lift, Never> {
         let names: Vec<(String, Is)> =
             names.iter().map(|(name, is)| (name.to_string(), *is)).collect();
 
         let Ok(lift) = lifting(&names);
 
-        lift
+        Ok(lift)
     }
 
     #[test]
     fn the_kinds_a_mod_site_ships_are_unzipped_and_a_photograph_is_not() {
-        assert_eq!(kind("application/zip"), Packed::AnArchive);
-        assert_eq!(kind("application/vnd.rar"), Packed::AnArchive);
-        assert_eq!(kind("application/x-7z-compressed"), Packed::AnArchive);
-        assert_eq!(kind("image/jpeg"), Packed::NotOne);
-        assert_eq!(kind("inode/directory"), Packed::NotOne);
-        assert_eq!(kind(""), Packed::NotOne);
+        assert_eq!(kind("application/zip"), Ok(Packed::AnArchive));
+        assert_eq!(kind("application/vnd.rar"), Ok(Packed::AnArchive));
+        assert_eq!(kind("application/x-7z-compressed"), Ok(Packed::AnArchive));
+        assert_eq!(kind("image/jpeg"), Ok(Packed::NotOne));
+        assert_eq!(kind("inode/directory"), Ok(Packed::NotOne));
+        assert_eq!(kind(""), Ok(Packed::NotOne));
     }
 
     #[test]
     fn a_thing_that_would_come_out_of_this_as_another_archive_is_not_offered() {
-        assert_eq!(kind("application/x-compressed-tar"), Packed::NotOne);
-        assert_eq!(kind("application/gzip"), Packed::NotOne);
+        assert_eq!(kind("application/x-compressed-tar"), Ok(Packed::NotOne));
+        assert_eq!(kind("application/gzip"), Ok(Packed::NotOne));
     }
 
     #[test]
     fn the_folder_is_named_for_the_archive_without_what_it_is() {
-        assert_eq!(named("WickedWhims.zip"), "WickedWhims");
-        assert_eq!(named("MC Command Center v3.rar"), "MC Command Center v3");
-        assert_eq!(named("hair.7z"), "hair");
+        assert_eq!(named_for("WickedWhims.zip"), Ok("WickedWhims".to_string()));
+        assert_eq!(named_for("MC Command Center v3.rar"), Ok("MC Command Center v3".to_string()));
+        assert_eq!(named_for("hair.7z"), Ok("hair".to_string()));
     }
 
     #[test]
     fn a_name_that_is_all_extension_keeps_itself() {
-        assert_eq!(named(".zip"), ".zip");
-        assert_eq!(named("nodots"), "nodots");
+        assert_eq!(named_for(".zip"), Ok(".zip".to_string()));
+        assert_eq!(named_for("nodots"), Ok("nodots".to_string()));
     }
 
     #[test]
     fn the_second_unzip_of_one_archive_stands_beside_the_first() {
-        assert_eq!(free("hair", &[]), Some("hair".to_string()));
-        assert_eq!(free("hair", &["hair"]), Some("hair 2".to_string()));
-        assert_eq!(free("hair", &["hair", "hair 2"]), Some("hair 3".to_string()));
+        assert_eq!(free("hair", &[]), Ok(Some("hair".to_string())));
+        assert_eq!(free("hair", &["hair"]), Ok(Some("hair 2".to_string())));
+        assert_eq!(free("hair", &["hair", "hair 2"]), Ok(Some("hair 3".to_string())));
     }
 
     #[test]
@@ -185,19 +178,19 @@ mod tests {
     fn one_folder_alone_inside_is_the_wrapper_and_is_lifted_away() {
         assert_eq!(
             inside(&[("WickedWhims", Is::AFolder)]),
-            Lift::TheFolderInside("WickedWhims".to_string())
+            Ok(Lift::TheFolderInside("WickedWhims".to_string()))
         );
     }
 
     #[test]
     fn anything_else_inside_is_what_the_archive_meant_to_hold() {
-        assert_eq!(inside(&[("mod.package", Is::AFile)]), Lift::None);
+        assert_eq!(inside(&[("mod.package", Is::AFile)]), Ok(Lift::None));
         assert_eq!(
             inside(&[("mod.package", Is::AFile), ("mod.ts4script", Is::AFile)]),
-            Lift::None
+            Ok(Lift::None)
         );
-        assert_eq!(inside(&[("hair", Is::AFolder), ("eyes", Is::AFolder)]), Lift::None);
-        assert_eq!(inside(&[]), Lift::None);
+        assert_eq!(inside(&[("hair", Is::AFolder), ("eyes", Is::AFolder)]), Ok(Lift::None));
+        assert_eq!(inside(&[]), Ok(Lift::None));
     }
 
     #[test]

@@ -16,6 +16,7 @@
 
 pub mod architecture;
 pub mod bluetooth;
+pub mod boot;
 pub mod brightness;
 pub mod carry;
 pub mod picker;
@@ -132,7 +133,7 @@ impl From<Unchecked> for Why {
     }
 }
 
-pub const CHECKS: [&Check; 65] = [
+pub const CHECKS: [&Check; 68] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &workspaces::TAPPED,
@@ -174,6 +175,7 @@ pub const CHECKS: [&Check; 65] = [
     &music::QUIET,
     &music::AGAIN,
     &music::AWAKE,
+    &music::SLEEP,
     &home::ARRANGING,
     &icons::ICONS,
     &home::POINTED,
@@ -198,9 +200,11 @@ pub const CHECKS: [&Check; 65] = [
     &login_pattern::BY_HAND,
     &architecture::MAPPED,
     &control_center::PULLED,
+    &boot::PAD,
+    &boot::MENU,
 ];
 
-pub fn chosen(words: &[String]) -> Result<Vec<&'static Check>, Never> {
+pub fn select(words: &[String]) -> Result<Vec<&'static Check>, Never> {
     Ok(match words.is_empty() {
         true => CHECKS.to_vec(),
         false => CHECKS
@@ -213,7 +217,7 @@ pub fn chosen(words: &[String]) -> Result<Vec<&'static Check>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashSet};
 
     #[test]
     fn the_checks_are_in_the_order_they_grew() {
@@ -226,8 +230,14 @@ mod tests {
     #[test]
     fn no_two_checks_have_the_same_name() {
         let mut seen = BTreeSet::new();
-        let twice: Vec<&str> =
-            CHECKS.iter().map(|check| check.name).filter(|name| !seen.insert(*name)).collect();
+        let mut twice: Vec<&str> = Vec::new();
+
+        for check in CHECKS {
+            match seen.insert(check.name) {
+                true => {}
+                false => twice.push(check.name),
+            }
+        }
 
         assert!(twice.is_empty(), "two checks are called {twice:?}");
     }
@@ -236,7 +246,7 @@ mod tests {
     fn nothing_carried_is_a_check_this_tree_has_stopped_having() {
         let Ok(carried) = console_test_stages::baseline::lengths();
         let Ok(names) = carried.names();
-        let every: Vec<&str> = CHECKS.iter().map(|check| check.name).collect();
+        let every: HashSet<&str> = CHECKS.iter().map(|check| check.name).collect();
         let gone: Vec<&String> =
             names.iter().filter(|name| !every.contains(&name.as_str())).collect();
 
@@ -286,9 +296,9 @@ mod tests {
 
     #[test]
     fn a_word_chooses_the_checks_about_it_and_nothing_chooses_all_of_them() {
-        let Ok(every) = chosen(&[]);
-        let Ok(about) = chosen(&["brightness".to_string()]);
-        let Ok(none) = chosen(&["nothing-by-that-name".to_string()]);
+        let Ok(every) = select(&[]);
+        let Ok(about) = select(&["brightness".to_string()]);
+        let Ok(none) = select(&["nothing-by-that-name".to_string()]);
         let brightness: Vec<&str> = about.iter().map(|check| check.name).collect();
 
         assert_eq!(every.len(), CHECKS.len());

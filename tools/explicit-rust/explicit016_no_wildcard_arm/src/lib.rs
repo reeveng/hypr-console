@@ -6,7 +6,7 @@ extern crate rustc_middle;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind, MatchSource, Pat, PatKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT016: a `match` over an enum may not have a wildcard arm. `_ =>`
@@ -33,15 +33,6 @@ dylint_linting::declare_late_lint! {
     "a wildcard arm on an enum decides future variants by omission; name every variant"
 }
 
-// Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
-// is true only for the harness build of a target -- the ordinary build of the
-// same library is linted as production, so nothing real is lost by skipping
-// this one.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // A pattern that matches every variant without naming one: `_`, a bare
 // binding, or an or-pattern with either inside it.
 fn swallows_every_variant(pat: &Pat<'_>) -> bool {
@@ -55,10 +46,6 @@ fn swallows_every_variant(pat: &Pat<'_>) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit016NoWildcardArm {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         let ExprKind::Match(scrutinee, arms, MatchSource::Normal) = expr.kind else {
             return;
         };

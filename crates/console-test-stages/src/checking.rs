@@ -112,7 +112,7 @@ where
     }
 }
 
-pub fn seen(seen: Ready, why: impl FnOnce() -> String) -> CheckResult {
+pub fn expect_ready(seen: Ready, why: impl FnOnce() -> String) -> CheckResult {
     match seen {
         Ready::Yes => Ok(()),
         Ready::NotYet => failed(why()),
@@ -290,6 +290,7 @@ pub fn desktop(check: &Check, stage: &mut Desktop) -> Result<How, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::device::DryRun;
 
     const ONE: Check = Check {
@@ -300,65 +301,41 @@ mod tests {
         bodies: &[Body::Here(|_| Ok(()))],
     };
 
-    fn number(check: &Check) -> &str {
-        let Ok(number) = check.number();
-
-        number
-    }
-
-    fn rest(check: &Check) -> &str {
-        let Ok(rest) = check.rest();
-
-        rest
-    }
-
-    fn named_by(check: &Check, words: &[String]) -> Named {
+    fn named_by(check: &Check, words: &[String]) -> Result<Named, Never> {
         let Ok(named) = check.named_by(words);
 
-        named
+        Ok(named)
     }
 
-    fn without_the_device(check: &Check) -> Option<Stage> {
+    fn without_the_device(check: &Check) -> Result<Option<Stage>, Never> {
         let Ok(stage) = check.without_the_device();
 
-        stage
+        Ok(stage)
     }
 
-    fn desktop(check: &Check, stage: &mut Desktop) -> How {
-        let Ok(how) = super::desktop(check, stage);
-
-        how
-    }
-
-    fn device(check: &Check, stage: &mut Device) -> How {
-        let Ok(how) = super::device(check, stage);
-
-        how
-    }
-
-    fn name(how: &How) -> &str {
+    fn name(how: &How) -> Result<&str, Never> {
         let Ok(name) = how.name();
 
-        name
+        Ok(name)
     }
 
-    fn new() -> Desktop {
+    fn new() -> Result<Desktop, Never> {
         let Ok(desktop) = Desktop::new();
 
-        desktop
+        Ok(desktop)
     }
 
     #[test]
     fn a_check_says_when_it_arrived_and_what_it_is_about() {
-        assert_eq!(number(&ONE), "010");
-        assert_eq!(rest(&ONE), "workspaces-right");
+        assert_eq!(ONE.number(), Ok("010"));
+        assert_eq!(ONE.rest(), Ok("workspaces-right"));
     }
 
     #[test]
     fn a_check_is_found_by_its_name_or_by_its_feature() {
-        assert_eq!(named_by(&ONE, &["workspaces".to_string()]), Named::Yes);
-        assert_eq!(named_by(&ONE, &["010".to_string()]), Named::Yes);
-        assert_eq!(named_by(&ONE, &["keyboard".to_string()]), Named::No);
+        assert_eq!(named_by(&ONE, &["workspaces".to_string()]), Ok(Named::Yes));
+        assert_eq!(named_by(&ONE, &["010".to_string()]), Ok(Named::Yes));
+        assert_eq!(named_by(&ONE, &["keyboard".to_string()]), Ok(Named::No));
     }
 
     #[test]
@@ -373,21 +350,22 @@ mod tests {
         };
         const THERE: Check = Check { bodies: &[Body::Device(|_| Ok(()))], ..ONE };
 
-        assert_eq!(without_the_device(&THERE), None);
+        assert_eq!(without_the_device(&THERE), Ok(None));
 
-        assert_eq!(without_the_device(&BOTH), Some(Stage::Here));
+        assert_eq!(without_the_device(&BOTH), Ok(Some(Stage::Here)));
 
-        assert_eq!(without_the_device(&DRAWN), Some(Stage::Desktop));
+        assert_eq!(without_the_device(&DRAWN), Ok(Some(Stage::Desktop)));
     }
 
     #[test]
     fn a_stage_nothing_is_written_for_says_so() {
-        let mut nowhere = new();
-        assert_eq!(name(&desktop(&ONE, &mut nowhere)), "skipped");
+        let Ok(mut nowhere) = new();
+        let Ok(how) = desktop(&ONE, &mut nowhere);
+        assert_eq!(name(&how), Ok("skipped"));
     }
 
     #[test]
-    fn a_dry_run_would_run_what_it_can_and_skips_what_it_cannot() {
+    fn a_dry_run_would_run_what_it_can_and_skips_what_it_cannot() -> Result<(), Box<dyn Error>> {
         const CANNOT: Check = Check {
             name: "010-nothing",
             about: "Nothing.",
@@ -396,8 +374,11 @@ mod tests {
             bodies: &[Body::Device(|_| cannot("a thumb is wanted"))],
         };
         const FAILS: Check = Check { bodies: &[Body::Device(|_| failed("no".to_string()))], ..ONE };
-        let mut dry_run = Device::new("nowhere", DryRun::Pretend).expect("a stage");
-        assert_eq!(device(&CANNOT, &mut dry_run), How::Skipped("a thumb is wanted".to_string()));
-        assert_eq!(device(&FAILS, &mut dry_run), How::Would);
+        let mut dry_run = Device::new("nowhere", DryRun::Pretend)?;
+
+        assert_eq!(device(&CANNOT, &mut dry_run), Ok(How::Skipped("a thumb is wanted".to_string())));
+        assert_eq!(device(&FAILS, &mut dry_run), Ok(How::Would));
+
+        Ok(())
     }
 }

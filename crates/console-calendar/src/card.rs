@@ -64,7 +64,7 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
 
 fn pages(held: &Shared) -> Result<Vec<Page>, Never> {
     let reading = Arc::clone(held);
-    let Ok(rows) = Rows::asked(move || {
+    let Ok(rows) = Rows::computed(move || {
         let Ok(rows) = rows(&reading);
 
         rows
@@ -80,19 +80,19 @@ fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
     let today = match today {
         Some(today) => today,
         None => {
-            let Ok(row) = Row::nothing(NO_DAY);
+            let Ok(row) = Row::placeholder(NO_DAY);
 
             return Ok(vec![row]);
         }
     };
 
     let Ok(opened) = today.month();
-    let Ok(at) = opened.stepped(held.load(Ordering::Relaxed));
-    let Ok(said) = drawn(at);
+    let Ok(at) = opened.add_months(held.load(Ordering::Relaxed));
+    let Ok(said) = run_cal(at);
     let Ok(grid) = month::read(&said);
 
     let Ok(over) = month_row(held, &grid);
-    let Ok(weekdays) = named(&grid);
+    let Ok(weekdays) = weekday_row(&grid);
     let mut rows = vec![over, weekdays];
 
     for week in &grid.weeks {
@@ -106,15 +106,15 @@ fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
 
 fn month_row(held: &Shared, grid: &Grid) -> Result<Row, Never> {
     let stepping = Arc::clone(held);
-    let Ok(row) = Row::said(&grid.said, Aside(""));
-    let Ok(row) = row.leveled(Arc::new(move |by| {
+    let Ok(row) = Row::text(&grid.said, Aside(""));
+    let Ok(row) = row.with_level(Arc::new(move |by| {
         stepping.fetch_add(by, Ordering::Relaxed);
     }));
 
     row.ended(Ends { less: marks::BEFORE, more: marks::AFTER })
 }
 
-fn named(grid: &Grid) -> Result<Row, Never> {
+fn weekday_row(grid: &Grid) -> Result<Row, Never> {
     let mut cells = Vec::new();
 
     for weekday in &grid.weekdays {
@@ -130,7 +130,7 @@ fn week_row(week: &[String], at: Month, today: Day) -> Result<Row, Never> {
     let mut cells = Vec::new();
 
     for day in week {
-        let Ok(now) = standing(day, at, today);
+        let Ok(now) = highlight(day, at, today);
         let Ok(cell) = Cell::new(day, now);
 
         cells.push(cell);
@@ -139,7 +139,7 @@ fn week_row(week: &[String], at: Month, today: Day) -> Result<Row, Never> {
     Row::celled(cells)
 }
 
-fn standing(day: &str, at: Month, today: Day) -> Result<Active, Never> {
+fn highlight(day: &str, at: Month, today: Day) -> Result<Active, Never> {
     let Ok(holds) = at.holds(today);
 
     match holds {
@@ -153,7 +153,7 @@ fn standing(day: &str, at: Month, today: Day) -> Result<Active, Never> {
     })
 }
 
-fn drawn(at: Month) -> Result<String, Never> {
+fn run_cal(at: Month) -> Result<String, Never> {
     let Ok(mut command) = Program::Cal.command();
 
     let out = command.arg(at.month.to_string()).arg(at.year.to_string()).output();
@@ -242,10 +242,10 @@ mod tests {
         let Ok(at) = today.month();
         let Ok(next) = at.after();
 
-        let Ok(lit) = standing("9", at, today);
-        let Ok(elsewhere) = standing("9", next, today);
-        let Ok(another) = standing("8", at, today);
-        let Ok(blank) = standing("", at, today);
+        let Ok(lit) = highlight("9", at, today);
+        let Ok(elsewhere) = highlight("9", next, today);
+        let Ok(another) = highlight("8", at, today);
+        let Ok(blank) = highlight("", at, today);
 
         assert_eq!(lit, Active::Yes);
         assert_eq!(elsewhere, Active::No);

@@ -15,12 +15,16 @@ path = "src/bin/recovery.rs"
 
 [dependencies]
 console-core-external-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-walking.workspace = true
 console-core-words.workspace = true
 console-input-event-devices.workspace = true
 console-program-contract.workspace = true
+console-program-lifetime.workspace = true
+console-program-runtime.workspace = true
+console-readiness.workspace = true
 
 [lints]
 workspace = true

@@ -49,7 +49,7 @@ impl Condition {
 impl Policy {
     pub const ALLOW_ALL: Policy = Policy(0);
 
-    pub fn denying(self, conditions: &[Condition]) -> Result<Policy, Never> {
+    pub fn deny(self, conditions: &[Condition]) -> Result<Policy, Never> {
         let mut denied = self.0;
 
         for condition in conditions {
@@ -89,8 +89,8 @@ mod tests {
 
     #[test]
     fn a_denied_condition_stays_denied_whatever_is_denied_after_it() -> Result<(), Never> {
-        let Ok(policy) = Policy::ALLOW_ALL.denying(&[Condition::NewProcess]);
-        let Ok(later) = policy.denying(&[Condition::NewChannel]);
+        let Ok(policy) = Policy::ALLOW_ALL.deny(&[Condition::NewProcess]);
+        let Ok(later) = policy.deny(&[Condition::NewChannel]);
 
         assert_eq!(later.action(Condition::NewProcess), Ok(PolicyAction::Deny));
         assert_eq!(later.action(Condition::NewChannel), Ok(PolicyAction::Deny));

@@ -36,9 +36,15 @@ fn handed(named: &str) {
     let _ = Command::new(named).status();
 }
 
+// GOOD — a path cargo hands a test for a binary it built is not spelled here.
+fn built_for_this_test() {
+    let _ = Command::new(env!("CARGO_PKG_NAME")).status();
+}
+
 fn main() {
     asked();
     said();
     off_the_list();
     handed("hyprctl");
+    built_for_this_test();
 }

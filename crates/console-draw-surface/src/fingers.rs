@@ -32,7 +32,7 @@ fn apart(down: &[(i32, (f64, f64))]) -> Result<Option<f64>, Never> {
 }
 
 impl Fingers {
-    pub fn heard(&mut self, touch: Touch) -> Result<Option<PointerEvent>, Never> {
+    pub fn handle_touch(&mut self, touch: Touch) -> Result<Option<PointerEvent>, Never> {
         Ok(match touch {
             Touch::Down { id, at } => {
                 self.pressed.push((id, at));
@@ -84,15 +84,16 @@ impl Fingers {
 mod tests {
     use super::*;
 
-    fn heard(fingers: &mut Fingers, touches: &[Touch]) -> Vec<PointerEvent> {
-        touches
-            .iter()
-            .filter_map(|touch| {
-                let Ok(event) = fingers.heard(*touch);
+    fn handle_touches(fingers: &mut Fingers, touches: &[Touch]) -> Result<Vec<PointerEvent>, Never> {
+        let mut events = Vec::new();
 
-                event
-            })
-            .collect()
+        for touch in touches {
+            let Ok(event) = fingers.handle_touch(*touch);
+
+            events.extend(event);
+        }
+
+        Ok(events)
     }
 
     #[test]
@@ -100,16 +101,16 @@ mod tests {
         let mut fingers = Fingers::default();
 
         assert_eq!(
-            heard(&mut fingers, &[
+            handle_touches(&mut fingers, &[
                 Touch::Down { id: 4, at: (10.0, 10.0) },
                 Touch::Moved { id: 4, at: (20.0, 10.0) },
                 Touch::Up { id: 4 },
             ]),
-            vec![
+            Ok(vec![
                 PointerEvent::Down { at: (10.0, 10.0) },
                 PointerEvent::Moved { at: (20.0, 10.0) },
                 PointerEvent::Up,
-            ],
+            ]),
         );
     }
 
@@ -118,17 +119,17 @@ mod tests {
         let mut fingers = Fingers::default();
 
         assert_eq!(
-            heard(&mut fingers, &[
+            handle_touches(&mut fingers, &[
                 Touch::Down { id: 1, at: (100.0, 100.0) },
                 Touch::Down { id: 2, at: (200.0, 100.0) },
                 Touch::Moved { id: 2, at: (300.0, 100.0) },
                 Touch::Moved { id: 1, at: (200.0, 100.0) },
             ]),
-            vec![
+            Ok(vec![
                 PointerEvent::Down { at: (100.0, 100.0) },
                 PointerEvent::Pinched { by: 2.0 },
                 PointerEvent::Pinched { by: 0.5 },
-            ],
+            ]),
         );
     }
 
@@ -137,13 +138,13 @@ mod tests {
         let mut fingers = Fingers::default();
 
         assert_eq!(
-            heard(&mut fingers, &[
+            handle_touches(&mut fingers, &[
                 Touch::Down { id: 1, at: (0.0, 0.0) },
                 Touch::Down { id: 2, at: (50.0, 0.0) },
                 Touch::Up { id: 1 },
                 Touch::Up { id: 2 },
             ]),
-            vec![PointerEvent::Down { at: (0.0, 0.0) }, PointerEvent::Up],
+            Ok(vec![PointerEvent::Down { at: (0.0, 0.0) }, PointerEvent::Up]),
         );
     }
 }

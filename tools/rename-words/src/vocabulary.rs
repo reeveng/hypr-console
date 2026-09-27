@@ -10,12 +10,13 @@
 //! `[what a person reads]` are Apple's for a screen; as a name they are only
 //! ever offered, never assumed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub struct Vocabulary {
     pub words: BTreeMap<String, Vec<String>>,
     pub sites: BTreeMap<String, Vec<Site>>,
+    pub walking: BTreeSet<String>,
 }
 
 pub struct Site {
@@ -104,10 +105,15 @@ fn per_site(section: &str) -> Option<Vec<String>> {
 }
 
 pub fn read(root: &Path) -> std::io::Result<Vocabulary> {
-    let text = std::fs::read_to_string(root.join("vocabulary.conf"))?;
+    Ok(parse(&std::fs::read_to_string(root.join("vocabulary.conf"))?))
+}
+
+fn parse(text: &str) -> Vocabulary {
     let mut words: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut sites: BTreeMap<String, Vec<Site>> = BTreeMap::new();
     let mut section = String::new();
+    let mut walking_section = false;
+    let mut walking: BTreeSet<String> = BTreeSet::new();
 
     for line in text.lines() {
         if line.starts_with('#') || line.trim().is_empty() {
@@ -115,6 +121,7 @@ pub fn read(root: &Path) -> std::io::Result<Vocabulary> {
         }
         if line.starts_with('[') {
             section = line.split(" (").next().unwrap_or(line).to_string();
+            walking_section = line.contains("(walking)");
             continue;
         }
         let Some((left, right)) = line.split_once(" = ") else { continue };
@@ -166,6 +173,9 @@ pub fn read(root: &Path) -> std::io::Result<Vocabulary> {
             true => snake(left),
             false => left.to_string(),
         };
+        if walking_section {
+            walking.insert(left.clone());
+        }
         let entry = words.entry(left.clone()).or_default();
 
         for option in options {
@@ -175,7 +185,7 @@ pub fn read(root: &Path) -> std::io::Result<Vocabulary> {
         }
     }
 
-    Ok(Vocabulary { words, sites })
+    Vocabulary { words, sites, walking }
 }
 
 impl Vocabulary {
@@ -207,5 +217,19 @@ impl Vocabulary {
         }
 
         best.map(|(_, name)| name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    #[test]
+    fn a_word_under_a_walking_heading_is_planned_and_marked_walking() {
+        let vocabulary = parse("[failure] (effect: Cause)\nFault = Error\n[the words inside a name] (walking)\nsaid = contents, output\n");
+
+        assert_eq!(vocabulary.words.get("said"), Some(&vec!["contents".to_string(), "output".to_string()]));
+        assert!(vocabulary.walking.contains("said"));
+        assert!(!vocabulary.walking.contains("Fault"));
     }
 }

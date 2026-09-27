@@ -43,25 +43,29 @@ mod reading;
 
 use std::collections::BTreeSet;
 
-use reading::{root, saying};
+use reading::{Failure, missing, read, root, files_containing};
 
 const EXCUSED: [&str; 2] = ["console-core-places", "console-manifest-migrations"];
 
 const BASES: [&str; 4] = [".config", ".local/state", ".local/share", ".cache"];
 
 #[test]
-fn one_crate_works_out_where_this_desktop_keeps_things() {
-    let spelling: Vec<String> = BASES
-        .iter()
-        .flat_map(|base| [format!("{base}/console/"), format!("{base}/console\"")])
-        .flat_map(|said| saying(&said, &EXCUSED))
-        .collect();
+fn one_crate_works_out_where_this_desktop_keeps_things() -> Result<(), Failure> {
+    let mut spelling: Vec<String> = Vec::new();
+
+    for said in BASES.iter().flat_map(|base| [format!("{base}/console/"), format!("{base}/console\"")]) {
+        let found = files_containing(&said, &EXCUSED)?;
+
+        spelling.extend(found);
+    }
 
     assert!(
         spelling.is_empty(),
         "these work out where this desktop keeps things for themselves; ask \
          console_core_places::Base for the directory and join your own name onto it: {spelling:?}"
     );
+
+    Ok(())
 }
 
 const BASES_OF_A_TOOLKIT: [&str; 4] =
@@ -70,14 +74,17 @@ const BASES_OF_A_TOOLKIT: [&str; 4] =
 const ASKING_A_TOOLKIT: &[&str] = &[];
 
 #[test]
-fn the_ones_that_ask_a_toolkit_for_a_base_are_the_ones_that_are_known() {
-    let asking: BTreeSet<String> = BASES_OF_A_TOOLKIT
-        .iter()
-        .flat_map(|word| saying(word, &EXCUSED))
-        .collect();
+fn the_ones_that_ask_a_toolkit_for_a_base_are_the_ones_that_are_known() -> Result<(), Failure> {
+    let mut asking: BTreeSet<String> = BTreeSet::new();
 
-    let known: BTreeSet<String> =
-        ASKING_A_TOOLKIT.iter().map(|at| root().join(at).display().to_string()).collect();
+    for word in BASES_OF_A_TOOLKIT {
+        let found = files_containing(word, &EXCUSED)?;
+
+        asking.extend(found);
+    }
+
+    let Ok(root) = root();
+    let known: BTreeSet<String> = ASKING_A_TOOLKIT.iter().map(|at| root.join(at).display().to_string()).collect();
 
     assert_eq!(
         asking, known,
@@ -85,12 +92,13 @@ fn the_ones_that_ask_a_toolkit_for_a_base_are_the_ones_that_are_known() {
          asking; ask console_core_places::Base, and take the line out of \
          ASKING_A_TOOLKIT when the site goes"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_crate_that_answers_still_holds_the_four() {
-    let answering = root().join("crates/console-core-places/src/lib.rs");
-    let said = std::fs::read_to_string(answering).expect("the crate that holds the answer");
+fn the_crate_that_answers_still_holds_the_four() -> Result<(), Failure> {
+    let said = read("crates/console-core-places/src/lib.rs")?;
 
     assert!(
         said.contains("pub const EVERY: [Base; 4]"),
@@ -105,15 +113,13 @@ fn the_crate_that_answers_still_holds_the_four() {
              somewhere else now"
         );
     }
+
+    Ok(())
 }
 
 #[test]
 fn every_excused_crate_is_a_crate() {
-    let missing: Vec<&str> = EXCUSED
-        .iter()
-        .filter(|named| !root().join("crates").join(named).is_dir())
-        .copied()
-        .collect();
+    let Ok(missing) = missing(&EXCUSED);
 
     assert!(missing.is_empty(), "excused from a rule but not in the tree: {missing:?}");
 }

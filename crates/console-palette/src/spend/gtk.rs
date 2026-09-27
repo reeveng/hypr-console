@@ -89,50 +89,70 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::spend::tests::blossom;
 
     #[test]
-    fn every_role_is_written_once_as_a_color() {
-        let css = spend(&blossom()).expect("every color it spends is declared");
+    fn every_role_is_written_once_as_a_color() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = spend(&palette)?;
+
         for name in ROLES {
             let written: Vec<&str> = css.lines().filter(|line| line.starts_with(&format!("@define-color {name} "))).collect();
             assert_eq!(written.len(), 1, "{name} is defined as {written:?}");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() {
-        let css = spend(&blossom()).expect("every color it spends is declared");
+    fn only_the_roles_hold_a_hex_and_every_other_name_is_a_reference() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = spend(&palette)?;
         let holds_hex = |line: &str| line.contains('#');
+
         for line in css.lines().filter(|line| line.starts_with("@define-color")).filter(|line| holds_hex(line)) {
-            let name = line.split_whitespace().nth(1).expect("a name");
+            let name = line.split_whitespace().nth(1).ok_or("a name")?;
             assert!(ROLES.contains(&name), "{name} holds a hex and is not a role");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn every_reference_points_at_a_role_that_exists() {
-        let css = spend(&blossom()).expect("every color it spends is declared");
+    fn every_reference_points_at_a_role_that_exists() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = spend(&palette)?;
+
         for line in css.lines().filter(|line| line.contains(" @")) {
-            let role = line.rsplit(" @").next().and_then(|rest| rest.strip_suffix(';')).expect("a role");
+            let role = line.rsplit(" @").next().and_then(|rest| rest.strip_suffix(';')).ok_or("a role")?;
             assert!(ROLES.contains(&role), "{line} points at {role}, which is not a role");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn breeze_gets_every_name_it_asks_for() {
-        let css = spend(&blossom()).expect("every color it spends is declared");
+    fn breeze_gets_every_name_it_asks_for() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = spend(&palette)?;
+
         for name in breeze::NAMES {
             assert!(
                 css.contains(&format!("@define-color {name}_breeze ")),
                 "Breeze asks for {name} and it was not written"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn it_ends_in_exactly_one_newline() {
-        let css = spend(&blossom()).expect("every color it spends is declared");
+    fn it_ends_in_exactly_one_newline() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = spend(&palette)?;
         assert!(css.ends_with(";\n") && !css.ends_with("\n\n"));
+
+        Ok(())
     }
 }

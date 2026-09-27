@@ -9,63 +9,66 @@
 //! language, and if this one ever stops agreeing with them then every number
 //! in the report is a number no one should trust.
 
+use std::error::Error;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use console_core_color::{Ground, HexColor};
 use console_core_color as color;
+use console_core_directory_listing::Descend;
+use console_core_iteration::{iterate, Step};
+use console_core_never::Never;
 
-fn root() -> PathBuf {
-    {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
-}
-
-const HEX: u32 = 6;
-
-fn is_word(character: char) -> bool {
-    character.is_alphanumeric() || character == '_'
+fn root() -> Result<PathBuf, std::io::Error> {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
 }
 
-fn is_name(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_' || character == '-'
-}
+const IS_WORD: fn(char) -> bool = |character| character.is_alphanumeric() || character == '_';
 
-fn run_of(said: &str, taken: impl Fn(char) -> bool) -> (&str, &str) {
-    match said.find(|character: char| !taken(character)) {
+const IS_NAME: fn(char) -> bool = |character| character.is_ascii_alphanumeric() || character == '_' || character == '-';
+
+fn run_of(said: &str, taken: impl Fn(char) -> bool) -> Result<(&str, &str), Never> {
+    Ok(match said.find(|character: char| !taken(character)) {
         Some(end) => said.split_at(end),
         None => (said, ""),
-    }
+    })
 }
 
-fn hex_six(said: &str) -> Option<(&str, &str)> {
-    let (code, after) = said.split_at_checked(HEX.try_into().ok()?)?;
+fn hex_six(said: &str) -> Result<Option<(&str, &str)>, Never> {
+    let (code, after) = match said.split_at_checked(6) {
+        Some(split) => split,
+        None => return Ok(None),
+    };
 
-    match code.chars().all(|character| character.is_ascii_hexdigit()) {
+    Ok(match code.chars().all(|character| character.is_ascii_hexdigit()) {
         true => Some((code, after)),
         false => None,
-    }
+    })
 }
 
-fn hex_word(said: &str) -> Option<(&str, &str)> {
-    let (code, after) = hex_six(said)?;
+fn hex_word(said: &str) -> Result<Option<(&str, &str)>, Never> {
+    let Ok(six) = hex_six(said);
 
-    match after.chars().next() {
-        Some(character) if is_word(character) => None,
-        Some(_) | None => Some((code, after)),
-    }
+    let (code, after) = match six {
+        Some(six) => six,
+        None => return Ok(None),
+    };
+
+    Ok(match after.chars().next().is_some_and(IS_WORD) {
+        true => None,
+        false => Some((code, after)),
+    })
 }
 
-fn decimal_triple(said: &str) -> bool {
+fn decimal_triple(said: &str) -> Result<bool, Never> {
     let mut left = said;
 
     for band in 0..3u8 {
-        let (digits, after) = run_of(left, |character| character.is_ascii_digit());
+        let Ok((digits, after)) = run_of(left, |character| character.is_ascii_digit());
 
         match (1..=3).contains(&digits.len()) {
             true => {}
-            false => return false,
+            false => return Ok(false),
         }
 
         left = match band {
@@ -73,187 +76,268 @@ fn decimal_triple(said: &str) -> bool {
             _ => {
                 let past = match after.strip_prefix(',') {
                     Some(past) => past,
-                    None => return false,
+                    None => return Ok(false),
                 };
 
-                past.strip_prefix(char::is_whitespace).unwrap_or(past)
+                match past.strip_prefix(char::is_whitespace) {
+                    Some(spaced) => spaced,
+                    None => past,
+                }
             }
         };
     }
 
-    left.is_empty()
+    Ok(left.is_empty())
 }
 
-fn color_at<'a>(rest: &'a str, line: Option<&'a str>) -> Option<(String, &'a str)> {
-    match rest.strip_prefix('#').and_then(hex_word) {
-        Some((code, after)) => return Some((code.to_string(), after)),
-        None => {}
-    }
-
-    match rest.strip_prefix("0x").and_then(hex_word) {
-        Some((code, after)) => return Some((code.to_string(), after)),
-        None => {}
-    }
-
-    let opaque = rest
-        .strip_prefix("rgba(")
-        .and_then(hex_six)
-        .and_then(|(code, after)| after.strip_prefix("ff)").map(|after| (code, after)));
-
-    match opaque {
-        Some((code, after)) => return Some((code.to_string(), after)),
-        None => {}
-    }
-
-    let line = line?;
-    let (named, after) = run_of(line, is_word);
-    let value = match named.is_empty() {
-        true => return None,
-        false => after.strip_prefix('=')?,
-    };
-    let past_line = rest.strip_prefix(line)?;
-
-    match hex_six(value) {
-        Some((code, "")) => return Some((code.to_string(), past_line)),
-        Some(_) | None => {}
-    }
-
-    match decimal_triple(value) {
-        true => Some((value.to_string(), past_line)),
-        false => None,
-    }
-}
-
-fn colors_in(text: &str) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    let mut rest = text;
-    let mut opens = true;
-
-    while !rest.is_empty() {
-        let line = match opens {
-            true => rest.split('\n').next(),
-            false => None,
+fn color_at<'a>(rest: &'a str, line: Option<&'a str>) -> Result<Option<(String, &'a str)>, Never> {
+    for prefix in ["#", "0x"] {
+        let Ok(word) = match rest.strip_prefix(prefix) {
+            Some(after) => hex_word(after),
+            None => Ok(None),
         };
 
-        match color_at(rest, line) {
-            Some((code, after)) => {
-                found.push(code);
-                rest = after;
-                opens = false;
-            }
-            None => {
-                let mut chars = rest.chars();
-                opens = chars.next() == Some('\n');
-                rest = chars.as_str();
-            }
+        match word {
+            Some((code, after)) => return Ok(Some((code.to_string(), after))),
+            None => {}
         }
     }
 
-    found
+    let Ok(six) = match rest.strip_prefix("rgba(") {
+        Some(after) => hex_six(after),
+        None => Ok(None),
+    };
+
+    match six.and_then(|(code, after)| after.strip_prefix("ff)").map(|after| (code, after))) {
+        Some((code, after)) => return Ok(Some((code.to_string(), after))),
+        None => {}
+    }
+
+    let line = match line {
+        Some(line) => line,
+        None => return Ok(None),
+    };
+    let Ok((named, after)) = run_of(line, IS_WORD);
+
+    let value = match (named.is_empty(), after.strip_prefix('=')) {
+        (false, Some(value)) => value,
+        (true, Some(_)) | (true, None) | (false, None) => return Ok(None),
+    };
+
+    let past_line = match rest.strip_prefix(line) {
+        Some(past_line) => past_line,
+        None => return Ok(None),
+    };
+    let Ok(six) = hex_six(value);
+
+    match six {
+        Some((code, "")) => return Ok(Some((code.to_string(), past_line))),
+        Some(_) | None => {}
+    }
+
+    let Ok(decimal) = decimal_triple(value);
+
+    Ok(match decimal {
+        true => Some((value.to_string(), past_line)),
+        false => None,
+    })
 }
 
-fn holds_a_color(text: &str) -> bool {
-    !colors_in(text).is_empty()
+fn colors_in(text: &str) -> Result<Vec<String>, Never> {
+    let found = iterate((Vec::new(), text, Opens::Line), |(mut found, rest, opens)| {
+        match rest.is_empty() {
+            true => return Ok(Step::Halt(found)),
+            false => {}
+        }
+
+        let line = match opens {
+            Opens::Line => rest.split('\n').next(),
+            Opens::Within => None,
+        };
+        let Ok(color) = color_at(rest, line);
+
+        let (rest, opens) = match color {
+            Some((code, after)) => {
+                found.push(code);
+
+                (after, Opens::Within)
+            }
+            None => {
+                let mut chars = rest.chars();
+
+                let opens = match chars.next() == Some('\n') {
+                    true => Opens::Line,
+                    false => Opens::Within,
+                };
+
+                (chars.as_str(), opens)
+            }
+        };
+
+        Ok(Step::Again((found, rest, opens)))
+    });
+
+    Ok(match found {
+        Ok(found) => found,
+        Err(_endless) => Vec::new(),
+    })
 }
 
-fn names_asked(code: &str) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    let mut left = code;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Opens {
+    Line,
+    Within,
+}
 
-    while let Some((_, after)) = left.split_once('@') {
+fn holds_a_color(text: &str) -> Result<bool, Never> {
+    let Ok(colors) = colors_in(text);
+
+    Ok(!colors.is_empty())
+}
+
+fn names_asked(code: &str) -> Result<Vec<String>, Never> {
+    let found = iterate((Vec::new(), code), |(mut found, left)| {
+        let after = match left.split_once('@') {
+            Some((_, after)) => after,
+            None => return Ok(Step::Halt(found)),
+        };
+
         let opens = after.chars().next().is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
 
-        left = match opens {
+        let left = match opens {
             true => {
-                let (name, rest) = run_of(after, is_name);
+                let Ok((name, rest)) = run_of(after, IS_NAME);
+
                 found.push(name.to_string());
+
                 rest
             }
             false => after,
         };
-    }
 
-    found
+        Ok(Step::Again((found, left)))
+    });
+
+    Ok(match found {
+        Ok(found) => found,
+        Err(_endless) => Vec::new(),
+    })
 }
 
-fn property_held(line: &str) -> Option<String> {
-    let after = line.trim_start().strip_prefix("--")?;
-    let (run, rest) = run_of(after, is_name);
+fn property_held(line: &str) -> Result<Option<String>, Never> {
+    let after = match line.trim_start().strip_prefix("--") {
+        Some(after) => after,
+        None => return Ok(None),
+    };
+    let Ok((run, rest)) = run_of(after, IS_NAME);
 
-    match run.is_empty() {
+    Ok(match run.is_empty() {
         true => None,
         false => rest.trim_start().strip_prefix(':').map(|_| format!("--{run}")),
-    }
+    })
 }
 
-fn properties_asked(code: &str) -> Vec<(String, char)> {
-    let mut found: Vec<(String, char)> = Vec::new();
-    let mut left = code;
+fn properties_asked(code: &str) -> Result<Vec<(String, char)>, Never> {
+    let found = iterate((Vec::new(), code), |(mut found, left)| {
+        let after = match left.split_once("var(") {
+            Some((_, after)) => after,
+            None => return Ok(Step::Halt(found)),
+        };
 
-    while let Some((_, after)) = left.split_once("var(") {
-        left = match asked_at(after) {
+        let Ok(asked) = asked_at(after);
+
+        let left = match asked {
             Some((name, closed, rest)) => {
                 found.push((name, closed));
+
                 rest
             }
             None => after,
         };
-    }
 
-    found
+        Ok(Step::Again((found, left)))
+    });
+
+    Ok(match found {
+        Ok(found) => found,
+        Err(_endless) => Vec::new(),
+    })
 }
 
-fn asked_at(after: &str) -> Option<(String, char, &str)> {
-    let (run, tail) = run_of(after.trim_start().strip_prefix("--")?, is_name);
+fn asked_at(after: &str) -> Result<Option<(String, char, &str)>, Never> {
+    let named = match after.trim_start().strip_prefix("--") {
+        Some(named) => named,
+        None => return Ok(None),
+    };
+    let Ok((run, tail)) = run_of(named, IS_NAME);
 
     match run.is_empty() {
-        true => return None,
+        true => return Ok(None),
         false => {}
     }
 
     let mut chars = tail.trim_start().chars();
-    let closed = chars.next()?;
 
-    match closed {
+    let closed = match chars.next() {
+        Some(closed) => closed,
+        None => return Ok(None),
+    };
+
+    Ok(match closed {
         ',' | ')' => Some((format!("--{run}"), closed, chars.as_str())),
         _ => None,
-    }
+    })
 }
 
-fn carrying(files: &Path) -> Vec<(PathBuf, String)> {
-    fn walk(at: &Path, into: &mut Vec<PathBuf>) {
-        let entries = match std::fs::read_dir(at) {
-            Ok(entries) => entries,
-            Err(_fault) => return,
-        };
-        let mut found: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
-        found.sort();
-        for path in found {
-            match path {
-                path if path.ends_with("__pycache__") => {}
-                path if path.is_dir() => walk(&path, into),
-                path => into.push(path),
-            }
+fn every_file(files: &Path) -> Result<Vec<(PathBuf, String)>, Never> {
+    let Ok(listing) = console_core_directory_listing::recursive(files, |at| match at.ends_with("__pycache__") {
+        true => Descend::Past,
+        false => Descend::Into,
+    });
+
+    let mut paths: Vec<PathBuf> = listing
+        .filter_map(|entry| match entry {
+            Ok(path) => match (path.ends_with("__pycache__"), path.is_dir()) {
+                (true, true) | (true, false) | (false, true) => None,
+                (false, false) => Some(path),
+            },
+            Err(_unlisted) => None,
+        })
+        .collect();
+
+    paths.sort();
+
+    let mut carried = Vec::new();
+
+    for path in paths {
+        match std::fs::read(&path).map(String::from_utf8) {
+            Ok(Ok(text)) => carried.push((path, text)),
+            Ok(Err(_not_text)) => {}
+            Err(_unread) => {}
         }
     }
-    let mut paths = Vec::new();
-    walk(files, &mut paths);
-    paths
-        .into_iter()
-        .filter_map(|path| std::fs::read(&path).ok().map(|held| (path, held)))
-        .filter_map(|(path, held)| String::from_utf8(held).ok().map(|text| (path, text)))
-        .collect()
+
+    Ok(carried)
 }
 
-fn forms<'a>(codes: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
-    codes
-        .flat_map(|code| {
-            let decimal = [0, 2, 4]
-                .map(|at| u8::from_str_radix(&code[at..at + 2], 16).unwrap_or(0).to_string())
-                .join(",");
-            [code.to_lowercase(), decimal]
-        })
-        .collect()
+fn forms<'a>(codes: impl Iterator<Item = &'a str>) -> Result<BTreeSet<String>, Never> {
+    let mut found = BTreeSet::new();
+
+    for code in codes {
+        let decimal: Vec<String> = [code.get(0..2), code.get(2..4), code.get(4..6)]
+            .into_iter()
+            .map(|pair| match pair.map(|pair| u8::from_str_radix(pair, 16)) {
+                Some(Ok(band)) => band.to_string(),
+                Some(Err(_not_hex)) => "0".to_string(),
+                None => "0".to_string(),
+            })
+            .collect();
+
+        found.insert(code.to_lowercase());
+        found.insert(decimal.join(","));
+    }
+
+    Ok(found)
 }
 
 const AT_RULES: [&str; 16] = [
@@ -262,17 +346,41 @@ const AT_RULES: [&str; 16] = [
     "else",
 ];
 
+fn sheets(root: &Path) -> Result<Vec<(PathBuf, String)>, Never> {
+    let mut sheets = Vec::new();
+
+    for tree in [root.join("files"), root.join("crates")] {
+        let Ok(carried) = every_file(&tree);
+
+        sheets.extend(carried.into_iter().filter(|(path, _)| path.extension().is_some_and(|end| end == "css")));
+    }
+
+    Ok(sheets)
+}
+
+fn uncommented(line: &str) -> Result<&str, Never> {
+    Ok(match line.split_once("/*") {
+        Some((code, _comment)) => code,
+        None => line,
+    })
+}
+
+fn shown<'a>(path: &'a Path, under: &Path) -> Result<std::path::Display<'a>, Never> {
+    Ok(match path.strip_prefix(under) {
+        Ok(inside) => inside.display(),
+        Err(_outside) => path.display(),
+    })
+}
+
 mod the_names {
     use super::*;
 
     #[test]
-    fn every_name_the_desktop_asks_for_is_defined() {
-        let files = root().join("files");
-        let sheets: Vec<(PathBuf, String)> = [files.clone(), root().join("crates")]
-            .iter()
-            .flat_map(|tree| carrying(tree))
-            .filter(|(path, _)| path.extension().is_some_and(|end| end == "css"))
-            .collect();
+    fn every_name_the_desktop_asks_for_is_defined() -> Result<(), Box<dyn Error>> {
+        let root = root()?;
+        let files = root.join("files");
+        let Ok(sheets) = sheets(&root);
+        let rules: BTreeSet<&str> = AT_RULES.into_iter().collect();
 
         assert!(!sheets.is_empty(), "no stylesheets under {}", files.display());
 
@@ -292,17 +400,18 @@ mod the_names {
 
         for (path, said) in &sheets {
             for line in said.lines() {
-                let code = line.split("/*").next().unwrap_or(line);
+                let Ok(code) = uncommented(line);
+                let Ok(names) = names_asked(code);
 
-                for name in names_asked(code) {
-                    if AT_RULES.contains(&name.as_str()) || defined.contains(&name) {
-                        continue;
+                for name in names {
+                    match rules.contains(name.as_str()) || defined.contains(&name) {
+                        true => {}
+                        false => {
+                            let Ok(shown) = shown(path, &files);
+
+                            missing.push(format!("{shown} asks for @{name}, which nothing defines"));
+                        }
                     }
-
-                    missing.push(format!(
-                        "{} asks for @{name}, which nothing defines",
-                        path.strip_prefix(&files).unwrap_or(path).display()
-                    ));
                 }
             }
         }
@@ -310,20 +419,25 @@ mod the_names {
         missing.dedup();
 
         assert!(missing.is_empty(), "a color no one defined is a rule GTK drops:\n  {}", missing.join("\n  "));
+
+        Ok(())
     }
 
     #[test]
-    fn every_property_the_browser_asks_for_is_defined() {
-        let files = root().join("files");
-        let sheets: Vec<(PathBuf, String)> = [files.clone(), root().join("crates")]
-            .iter()
-            .flat_map(|tree| carrying(tree))
-            .filter(|(path, _)| path.extension().is_some_and(|end| end == "css"))
-            .collect();
+    fn every_property_the_browser_asks_for_is_defined() -> Result<(), Box<dyn Error>> {
+        let root = root()?;
+        let files = root.join("files");
+        let Ok(sheets) = sheets(&root);
 
         let defined: BTreeSet<String> = sheets
             .iter()
-            .flat_map(|(_, said)| said.lines().filter_map(property_held))
+            .flat_map(|(_, said)| {
+                said.lines().filter_map(|line| {
+                    let Ok(held) = property_held(line);
+
+                    held
+                })
+            })
             .collect();
 
         assert!(defined.contains("--text"), "the browser's palette defines nothing");
@@ -332,17 +446,18 @@ mod the_names {
 
         for (path, said) in &sheets {
             for line in said.lines() {
-                let code = line.split("/*").next().unwrap_or(line);
+                let Ok(code) = uncommented(line);
+                let Ok(asked) = properties_asked(code);
 
-                for (name, closed) in properties_asked(code) {
-                    if closed == ',' || defined.contains(&name) {
-                        continue;
+                for (name, closed) in asked {
+                    match closed == ',' || defined.contains(&name) {
+                        true => {}
+                        false => {
+                            let Ok(shown) = shown(path, &files);
+
+                            missing.push(format!("{shown} asks for var({name}), which nothing defines"));
+                        }
                     }
-
-                    missing.push(format!(
-                        "{} asks for var({name}), which nothing defines",
-                        path.strip_prefix(&files).unwrap_or(path).display(),
-                    ));
                 }
             }
         }
@@ -354,6 +469,8 @@ mod the_names {
             "a property no one defined is a declaration the browser throws away:\n  {}",
             missing.join("\n  ")
         );
+
+        Ok(())
     }
 }
 
@@ -447,32 +564,43 @@ mod the_palette {
     use super::*;
 
     #[test]
-    fn every_pairing_clears_what_it_declares() {
-        let done = check();
+    fn every_pairing_clears_what_it_declares() -> Result<(), Box<dyn Error>> {
+        let done = check()?;
+
         assert!(done.status.success(), "{}{}", done.stdout, done.stderr);
         assert!(done.stdout.contains("all clearing both measures"), "{}", done.stdout);
+
+        Ok(())
     }
 
     #[test]
-    fn the_files_say_what_the_palette_says() {
-        let done = check();
+    fn the_files_say_what_the_palette_says() -> Result<(), Box<dyn Error>> {
+        let done = check()?;
+
         assert!(
             done.status.success(),
             "a themed file no longer matches theme/palette.toml. Run `just theme`.\n{}{}",
             done.stdout,
             done.stderr
         );
+
+        Ok(())
     }
 
     #[test]
-    fn every_color_says_what_it_is_for() {
-        let declared = std::fs::read_to_string(root().join("theme/palette.toml")).expect("read");
-        let configuration: toml::Table = declared.parse().expect("it parses");
-        let colors = configuration["color"].as_table().expect("a table of colors");
+    fn every_color_says_what_it_is_for() -> Result<(), Box<dyn Error>> {
+        let root = root()?;
+        let declared = std::fs::read_to_string(root.join("theme/palette.toml"))?;
+        let configuration: toml::Table = declared.parse()?;
+        let colors = configuration.get("color").and_then(toml::Value::as_table).ok_or("no colors")?;
+
         for (name, declared) in colors {
-            let spent = declared.get("spent").and_then(toml::Value::as_str).unwrap_or("");
-            assert!(!spent.is_empty(), "{name} does not say what it is spent on");
+            let spent = declared.get("spent").and_then(toml::Value::as_str);
+
+            assert!(spent.is_some_and(|spent| !spent.is_empty()), "{name} does not say what it is spent on");
         }
+
+        Ok(())
     }
 }
 
@@ -480,36 +608,43 @@ mod the_tree {
     use super::*;
 
     #[test]
-    fn no_file_anywhere_carries_a_color_from_outside_the_palette() {
-        let (root, spent) = (root(), spent());
-        let lifted: Vec<String> = spent
-            .iter()
-            .map(|(_, code)| {
-                let Ok(lifted) = color::lift(code, bright_lift());
+    fn no_file_anywhere_carries_a_color_from_outside_the_palette() -> Result<(), Box<dyn Error>> {
+        let root = root()?;
+        let spent = spent()?;
+        let lift = bright_lift()?;
+        let mut lifted: Vec<String> = Vec::new();
 
-                lifted
-            })
-            .collect();
-        let known: BTreeSet<String> = forms(spent.iter().map(|(_, code)| code.as_str()))
-            .into_iter()
-            .chain(forms(lifted.iter().map(String::as_str)))
-            .collect();
+        for (_, code) in &spent {
+            let Ok(code) = color::lift(code, lift);
 
-        for (path, text) in carrying(&root.join("files")) {
-            for found in colors_in(&text) {
+            lifted.push(code);
+        }
+
+        let Ok(declared) = forms(spent.iter().map(|(_, code)| code.as_str()));
+        let Ok(brightened) = forms(lifted.iter().map(String::as_str));
+        let known: BTreeSet<String> = declared.into_iter().chain(brightened).collect();
+        let Ok(carried) = every_file(&root.join("files"));
+
+        for (path, text) in carried {
+            let Ok(colors) = colors_in(&text);
+
+            for found in colors {
                 let written = found.to_lowercase().replace(' ', "");
+                let Ok(shown) = shown(&path, &root);
+
                 assert!(
                     known.contains(&written),
-                    "{} carries #{written}, which is not a color theme/palette.toml declares",
-                    path.strip_prefix(&root).unwrap_or(&path).display()
+                    "{shown} carries #{written}, which is not a color theme/palette.toml declares"
                 );
             }
         }
+
+        Ok(())
     }
 
     #[test]
-    fn only_the_palette_holds_a_color() {
-        let allowed: BTreeSet<&str> = BTreeSet::from([
+    fn only_the_palette_holds_a_color() -> Result<(), Box<dyn Error>> {
+        let allowed: BTreeSet<String> = [
             "home/@user@/.config/console/hypr/hyprland.lua",
             "home/@user@/.config/kdeglobals",
             "home/@user@/.config/console/palette.css",
@@ -518,33 +653,47 @@ mod the_tree {
             "home/@user@/.librewolf/console/user.js",
             "usr/local/lib/console/palette.sh",
             "usr/share/icons/console-placeholder.svg",
-        ]);
-        let files = root().join("files");
-        let holding: BTreeSet<String> = carrying(&files)
-            .into_iter()
-            .filter(|(_, text)| holds_a_color(text))
-            .map(|(path, _)| path.strip_prefix(&files).expect("under files/").display().to_string())
-            .collect();
-        let allowed: BTreeSet<String> = allowed.iter().map(|name| name.to_string()).collect();
+        ]
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+        let root = root()?;
+        let files = root.join("files");
+        let Ok(carried) = every_file(&files);
+        let mut holding: BTreeSet<String> = BTreeSet::new();
+
+        for (path, text) in carried {
+            let Ok(holds) = holds_a_color(&text);
+            let Ok(shown) = shown(&path, &files);
+
+            match holds {
+                true => holding.insert(shown.to_string()),
+                false => continue,
+            };
+        }
+
         assert_eq!(
             holding, allowed,
             "a file outside the palette has grown a color, or one inside it has lost \
              the only color it had"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn every_color_is_spent() {
-        let written: String = carrying(&root().join("files"))
-            .into_iter()
-            .map(|(_, text)| text.to_lowercase())
-            .collect();
-        for (name, code) in spent() {
-            assert!(
-                written.contains(&code.to_lowercase()),
-                "{name} (#{code}) is declared and never used"
-            );
+    fn every_color_is_spent() -> Result<(), Box<dyn Error>> {
+        let root = root()?;
+        let Ok(carried) = every_file(&root.join("files"));
+        let written: String = carried.into_iter().map(|(_, text)| text.to_lowercase()).collect();
+
+        let spent = spent()?;
+
+        for (name, code) in spent {
+            assert!(written.contains(&code.to_lowercase()), "{name} (#{code}) is declared and never used");
         }
+
+        Ok(())
     }
 }
 
@@ -554,109 +703,125 @@ struct Output {
     stderr: String,
 }
 
-fn check() -> Output {
+fn check() -> Result<Output, Box<dyn Error>> {
+    let root = root()?;
     let done = std::process::Command::new(env!("CARGO_BIN_EXE_console-palette"))
         .arg("--check")
-        .current_dir(root())
-        .output()
-        .expect("console-palette runs");
-    Output {
+        .current_dir(root)
+        .output()?;
+
+    Ok(Output {
         status: done.status,
         stdout: String::from_utf8_lossy(&done.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&done.stderr).into_owned(),
+    })
+}
+
+fn spent() -> Result<Vec<(String, String)>, Box<dyn Error>> {
+    let root = root()?;
+    let report = std::fs::read_to_string(root.join("theme/report.md"))?;
+    let mut spent = Vec::new();
+
+    for line in report.lines() {
+        let mut cells = line.split('|').map(str::trim);
+
+        let (name, code) = match (cells.next(), cells.next(), cells.next()) {
+            (Some(""), Some(name), Some(code)) => (name, code),
+            (Some(_), Some(_), Some(_)) | (Some(_), Some(_), None) | (Some(_), None, _) | (None, _, _) => continue,
+        };
+
+        match (name.starts_with('`'), code.starts_with("`#")) {
+            (true, true) => {}
+            (true, false) | (false, true) | (false, false) => continue,
+        }
+
+        let code = code.trim_matches('`').trim_start_matches('#');
+
+        match code.len() == 6 && code.chars().all(|character| character.is_ascii_hexdigit()) {
+            true => spent.push((name.trim_matches('`').to_string(), code.to_string())),
+            false => continue,
+        }
     }
+
+    Ok(spent)
 }
 
-fn spent() -> Vec<(String, String)> {
-    let report = std::fs::read_to_string(root().join("theme/report.md")).expect("the report");
-    report
-        .lines()
-        .filter_map(|line| {
-            let mut cells = line.split('|').map(str::trim);
-            match (cells.next(), cells.next(), cells.next()) {
-                (Some(""), Some(name), Some(code))
-                    if name.starts_with('`') && code.starts_with("`#") =>
-                {
-                    Some((
-                        name.trim_matches('`').to_string(),
-                        code.trim_matches('`').trim_start_matches('#').to_string(),
-                    ))
-                }
-                _ => None,
-            }
-        })
-        .filter(|(_, code)| code.len() == 6 && code.chars().all(|character| character.is_ascii_hexdigit()))
-        .collect()
-}
+fn bright_lift() -> Result<f64, Box<dyn Error>> {
+    let root = root()?;
+    let declared = std::fs::read_to_string(root.join("theme/palette.toml"))?;
+    let configuration: toml::Table = declared.parse()?;
 
-fn bright_lift() -> f64 {
-    let declared = std::fs::read_to_string(root().join("theme/palette.toml")).expect("read");
-    let configuration: toml::Table = declared.parse().expect("it parses");
-    configuration["terminal"]["bright_lift"].as_float().expect("a number")
+    let lift = configuration
+        .get("terminal")
+        .and_then(|terminal| terminal.get("bright_lift"))
+        .and_then(toml::Value::as_float)
+        .ok_or("a number")?;
+
+    Ok(lift)
 }
 
 mod the_scanner {
     use super::*;
 
+    fn strings(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|said| said.to_string()).collect())
+    }
+
     #[test]
     fn six_hex_digits_are_a_color_and_seven_are_something_else() {
-        assert_eq!(colors_in("#123456"), ["123456"]);
-        assert_eq!(colors_in("#1234567"), [] as [String; 0]);
-        assert_eq!(colors_in("#12345"), [] as [String; 0]);
-        assert_eq!(colors_in("0xAABBCC."), ["AABBCC"]);
-        assert_eq!(colors_in("0xAABBCCD"), [] as [String; 0]);
-        assert_eq!(colors_in("#aabbcc\u{00e9}"), [] as [String; 0]);
+        assert_eq!(colors_in("#123456"), strings(&["123456"]));
+        assert_eq!(colors_in("#1234567"), strings(&[]));
+        assert_eq!(colors_in("#12345"), strings(&[]));
+        assert_eq!(colors_in("0xAABBCC."), strings(&["AABBCC"]));
+        assert_eq!(colors_in("0xAABBCCD"), strings(&[]));
+        assert_eq!(colors_in("#aabbcc\u{00e9}"), strings(&[]));
     }
 
     #[test]
     fn a_color_with_an_alpha_is_only_the_opaque_one() {
-        assert_eq!(colors_in("rgba(112233ff)"), ["112233"]);
-        assert_eq!(colors_in("rgba(112233fe)"), [] as [String; 0]);
+        assert_eq!(colors_in("rgba(112233ff)"), strings(&["112233"]));
+        assert_eq!(colors_in("rgba(112233fe)"), strings(&[]));
     }
 
     #[test]
     fn a_name_and_a_value_are_a_color_only_as_the_whole_line() {
-        assert_eq!(colors_in("fg=aabbcc"), ["aabbcc"]);
-        assert_eq!(colors_in(" fg=aabbcc"), [] as [String; 0]);
-        assert_eq!(colors_in("fg=aabbccd"), [] as [String; 0]);
-        assert_eq!(colors_in("a=b=aabbcc"), [] as [String; 0]);
-        assert_eq!(colors_in("#aabbcc\nfg=1,2,3\n0xddeeff\n"), ["aabbcc", "1,2,3", "ddeeff"]);
+        assert_eq!(colors_in("fg=aabbcc"), strings(&["aabbcc"]));
+        assert_eq!(colors_in(" fg=aabbcc"), strings(&[]));
+        assert_eq!(colors_in("fg=aabbccd"), strings(&[]));
+        assert_eq!(colors_in("a=b=aabbcc"), strings(&[]));
+        assert_eq!(colors_in("#aabbcc\nfg=1,2,3\n0xddeeff\n"), strings(&["aabbcc", "1,2,3", "ddeeff"]));
     }
 
     #[test]
     fn three_numbers_are_a_color_and_a_fourth_digit_is_not() {
-        assert_eq!(colors_in("fg=1,2,3"), ["1,2,3"]);
-        assert_eq!(colors_in("fg=1, 2, 3"), ["1, 2, 3"]);
-        assert_eq!(colors_in("fg=1,  2,3"), [] as [String; 0]);
-        assert_eq!(colors_in("fg=1234,2,3"), [] as [String; 0]);
-        assert_eq!(colors_in("fg=1,2"), [] as [String; 0]);
+        assert_eq!(colors_in("fg=1,2,3"), strings(&["1,2,3"]));
+        assert_eq!(colors_in("fg=1, 2, 3"), strings(&["1, 2, 3"]));
+        assert_eq!(colors_in("fg=1,  2,3"), strings(&[]));
+        assert_eq!(colors_in("fg=1234,2,3"), strings(&[]));
+        assert_eq!(colors_in("fg=1,2"), strings(&[]));
     }
 
     #[test]
     fn a_name_starts_with_a_letter_and_carries_on_with_more_than_letters() {
-        assert_eq!(names_asked("@name @-bad @_x-9 a@b @@c"), ["name", "_x-9", "b", "c"]);
+        assert_eq!(names_asked("@name @-bad @_x-9 a@b @@c"), strings(&["name", "_x-9", "b", "c"]));
     }
 
     #[test]
     fn a_property_is_declared_only_where_a_declaration_can_start() {
-        assert_eq!(property_held("  --x : red;"), Some("--x".to_string()));
-        assert_eq!(property_held("--x:red"), Some("--x".to_string()));
-        assert_eq!(property_held("x --y: red"), None);
-        assert_eq!(property_held("-- : red"), None);
+        assert_eq!(property_held("  --x : red;"), Ok(Some("--x".to_string())));
+        assert_eq!(property_held("--x:red"), Ok(Some("--x".to_string())));
+        assert_eq!(property_held("x --y: red"), Ok(None));
+        assert_eq!(property_held("-- : red"), Ok(None));
     }
 
     #[test]
     fn what_closed_a_var_is_the_difference_between_asking_and_preferring() {
         assert_eq!(
             properties_asked("var(--a) var(--b, x) var(--c)"),
-            [
-                ("--a".to_string(), ')'),
-                ("--b".to_string(), ','),
-                ("--c".to_string(), ')'),
-            ]
+            Ok(vec![("--a".to_string(), ')'), ("--b".to_string(), ','), ("--c".to_string(), ')')])
         );
-        assert_eq!(properties_asked("var( --a )"), [("--a".to_string(), ')')]);
-        assert_eq!(properties_asked("var(--a;"), [] as [(String, char); 0]);
-        assert_eq!(properties_asked("var(--)"), [] as [(String, char); 0]);
+        assert_eq!(properties_asked("var( --a )"), Ok(vec![("--a".to_string(), ')')]));
+        assert_eq!(properties_asked("var(--a;"), Ok(Vec::new()));
+        assert_eq!(properties_asked("var(--)"), Ok(Vec::new()));
     }
 }

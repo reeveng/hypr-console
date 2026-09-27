@@ -12,7 +12,7 @@
 //! menu lists it, Y puts it on the wallpaper or takes it off, and A opens it.
 //! Nothing in the menu, the home screen or the panel knows a bookmark from an
 //! application, which is the whole of why this is small. The entry itself is
-//! spelled by `console_applications::entry::written`, because what a
+//! spelled by `console_applications::entry::serialize`, because what a
 //! `.desktop` file says is that crate's to say in both directions.
 //!
 //! What the browser keeps is not readable from out here. `places.sqlite` is a
@@ -100,21 +100,16 @@ pub fn slug(id: &str) -> Result<String, Never> {
 }
 
 fn bytes(said: &str) -> Result<Vec<u8>, Never> {
-    let mut bytes = Vec::new();
-    let mut digits = said.chars();
+    let digits: Vec<char> = said.chars().collect();
+    let read: Result<Vec<u8>, _> = digits
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(&pair.iter().collect::<String>(), 16))
+        .collect();
 
-    while let (Some(high), Some(low)) = (digits.next(), digits.next()) {
-        let said: String = [high, low].iter().collect();
-
-        let byte = match u8::from_str_radix(&said, 16) {
-            Ok(byte) => byte,
-            Err(_not_a_picture) => return Ok(Vec::new()),
-        };
-
-        bytes.push(byte);
-    }
-
-    Ok(bytes)
+    Ok(match read {
+        Ok(bytes) => bytes,
+        Err(_not_a_picture) => Vec::new(),
+    })
 }
 
 pub fn host(url: &str) -> Result<String, Never> {
@@ -171,22 +166,18 @@ fn free(said: &str, host: Host<'_>, taken: &BTreeSet<String>) -> Result<String, 
         true => {},
     }
 
-    let mut again: u32 = 2;
+    let free = (2..=u32::MAX).map(|again| format!("{said} ({host} {again})")).find(|more| !taken.contains(more));
 
-    loop {
-        let more = format!("{said} ({host} {again})");
-
-        match taken.contains(&more) {
-            false => return Ok(more),
-            true => again = again.saturating_add(1),
-        }
-    }
+    Ok(match free {
+        Some(free) => free,
+        None => beside,
+    })
 }
 
 pub fn application(bookmark: &Bookmark, icon: Option<&Path>) -> Result<Application, Never> {
     let Ok(open) = Program::XdgOpen.name();
 
-    let command = words::joined(&[open.to_string(), bookmark.url.clone()])?;
+    let command = words::join_quoted(&[open.to_string(), bookmark.url.clone()])?;
 
     Ok(Application {
         name: bookmark.name.clone(),
@@ -200,7 +191,7 @@ pub fn application(bookmark: &Bookmark, icon: Option<&Path>) -> Result<Applicati
 }
 
 pub fn among() -> Result<Option<PathBuf>, Never> {
-    let hers = console_core_places::Base::Share.hers()?;
+    let hers = console_core_places::Base::Share.user()?;
 
     Ok(hers.map(|hers| hers.join(console_core_places::APPLICATIONS)))
 }
@@ -272,7 +263,7 @@ pub fn keep(where_: Where<'_>, bookmarks: &[Bookmark]) -> Result<(), Unkept> {
         };
 
         let Ok(application) = application(bookmark, icon.as_deref());
-        let Ok(said) = entry::written(&application);
+        let Ok(said) = entry::serialize(&application);
         let Ok(at) = entry_at(where_.among, &bookmark.id);
 
         console_core_atomic_writes::whole(&at, said.as_bytes())?;
@@ -282,17 +273,17 @@ pub fn keep(where_: Where<'_>, bookmarks: &[Bookmark]) -> Result<(), Unkept> {
 
     swept(where_.among, &kept)?;
 
-    unpictured(where_.icons, &kept)
+    remove_stale_icons(where_.icons, &kept)
 }
 
 fn swept(among: &Path, kept: &BTreeSet<&str>) -> Result<(), Unkept> {
-    let deleting = named(among, kept, Under::TheMark)?;
+    let deleting = paths_to_delete(among, kept, Under::TheMark)?;
 
     away(&deleting)
 }
 
-fn unpictured(icons: &Path, kept: &BTreeSet<&str>) -> Result<(), Unkept> {
-    let deleting = named(icons, kept, Under::OurOwn)?;
+fn remove_stale_icons(icons: &Path, kept: &BTreeSet<&str>) -> Result<(), Unkept> {
+    let deleting = paths_to_delete(icons, kept, Under::OurOwn)?;
 
     away(&deleting)
 }
@@ -303,7 +294,7 @@ enum Under {
     OurOwn,
 }
 
-fn named(at: &Path, kept: &BTreeSet<&str>, under: Under) -> Result<Vec<PathBuf>, Unkept> {
+fn paths_to_delete(at: &Path, kept: &BTreeSet<&str>, under: Under) -> Result<Vec<PathBuf>, Unkept> {
     let reading =
         std::fs::read_dir(at).map_err(|fault| Unkept::Reading(at.to_path_buf(), fault))?;
 
@@ -345,43 +336,45 @@ fn away(deleting: &[PathBuf]) -> Result<(), Unkept> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
+    fn somewhere(named: &str) -> Result<PathBuf, console_core_temporary_directories::Unmade> {
+        console_core_temporary_directories::fresh(&format!("bookmarks-{named}"))
     }
 
-    fn somewhere(named: &str) -> PathBuf {
-        console_core_temporary_directories::fresh(&format!("bookmarks-{named}")).expect("somewhere to write")
-    }
-
-    fn one(id: &str, url: &str, name: &str) -> Bookmark {
-        Bookmark {
-            id: id.to_string(),
-            url: url.to_string(),
-            name: name.to_string(),
-            icon: Vec::new(),
-        }
+    fn bookmarks(rows: &[(&str, &str, &str, &[u8])]) -> Result<Vec<Bookmark>, Never> {
+        Ok(rows
+            .iter()
+            .map(|(id, url, name, icon)| Bookmark {
+                id: id.to_string(),
+                url: url.to_string(),
+                name: name.to_string(),
+                icon: icon.to_vec(),
+            })
+            .collect())
     }
 
     #[test]
-    fn a_bookmark_is_an_id_an_address_a_name_and_a_picture() {
+    fn a_bookmark_is_an_id_an_address_a_name_and_a_picture() -> Result<(), Box<dyn Error>> {
         let said = "abc\thttps://example.com/\tExample\t89504e47\n";
-        let read = ok(read(said));
+        let Ok(read) = read(said);
+        let first = read.first().ok_or("no bookmark was read")?;
 
         assert_eq!(read.len(), 1);
-        assert_eq!(read.first().expect("one").url, "https://example.com/");
-        assert_eq!(read.first().expect("one").name, "Example");
-        assert_eq!(read.first().expect("one").icon, vec![0x89, 0x50, 0x4e, 0x47]);
+        assert_eq!(first.url, "https://example.com/");
+        assert_eq!(first.name, "Example");
+        assert_eq!(first.icon, vec![0x89, 0x50, 0x4e, 0x47]);
+        Ok(())
     }
 
     #[test]
-    fn a_bookmark_with_no_picture_is_a_bookmark() {
-        let read = ok(read("abc\thttps://example.com/\tExample\n"));
+    fn a_bookmark_with_no_picture_is_a_bookmark() -> Result<(), Box<dyn Error>> {
+        let Ok(read) = read("abc\thttps://example.com/\tExample\n");
+        let first = read.first().ok_or("no bookmark was read")?;
 
         assert_eq!(read.len(), 1);
-        assert!(read.first().expect("one").icon.is_empty());
+        assert!(first.icon.is_empty());
+        Ok(())
     }
 
     #[test]
@@ -392,7 +385,7 @@ b\tplace:sort=8\tRecently used
 c\tabout:config\tThe knobs
 d\thttps://example.com/\tA page
 ";
-        let read = ok(read(said));
+        let Ok(read) = read(said);
         let names: Vec<&str> = read.iter().map(|bookmark| bookmark.name.as_str()).collect();
 
         assert_eq!(names, ["A page"]);
@@ -400,89 +393,106 @@ d\thttps://example.com/\tA page
 
     #[test]
     fn a_line_that_is_not_a_bookmark_is_not_one() {
-        assert!(ok(read("\nnonsense\nabc\thttps://example.com\n")).is_empty());
+        let Ok(read) = read("\nnonsense\nabc\thttps://example.com\n");
+
+        assert!(read.is_empty());
     }
 
     #[test]
-    fn an_id_is_only_what_can_be_a_file_name() {
-        assert_eq!(ok(slug("../../etc/passwd")), "etcpasswd");
-        assert_eq!(ok(slug("YabvG_NXX-sxMK")), "YabvG_NXX-sxMK");
-        let read = ok(read("../etc/passwd\thttps://example.com\tA page\n"));
+    fn an_id_is_only_what_can_be_a_file_name() -> Result<(), Box<dyn Error>> {
+        let Ok(climbing) = slug("../../etc/passwd");
+        let Ok(plain) = slug("YabvG_NXX-sxMK");
+        let Ok(read) = read("../etc/passwd\thttps://example.com\tA page\n");
+        let Ok(nameless) = super::read("/\thttps://example.com\tA page\n");
+        let first = read.first().ok_or("no bookmark was read")?;
 
-        assert_eq!(read.first().expect("one").id, "etcpasswd");
-        assert!(ok(super::read("/\thttps://example.com\tA page\n")).is_empty(), "a name of nothing");
+        assert_eq!(climbing, "etcpasswd");
+        assert_eq!(plain, "YabvG_NXX-sxMK");
+        assert_eq!(first.id, "etcpasswd");
+        assert!(nameless.is_empty(), "a name of nothing");
+        Ok(())
     }
 
     #[test]
-    fn a_picture_that_is_not_one_is_no_picture_rather_than_half_of_one() {
-        let read = ok(read("abc\thttps://example.com\tA page\tnot a picture\n"));
+    fn a_picture_that_is_not_one_is_no_picture_rather_than_half_of_one() -> Result<(), Box<dyn Error>> {
+        let Ok(read) = read("abc\thttps://example.com\tA page\tnot a picture\n");
+        let first = read.first().ok_or("no bookmark was read")?;
 
-        assert!(read.first().expect("one").icon.is_empty());
+        assert!(first.icon.is_empty());
+        Ok(())
     }
 
     #[test]
     fn two_pages_called_the_same_thing_are_told_apart_by_where_they_are() {
-        let bookmarks = vec![
-            one("a", "https://one.example.com/x", "Home"),
-            one("b", "https://two.example.com/y", "Home"),
-            one("c", "https://two.example.com/z", "Home"),
-        ];
-        let apart = ok(apart(bookmarks));
+        let Ok(bookmarks) = bookmarks(&[
+            ("a", "https://one.example.com/x", "Home", &[]),
+            ("b", "https://two.example.com/y", "Home", &[]),
+            ("c", "https://two.example.com/z", "Home", &[]),
+        ]);
+        let Ok(apart) = apart(bookmarks);
         let names: Vec<&str> = apart.iter().map(|bookmark| bookmark.name.as_str()).collect();
 
         assert_eq!(names, ["Home", "Home (two.example.com)", "Home (two.example.com 2)"]);
     }
 
     #[test]
-    fn a_page_with_no_name_is_called_where_it_is() {
-        let apart = ok(apart(vec![one("a", "https://example.com/deep/page", "")]));
+    fn a_page_with_no_name_is_called_where_it_is() -> Result<(), Box<dyn Error>> {
+        let Ok(bookmarks) = bookmarks(&[("a", "https://example.com/deep/page", "", &[])]);
+        let Ok(apart) = apart(bookmarks);
+        let first = apart.first().ok_or("no bookmark was kept")?;
 
-        assert_eq!(apart.first().expect("one").name, "example.com");
+        assert_eq!(first.name, "example.com");
+        Ok(())
     }
 
     #[test]
-    fn what_opens_a_bookmark_is_the_address_it_was_given() {
-        let bookmark = one("a", "https://example.com/?q=a b&r=2", "A page");
-        let application = ok(application(&bookmark, None));
-        let Ok(read) = console_applications::words::without_field_codes(&application.command);
+    fn what_opens_a_bookmark_is_the_address_it_was_given() -> Result<(), Box<dyn Error>> {
+        let Ok(bookmarks) = bookmarks(&[("a", "https://example.com/?q=a b&r=2", "A page", &[])]);
+        let bookmark = bookmarks.first().ok_or("no bookmark was made")?;
+        let Ok(opened) = application(bookmark, None);
+        let Ok(read) = console_applications::words::without_field_codes(&opened.command);
+        let Ok(split) = console_applications::words::split(&read);
 
         assert_eq!(
-            ok(console_applications::words::split(&read)),
+            split,
             Some(vec!["xdg-open".to_string(), "https://example.com/?q=a b&r=2".to_string()])
         );
+        Ok(())
     }
 
     #[test]
-    fn a_bookmark_is_written_where_the_menu_looks_for_applications() {
-        let at = somewhere("written");
+    fn a_bookmark_is_written_where_the_menu_looks_for_applications() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("written")?;
         let among = at.join("applications");
         let icons = at.join("icons");
-        let bookmarks =
-            vec![Bookmark { icon: vec![0x89, 0x50], ..one("abc", "https://example.com/", "Example") }];
+        let Ok(bookmarks) = bookmarks(&[("abc", "https://example.com/", "Example", &[0x89, 0x50])]);
 
-        keep(Where { among: &among, icons: &icons }, &bookmarks).expect("kept");
+        keep(Where { among: &among, icons: &icons }, &bookmarks)?;
 
-        let said = std::fs::read_to_string(among.join("console-bookmark-abc.desktop")).expect("it");
+        let said = std::fs::read_to_string(among.join("console-bookmark-abc.desktop"))?;
+        let picture = std::fs::read(icons.join("abc"))?;
 
         assert!(said.contains("Name=Example"), "{said}");
         assert!(said.contains("Icon="), "{said}");
-        assert_eq!(std::fs::read(icons.join("abc")).expect("a picture"), vec![0x89, 0x50]);
+        assert_eq!(picture, vec![0x89, 0x50]);
 
         let _ = std::fs::remove_dir_all(&at);
+        Ok(())
     }
 
     #[test]
-    fn a_bookmark_that_has_gone_from_the_browser_goes_from_the_menu() {
-        let at = somewhere("gone");
+    fn a_bookmark_that_has_gone_from_the_browser_goes_from_the_menu() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("gone")?;
         let among = at.join("applications");
         let icons = at.join("icons");
-        let first = vec![
-            Bookmark { icon: vec![0x89], ..one("abc", "https://example.com/", "Example") },
-            Bookmark { icon: vec![0x89], ..one("def", "https://other.example/", "Other") },
-        ];
+        let Ok(first) = bookmarks(&[
+            ("abc", "https://example.com/", "Example", &[0x89]),
+            ("def", "https://other.example/", "Other", &[0x89]),
+        ]);
+        let fewer = first.get(..1).ok_or("one bookmark fewer")?;
 
-        keep(Where { among: &among, icons: &icons }, &first).expect("kept");
-        keep(Where { among: &among, icons: &icons }, first.get(..1).expect("one")).expect("kept");
+        keep(Where { among: &among, icons: &icons }, &first)?;
+        keep(Where { among: &among, icons: &icons }, fewer)?;
 
         assert!(among.join("console-bookmark-abc.desktop").exists());
         assert!(!among.join("console-bookmark-def.desktop").exists());
@@ -490,29 +500,30 @@ d\thttps://example.com/\tA page
         assert!(!icons.join("def").exists());
 
         let _ = std::fs::remove_dir_all(&at);
+        Ok(())
     }
 
     #[test]
-    fn nothing_that_is_not_a_bookmark_is_swept() {
-        let at = somewhere("beside");
+    fn nothing_that_is_not_a_bookmark_is_swept() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("beside")?;
         let among = at.join("applications");
         let icons = at.join("icons");
 
-        std::fs::create_dir_all(&among).expect("somewhere");
-        std::fs::write(among.join("firefox.desktop"), "[Desktop Entry]").expect("a neighbour");
-
-        keep(Where { among: &among, icons: &icons }, &[]).expect("kept");
+        std::fs::create_dir_all(&among)?;
+        console_core_atomic_writes::whole(&among.join("firefox.desktop"), b"[Desktop Entry]")?;
+        keep(Where { among: &among, icons: &icons }, &[])?;
 
         assert!(among.join("firefox.desktop").exists());
 
         let _ = std::fs::remove_dir_all(&at);
+        Ok(())
     }
 
     #[test]
     fn where_a_bookmark_is_kept_is_where_the_menu_reads_from() {
         let home = Path::new("/home/someone");
         let Ok(share) = console_core_places::Base::Share.under(home);
-        let Ok(ours) = console_core_places::Base::Share.ours_under(home);
+        let Ok(ours) = console_core_places::Base::Share.application_under(home);
 
         assert_eq!(share.join("applications"), PathBuf::from("/home/someone/.local/share/applications"));
         assert_eq!(

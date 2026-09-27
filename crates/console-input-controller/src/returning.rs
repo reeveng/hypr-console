@@ -121,7 +121,7 @@ impl Program for Return {
     type Effect = Never;
 
     fn init(_argv: &Arguments) -> Initial<Coming> {
-        let Ok(opening) = Initial::subscribed(Coming::default(), vec![Subscription::Timer(LOOK)]);
+        let Ok(opening) = Initial::with_subscriptions(Coming::default(), vec![Subscription::Timer(LOOK)]);
 
         opening
     }
@@ -181,7 +181,7 @@ fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
 
             match arguments.first().map(String::as_str) == Some(desktop) {
                 true => {
-                    let Ok(desktop) = Command::internal(desktop, &[]);
+                    let Ok(desktop) = Command::internal(InternalProgram::SessionDesktop, &[]);
 
                     vec![Wanted::Spawn(desktop)]
                 }
@@ -198,25 +198,23 @@ mod tests {
 
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn held(seconds: f64) -> Option<Effect> {
+    fn held(seconds: f64) -> Result<Option<Effect>, Never> {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        ok(returning.turn(1000.0 + seconds))
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0);
+
+        returning.turn(1000.0 + seconds)
     }
 
-    fn way_back() -> Option<Effect> {
-        Some(ok(Effect::run(&[ok(InternalProgram::SessionDesktop.path())])))
+    fn way_back() -> Result<Option<Effect>, Never> {
+        let Ok(desktop) = InternalProgram::SessionDesktop.path();
+        let Ok(run) = Effect::run(&[desktop]);
+
+        Ok(Some(run))
     }
 
     #[test]
     fn a_press_is_not_a_way_out() {
-        assert_eq!(held(HELD_SECONDS / 2.0), None);
+        assert_eq!(held(HELD_SECONDS / 2.0), Ok(None));
     }
 
     #[test]
@@ -227,112 +225,111 @@ mod tests {
     #[test]
     fn held_with_another_button_it_is_steams_chord_and_not_a_way_out() {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        ok(returning.saw(EventType::KEY, KeyCode::BTN_EAST.0, 1, 1000.1));
-        assert_eq!(ok(returning.turn(1000.0 + HELD_SECONDS)), None);
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0);
+        let Ok(()) = returning.saw(EventType::KEY, KeyCode::BTN_EAST.0, 1, 1000.1);
+        assert_eq!(returning.turn(1000.0 + HELD_SECONDS), Ok(None));
     }
 
     #[test]
     fn a_stick_pushed_while_it_is_held_is_not_another_button() {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        ok(returning.saw(EventType::ABSOLUTE, 0, 4000, 1000.1));
-        assert_eq!(ok(returning.turn(1000.0 + HELD_SECONDS)), way_back());
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0);
+        let Ok(()) = returning.saw(EventType::ABSOLUTE, 0, 4000, 1000.1);
+        assert_eq!(returning.turn(1000.0 + HELD_SECONDS), way_back());
     }
 
     #[test]
     fn it_is_said_once_however_long_the_button_is_kept_down() {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        assert_eq!(ok(returning.turn(1001.0)), way_back());
-        assert_eq!(ok(returning.turn(1002.0)), None);
-        assert_eq!(ok(returning.turn(1010.0)), None);
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0);
+        assert_eq!(returning.turn(1001.0), way_back());
+        assert_eq!(returning.turn(1002.0), Ok(None));
+        assert_eq!(returning.turn(1010.0), Ok(None));
     }
 
     #[test]
     fn letting_go_puts_it_back_the_way_it_was() {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        ok(returning.saw(EventType::KEY, KeyCode::BTN_EAST.0, 1, 1000.1));
-        ok(returning.saw(EventType::KEY, BUTTON.0, 0, 1000.2));
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0);
+        let Ok(()) = returning.saw(EventType::KEY, KeyCode::BTN_EAST.0, 1, 1000.1);
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 0, 1000.2);
         assert_eq!(returning, Returning::default());
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1001.0));
-        assert_eq!(ok(returning.turn(1002.0)), way_back());
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1001.0);
+        assert_eq!(returning.turn(1002.0), way_back());
     }
 
     #[test]
     fn another_button_on_its_own_is_nothing_to_do_with_this() {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, KeyCode::BTN_EAST.0, 1, 1000.0));
+        let Ok(()) = returning.saw(EventType::KEY, KeyCode::BTN_EAST.0, 1, 1000.0);
         assert_eq!(returning, Returning::default());
     }
 
     #[test]
     fn a_pad_that_went_away_takes_the_hold_with_it() {
         let mut returning = Returning::default();
-        ok(returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0));
-        ok(returning.loosed());
-        assert_eq!(ok(returning.turn(1002.0)), None);
+        let Ok(()) = returning.saw(EventType::KEY, BUTTON.0, 1, 1000.0);
+        let Ok(()) = returning.loosed();
+        assert_eq!(returning.turn(1002.0), Ok(None));
     }
 
-    fn pressed(at: Elapsed) -> Event<ReturningEvent> {
-        Event::Custom(ReturningEvent::Saw { kind: EventType::KEY, code: BUTTON.0, value: 1, at })
+    const BEGAN: Duration = Duration::from_secs(10);
+    const PRESSED: Event<ReturningEvent> =
+        Event::Custom(ReturningEvent::Saw { kind: EventType::KEY, code: BUTTON.0, value: 1, at: BEGAN });
+    const WOKE_AS_PRESSED: Event<ReturningEvent> = Event::Tick(LOOK, BEGAN);
+    const WOKE_TWO_SECONDS_ON: Event<ReturningEvent> = Event::Tick(LOOK, Duration::from_secs(12));
+    const WOKE_AN_HOUR_ON: Event<ReturningEvent> = Event::Tick(LOOK, Duration::from_secs(3600));
+    const WOKE_A_LOOK_AFTER_THAT: Event<ReturningEvent> = Event::Tick(LOOK, Duration::from_millis(3_600_016));
+
+    fn woken((from, to): (Elapsed, Elapsed)) -> Result<Vec<Event<ReturningEvent>>, Never> {
+        Ok(std::iter::successors(Some(from), |at| Some(at.saturating_add(LOOK.interval)))
+            .take_while(|at| *at <= to)
+            .map(|at| Event::Tick(LOOK, at))
+            .collect())
     }
 
-    fn woke(at: Elapsed) -> Event<ReturningEvent> {
-        Event::Tick(LOOK, at)
-    }
+    fn started() -> Result<Vec<Wanted<Never>>, Never> {
+        let Ok(desktop) = Command::internal(InternalProgram::SessionDesktop, &[]);
 
-    fn woken(from: Elapsed, to: Elapsed) -> Vec<Event<ReturningEvent>> {
-        let mut at = from;
-        let mut words = Vec::new();
-
-        while at <= to {
-            words.push(woke(at));
-            at = at.saturating_add(LOOK.interval);
-        }
-
-        words
-    }
-
-    fn started() -> Wanted<Never> {
-        let Ok(desktop) = Command::internal(ok(InternalProgram::SessionDesktop.path()), &[]);
-
-        Wanted::Spawn(desktop)
+        Ok(vec![Wanted::Spawn(desktop)])
     }
 
     #[test]
     fn half_a_second_of_holding_it_is_not_the_door_and_a_second_is() {
-        let began = Duration::from_secs(10);
-        let mut words = vec![Event::Opened, pressed(began)];
+        let mut words = vec![Event::Opened, PRESSED];
 
-        words.extend(woken(began, began.saturating_add(Duration::from_millis(500))));
+        let Ok(first) = woken((BEGAN, BEGAN.saturating_add(Duration::from_millis(500))));
+
+        words.extend(first);
 
         let Ok(half) = run::<Return>(&Arguments::default(), &words);
         let Ok(effects) = half.effects();
 
         assert!(effects.is_empty(), "half a second of holding it left for the desktop");
 
-        words.extend(woken(
-            began.saturating_add(Duration::from_millis(500)),
-            began.saturating_add(Duration::from_millis(1_100)),
+        let Ok(rest) = woken((
+            BEGAN.saturating_add(Duration::from_millis(500)),
+            BEGAN.saturating_add(Duration::from_millis(1_100)),
         ));
+
+        words.extend(rest);
 
         let Ok(whole) = run::<Return>(&Arguments::default(), &words);
 
-        assert_eq!(whole.effects(), Ok(vec![started()]));
+        assert_eq!(whole.effects(), started());
     }
 
     #[test]
     fn the_door_is_opened_once_however_long_it_is_kept_down() {
-        let began = Duration::from_secs(10);
-        let mut words = vec![Event::Opened, pressed(began)];
+        let mut words = vec![Event::Opened, PRESSED];
 
-        words.extend(woken(began, began.saturating_add(Duration::from_secs(10))));
+        let Ok(held) = woken((BEGAN, BEGAN.saturating_add(Duration::from_secs(10))));
+
+        words.extend(held);
 
         let Ok(said) = run::<Return>(&Arguments::default(), &words);
 
-        assert_eq!(said.effects(), Ok(vec![started()]));
+        assert_eq!(said.effects(), started());
     }
 
     #[test]
@@ -340,14 +337,14 @@ mod tests {
         let Ok(said) = run::<Return>(
             &Arguments::default(),
             &[
-                pressed(Duration::from_secs(10)),
+                PRESSED,
                 Event::Custom(ReturningEvent::Saw {
                     kind: EventType::KEY,
                     code: KeyCode::BTN_EAST.0,
                     value: 1,
                     at: Duration::from_millis(10_100),
                 }),
-                woke(Duration::from_secs(12)),
+                WOKE_TWO_SECONDS_ON,
             ],
         );
         let Ok(effects) = said.effects();
@@ -360,9 +357,9 @@ mod tests {
         let Ok(said) = run::<Return>(
             &Arguments::default(),
             &[
-                pressed(Duration::from_secs(10)),
+                PRESSED,
                 Event::Custom(ReturningEvent::Closed),
-                woke(Duration::from_secs(12)),
+                WOKE_TWO_SECONDS_ON,
             ],
         );
         let Ok(effects) = said.effects();
@@ -380,10 +377,10 @@ mod tests {
         let Ok(said) = run::<Return>(
             &Arguments::default(),
             &[
-                woke(Duration::from_secs(10)),
-                pressed(Duration::from_secs(10)),
-                woke(Duration::from_secs(3600)),
-                woke(Duration::from_millis(3_600_016)),
+                WOKE_AS_PRESSED,
+                PRESSED,
+                WOKE_AN_HOUR_ON,
+                WOKE_A_LOOK_AFTER_THAT,
             ],
         );
 

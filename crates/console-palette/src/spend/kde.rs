@@ -104,6 +104,7 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::spend::tests::blossom;
 
     #[test]
@@ -111,42 +112,53 @@ mod tests {
         assert_eq!(rgb("000000"), Ok("0,0,0".to_string()));
         assert_eq!(rgb("ffffff"), Ok("255,255,255".to_string()));
         assert_eq!(rgb("#ff8040"), Ok("255,128,64".to_string()));
-        assert!(rgb("nope").is_err(), "a code that is not a color is said rather than drawn");
+        assert!(matches!(rgb("nope"), Err(Short(_))), "a code that is not a color is said rather than drawn");
     }
 
     #[test]
-    fn every_section_qt_asks_for_is_written() {
-        let ini = spend(&blossom()).expect("every color it spends is declared");
+    fn every_section_qt_asks_for_is_written() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let ini = spend(&palette)?;
+
         for (name, _, _) in SECTIONS {
             assert!(ini.contains(&format!("[{name}]")), "{name} is missing");
         }
+
         assert!(ini.contains("[Colors:Selection]"));
         assert!(ini.contains("[WM]"));
+
+        Ok(())
     }
 
     #[test]
-    fn every_foreground_on_a_selection_is_the_dark_ink() {
-        let palette = blossom();
-        let ini = spend(&palette);
-        let ini = ini.expect("every color it spends is declared");
-        let selection = ini.split_once("[Colors:Selection]").expect("the section").1;
+    fn every_foreground_on_a_selection_is_the_dark_ink() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let ini = spend(&palette)?;
+        let (_, selection) = ini.split_once("[Colors:Selection]").ok_or("the section")?;
         let selection = selection.split_once("[WM]").map_or(selection, |(head, _)| head);
+        let night = palette.must("night")?;
+        let night = rgb(night)?;
+
         for role in ON_A_SELECTION {
             assert!(
-                selection.contains(&format!(
-                    "{role}={}",
-                    rgb(palette.must("night").expect("a declared color")).expect("a color parses")
-                )),
+                selection.contains(&format!("{role}={night}")),
                 "{role} on a selection is not the dark ink"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn it_parses_as_the_ini_qt_would_read() {
-        for line in spend(&blossom()).expect("every color it spends is declared").lines().filter(|line| !line.is_empty()) {
+    fn it_parses_as_the_ini_qt_would_read() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let spent = spend(&palette)?;
+
+        for line in spent.lines().filter(|line| !line.is_empty()) {
             let shaped = line.starts_with('[') && line.ends_with(']') || line.contains('=');
             assert!(shaped, "{line:?} is neither a section nor a setting");
         }
+
+        Ok(())
     }
 }

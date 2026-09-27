@@ -160,7 +160,7 @@ impl Program for Settings {
             }
 
             SettingsEvent::Across { shape, step } => {
-                let Ok(columns) = stepped(shape.columns, *step);
+                let Ok(columns) = step_index(shape.columns, *step);
 
                 let Ok(across) = shape.with_columns(columns);
 
@@ -168,7 +168,7 @@ impl Program for Settings {
             }
 
             SettingsEvent::Down { shape, step } => {
-                let Ok(rows) = stepped(shape.rows, *step);
+                let Ok(rows) = step_index(shape.rows, *step);
 
                 let Ok(down) = shape.with_rows(rows);
 
@@ -253,7 +253,7 @@ pub fn under(onto: &Destination) -> Result<Under, Never> {
     }
 }
 
-fn stepped(now: u32, step: i32) -> Result<u32, Never> {
+fn step_index(now: u32, step: i32) -> Result<u32, Never> {
     match step > 0 {
         true => Ok(now.saturating_add(1)),
         false => Ok(now.saturating_sub(1)),
@@ -281,69 +281,68 @@ fn rung(now: Size, step: i32) -> Result<Size, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Trace, run};
+    use console_program_contract::run;
 
     use super::*;
 
-    fn said(heard: &[SettingsEvent]) -> Trace<Destination, SettingsEvent, SettingsEffect> {
+    type Ran = (Destination, Vec<Effect<SettingsEffect>>);
+
+    fn ran(heard: &[SettingsEvent]) -> Result<Ran, Never> {
         let events: Vec<Event<SettingsEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
         let Ok(told) = run::<Settings>(&Arguments::default(), &events);
+        let Ok(effects) = told.effects();
 
-        told
+        Ok((told.state, effects))
     }
 
-    fn effects(said: &Trace<Destination, SettingsEvent, SettingsEffect>) -> Vec<Effect<SettingsEffect>> {
-        let Ok(effects) = said.effects();
-
-        effects
-    }
+    const A_DEVICE: &str = "AA:BB:CC:DD:EE:FF";
 
     #[test]
     fn backing_out_lands_on_the_row_that_opened_it() {
-        let out = said(&[SettingsEvent::Opened(Destination::Kind(3)), SettingsEvent::Back]);
+        let Ok((state, effects)) = ran(&[SettingsEvent::Opened(Destination::Kind(3)), SettingsEvent::Back]);
 
-        assert_eq!(out.state, Destination::Settings);
-        assert_eq!(effects(&out).last(), Some(&Effect::Custom(SettingsEffect::Replace(FIRST_KIND + 3))));
+        assert_eq!(state, Destination::Settings);
+        assert_eq!(effects.last(), Some(&Effect::Custom(SettingsEffect::Replace(FIRST_KIND.saturating_add(3)))));
 
-        let dictation = said(&[SettingsEvent::Opened(Destination::Dictation), SettingsEvent::Back]);
+        let Ok((_state, dictation)) = ran(&[SettingsEvent::Opened(Destination::Dictation), SettingsEvent::Back]);
 
-        assert_eq!(effects(&dictation).last(), Some(&Effect::Custom(SettingsEffect::Replace(DICTATION))));
+        assert_eq!(dictation.last(), Some(&Effect::Custom(SettingsEffect::Replace(DICTATION))));
     }
 
     #[test]
     fn opening_one_stands_the_thumb_where_the_choices_start() {
-        assert_eq!(effects(&said(&[SettingsEvent::Opened(Destination::Search)])), vec![Effect::Custom(SettingsEffect::Replace(
-            DEEPER
-        ))]);
+        let Ok((_state, effects)) = ran(&[SettingsEvent::Opened(Destination::Search)]);
+
+        assert_eq!(effects, vec![Effect::Custom(SettingsEffect::Replace(DEEPER))]);
     }
 
     #[test]
     fn b_leaves_the_panel_only_from_the_top() {
+        let meeting = Meeting { address: A_DEVICE.to_string(), at: 4 };
+
         assert_eq!(closes(&Destination::Settings), Ok(Closes::Yes));
         assert_eq!(closes(&Destination::Search), Ok(Closes::No));
         assert_eq!(closes(&Destination::Kind(0)), Ok(Closes::No));
-        assert_eq!(closes(&Destination::Meeting(meeting(4))), Ok(Closes::No));
-    }
-
-    fn meeting(at: u32) -> Meeting {
-        Meeting { address: "AA:BB:CC:DD:EE:FF".to_string(), at }
+        assert_eq!(closes(&Destination::Meeting(meeting)), Ok(Closes::No));
     }
 
     #[test]
     fn a_device_is_still_the_same_device_when_the_list_has_moved_under_it() {
-        let out = said(&[SettingsEvent::Opened(Destination::Meeting(meeting(4)))]);
+        let meeting = Meeting { address: A_DEVICE.to_string(), at: 4 };
+        let Ok((state, effects)) = ran(&[SettingsEvent::Opened(Destination::Meeting(meeting.clone()))]);
 
-        assert_eq!(out.state, Destination::Meeting(meeting(4)));
-        assert_eq!(effects(&out), vec![Effect::Custom(SettingsEffect::Replace(MEETING))]);
+        assert_eq!(state, Destination::Meeting(meeting));
+        assert_eq!(effects, vec![Effect::Custom(SettingsEffect::Replace(MEETING))]);
     }
 
     #[test]
     fn closing_a_device_stands_the_thumb_back_on_its_row() {
-        let out = said(&[SettingsEvent::Opened(Destination::Meeting(meeting(4))), SettingsEvent::Back]);
+        let meeting = Meeting { address: A_DEVICE.to_string(), at: 4 };
+        let Ok((state, effects)) = ran(&[SettingsEvent::Opened(Destination::Meeting(meeting)), SettingsEvent::Back]);
 
-        assert_eq!(out.state, Destination::Settings);
-        assert_eq!(effects(&out).last(), Some(&Effect::Custom(SettingsEffect::Replace(4))));
+        assert_eq!(state, Destination::Settings);
+        assert_eq!(effects.last(), Some(&Effect::Custom(SettingsEffect::Replace(4))));
     }
 
     #[test]
@@ -351,33 +350,25 @@ mod tests {
         let Ok(narrow) = Shape::USUAL.with_columns(*Shape::COLUMNS.start());
 
         let Ok(least) = narrow.with_rows(*Shape::ROWS.start());
+        let Ok((_state, across)) = ran(&[SettingsEvent::Across { shape: least, step: -1 }]);
+        let Ok((_state, down)) = ran(&[SettingsEvent::Down { shape: least, step: -1 }]);
 
-        assert_eq!(
-            effects(&said(&[SettingsEvent::Across { shape: least, step: -1 }])),
-            vec![Effect::Custom(SettingsEffect::HomeScreen(least))]
-        );
-        assert_eq!(
-            effects(&said(&[SettingsEvent::Down { shape: least, step: -1 }])),
-            vec![Effect::Custom(SettingsEffect::HomeScreen(least))]
-        );
+        assert_eq!(across, vec![Effect::Custom(SettingsEffect::HomeScreen(least))]);
+        assert_eq!(down, vec![Effect::Custom(SettingsEffect::HomeScreen(least))]);
     }
 
     #[test]
     fn the_grid_steps_one_at_a_time_whichever_way_it_is_pushed() {
         let usual = Shape::USUAL;
 
-        let Ok(wider) = usual.with_columns(usual.columns + 1);
+        let Ok(wider) = usual.with_columns(usual.columns.saturating_add(1));
 
-        let Ok(shallower) = usual.with_rows(usual.rows - 1);
+        let Ok(shallower) = usual.with_rows(usual.rows.saturating_sub(1));
+        let Ok((_state, across)) = ran(&[SettingsEvent::Across { shape: usual, step: 1 }]);
+        let Ok((_state, down)) = ran(&[SettingsEvent::Down { shape: usual, step: -1 }]);
 
-        assert_eq!(
-            effects(&said(&[SettingsEvent::Across { shape: usual, step: 1 }])),
-            vec![Effect::Custom(SettingsEffect::HomeScreen(wider))]
-        );
-        assert_eq!(
-            effects(&said(&[SettingsEvent::Down { shape: usual, step: -1 }])),
-            vec![Effect::Custom(SettingsEffect::HomeScreen(shallower))]
-        );
+        assert_eq!(across, vec![Effect::Custom(SettingsEffect::HomeScreen(wider))]);
+        assert_eq!(down, vec![Effect::Custom(SettingsEffect::HomeScreen(shallower))]);
     }
 
     #[test]
@@ -385,14 +376,10 @@ mod tests {
         let Ok(smallest) = Shape::USUAL.sized(Size::Tiny);
 
         let Ok(biggest) = Shape::USUAL.sized(Size::Huge);
+        let Ok((_state, smaller)) = ran(&[SettingsEvent::Sized { shape: smallest, step: -1 }]);
+        let Ok((_state, bigger)) = ran(&[SettingsEvent::Sized { shape: biggest, step: 1 }]);
 
-        assert_eq!(
-            effects(&said(&[SettingsEvent::Sized { shape: smallest, step: -1 }])),
-            vec![Effect::Custom(SettingsEffect::HomeScreen(smallest))]
-        );
-        assert_eq!(
-            effects(&said(&[SettingsEvent::Sized { shape: biggest, step: 1 }])),
-            vec![Effect::Custom(SettingsEffect::HomeScreen(biggest))]
-        );
+        assert_eq!(smaller, vec![Effect::Custom(SettingsEffect::HomeScreen(smallest))]);
+        assert_eq!(bigger, vec![Effect::Custom(SettingsEffect::HomeScreen(biggest))]);
     }
 }

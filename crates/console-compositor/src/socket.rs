@@ -95,13 +95,13 @@ pub fn socket(which: Socket) -> Result<PathBuf, Unplaced> {
     Ok(runtime.join("hypr").join(instance).join(name))
 }
 
-pub fn asked(line: &str) -> Result<Vec<u8>, SocketError> {
+pub fn send(line: &str) -> Result<Vec<u8>, SocketError> {
     let at = socket(Socket::Requests).map_err(SocketError::Unplaced)?;
 
-    asked_at(&at, line)
+    send_at(&at, line)
 }
 
-pub fn asked_at(at: &Path, line: &str) -> Result<Vec<u8>, SocketError> {
+pub fn send_at(at: &Path, line: &str) -> Result<Vec<u8>, SocketError> {
     let mut stream = UnixStream::connect(at).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;
 
     stream.set_read_timeout(Some(PATIENCE)).map_err(|fault| SocketError::Unreachable(at.to_path_buf(), fault))?;

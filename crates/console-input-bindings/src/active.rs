@@ -52,7 +52,7 @@ pub const NAMED: &str = "input";
 pub const FIRST: Input = Input::Pad;
 
 pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::State.ours_under(home);
+    let Ok(ours) = console_core_places::Base::State.application_under(home);
 
     Ok(ours.join(NAMED))
 }
@@ -102,58 +102,59 @@ pub fn remember(home: &Path, on: Input) -> Result<(), Unbound> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn scratch(test: &str) -> std::path::PathBuf {
-        console_core_temporary_directories::fresh(&format!("bindings-{test}")).expect("somewhere")
+    fn scratch(test: &str) -> Result<std::path::PathBuf, console_core_temporary_directories::Unmade> {
+        console_core_temporary_directories::fresh(&format!("bindings-{test}"))
     }
 
     #[test]
     fn a_word_that_names_an_input_is_that_input() {
-        assert_eq!(ok(of("pad")), Input::Pad);
-        assert_eq!(ok(of("keyboard\n")), Input::Keyboard);
+        assert_eq!(of("pad"), Ok(Input::Pad));
+        assert_eq!(of("keyboard\n"), Ok(Input::Keyboard));
     }
 
     #[test]
     fn a_word_that_names_nothing_is_the_machine_itself() {
-        assert_eq!(ok(of("mouse")), Input::Pad);
-        assert_eq!(ok(of("")), Input::Pad);
+        assert_eq!(of("mouse"), Ok(Input::Pad));
+        assert_eq!(of(""), Ok(Input::Pad));
     }
 
     #[test]
-    fn a_machine_no_one_has_typed_at_starts_on_the_pad() {
-        let home = scratch("a_machine_no_one_has_typed_at_starts_on_the_pad");
+    fn a_machine_no_one_has_typed_at_starts_on_the_pad() -> Result<(), Box<dyn Error>> {
+        let home = scratch("a_machine_no_one_has_typed_at_starts_on_the_pad")?;
 
-        assert_eq!(ok(read(&home)), Input::Pad);
+        assert_eq!(read(&home), Ok(Input::Pad));
+
+        Ok(())
     }
 
     #[test]
-    fn what_was_last_pressed_is_what_it_comes_back_to() {
-        let home = scratch("what_was_last_pressed_is_what_it_comes_back_to");
+    fn what_was_last_pressed_is_what_it_comes_back_to() -> Result<(), Box<dyn Error>> {
+        let home = scratch("what_was_last_pressed_is_what_it_comes_back_to")?;
 
-        remember(&home, Input::Keyboard).expect("a word written");
+        remember(&home, Input::Keyboard)?;
 
-        assert_eq!(ok(read(&home)), Input::Keyboard);
+        assert_eq!(read(&home), Ok(Input::Keyboard));
 
-        remember(&home, Input::Pad).expect("a word written");
+        remember(&home, Input::Pad)?;
 
-        assert_eq!(ok(read(&home)), Input::Pad);
+        assert_eq!(read(&home), Ok(Input::Pad));
+
+        Ok(())
     }
 
     #[test]
-    fn the_word_on_the_file_is_the_word_everything_else_spells() {
-        let home = scratch("the_word_on_the_file_is_the_word_everything_else_spells");
+    fn the_word_on_the_file_is_the_word_everything_else_spells() -> Result<(), Box<dyn Error>> {
+        let home = scratch("the_word_on_the_file_is_the_word_everything_else_spells")?;
 
-        remember(&home, Input::Keyboard).expect("a word written");
+        remember(&home, Input::Keyboard)?;
 
         let Ok(at) = path_in(&home);
-        let text = std::fs::read_to_string(&at).expect("the file");
+        let text = std::fs::read_to_string(&at)?;
 
         assert_eq!(text, "keyboard");
+
+        Ok(())
     }
 }

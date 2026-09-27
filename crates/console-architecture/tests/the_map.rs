@@ -8,32 +8,31 @@
 //! the facts, which want the lint suite's nightly to collect -- that half is
 //! held by `just ready`, which collects them again and fails on a changed line.
 
-use std::path::{Path, PathBuf};
-
 use console_architecture::{Architecture, MAP};
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-
-    from.canonicalize().unwrap_or(from)
-}
+type Failure = Box<dyn std::error::Error>;
 
 #[test]
-fn the_map_is_the_one_the_tree_draws() {
-    let root = root();
-    let architecture = Architecture::read(&root).expect("the facts, the manifest and the units");
-    let Ok(drawn) = architecture.drawn();
-    let held = std::fs::read_to_string(root.join(MAP)).expect("the map");
+fn the_map_is_the_one_the_tree_draws() -> Result<(), Failure> {
+    let root = console_repository::root()?;
+    let architecture = Architecture::read(&root)?;
+    let Ok(drawn) = architecture.render();
+    let held = std::fs::read_to_string(root.join(MAP))?;
 
     assert!(held == drawn, "{MAP} is not what the tree draws today: run `just map` and commit what it writes");
+
+    Ok(())
 }
 
 #[test]
-fn every_unit_the_manifest_enables_is_on_the_map() {
-    let architecture = Architecture::read(&root()).expect("the facts, the manifest and the units");
-    let Ok(drawn) = architecture.drawn();
+fn every_unit_the_manifest_enables_is_on_the_map() -> Result<(), Failure> {
+    let root = console_repository::root()?;
+    let architecture = Architecture::read(&root)?;
+    let Ok(drawn) = architecture.render();
     let missing: Vec<&String> =
         architecture.enabled.iter().filter(|unit| !drawn.contains(&format!("\"unit:{unit}\""))).collect();
 
     assert!(missing.is_empty(), "enabled in desktop.conf and not drawn: {missing:?}");
+
+    Ok(())
 }

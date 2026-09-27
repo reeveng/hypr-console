@@ -69,7 +69,7 @@ use clippy_utils::ty::implements_trait;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, LoopSource, Node};
 use rustc_middle::ty;
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT029: running a program from inside a loop pays for a fork and
@@ -79,10 +79,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT029_NO_ASKING_PER_ITEM,
     Deny,
     "a program run from inside a loop; a fork and an exec once per item"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // The four words a process is made of. Named by resolved path, so a `use` of
@@ -287,10 +283,6 @@ fn a_loop_stands_over_it(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit029NoAskingPerItem {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

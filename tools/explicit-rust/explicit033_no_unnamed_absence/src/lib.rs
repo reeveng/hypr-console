@@ -7,7 +7,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
@@ -42,10 +42,6 @@ dylint_linting::declare_late_lint! {
     "an `Option`'s `None` must be answered in a `match` that names it, not by `unwrap_or`"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // `Option`, whatever it is called at the point of use, for the reason
 // EXPLICIT001 asks the type rather than the spelling: an alias answers the same
 // as `std`'s own.
@@ -66,9 +62,6 @@ const ANSWERS: &[&str] = &["unwrap_or", "unwrap_or_else", "unwrap_or_default"];
 
 impl<'tcx> LateLintPass<'tcx> for Explicit033NoUnnamedAbsence {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         let ExprKind::MethodCall(path, receiver, _, _) = expr.kind else {
             return;
         };

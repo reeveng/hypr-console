@@ -27,7 +27,7 @@ pub enum NameRequestResult {
     Replaced { wanted: String, found: String },
 }
 
-pub fn kept() -> Result<Option<PathBuf>, Never> {
+pub fn cache_path() -> Result<Option<PathBuf>, Never> {
     let ours = console_core_places::Base::Cache.ours()?;
 
     Ok(ours.map(|at| at.join("sky")))
@@ -122,63 +122,78 @@ pub fn get(source: Source<'_>, into: &Path) -> Result<NameRequestResult, Unpaint
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn scratch(name: &str) -> PathBuf {
-        let at = std::env::temp_dir().join(format!("console-wallpaper-{name}"));
-        let _ = std::fs::remove_file(&at);
-        at
+    const A_PICTURE: &str = "92b2fa58028958317e408bd84ecfa70f5ee35b121991dbc232c49d166353708b";
+
+    fn scratch(name: &str, holding: &[u8]) -> Result<PathBuf, Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh(&format!("wallpaper-{name}"))?;
+        let at = folder.join("picture");
+
+        console_core_atomic_writes::whole(&at, holding)?;
+
+        Ok(at)
     }
 
     #[test]
-    fn a_checksum_is_what_sha256sum_would_say() {
-        let at = scratch("checksum");
-        std::fs::write(&at, b"a picture").expect("a file");
-        assert_eq!(
-            checksum(&at).expect("a checksum"),
-            "92b2fa58028958317e408bd84ecfa70f5ee35b121991dbc232c49d166353708b"
-        );
-        let _ = std::fs::remove_file(&at);
+    fn a_checksum_is_what_sha256sum_would_say() -> Result<(), Box<dyn Error>> {
+        let at = scratch("checksum", b"a picture")?;
+        let sum = checksum(&at)?;
+
+        assert_eq!(sum, A_PICTURE);
+
+        std::fs::remove_file(&at)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_with_nothing_written_down_about_it_is_taken_on_trust() {
-        let at = scratch("trusted");
-        std::fs::write(&at, b"hers").expect("a file");
-        assert!(is_the_one(&at, "").expect("taken on trust"));
-        let _ = std::fs::remove_file(&at);
+    fn a_file_with_nothing_written_down_about_it_is_taken_on_trust() -> Result<(), Box<dyn Error>> {
+        let at = scratch("trusted", b"hers")?;
+        let trusted = is_the_one(&at, "")?;
+
+        assert!(trusted);
+
+        std::fs::remove_file(&at)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_that_is_not_what_was_written_down_is_not_the_one() {
-        let at = scratch("changed");
-        std::fs::write(&at, b"a different picture").expect("a file");
-        assert!(!is_the_one(&at, "0".repeat(64).as_str()).expect("not the one"));
-        let _ = std::fs::remove_file(&at);
+    fn a_file_that_is_not_what_was_written_down_is_not_the_one() -> Result<(), Box<dyn Error>> {
+        let at = scratch("changed", b"a different picture")?;
+        let the_one = is_the_one(&at, "0".repeat(64).as_str())?;
+
+        assert!(!the_one);
+
+        std::fs::remove_file(&at)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_source_already_here_and_right_is_held_rather_than_fetched() {
-        let at = scratch("held");
-        std::fs::write(&at, b"a picture").expect("a file");
-        let got = get(
-            Source {
-                from: "https://example.invalid/never-asked",
-                wanted: "92b2fa58028958317e408bd84ecfa70f5ee35b121991dbc232c49d166353708b",
-            },
-            &at,
-        );
-        assert_eq!(got.expect("held"), NameRequestResult::Cached);
-        let _ = std::fs::remove_file(&at);
+    fn a_source_already_here_and_right_is_held_rather_than_fetched() -> Result<(), Box<dyn Error>> {
+        let at = scratch("held", b"a picture")?;
+        let got = get(Source { from: "https://example.invalid/never-asked", wanted: A_PICTURE }, &at)?;
+
+        assert_eq!(got, NameRequestResult::Cached);
+
+        std::fs::remove_file(&at)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_source_here_that_has_changed_says_so_rather_than_being_used() {
-        let at = scratch("swapped");
-        std::fs::write(&at, b"a picture").expect("a file");
+    fn a_source_here_that_has_changed_says_so_rather_than_being_used() -> Result<(), Box<dyn Error>> {
+        let at = scratch("swapped", b"a picture")?;
         let wanted = "0".repeat(64);
         let source = Source { from: "https://example.invalid/never-asked", wanted: &wanted };
         let got = get(source, &at);
+
         assert!(matches!(got, Ok(NameRequestResult::Replaced { .. })), "{got:?}");
-        let _ = std::fs::remove_file(&at);
+
+        std::fs::remove_file(&at)?;
+
+        Ok(())
     }
 }

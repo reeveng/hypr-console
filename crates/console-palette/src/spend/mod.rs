@@ -65,7 +65,7 @@ pub fn everywhere(
     terminal: &Terminal,
 ) -> Result<Vec<Written>, Short> {
     let home = files.join("home/@user@");
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(&home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(&home);
     let chrome = home.join(".librewolf/console/chrome");
     let whole = |path: PathBuf, body: String| Written {
         path,
@@ -104,27 +104,36 @@ pub fn everywhere(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use std::error::Error;
     use crate::configuration::Configuration;
 
     const DECLARED: &str = include_str!("../../../../theme/palette.toml");
 
-    pub fn declared_palette() -> Configuration {
-        toml::from_str(DECLARED).expect("theme/palette.toml parses")
+    pub fn declared_palette() -> Result<Configuration, Box<dyn Error>> {
+        let declared = toml::from_str(DECLARED)?;
+
+        Ok(declared)
     }
 
-    pub fn blossom() -> Palette {
-        crate::palette::resolve(&declared_palette().color).expect("it resolves")
+    pub fn blossom() -> Result<Palette, Box<dyn Error>> {
+        let declared = declared_palette()?;
+        let palette = crate::palette::resolve(&declared.color)?;
+
+        Ok(palette)
     }
 
-    fn spent() -> Vec<Written> {
-        let (configuration, palette) = (declared_palette(), blossom());
-        let terminal = Terminal::of(&configuration, &palette).expect("the terminal table is declared");
-        everywhere(Path::new("files"), &palette, &terminal).expect("every color it spends is declared")
+    fn spent() -> Result<Vec<Written>, Box<dyn Error>> {
+        let configuration = declared_palette()?;
+        let palette = blossom()?;
+        let terminal = Terminal::of(&configuration, &palette)?;
+        let written = everywhere(Path::new("files"), &palette, &terminal)?;
+
+        Ok(written)
     }
 
     #[test]
-    fn no_file_is_written_twice() {
-        let written = spent();
+    fn no_file_is_written_twice() -> Result<(), Box<dyn Error>> {
+        let written = spent()?;
         let mut paths: Vec<&PathBuf> = written.iter().map(|file| &file.path).collect();
         paths.sort();
         let once = {
@@ -133,22 +142,30 @@ pub mod tests {
             seen
         };
         assert_eq!(paths.len(), once.len(), "a file is written twice");
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_written_whole_is_empty() {
-        for written in spent().iter().filter(|file| file.how == How::Whole) {
+    fn nothing_written_whole_is_empty() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        for written in spent.iter().filter(|file| file.how == How::Whole) {
             assert!(
                 !written.body.trim().is_empty(),
                 "{:?} is empty",
                 written.path
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_whole_file_ends_in_a_newline_and_a_spliced_block_does_not() {
-        for written in spent() {
+    fn a_whole_file_ends_in_a_newline_and_a_spliced_block_does_not() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        for written in spent {
             match written.how {
                 How::Whole => assert!(
                     written.body.ends_with('\n'),
@@ -162,15 +179,19 @@ pub mod tests {
                 ),
             }
         }
+
+        Ok(())
     }
 
     #[test]
-    fn every_language_the_desktop_speaks_gets_a_palette() {
-        let paths: Vec<String> = spent()
+    fn every_language_the_desktop_speaks_gets_a_palette() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        let paths: Vec<String> = spent
             .iter()
             .map(|file| file.path.display().to_string())
             .collect();
-        let Ok(ours) = console_core_places::Base::Configuration.ours_under(std::path::Path::new(""));
+        let Ok(ours) = console_core_places::Base::Configuration.application_under(std::path::Path::new(""));
 
         for wanted in [
             ours.join("palette.css").display().to_string(),
@@ -183,16 +204,22 @@ pub mod tests {
                 "{wanted} is not written"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_is_written_outside_the_tree_it_was_given() {
-        for written in spent() {
+    fn nothing_is_written_outside_the_tree_it_was_given() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        for written in spent {
             assert!(
                 written.path.starts_with("files"),
                 "{:?} is written outside files/",
                 written.path
             );
         }
+
+        Ok(())
     }
 }

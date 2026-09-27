@@ -35,7 +35,7 @@ impl fmt::Display for Unread {
 
 impl std::error::Error for Unread {}
 
-fn held(at: &std::path::Path) -> Result<String, Unread> {
+fn read_file(at: &std::path::Path) -> Result<String, Unread> {
     let Ok(held) = console_core_atomic_writes::read(at);
 
     match held {
@@ -54,7 +54,7 @@ pub fn where_() -> Result<Option<PathBuf>, Never> {
 }
 
 pub fn under(home: &std::path::Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
     Ok(ours.join(NAMED))
 }
@@ -87,7 +87,7 @@ pub struct Setting<'a> {
     pub value: &'a str,
 }
 
-pub fn written(said: &str, setting: Setting<'_>) -> Result<String, Never> {
+pub fn with_setting(said: &str, setting: Setting<'_>) -> Result<String, Never> {
     let Setting { key, value } = setting;
     let mut lines: Vec<String> = said.lines().map(str::to_string).collect();
     let line = format!("{key}={value}");
@@ -111,7 +111,7 @@ pub struct Choice<T: 'static> {
     pub known: fn(&str) -> Result<Option<&'static T>, Never>,
 }
 
-pub fn chosen<T>(choice: Choice<T>) -> Result<String, Never> {
+pub fn current_value<T>(choice: Choice<T>) -> Result<String, Never> {
     let told = setting(choice.setting)?;
 
     let said = match told {
@@ -129,7 +129,7 @@ pub fn chosen<T>(choice: Choice<T>) -> Result<String, Never> {
 pub fn setting(key: &str) -> Result<Option<String>, Never> {
     let at = where_()?;
 
-    let said = match at.as_deref().map(held) {
+    let said = match at.as_deref().map(read_file) {
         Some(Ok(said)) => said,
         Some(Err(fault)) => {
             eprintln!("console-defaults: {fault}; answering {key} as never chosen");
@@ -182,7 +182,7 @@ pub fn set_in(at: &std::path::Path, setting: Setting<'_>) -> Result<(), Never> {
         }
     };
 
-    let said = match held(at) {
+    let said = match read_file(at) {
         Ok(said) => said,
         Err(fault) => {
             eprintln!("console-defaults: {fault}; leaving it as it is");
@@ -191,7 +191,7 @@ pub fn set_in(at: &std::path::Path, setting: Setting<'_>) -> Result<(), Never> {
         }
     };
 
-    let written = written(&said, setting)?;
+    let written = with_setting(&said, setting)?;
 
     match console_core_atomic_writes::whole(at, written.as_bytes()) {
         Ok(()) => {}
@@ -227,7 +227,7 @@ mod tests {
         let said = "browser=librewolf.desktop\nsearch=duckduckgo\n";
 
         assert_eq!(
-            written(said, Setting { key: "search", value: "startpage" }),
+            with_setting(said, Setting { key: "search", value: "startpage" }),
             Ok("browser=librewolf.desktop\nsearch=startpage\n".to_string())
         );
     }
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn setting_one_that_was_never_there_writes_it() {
         assert_eq!(
-            written("", Setting { key: "search", value: "wikipedia" }),
+            with_setting("", Setting { key: "search", value: "wikipedia" }),
             Ok("search=wikipedia\n".to_string())
         );
     }
@@ -245,15 +245,14 @@ mod tests {
         let said = "# which engine\n  search = duckduckgo  \n\nnonsense\n";
 
         assert_eq!(
-            written(said, Setting { key: "search", value: "startpage" }),
+            with_setting(said, Setting { key: "search", value: "startpage" }),
             Ok("# which engine\nsearch=startpage\n\nnonsense\n".to_string())
         );
     }
 
     #[test]
-    fn two_settings_written_at_once_are_both_kept() {
-        let here = std::env::temp_dir().join(format!("console-defaults-two-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&here);
+    fn two_settings_written_at_once_are_both_kept() -> Result<(), Box<dyn std::error::Error>> {
+        let here = console_core_temporary_directories::fresh("defaults-two")?;
         let at = here.join(NAMED);
 
         std::thread::scope(|scope| {
@@ -267,12 +266,14 @@ mod tests {
             }
         });
 
-        let said = std::fs::read_to_string(&at).expect("the settings");
+        let said = std::fs::read_to_string(&at)?;
         let Ok(mut settings) = read(&said);
         settings.sort();
 
         let every = ["four", "one", "three", "two"].map(|key| (key.to_string(), "49".to_string()));
 
         assert_eq!(settings, every.to_vec(), "a setting written beside another was lost");
+
+        Ok(())
     }
 }

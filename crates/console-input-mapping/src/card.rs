@@ -48,7 +48,7 @@ use console_input_controller::mode::{Woken, Mode};
 use console_panel::page::{Aside, Handler, Page, Row, Rows, Showing, Subject};
 use console_panel::card::{Card, Door};
 use console_input_bindings::bound::{Binding, EVERY, Input};
-use console_program_contract::{Arguments, Effect, Executable, Program, Update, Event, FileWrite};
+use console_program_contract::{Arguments, Effect, Program, Update, Event, FileWrite};
 
 const DOOR: &str = "buttons";
 
@@ -74,15 +74,11 @@ fn carry(effect: &Effect<MappingEffect>, showing: &dyn Showing) -> Result<(), Ne
             }));
         }
 
-        Effect::Run(runs) => match runs.program {
-            Executable::Internal(name) => {
-                let mut whole = vec![name.to_string()];
+        Effect::Run(runs) => {
+            let Ok(words) = console_panel::running::words_of(runs);
 
-                whole.extend(runs.arguments.clone());
-                showing.later(whole);
-            }
-            Executable::External(_) => {},
-        },
+            showing.later(words);
+        }
 
         Effect::Write(writing) => match wrote(writing) {
             Ok(()) => {},
@@ -157,7 +153,7 @@ fn removed(part: &Part, binding: &Binding, showing: &dyn Showing) -> Result<(), 
     let Ok(mut jobs) = table::read();
     let Ok(table) = table::table();
     let Ok(every) = every(&table);
-    let Ok(()) = jobs.removing(&every, &part.slug, binding);
+    let Ok(()) = jobs.remove(&every, &part.slug, binding);
 
     match table::write(&jobs) {
         Ok(()) => showing.refresh(),
@@ -195,7 +191,7 @@ fn pages() -> Result<Vec<Page>, Never> {
     let mut pages = Vec::new();
 
     for on in EVERY {
-        let Ok(asked) = Rows::asked(move || {
+        let Ok(asked) = Rows::computed(move || {
             let Ok(rows) = one_input(on);
 
             rows
@@ -223,7 +219,7 @@ fn guided(section: &Section) -> Result<Page, Never> {
         .lines
         .iter()
         .map(|line| {
-            let Ok(row) = Row::said(&line.button, Aside(&line.does));
+            let Ok(row) = Row::text(&line.button, Aside(&line.does));
 
             row
         })
@@ -267,7 +263,7 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
     let Update { effects, .. } = Setup::update(&opened.state, &Event::Opened);
 
     let writings = effects.iter().filter_map(|effect| {
-        let Ok(writing) = effect.written();
+        let Ok(writing) = effect.as_file_write();
 
         writing
     });
@@ -316,7 +312,7 @@ fn front() -> Result<Mode, Never> {
             return Ok(Mode::Desktop);
         }
     };
-    let Ok(awake) = Woken::asked();
+    let Ok(awake) = Woken::detect();
 
-    Mode::seen(&screens, awake)
+    Mode::detect(&screens, awake)
 }

@@ -34,7 +34,7 @@ pub enum Enough {
     No(String),
 }
 
-pub fn wanted(levels: Levels) -> Result<i32, Never> {
+pub fn required_charge(levels: Levels) -> Result<i32, Never> {
     let protect = levels.at(Step::Protect)?;
 
     Ok(match protect {
@@ -56,7 +56,7 @@ pub fn enough(charge: Charge, levels: Levels) -> Result<Enough, Never> {
         None => return Ok(Enough::Yes),
     };
 
-    let Ok(wanted) = wanted(levels);
+    let Ok(wanted) = required_charge(levels);
 
     match percent >= wanted {
         true => return Ok(Enough::Yes),
@@ -76,55 +76,60 @@ mod tests {
     use super::*;
     use console_battery::Filling;
 
-    fn on_battery(percent: i32) -> Charge {
-        Charge { percent: Some(percent), filling: Filling::No }
+    type Failure = Box<dyn std::error::Error>;
+
+    const PROTECT: i32 = 5;
+
+    const JUST_ENOUGH: i32 = PROTECT + MARGIN;
+
+    const ONE_SHORT: i32 = PROTECT - 1 + MARGIN;
+
+    const UNDER_THE_FLOOR: i32 = FLAT - 1;
+
+    fn on_battery(percent: i32) -> Result<Charge, Never> {
+        Ok(Charge { percent: Some(percent), filling: Filling::No })
     }
 
-    fn levels(protect: i32) -> Levels {
-        Levels { low: 25, lower: 15, protect }
-    }
-
-    fn asking(charge: Charge, levels: Levels) -> Enough {
-        let Ok(enough) = enough(charge, levels);
-
-        enough
-    }
-
-    fn wants(levels: Levels) -> i32 {
-        let Ok(wanted) = wanted(levels);
-
-        wanted
+    fn levels(protect: i32) -> Result<Levels, Never> {
+        Ok(Levels { low: 25, lower: 15, protect })
     }
 
     #[test]
     fn an_apply_wants_room_above_the_level_the_machine_stops_at() {
-        assert_eq!(asking(on_battery(5 + MARGIN), levels(5)), Enough::Yes);
-        assert!(matches!(asking(on_battery(4 + MARGIN), levels(5)), Enough::No(_)));
+        let Ok(just_enough) = on_battery(JUST_ENOUGH);
+        let Ok(one_short) = on_battery(ONE_SHORT);
+        let Ok(levels) = levels(PROTECT);
+
+        assert_eq!(enough(just_enough, levels), Ok(Enough::Yes));
+        assert!(matches!(enough(one_short, levels), Ok(Enough::No(_))));
     }
 
     #[test]
     fn a_charge_that_would_be_stopped_partway_through_is_refused_before_it_starts() {
-        let charge = on_battery(8);
-        let levels = levels(5);
+        let Ok(charge) = on_battery(8);
+        let Ok(levels) = levels(PROTECT);
         let Ok(protect) = levels.at(Step::Protect);
 
         assert!(charge.percent > Some(protect), "this test is about the gap");
-        assert!(matches!(asking(charge, levels), Enough::No(_)));
+        assert!(matches!(enough(charge, levels), Ok(Enough::No(_))));
     }
 
     #[test]
     fn a_machine_that_is_charging_is_never_refused() {
         let filling = Charge { percent: Some(1), filling: Filling::Yes };
-        assert_eq!(asking(filling, levels(5)), Enough::Yes);
+        let Ok(levels) = levels(PROTECT);
+
+        assert_eq!(enough(filling, levels), Ok(Enough::Yes));
     }
 
     #[test]
     fn a_machine_on_the_cable_at_its_charge_limit_is_never_refused() {
         let held = Charge { percent: Some(1), filling: Filling::Charged };
+        let Ok(levels) = levels(PROTECT);
 
         assert_eq!(
-            asking(held, levels(5)),
-            Enough::Yes,
+            enough(held, levels),
+            Ok(Enough::Yes),
             "an apply was refused on a device sitting on its charger"
         );
     }
@@ -132,24 +137,36 @@ mod tests {
     #[test]
     fn a_machine_with_no_battery_is_never_refused() {
         let none = Charge { percent: None, filling: Filling::No };
-        assert_eq!(asking(none, levels(5)), Enough::Yes);
+        let Ok(levels) = levels(PROTECT);
+
+        assert_eq!(enough(none, levels), Ok(Enough::Yes));
     }
 
     #[test]
     fn switching_the_step_off_leaves_a_floor_under_it() {
-        assert_eq!(wants(levels(NEVER)), FLAT);
-        assert_eq!(asking(on_battery(FLAT), levels(NEVER)), Enough::Yes);
-        assert!(matches!(asking(on_battery(FLAT - 1), levels(NEVER)), Enough::No(_)));
+        let Ok(off) = levels(NEVER);
+        let Ok(on_the_floor) = on_battery(FLAT);
+        let Ok(under_it) = on_battery(UNDER_THE_FLOOR);
+
+        assert_eq!(required_charge(off), Ok(FLAT));
+        assert_eq!(enough(on_the_floor, off), Ok(Enough::Yes));
+        assert!(matches!(enough(under_it, off), Ok(Enough::No(_))));
     }
 
     #[test]
-    fn the_refusal_says_what_is_wrong_and_what_would_fix_it() {
-        let said = match asking(on_battery(8), levels(5)) {
+    fn the_refusal_says_what_is_wrong_and_what_would_fix_it() -> Result<(), Failure> {
+        let Ok(charge) = on_battery(8);
+        let Ok(levels) = levels(PROTECT);
+        let Ok(asked) = enough(charge, levels);
+        let said = match asked {
             Enough::No(said) => said,
-            Enough::Yes => panic!("it was allowed"),
+            Enough::Yes => return Err(Failure::from("it was allowed")),
         };
+
         assert!(said.contains("8%"), "{said}");
         assert!(said.contains("5%"), "{said}");
         assert!(said.contains("Plug it in"), "{said}");
+
+        Ok(())
     }
 }

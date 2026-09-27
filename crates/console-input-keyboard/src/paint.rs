@@ -1,7 +1,7 @@
 //! Drawing one arrangement onto one frame.
 //!
 //! Everything here is decided somewhere else: `layout` says which keys there
-//! are and `layout::placed` says where, `configuration` says what color they are and
+//! are and `layout::layout_keys` says where, `configuration` says what color they are and
 //! what font is on them, and `drawing` does the cairo. This is the half page
 //! that puts those together, and it is separate from all three because it is
 //! the only part that has to happen inside a frame the compositor is waiting
@@ -147,20 +147,25 @@ fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &HexColor) -> Result<(),
 mod tests {
     use super::*;
     use console_core_geometry::Size;
-    use crate::layout::{named, of, placed};
+    use crate::layout::{find_layout, of, layout_keys};
 
     #[test]
-    fn what_is_drawn_is_inside_the_keyboard() {
-        let Ok(name) = named("full");
-        let Ok(layout) = of(name.expect("full"));
-        let Ok(keys) = placed(layout, Size { width: 1024.0, height: 260.0 });
+    fn what_is_drawn_is_inside_the_keyboard() -> Result<(), &'static str> {
+        let Ok(name) = find_layout("full");
+        let name = name.ok_or("a layout called full")?;
+        let Ok(layout) = of(name);
+        let Ok(keys) = layout_keys(layout, Size { width: 1024.0, height: 260.0 });
+
         for key in &keys {
             let Ok(cell) = Rectangle { x: key.x, y: key.y, width: key.width, height: key.height }.inset(EDGE);
+
             assert!(cell.width > 0.0 && cell.height > 0.0, "a key with no face left after its border");
             assert!(cell.x >= 0.0 && cell.y >= 0.0);
             assert!(cell.x + cell.width <= 1024.0);
             assert!(cell.y + cell.height <= 260.0);
         }
+
+        Ok(())
     }
 
     #[test]

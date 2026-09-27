@@ -5,7 +5,7 @@ extern crate rustc_hir;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind, MatchSource, Node};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT017: `?` stands alone. `frame(settle(x)?, y)` hides an early
@@ -22,21 +22,8 @@ dylint_linting::declare_late_lint! {
     "`?` buried in an expression hides an early return; lift it into a `let` of its own"
 }
 
-// Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
-// is true only for the harness build of a target -- the ordinary build of the
-// same library is linted as production, so nothing real is lost by skipping
-// this one.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl<'tcx> LateLintPass<'tcx> for Explicit017QuestionMarkAlone {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         // `?` lowers to a match the compiler marks as its own.
         let ExprKind::Match(_, _, MatchSource::TryDesugar(_)) = expr.kind else {
             return;

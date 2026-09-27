@@ -45,7 +45,7 @@ pub struct CommandOutput {
     pub ran: Ran,
 }
 
-pub fn answered(arguments: &[&str]) -> Result<CommandOutput, Never> {
+pub fn run_captured(arguments: &[&str]) -> Result<CommandOutput, Never> {
     let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(CommandOutput { out: String::new(), said: String::new(), ran: Ran::Badly }),
@@ -110,7 +110,7 @@ pub fn run_watched<M>(
             return Ok(Ran::Badly);
         }
     };
-    let Ok(reading) = child.reading();
+    let Ok(reading) = child.take_stdout();
 
     match reading {
         Some(said) => {
@@ -121,7 +121,7 @@ pub fn run_watched<M>(
         None => {},
     }
 
-    let done = match child.waiting() {
+    let done = match child.wait() {
         Ok(done) => done.success(),
         Err(_would_not_wait) => false,
     };
@@ -193,7 +193,7 @@ fn the_home_it_is_already_in() -> Result<Option<String>, Never> {
     let mut theirs: Vec<String> = homes
         .into_iter()
         .filter(|name| {
-            let Ok(ours) = Base::Configuration.ours_under(&Path::new("/home").join(name));
+            let Ok(ours) = Base::Configuration.application_under(&Path::new("/home").join(name));
 
             ours.is_dir()
         })
@@ -233,7 +233,7 @@ pub fn user_systemctl(words: &[&str]) -> Result<CommandOutput, Never> {
         .chain(words.iter().copied())
         .collect();
 
-    answered(&arguments)
+    run_captured(&arguments)
 }
 
 pub fn mine(words: &[&str]) -> Result<Output, Never> {
@@ -292,16 +292,16 @@ pub fn sizes_under(roots: &[&str]) -> Result<Output, Never> {
 pub fn installed_packages() -> Result<Vec<String>, Never> {
     let Ok(pacman) = Program::Pacman.name();
 
-    named(&[pacman, "-Qq"])
+    words_of_output(&[pacman, "-Qq"])
 }
 
 pub fn wanted_packages() -> Result<Vec<String>, Never> {
     let Ok(pacman) = Program::Pacman.name();
 
-    named(&[pacman, "-Qeq"])
+    words_of_output(&[pacman, "-Qeq"])
 }
 
-fn named(arguments: &[&str]) -> Result<Vec<String>, Never> {
+fn words_of_output(arguments: &[&str]) -> Result<Vec<String>, Never> {
     let Ok(said) = run(arguments);
 
     Ok(said.out.split_whitespace().map(str::to_owned).collect())
@@ -313,7 +313,7 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
     let to = Path::new(&on);
     let complain =
         |what: &'static str, fault: std::io::Error| Unapplied::Staging(live.to_string(), what, fault);
-    let Ok(holds) = install::holding(&on);
+    let Ok(holds) = install::parent_directories(&on);
 
     for holding in holds {
         match holding.is_dir() {
@@ -342,7 +342,7 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
     let held = std::fs::read(from).map_err(|fault| complain("reading it", fault))?;
     let Ok(content) = install::content_on_machine(&held, User(whoever), live);
 
-    console_core_atomic_writes::settled(&staged, &content)
+    console_core_atomic_writes::write_and_sync(&staged, &content)
         .map_err(|fault| Unapplied::Unwritten(live.to_string(), fault))?;
 
     let Ok(mode) = modes::of(live, &held);
@@ -368,7 +368,7 @@ pub fn swap_file(live: &str) -> Result<Back, Unapplied> {
     let back = match to.exists() {
         false => Back::Closed,
         true => {
-            let Ok(beside) = laying::kept(to);
+            let Ok(beside) = laying::backup_path(to);
 
             let kept = match beside {
                 Some(kept) => kept,
@@ -399,7 +399,7 @@ pub fn swap_file(live: &str) -> Result<Back, Unapplied> {
 
     std::fs::rename(staged, to).map_err(|fault| complain("moving it into place", fault))?;
 
-    match console_core_atomic_writes::named(to) {
+    match console_core_atomic_writes::sync_parent_directory(to) {
         Ok(()) => {},
         Err(fault) => eprintln!("console apply: {fault}"),
     }
@@ -417,7 +417,7 @@ pub fn put_back(laid: &Laid) -> Result<(), Unapplied> {
 
     match laid.back {
         Back::Retained => {
-            let Ok(beside) = laying::kept(to);
+            let Ok(beside) = laying::backup_path(to);
 
             let kept = match beside {
                 Some(kept) => kept,
@@ -453,7 +453,7 @@ pub fn drop_staged(live: &str) -> Result<(), Never> {
 }
 
 pub fn drop_kept(live: &str) -> Result<(), Never> {
-    drop_beside(live, laying::kept)
+    drop_beside(live, laying::backup_path)
 }
 
 fn permissions(mode: u32) -> Result<std::fs::Permissions, Never> {
@@ -571,7 +571,7 @@ impl laying::Lays for Here {
         let Ok(()) = drop_kept(live);
     }
 
-    fn standing(&self, live: &str) -> Back {
+    fn presence(&self, live: &str) -> Back {
         let Ok(whoever) = whoever();
         let Ok(on) = install::on_machine(live, User(whoever));
 
@@ -633,16 +633,20 @@ fn forget_plan(at: &Path) -> Result<(), Never> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_directory_that_marks_a_home_is_one_the_manifest_puts_there() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let held = std::fs::read_to_string(root.join("desktop.conf")).expect("the manifest");
-        let Ok(ours) = Base::Configuration.ours_under(&Path::new("/home").join(USER));
+    type Failure = Box<dyn std::error::Error>;
 
+    #[test]
+    fn the_directory_that_marks_a_home_is_one_the_manifest_puts_there() -> Result<(), Failure> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let held = std::fs::read_to_string(root.join("desktop.conf"))?;
+        let Ok(ours) = Base::Configuration.application_under(&Path::new("/home").join(USER));
         let under = format!("{}/", ours.display());
+
         assert!(
             held.lines().any(|line| line.trim().starts_with(&under)),
             "nothing the manifest lays down is under {under}, so no home can be told by it"
         );
+
+        Ok(())
     }
 }

@@ -82,7 +82,7 @@ const ASKING: [&str; 12] = [
     "query_with",
     "request",
     "request_with",
-    "told_at",
+    "dispatch_at",
     "switch_layout",
     "switch_layout_with",
     "set_layouts",
@@ -102,7 +102,7 @@ fn classify(krate: &str, path: &str) -> Option<Class> {
             Some(Class::Subscribes)
         }
         ("console_events", "again::layers") => Some(Class::SubscribesTo("Compositor")),
-        ("console_panel", "Page::listening") => Some(Class::Subscribes),
+        ("console_panel", "Page::with_subscription") => Some(Class::Subscribes),
         ("console_program_contract", "Subscription::Topic" | "Effect::Subscribe") => Some(Class::Subscribes),
         ("console_program_contract", "Subscription::Timer" | "Timer::new") => Some(Class::Timer("contract")),
         ("console_compositor", "Socket::Events" | "Socket::Requests") => Some(Class::Socket),

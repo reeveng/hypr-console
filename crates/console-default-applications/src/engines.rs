@@ -47,15 +47,15 @@ pub const EVERY: [Engine; 3] = [
 ];
 
 impl Engine {
-    pub fn asking(&self, question: &str) -> Result<String, Never> {
+    pub fn search_url(&self, question: &str) -> Result<String, Never> {
         Ok(self.asks.replace("{}", question))
     }
 }
 
 pub const UNLESS_TOLD: &str = "duckduckgo";
 
-pub fn chosen() -> Result<String, Never> {
-    console_defaults::chosen(console_defaults::Choice { setting: "search", unless_told: UNLESS_TOLD, known: one })
+pub fn current() -> Result<String, Never> {
+    console_defaults::current_value(console_defaults::Choice { setting: "search", unless_told: UNLESS_TOLD, known: one })
 }
 
 pub fn one(key: &str) -> Result<Option<&'static Engine>, Never> {
@@ -81,7 +81,7 @@ pub fn address(said: &str, engine: &Engine) -> Result<Option<String>, Never> {
         Typed::AQuestion => {
             let question = encoded(said)?;
 
-            engine.asking(&question)?
+            engine.search_url(&question)?
         }
     }))
 }
@@ -154,81 +154,108 @@ fn encoded(said: &str) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn duck() -> &'static Engine {
+    fn duck() -> Result<&'static Engine, Box<dyn Error>> {
         let Ok(one) = one(UNLESS_TOLD);
+        let engine = one.ok_or("the one used when nothing has been chosen")?;
 
-        one.expect("the one used when nothing has been chosen")
+        Ok(engine)
     }
 
     #[test]
-    fn a_question_is_searched_for() {
+    fn a_question_is_searched_for() -> Result<(), Box<dyn Error>> {
+        let duck = duck()?;
+
         assert_eq!(
-            address("how tall is a giraffe", duck()),
+            address("how tall is a giraffe", duck),
             Ok(Some("https://duckduckgo.com/?q=how%20tall%20is%20a%20giraffe".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_question_that_is_not_letters_is_still_a_question() {
+    fn a_question_that_is_not_letters_is_still_a_question() -> Result<(), Box<dyn Error>> {
+        let duck = duck()?;
+
         assert_eq!(
-            address("100% & up", duck()),
+            address("100% & up", duck),
             Ok(Some("https://duckduckgo.com/?q=100%25%20%26%20up".to_string()))
         );
 
-        let Ok(asked) = address("caffè", duck());
-        let caffe = asked.expect("something");
+        let Ok(asked) = address("caffè", duck);
+        let caffe = asked.ok_or("something")?;
 
         assert!(caffe.ends_with("caff%C3%A8"), "its bytes, not its letters: {caffe}");
+
+        Ok(())
     }
 
     #[test]
-    fn the_engine_chosen_is_the_one_asked() {
-        let question = |key: &str| {
+    fn the_engine_chosen_is_the_one_asked() -> Result<(), Box<dyn Error>> {
+        for (key, starts) in [("startpage", "https://www.startpage.com/"), ("wikipedia", "https://en.wikipedia.org/")] {
             let Ok(known) = one(key);
-            let Ok(asked) = address("beans", known.expect(key));
+            let engine = known.ok_or(key)?;
+            let Ok(asked) = address("beans", engine);
+            let asked = asked.ok_or("something")?;
 
-            asked.expect("something")
-        };
+            assert!(asked.starts_with(starts), "{key} asked {asked}");
+        }
 
-        assert!(question("startpage").starts_with("https://www.startpage.com/"));
-        assert!(question("wikipedia").starts_with("https://en.wikipedia.org/"));
+        Ok(())
     }
 
     #[test]
-    fn an_address_is_opened_rather_than_searched_for() {
-        assert_eq!(address("codincod.com", duck()), Ok(Some("https://codincod.com".to_string())));
+    fn an_address_is_opened_rather_than_searched_for() -> Result<(), Box<dyn Error>> {
+        let duck = duck()?;
+
+        assert_eq!(address("codincod.com", duck), Ok(Some("https://codincod.com".to_string())));
         assert_eq!(
-            address("codincod.com/puzzles?page=2", duck()),
+            address("codincod.com/puzzles?page=2", duck),
             Ok(Some("https://codincod.com/puzzles?page=2".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn an_address_that_says_its_own_scheme_keeps_it() {
+    fn an_address_that_says_its_own_scheme_keeps_it() -> Result<(), Box<dyn Error>> {
+        let duck = duck()?;
+
         assert_eq!(
-            address("http://192.168.1.1", duck()),
+            address("http://192.168.1.1", duck),
             Ok(Some("http://192.168.1.1".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn what_is_not_quite_an_address_is_a_question() {
+    fn what_is_not_quite_an_address_is_a_question() -> Result<(), Box<dyn Error>> {
+        let duck = duck()?;
+
         for said in ["3.14", "st. peter", "hello world", "wofi", "a.b", "one..com"] {
-            let Ok(answered) = address(said, duck());
-            let asked = answered.expect("something");
+            let Ok(answered) = address(said, duck);
+            let asked = answered.ok_or("something")?;
 
             assert!(
                 asked.starts_with("https://duckduckgo.com/?q="),
                 "{said:?} was opened as a site: {asked}"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_typed_means_nothing() {
-        assert_eq!(address("", duck()), Ok(None));
-        assert_eq!(address("   ", duck()), Ok(None));
+    fn nothing_typed_means_nothing() -> Result<(), Box<dyn Error>> {
+        let duck = duck()?;
+
+        assert_eq!(address("", duck), Ok(None));
+        assert_eq!(address("   ", duck), Ok(None));
+
+        Ok(())
     }
 
     #[test]
@@ -240,7 +267,7 @@ mod tests {
     #[test]
     fn every_engine_has_somewhere_to_put_the_question() {
         for engine in &EVERY {
-            let Ok(asked) = engine.asking("beans");
+            let Ok(asked) = engine.search_url("beans");
 
             assert!(engine.asks.contains("{}"), "{} has nowhere to put it", engine.says);
             assert!(!asked.contains("{}"), "{} kept it", engine.says);
@@ -248,16 +275,19 @@ mod tests {
     }
 
     #[test]
-    fn an_engine_a_browser_already_has_is_not_handed_to_it() {
+    fn an_engine_a_browser_already_has_is_not_handed_to_it() -> Result<(), Box<dyn Error>> {
         let Ok(found) = one("duckduckgo");
-        let duckduckgo = found.expect("duckduckgo");
+        let duckduckgo = found.ok_or("duckduckgo")?;
 
         assert!(!duckduckgo.librewolf.given, "librewolf ships it");
         assert_eq!(duckduckgo.librewolf.called, "DuckDuckGo No-AI");
 
         let Ok(found) = one("startpage");
+        let startpage = found.ok_or("startpage")?;
 
-        assert!(found.expect("startpage").firefox.given, "firefox does not ship it");
+        assert!(startpage.firefox.given, "firefox does not ship it");
+
+        Ok(())
     }
 
     #[test]

@@ -26,7 +26,7 @@ pub enum Step {
 }
 
 impl Step {
-    pub fn named(word: &str) -> Result<Option<Self>, Never> {
+    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
         Ok(match word {
             "start" => Some(Step::Start),
             "done" => Some(Step::Succeeded),
@@ -83,7 +83,7 @@ fn main() -> std::process::ExitCode {
         None => String::new(),
     };
 
-    let Ok(named) = Step::named(&word);
+    let Ok(named) = Step::parse(&word);
 
     let step = match named {
         Some(step) => step,
@@ -94,7 +94,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(kept) = StatePath::named("updating");
+    let Ok(kept) = StatePath::new("updating");
     let Ok(notification) = notification(step);
     let Ok(()) = raise_kept(notification, &kept);
     let Ok(goes_on) = goes_on(step);
@@ -117,9 +117,9 @@ mod tests {
 
     #[test]
     fn nothing_but_the_three_words_is_a_step() {
-        assert_eq!(Step::named("start"), Ok(Some(Step::Start)));
-        assert_eq!(Step::named("Done"), Ok(None));
-        assert_eq!(Step::named(""), Ok(None));
+        assert_eq!(Step::parse("start"), Ok(Some(Step::Start)));
+        assert_eq!(Step::parse("Done"), Ok(None));
+        assert_eq!(Step::parse(""), Ok(None));
     }
 
     #[test]

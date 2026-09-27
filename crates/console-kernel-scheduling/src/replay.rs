@@ -2,6 +2,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::{IntoIter, Vec};
 use core::iter::Peekable;
 use core::mem;
+use core::ops::ControlFlow;
 use core::time::Duration;
 
 use console_core_never::Never;
@@ -145,21 +146,38 @@ impl<'w> Machine<'w> {
     fn arrive(&mut self, arriving: &mut Arriving) -> Result<(), SchedulingError> {
         let now = self.now;
 
-        while let Some(wake) = arriving.next_if(|wake| wake.at <= now) {
-            let task = match self.tasks.get(&wake.task) {
-                Some(task) => *task,
-                None => return Err(SchedulingError::UnknownTask(wake.task)),
+        let arrived = core::iter::repeat(()).try_fold((self, arriving), |(this, arriving), ()| {
+            let wake = match arriving.next_if(|wake| wake.at <= now) {
+                Some(wake) => wake,
+                None => return ControlFlow::Break(Ok(())),
             };
 
-            match self.cores.get_mut(&wake.task) {
-                Some(on) => on.queued.left = on.queued.left.saturating_add(wake.work),
-                None => {
-                    let runnable = Runnable { task: task.id, job: task.job, statistics: task.statistics, queued_at: wake.at };
-                    let queued = self.queue.entry(wake.task).or_insert(QueueEntry { runnable, latency: task.latency, left: Duration::ZERO });
-
-                    queued.left = queued.left.saturating_add(wake.work);
-                },
+            match this.queued(wake) {
+                Ok(()) => ControlFlow::Continue((this, arriving)),
+                Err(fault) => ControlFlow::Break(Err(fault)),
             }
+        });
+
+        match arrived {
+            ControlFlow::Break(arrived) => arrived,
+            ControlFlow::Continue(_endless) => Ok(()),
+        }
+    }
+
+    fn queued(&mut self, wake: Wake) -> Result<(), SchedulingError> {
+        let task = match self.tasks.get(&wake.task) {
+            Some(task) => *task,
+            None => return Err(SchedulingError::UnknownTask(wake.task)),
+        };
+
+        match self.cores.get_mut(&wake.task) {
+            Some(on) => on.queued.left = on.queued.left.saturating_add(wake.work),
+            None => {
+                let runnable = Runnable { task: task.id, job: task.job, statistics: task.statistics, queued_at: wake.at };
+                let queued = self.queue.entry(wake.task).or_insert(QueueEntry { runnable, latency: task.latency, left: Duration::ZERO });
+
+                queued.left = queued.left.saturating_add(wake.work);
+            },
         }
 
         Ok(())
@@ -193,7 +211,7 @@ impl<'w> Machine<'w> {
     }
 
     fn fill(&mut self, scheduler: &dyn Scheduler, awake: Cores) -> Result<(), Never> {
-        let Ok(held) = self.held(scheduler);
+        let Ok(held) = self.throttled_jobs(scheduler);
         let Ok(running) = count(&self.cores);
 
         for _ in running..awake.count {
@@ -222,7 +240,7 @@ impl<'w> Machine<'w> {
         Ok(())
     }
 
-    fn held(&self, scheduler: &dyn Scheduler) -> Result<BTreeSet<JobId>, Never> {
+    fn throttled_jobs(&self, scheduler: &dyn Scheduler) -> Result<BTreeSet<JobId>, Never> {
         let over = self.now.since_boot.saturating_sub(self.window_started.since_boot);
 
         Ok(self

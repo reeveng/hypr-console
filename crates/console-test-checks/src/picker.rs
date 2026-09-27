@@ -22,7 +22,7 @@ pub struct Expected<'a>(pub &'a str);
 pub fn opens(stage: &mut Device, button: &str, what: Expected<'_>) -> CheckResult {
     let what = what.0;
     let Ok(()) = stage.press(button);
-    let Ok(drawn) = stage.drawn(PATIENCE);
+    let Ok(drawn) = stage.wait_for_menu(PATIENCE);
 
     happened(drawn, || format!("the {what} did not draw"))?;
 
@@ -37,7 +37,7 @@ pub fn opens(stage: &mut Device, button: &str, what: Expected<'_>) -> CheckResul
 
 pub fn closes(stage: &mut Device, what: &str) -> CheckResult {
     let Ok(()) = stage.press("b");
-    let Ok(gone) = stage.closed(PATIENCE);
+    let Ok(gone) = stage.wait_for_close(PATIENCE);
 
     happened_handed(gone, stage, |stage| {
         let Ok(left) = stage.menus();

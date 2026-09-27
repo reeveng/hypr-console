@@ -176,7 +176,7 @@ pub fn parse(package: Package<'_>) -> Result<Publication, PublicationError> {
     let Ok(cover) = manifest.cover();
     let cover = match cover {
         Some(item) => {
-            let Ok(joined) = flow::resolved(Relative { base: package_at, path: &item.link });
+            let Ok(joined) = flow::resolve(Relative { base: package_at, path: &item.link });
 
             Some(joined)
         },
@@ -190,7 +190,7 @@ pub fn parse(package: Package<'_>) -> Result<Publication, PublicationError> {
     for identifier in &manifest.spine {
         match by_identifier.get(identifier.as_str()) {
             Some(item) => {
-                let Ok(joined) = flow::resolved(Relative { base: package_at, path: &item.link });
+                let Ok(joined) = flow::resolve(Relative { base: package_at, path: &item.link });
 
                 chapters.push(joined);
             },

@@ -18,16 +18,16 @@
 //! or of what a person was looking at. What the panel walks for browsing is a
 //! different question with a different answer and it stays where it is.
 
+use console_core_directory_listing::Descend;
 use console_core_never::Never;
-use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
 const MUSIC: &str = "Music";
 
 const MINE: &str = "music";
 
-pub const KINDS: [&str; 9] =
-    ["aac", "flac", "m4a", "mp3", "ogg", "opus", "wav", "webm", "wma"];
+pub const KINDS: [&str; 10] =
+    ["aac", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "webm", "wma"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Playable {
@@ -48,31 +48,20 @@ pub fn playable(at: &Path) -> Result<Playable, Never> {
 }
 
 pub fn songs_under(folder: &Path) -> Result<Vec<PathBuf>, Never> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    let mut walking = vec![folder.to_path_buf()];
+    let Ok(listing) = console_core_directory_listing::recursive(folder, |_| Descend::Into);
+    let mut found: Vec<PathBuf> = listing
+        .filter_map(|entry| match entry {
+            Ok(at) => {
+                let Ok(playable) = playable(&at);
 
-    while let Some(at) = walking.pop() {
-        let held = match read_dir(&at) {
-            Ok(held) => held,
-            Err(_not_a_folder_we_can_read) => continue,
-        };
-
-        for thing in held.flatten() {
-            let at = thing.path();
-
-            match at.is_dir() {
-                true => walking.push(at),
-                false => {
-                    let Ok(playable) = playable(&at);
-
-                    match playable {
-                        Playable::Yes => found.push(at),
-                        Playable::No => {},
-                    }
-                },
+                match (at.is_dir(), playable) {
+                    (false, Playable::Yes) => Some(at),
+                    (true, _) | (false, Playable::No) => None,
+                }
             }
-        }
-    }
+            Err(_not_a_folder_we_can_read) => None,
+        })
+        .collect();
 
     found.sort();
 
@@ -103,14 +92,14 @@ pub fn folder_under(home: Option<&Path>, said: Option<String>) -> Result<PathBuf
     })
 }
 
-pub fn told() -> Result<Option<PathBuf>, Never> {
+pub fn config_path() -> Result<Option<PathBuf>, Never> {
     let ours = console_core_places::Base::Configuration.ours()?;
 
     Ok(ours.map(|ours| ours.join(MINE)))
 }
 
 fn ours() -> Result<Option<String>, Never> {
-    let Ok(at) = told();
+    let Ok(at) = config_path();
 
     let at = match at {
         Some(at) => at,
@@ -131,18 +120,6 @@ pub fn said_in(file: &str) -> Result<Option<String>, Never> {
         .map(str::trim)
         .find(|line| !line.is_empty() && !line.starts_with('#'))
         .map(str::to_string))
-}
-
-pub fn named(filename: &str) -> Result<String, Never> {
-    let name = filename.rsplit_once('.').map_or(filename, |(stem, _)| stem);
-
-    Ok(match name.rsplit_once(" [") {
-        Some((title, tail)) => match tail.ends_with(']') {
-            true => title.trim().to_string(),
-            false => name.trim().to_string(),
-        },
-        None => name.trim().to_string(),
-    })
 }
 
 #[cfg(test)]
@@ -186,7 +163,5 @@ mod tests {
 
     #[test]
     fn a_download_keeps_its_title_and_loses_its_id() {
-        assert_eq!(named("505 [qU9mHegkTc4].opus"), Ok("505".to_string()));
-        assert_eq!(named("227.Pink + White.flac"), Ok("227.Pink + White".to_string()));
     }
 }

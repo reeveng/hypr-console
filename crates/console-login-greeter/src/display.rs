@@ -197,7 +197,7 @@ pub struct Display {
     long: u64,
 }
 
-fn asked<T>(card: &File, request: c_ulong, value: &mut T, what: &'static str) -> Result<(), Unshown> {
+fn ioctl_query<T>(card: &File, request: c_ulong, value: &mut T, what: &'static str) -> Result<(), Unshown> {
     // SAFETY: every request here is paired with the struct the kernel's
     // header declares for it, and `value` is that struct, alive and writable
     // for the length of the call.
@@ -214,7 +214,7 @@ fn address<T>(list: &mut [T]) -> Result<u64, Never> {
 }
 
 impl Display {
-    pub fn opened() -> Result<Display, Unshown> {
+    pub fn open() -> Result<Display, Unshown> {
         let entries = match fs::read_dir(CARDS) {
             Ok(entries) => entries,
             Err(why) => return Err(Unshown::Query("be listed", why)),
@@ -252,10 +252,10 @@ impl Display {
 
     fn on(card: File) -> Result<Display, Unshown> {
         let mut nothing = 0_u32;
-        let _ = asked(&card, SET_MASTER, &mut nothing, "be held");
+        let _ = ioctl_query(&card, SET_MASTER, &mut nothing, "be held");
         let mut resources = Resources::default();
 
-        asked(&card, GET_RESOURCES, &mut resources, "list its connectors")?;
+        ioctl_query(&card, GET_RESOURCES, &mut resources, "list its connectors")?;
 
         let Ok(many_connectors) = index(resources.count_connectors);
         let Ok(many_controllers) = index(resources.count_controllers);
@@ -271,7 +271,7 @@ impl Display {
             ..Resources::default()
         };
 
-        asked(&card, GET_RESOURCES, &mut listed, "list its connectors")?;
+        ioctl_query(&card, GET_RESOURCES, &mut listed, "list its connectors")?;
 
         let Ok(found) = connected(&card, &connectors);
         let (connector, mode, encoder) = match found {
@@ -279,7 +279,7 @@ impl Display {
             None => return Err(Unshown::NothingConnected),
         };
         let mut asked_encoder = Encoder { encoder, ..Encoder::default() };
-        let controller = match asked(&card, GET_ENCODER, &mut asked_encoder, "say which encoder drives the screen") {
+        let controller = match ioctl_query(&card, GET_ENCODER, &mut asked_encoder, "say which encoder drives the screen") {
             Ok(()) => match asked_encoder.controller {
                 0 => {
                     let Ok(first) = first_possible(&controllers, asked_encoder.possible_controllers);
@@ -297,7 +297,7 @@ impl Display {
         let size = Size { width: u32::from(mode.width), height: u32::from(mode.height) };
         let mut dumb = Dumb { height: size.height, width: size.width, bits: BITS, ..Dumb::default() };
 
-        asked(&card, CREATE_DUMB, &mut dumb, "make a buffer")?;
+        ioctl_query(&card, CREATE_DUMB, &mut dumb, "make a buffer")?;
 
         let mut framebuffer = Framebuffer {
             width: size.width,
@@ -309,11 +309,11 @@ impl Display {
             ..Framebuffer::default()
         };
 
-        asked(&card, ADD_FRAMEBUFFER, &mut framebuffer, "take the buffer as a framebuffer")?;
+        ioctl_query(&card, ADD_FRAMEBUFFER, &mut framebuffer, "take the buffer as a framebuffer")?;
 
         let mut mapped = Mapped { handle: dumb.handle, ..Mapped::default() };
 
-        asked(&card, MAP_DUMB, &mut mapped, "map the buffer")?;
+        ioctl_query(&card, MAP_DUMB, &mut mapped, "map the buffer")?;
 
         let Ok(long) = index(dumb.long);
         let Ok(offset) = fitted::<u64, i64>(mapped.offset);
@@ -340,7 +340,7 @@ impl Display {
         };
         let display = Display { card, size, pitch: dumb.pitch, at, long: dumb.long };
 
-        asked(&display.card, SET_CONTROLLER, &mut set, "show the buffer")?;
+        ioctl_query(&display.card, SET_CONTROLLER, &mut set, "show the buffer")?;
 
         Ok(display)
     }
@@ -379,7 +379,7 @@ impl Drop for Display {
 
 fn connected(card: &File, connectors: &[u32]) -> Result<Option<(u32, Mode, u32)>, Never> {
     for connector in connectors {
-        let Ok(found) = described(card, *connector);
+        let Ok(found) = describe_connector(card, *connector);
 
         match found {
             Some(found) => return Ok(Some(found)),
@@ -394,10 +394,10 @@ fn preferred(modes: &[Mode]) -> Result<Option<Mode>, Never> {
     Ok(modes.iter().find(|mode| mode.kind & PREFERRED == PREFERRED).or(modes.first()).copied())
 }
 
-fn described(card: &File, connector: u32) -> Result<Option<(u32, Mode, u32)>, Never> {
+fn describe_connector(card: &File, connector: u32) -> Result<Option<(u32, Mode, u32)>, Never> {
     let mut asked_once = Connector { connector, ..Connector::default() };
 
-    match asked(card, GET_CONNECTOR, &mut asked_once, "describe a connector") {
+    match ioctl_query(card, GET_CONNECTOR, &mut asked_once, "describe a connector") {
         Ok(()) => {}
         Err(_the_card_would_not_say) => return Ok(None),
     }
@@ -422,7 +422,7 @@ fn described(card: &File, connector: u32) -> Result<Option<(u32, Mode, u32)>, Ne
         ..Connector::default()
     };
 
-    match asked(card, GET_CONNECTOR, &mut described, "describe a connector") {
+    match ioctl_query(card, GET_CONNECTOR, &mut described, "describe a connector") {
         Ok(()) => {}
         Err(_the_card_would_not_say) => return Ok(None),
     }

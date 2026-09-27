@@ -17,6 +17,7 @@
 
 use console_core_external_programs::Program;
 use console_core_geometry::Size;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index, whole_u32};
 use std::io::{Read, Write};
@@ -134,25 +135,27 @@ fn each_frame<T>(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(Unpainted::NoFfmpeg)?;
-    let mut pipe = ffmpeg.stdout.take().ok_or(Unpainted::NoPipeOut)?;
+    let pipe = ffmpeg.stdout.take().ok_or(Unpainted::NoPipeOut)?;
 
     let Ok(room) = index(size.width.saturating_mul(size.height).saturating_mul(3));
 
-    let mut frame = vec![0u8; room];
-    let mut count: u32 = 0;
-
-    loop {
-        match pipe.read_exact(&mut frame) {
-            Ok(()) => {
-                take(into, &frame)?;
-                count = count.saturating_add(1);
-            }
-            Err(fault) => match fault.kind() == std::io::ErrorKind::UnexpectedEof {
-                true => break,
-                false => return Err(Unpainted::Stopped(fault)),
+    let read = console_core_iteration::iterate((pipe, vec![0u8; room], into, 0_u32), |(mut pipe, mut frame, into, count)| {
+        Ok(match pipe.read_exact(&mut frame) {
+            Ok(()) => match take(into, &frame) {
+                Ok(()) => Step::Again((pipe, frame, into, count.saturating_add(1))),
+                Err(fault) => Step::Halt(Err(fault)),
             },
-        }
-    }
+            Err(fault) => match fault.kind() == std::io::ErrorKind::UnexpectedEof {
+                true => Step::Halt(Ok(count)),
+                false => Step::Halt(Err(Unpainted::Stopped(fault))),
+            },
+        })
+    });
+
+    let count = match read {
+        Ok(counted) => counted?,
+        Err(_endless) => 0,
+    };
 
     let done = ffmpeg
         .wait_with_output()

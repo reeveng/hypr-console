@@ -24,6 +24,7 @@
 
 use std::time::{Duration, Instant};
 
+use console_input_gamepad::axis::Range;
 use console_input_gamepad::vocabulary::spoken_for;
 use console_input_focus::{InputEvent, Spans, Direction};
 use console_core_never::Never;
@@ -103,6 +104,7 @@ pub fn command_for(event: InputEvent, axis: Option<(AbsoluteAxisCode, i32)>, spa
         InputEvent::Pressed { button, direction } => pressed(button, direction),
         InputEvent::None => moved(axis, spans),
         InputEvent::Trigger { trigger: _, direction: _ }
+        | InputEvent::Pulled { trigger: _, value: _ }
         | InputEvent::Typed { code: _, direction: _ }
         | InputEvent::Unnamed { code: _, direction: _ } => Ok(None),
     }
@@ -135,11 +137,7 @@ fn moved(axis: Option<(AbsoluteAxisCode, i32)>, spans: &Spans) -> Result<Option<
 
 pub fn from_stick(axis: AbsoluteAxisCode, value: i32, range: (i32, i32)) -> Result<Option<KeyboardCommand>, Never> {
     let (low, high) = range;
-    let span = match high > low {
-        true => f64::from(high.saturating_sub(low)) / 2.0,
-        false => 1.0,
-    };
-    let pushed = (f64::from(value) - (f64::from(low) + span)) / span;
+    let Ok(pushed) = console_input_gamepad::axis::part(value, Range { low, high });
 
     match pushed.abs() < DEADZONE {
         true => return Ok(None),
@@ -212,50 +210,45 @@ mod tests {
     use super::*;
     use console_input_gamepad::vocabulary::BUTTONS as EVERY;
 
-    fn button_down(button: &'static str) -> InputEvent {
-        InputEvent::Pressed { button, direction: Direction::Down }
-    }
-
-    fn command(event: InputEvent) -> Option<KeyboardCommand> {
+    fn command(event: InputEvent) -> Result<Option<KeyboardCommand>, Never> {
         command_for(event, None, &Spans::new())
     }
 
-    fn command_for(event: InputEvent, axis: Option<(AbsoluteAxisCode, i32)>, spans: &Spans) -> Option<KeyboardCommand> {
-        let Ok(command) = super::command_for(event, axis, spans);
-
-        command
+    fn pressed(button: &'static str) -> Result<Option<KeyboardCommand>, Never> {
+        command(InputEvent::Pressed { button, direction: Direction::Down })
     }
 
     #[test]
     fn the_button_labelled_x_is_the_one_that_raises_the_keyboard() {
-        assert_eq!(command(button_down("North")), Some(KeyboardCommand::Toggle));
-        assert_eq!(command(button_down("West")), Some(KeyboardCommand::Shift));
-        assert_eq!(command(button_down("South")), Some(KeyboardCommand::Select));
-        assert_eq!(command(button_down("East")), Some(KeyboardCommand::Backspace));
+        assert_eq!(pressed("North"), Ok(Some(KeyboardCommand::Toggle)));
+        assert_eq!(pressed("West"), Ok(Some(KeyboardCommand::Shift)));
+        assert_eq!(pressed("South"), Ok(Some(KeyboardCommand::Select)));
+        assert_eq!(pressed("East"), Ok(Some(KeyboardCommand::Backspace)));
     }
 
     #[test]
     fn a_button_asks_once_and_on_the_way_down() {
-        assert_eq!(command(InputEvent::Pressed { button: "South", direction: Direction::Up }), None);
+        assert_eq!(command(InputEvent::Pressed { button: "South", direction: Direction::Up }), Ok(None));
     }
 
     #[test]
     fn a_button_this_keyboard_does_nothing_with_asks_for_nothing() {
-        assert_eq!(command(button_down("Select")), None);
-        assert_eq!(command(InputEvent::Unnamed { code: 999, direction: Direction::Down }), None);
-        assert_eq!(command(InputEvent::Trigger { trigger: "LeftTrigger", direction: Direction::Down }), None);
+        assert_eq!(pressed("Select"), Ok(None));
+        assert_eq!(command(InputEvent::Unnamed { code: 999, direction: Direction::Down }), Ok(None));
+        assert_eq!(command(InputEvent::Trigger { trigger: "LeftTrigger", direction: Direction::Down }), Ok(None));
     }
 
     #[test]
     fn the_dpad_arrives_named_rather_than_as_a_hat_to_be_read_here() {
-        assert_eq!(command(button_down("DPadUp")), Some(KeyboardCommand::Up));
-        assert_eq!(command(button_down("DPadRight")), Some(KeyboardCommand::Right));
+        assert_eq!(pressed("DPadUp"), Ok(Some(KeyboardCommand::Up)));
+        assert_eq!(pressed("DPadRight"), Ok(Some(KeyboardCommand::Right)));
     }
 
     #[test]
     fn letting_the_dpad_go_asks_for_nothing_at_all() {
         let spans: Spans = vec![(AbsoluteAxisCode::ABS_HAT0X, (-1, 1))];
-        assert_eq!(command_for(InputEvent::None, Some((AbsoluteAxisCode::ABS_HAT0X, 0)), &spans), None);
+
+        assert_eq!(command_for(InputEvent::None, Some((AbsoluteAxisCode::ABS_HAT0X, 0)), &spans), Ok(None));
     }
 
     #[test]
@@ -273,24 +266,27 @@ mod tests {
         let spans: Spans =
             vec![(AbsoluteAxisCode::ABS_X, (0, 255)), (AbsoluteAxisCode::ABS_RY, (0, 255))];
         let pushed = |axis, value| command_for(InputEvent::None, Some((axis, value)), &spans);
-        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 128), None);
-        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 140), None);
-        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 255), Some(KeyboardCommand::Right));
-        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 0), Some(KeyboardCommand::Left));
-        assert_eq!(pushed(AbsoluteAxisCode::ABS_RY, 0), Some(KeyboardCommand::Up));
+
+        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 128), Ok(None));
+        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 140), Ok(None));
+        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 255), Ok(Some(KeyboardCommand::Right)));
+        assert_eq!(pushed(AbsoluteAxisCode::ABS_X, 0), Ok(Some(KeyboardCommand::Left)));
+        assert_eq!(pushed(AbsoluteAxisCode::ABS_RY, 0), Ok(Some(KeyboardCommand::Up)));
     }
 
     #[test]
     fn a_stick_the_device_said_nothing_about_moves_nothing() {
         let nothing = Spans::new();
-        assert_eq!(command_for(InputEvent::None, Some((AbsoluteAxisCode::ABS_X, 255)), &nothing), None);
-        assert_eq!(command_for(InputEvent::None, None, &nothing), None);
+
+        assert_eq!(command_for(InputEvent::None, Some((AbsoluteAxisCode::ABS_X, 255)), &nothing), Ok(None));
+        assert_eq!(command_for(InputEvent::None, None, &nothing), Ok(None));
     }
 
     #[test]
     fn a_direction_already_held_does_not_ask_again() {
         let now = Instant::now();
         let mut held = PendingRepeat::default();
+
         assert_eq!(held.pressed(Some(KeyboardCommand::Left), now), Ok(Some(KeyboardCommand::Left)));
         assert_eq!(held.pressed(Some(KeyboardCommand::Left), now), Ok(None));
         assert_eq!(held.pressed(Some(KeyboardCommand::Right), now), Ok(Some(KeyboardCommand::Right)), "a turn is a new ask");
@@ -306,7 +302,9 @@ mod tests {
         assert_eq!(held.due(start), Ok(None), "not yet");
         assert_eq!(held.due(start + BEFORE_REPEAT - Duration::from_millis(1)), Ok(None));
         assert_eq!(held.due(start + BEFORE_REPEAT), Ok(Some(KeyboardCommand::Down)), "the first repeat");
+
         let then = start + BEFORE_REPEAT;
+
         assert_eq!(held.due(then), Ok(None), "and not again immediately");
         assert_eq!(held.due(then + BETWEEN_REPEATS), Ok(Some(KeyboardCommand::Down)));
     }
@@ -329,6 +327,7 @@ mod tests {
     fn a_press_is_not_a_thing_that_repeats() {
         let now = Instant::now();
         let mut held = PendingRepeat::default();
+
         assert_eq!(held.pressed(Some(KeyboardCommand::Select), now), Ok(Some(KeyboardCommand::Select)));
         assert_eq!(held.pressed(Some(KeyboardCommand::Select), now), Ok(Some(KeyboardCommand::Select)), "still not a repeat");
         assert_eq!(held.until(now), Ok(None));

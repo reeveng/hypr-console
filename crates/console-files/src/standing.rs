@@ -137,7 +137,7 @@ impl Program for Files {
 
         let Ok(turn) = match heard {
             FilesEvent::Typed { tab, word } => {
-                let Ok(typed) = typed(state, *tab);
+                let Ok(typed) = search_text(state, *tab);
 
                 let Ok(with) = with_typed(state, *tab, word);
 
@@ -206,7 +206,7 @@ impl Program for Files {
 }
 
 fn back(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, Never> {
-    let word = typed(state, tab)?;
+    let word = search_text(state, tab)?;
     let onto = onto(state, tab)?;
 
     match (onto, word.trim().is_empty()) {
@@ -360,7 +360,7 @@ pub fn onto(state: &Standing, tab: u32) -> Result<Destination, Never> {
     })
 }
 
-pub fn typed(state: &Standing, tab: u32) -> Result<String, Never> {
+pub fn search_text(state: &Standing, tab: u32) -> Result<String, Never> {
     let Ok(slot) = console_core_number_conversion::index(tab);
 
     Ok(match state.typed.get(slot).cloned() {
@@ -445,7 +445,7 @@ pub fn row_of(
 
 pub fn closes(state: &Standing, tab: u32) -> Result<Closes, Never> {
     let onto = onto(state, tab)?;
-    let typed = typed(state, tab)?;
+    let typed = search_text(state, tab)?;
 
     match (onto, typed.trim().is_empty()) {
         (Destination::Folder, true) => {
@@ -465,7 +465,6 @@ pub fn closes(state: &Standing, tab: u32) -> Result<Closes, Never> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use console_program_contract::{Trace, run_from};
 
@@ -473,77 +472,68 @@ mod tests {
 
     use super::*;
 
-    fn places() -> Vec<Place> {
-        vec![
+    fn places() -> Result<Vec<Place>, Never> {
+        Ok(vec![
             Place { title: "Home".to_string(), path: PathBuf::from("/home/someone") },
             Place { title: "Stick".to_string(), path: PathBuf::from("/run/media/stick") },
-        ]
+        ])
     }
 
-    fn standing() -> Standing {
-        let Ok(standing) = Standing::of(places());
+    fn standing() -> Result<Standing, Never> {
+        let Ok(places) = places();
 
-        standing
+        Standing::of(places)
     }
 
-    fn at(state: &Standing, tab: u32) -> PathBuf {
-        let Ok(here) = here(state, tab);
-
-        here
-    }
-
-    fn word(state: &Standing, tab: u32) -> String {
-        let Ok(typed) = typed(state, tab);
-
-        typed
-    }
-
-    fn first(state: &Standing, tab: u32) -> u32 {
-        let Ok(first) = first_thing(state, tab);
-
-        first
-    }
-
-    fn said(from: &Standing, heard: &[FilesEvent]) -> Trace<Standing, FilesEvent, FilesEffect> {
+    fn said(from: &Standing, heard: &[FilesEvent]) -> Result<Trace<Standing, FilesEvent, FilesEffect>, Never> {
         let events: Vec<Event<FilesEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        let Ok(said) = run_from::<Files>(from, &events);
-
-        said
+        run_from::<Files>(from, &events)
     }
 
-    fn thing(name: &str) -> Entry {
-        Entry { name: name.to_string(), ..Entry::default() }
+    fn thing(name: &str) -> Result<Entry, Never> {
+        Ok(Entry { name: name.to_string(), ..Entry::default() })
     }
 
     #[test]
     fn each_tab_walks_on_its_own() {
-        let after = said(&standing(), &[
+        let Ok(standing) = standing();
+
+        let Ok(after) = said(&standing, &[
             FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 },
             FilesEvent::Entered { tab: 1, name: "DCIM".to_string(), at: 3 },
         ]);
 
-        assert_eq!(at(&after.state, 0), Path::new("/home/someone/Music"));
-        assert_eq!(at(&after.state, 1), Path::new("/run/media/stick/DCIM"));
+        assert_eq!(here(&after.state, 0), Ok(PathBuf::from("/home/someone/Music")));
+        assert_eq!(here(&after.state, 1), Ok(PathBuf::from("/run/media/stick/DCIM")));
     }
 
     #[test]
     fn what_is_typed_in_one_tab_is_still_there_after_the_other_one() {
-        let after = said(&standing(), &[
+        let Ok(standing) = standing();
+
+        let Ok(after) = said(&standing, &[
             FilesEvent::Typed { tab: 0, word: "beach".to_string() },
             FilesEvent::Typed { tab: 1, word: "holiday".to_string() },
         ]);
 
-        assert_eq!(word(&after.state, 0), "beach");
-        assert_eq!(word(&after.state, 1), "holiday");
+        let Ok(word) = search_text(&after.state, 0);
+
+        assert_eq!(word, "beach");
+        let Ok(typed) = search_text(&after.state, 1);
+
+        assert_eq!(typed, "holiday");
     }
 
     #[test]
     fn going_up_puts_the_thumb_back_on_the_folder_it_came_out_of() {
-        let down = said(&standing(), &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 7 }]);
-        let up = said(&down.state, &[FilesEvent::Up { tab: 0 }]);
+        let Ok(standing) = standing();
 
-        assert_eq!(at(&up.state, 0), Path::new("/home/someone"));
+        let Ok(down) = said(&standing, &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 7 }]);
+        let Ok(up) = said(&down.state, &[FilesEvent::Up { tab: 0 }]);
+
+        assert_eq!(here(&up.state, 0), Ok(PathBuf::from("/home/someone")));
+
         let Ok(effects) = up.effects();
 
         assert_eq!(effects.first(), Some(&Effect::Custom(FilesEffect::Replace(7))));
@@ -551,24 +541,31 @@ mod tests {
 
     #[test]
     fn the_top_of_a_place_is_where_back_leaves_the_panel() {
-        assert_eq!(closes(&standing(), 0), Ok(Closes::Yes));
+        let Ok(start) = standing();
 
-        let down = said(&standing(), &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 }]);
+        assert_eq!(closes(&start, 0), Ok(Closes::Yes));
+
+        let Ok(standing) = standing();
+
+        let Ok(down) = said(&standing, &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 }]);
 
         assert_eq!(closes(&down.state, 0), Ok(Closes::No));
     }
 
     #[test]
     fn back_out_of_a_thing_lands_on_the_row_it_was_opened_from() {
-        let opened = said(&standing(), &[FilesEvent::Opened {
+        let Ok(standing) = standing();
+        let Ok(beach) = thing("beach.jpg");
+
+        let Ok(opened) = said(&standing, &[FilesEvent::Opened {
             tab: 0,
-            onto: Destination::Ways { thing: thing("beach.jpg"), from: 5 },
+            onto: Destination::Ways { thing: beach, from: 5 },
             row: WAYS_START,
         }]);
 
         assert_eq!(opened.effects(), Ok(vec![Effect::Custom(FilesEffect::Replace(WAYS_START))]));
 
-        let out = said(&opened.state, &[FilesEvent::Back { tab: 0 }]);
+        let Ok(out) = said(&opened.state, &[FilesEvent::Back { tab: 0 }]);
 
         assert_eq!(onto(&out.state, 0), Ok(Destination::Folder));
         assert_eq!(out.effects(), Ok(vec![Effect::Custom(FilesEffect::Replace(5))]));
@@ -576,15 +573,18 @@ mod tests {
 
     #[test]
     fn back_out_of_the_programs_goes_to_the_ways_and_not_to_the_folder() {
-        let opened = said(&standing(), &[FilesEvent::Opened {
+        let Ok(standing) = standing();
+        let Ok(beach) = thing("beach.jpg");
+
+        let Ok(opened) = said(&standing, &[FilesEvent::Opened {
             tab: 0,
-            onto: Destination::Programs { thing: thing("beach.jpg"), from: 5 },
+            onto: Destination::Programs { thing: beach.clone(), from: 5 },
             row: 0,
         }]);
 
-        let out = said(&opened.state, &[FilesEvent::Back { tab: 0 }]);
+        let Ok(out) = said(&opened.state, &[FilesEvent::Back { tab: 0 }]);
 
-        assert_eq!(onto(&out.state, 0), Ok(Destination::Ways { thing: thing("beach.jpg"), from: 5 }));
+        assert_eq!(onto(&out.state, 0), Ok(Destination::Ways { thing: beach, from: 5 }));
     }
 
     #[test]
@@ -594,11 +594,13 @@ mod tests {
             paths: vec![PathBuf::from("/home/someone/Music/song.opus")],
             moving: Carrying::ToMove,
         };
-        let after = said(&standing(), &[FilesEvent::PickedUp(holding.clone())]);
+        let Ok(standing) = standing();
+
+        let Ok(after) = said(&standing, &[FilesEvent::PickedUp(holding.clone())]);
 
         assert_eq!(after.state.holding, Some(holding));
 
-        let down = said(&after.state, &[FilesEvent::PutDown]);
+        let Ok(down) = said(&after.state, &[FilesEvent::PutDown]);
 
         assert_eq!(down.state.holding, None);
         assert_eq!(down.effects(), Ok(vec![Effect::Custom(FilesEffect::Replace(LINE))]));
@@ -606,38 +608,38 @@ mod tests {
 
     #[test]
     fn the_first_thing_moves_down_for_the_way_up_and_for_what_is_carried() {
-        let top = standing();
+        let Ok(top) = standing();
 
-        assert_eq!(first(&top, 0), LINE);
+        assert_eq!(first_thing(&top, 0), Ok(LINE));
 
-        let down = said(&top, &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 }]);
+        let Ok(down) = said(&top, &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 }]);
 
-        assert_eq!(first(&down.state, 0), LINE + 2);
+        assert_eq!(first_thing(&down.state, 0), Ok(LINE.saturating_add(2)));
 
-        let carrying = said(&down.state, &[FilesEvent::PickedUp(Holding {
+        let Ok(carrying) = said(&down.state, &[FilesEvent::PickedUp(Holding {
             name: "else".to_string(),
             paths: vec![PathBuf::from("/somewhere/else")],
             moving: Carrying::ToCopy,
         })]);
 
-        assert_eq!(first(&carrying.state, 0), LINE + 3);
+        assert_eq!(first_thing(&carrying.state, 0), Ok(LINE.saturating_add(3)));
     }
 
     #[test]
     fn a_panel_opened_on_a_thing_stands_on_it_once_and_then_forgets() {
-        let asked = Standing {
-            stand_on: Some((0, "song.opus".to_string())),
-            ..said(&standing(), &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 }]).state
-        };
+        let Ok(standing) = standing();
+        let Ok(music) = said(&standing, &[FilesEvent::Entered { tab: 0, name: "Music".to_string(), at: 3 }]);
+        let asked = Standing { stand_on: Some((0, "song.opus".to_string())), ..music.state };
         let names = vec!["another.opus".to_string(), "song.opus".to_string()];
 
-        let after = said(&asked, &[FilesEvent::Arrived { tab: 0, names: names.clone() }]);
+        let Ok(after) = said(&asked, &[FilesEvent::Arrived { tab: 0, names: names.clone() }]);
 
-        assert_eq!(after.effects(), Ok(vec![Effect::Custom(FilesEffect::Replace(first(&asked, 0) + 1))]));
+        let Ok(first) = first_thing(&asked, 0);
+
+        assert_eq!(after.effects(), Ok(vec![Effect::Custom(FilesEffect::Replace(first.saturating_add(1)))]));
         assert_eq!(after.state.stand_on, None);
 
-        let again = said(&after.state, &[FilesEvent::Arrived { tab: 0, names }]);
-
+        let Ok(again) = said(&after.state, &[FilesEvent::Arrived { tab: 0, names }]);
         let Ok(effects) = again.effects();
 
         assert!(effects.is_empty());
@@ -645,9 +647,9 @@ mod tests {
 
     #[test]
     fn arriving_in_a_tab_no_one_asked_for_stands_nowhere_and_keeps_the_asking() {
-        let asked = Standing { stand_on: Some((1, "song.opus".to_string())), ..standing() };
-        let after = said(&asked, &[FilesEvent::Arrived { tab: 0, names: Vec::new() }]);
-
+        let Ok(standing) = standing();
+        let asked = Standing { stand_on: Some((1, "song.opus".to_string())), ..standing };
+        let Ok(after) = said(&asked, &[FilesEvent::Arrived { tab: 0, names: Vec::new() }]);
         let Ok(effects) = after.effects();
 
         assert!(effects.is_empty());

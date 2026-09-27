@@ -141,17 +141,17 @@ fn ours(name: &str) -> Result<PathBuf, Unchecked> {
     console_core_temporary_directories::fresh(&format!("resume-{name}")).map_err(Unchecked::Temporary)
 }
 
-fn keeping(at: &Path, how_often: &str) -> Result<String, Never> {
+fn resume_command(at: &Path, how_often: &str) -> Result<String, Never> {
     Ok(format!("CONSOLE_RESUME_PATH={} console-resume {how_often}", at.display()))
 }
 
-fn saying(at: &Path, how_often: &str, said: &Path) -> Result<String, Never> {
-    let Ok(keeping) = keeping(at, how_often);
+fn logged_resume_command(at: &Path, how_often: &str, said: &Path) -> Result<String, Never> {
+    let Ok(keeping) = resume_command(at, how_often);
 
     Ok(format!("{keeping} >> {} 2>&1", said.display()))
 }
 
-fn when(there: &Path, then: &str) -> Result<String, Never> {
+fn after_file(there: &Path, then: &str) -> Result<String, Never> {
     Ok(format!("until [ -s {} ]; do sleep {ASKING_AGAIN}; done; {then}", there.display()))
 }
 
@@ -163,7 +163,7 @@ fn marked() -> Result<PathBuf, Unchecked> {
         None => return Err(Unchecked::NoRuntime),
     };
 
-    Ok(runtime.join(console_resume::OURS))
+    Ok(runtime.join(console_resume::APPLICATION))
 }
 
 fn marks() -> Result<BTreeSet<PathBuf>, Unchecked> {
@@ -191,7 +191,7 @@ fn unmark(before: &BTreeSet<PathBuf>) -> Result<(), Never> {
 }
 
 fn refused(_stage: &mut Here) -> CheckResult {
-    let Ok(keeper) = console_test_stages::beside(KEEPER);
+    let Ok(keeper) = console_core_internal_programs::beside_this_program(KEEPER);
     let at = ours("refused")?;
 
     let mut command = Command::new(&keeper);
@@ -235,7 +235,7 @@ fn ended(mut running: BoundToParent, waited: Outcome) -> CheckResult {
             REFUSING.as_secs()
         )),
         Outcome::Happened => {
-            let how = match running.waiting() {
+            let how = match running.wait() {
                 Ok(how) => how,
                 Err(fault) => return failed(format!("what {KEEPER} ended as: {fault}")),
             };
@@ -260,7 +260,7 @@ fn terminals(open: &[Window]) -> Result<u32, Never> {
 }
 
 fn saving(stage: &mut Desktop, at: &Path) -> CheckResult {
-    let Ok(keeping) = keeping(at, SAVING);
+    let Ok(keeping) = resume_command(at, SAVING);
 
     stage.open(TERMINAL)?;
     stage.open(&keeping)?;
@@ -303,7 +303,7 @@ fn again(stage: &mut Desktop) -> CheckResult {
 fn saved_and_put_back(stage: &mut Desktop, at: &Path) -> CheckResult {
     saving(stage, at)?;
 
-    let Ok(keeping) = keeping(at, NOT_SAVING_AGAIN);
+    let Ok(keeping) = resume_command(at, NOT_SAVING_AGAIN);
     let Ok(()) = stage.fresh();
 
     stage.open(&keeping)?;
@@ -330,11 +330,11 @@ fn put_back_and_started_again(stage: &mut Desktop, at: &Path) -> CheckResult {
     let opened = at.join("opened");
     let again = at.join("again");
 
-    let Ok(first) = saying(at, NOT_SAVING_AGAIN, &put_back);
-    let Ok(second) = saying(at, NOT_SAVING_AGAIN, &again);
+    let Ok(first) = logged_resume_command(at, NOT_SAVING_AGAIN, &put_back);
+    let Ok(second) = logged_resume_command(at, NOT_SAVING_AGAIN, &again);
     let Ok(terminal) = terminal(&opened);
-    let Ok(no_one_saved_it) = when(&put_back, &terminal);
-    let Ok(started_again) = when(&opened, &second);
+    let Ok(no_one_saved_it) = after_file(&put_back, &terminal);
+    let Ok(started_again) = after_file(&opened, &second);
 
     let Ok(()) = stage.fresh();
 
@@ -361,8 +361,8 @@ mod tests {
     use super::*;
     use console_compositor::{Filling, Floating, Pinned};
 
-    fn window(class: &str) -> Window {
-        Window {
+    fn windows(classes: &[&str]) -> Result<Vec<Window>, Never> {
+        Ok(classes.iter().map(|class| Window {
             address: "0x1".to_string(),
             title: "a shell".to_string(),
             first_class: class.to_string(),
@@ -376,12 +376,12 @@ mod tests {
             at: (0, 0),
             size: (800, 600),
             pid: 42,
-        }
+        }).collect())
     }
 
     #[test]
     fn the_terminals_are_counted_and_nothing_else_is() {
-        let open = [window(CLASS), window("org.kde.dolphin"), window(CLASS)];
+        let Ok(open) = windows(&[CLASS, "org.kde.dolphin", CLASS]);
 
         assert_eq!(terminals(&open), Ok(2));
         assert_eq!(terminals(&[]), Ok(0));
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn the_keeper_is_told_where_to_keep_the_session_and_how_often() {
-        let Ok(keeping) = keeping(Path::new("/tmp/somewhere"), SAVING);
+        let Ok(keeping) = resume_command(Path::new("/tmp/somewhere"), SAVING);
 
         assert!(keeping.starts_with("CONSOLE_RESUME_PATH=/tmp/somewhere "), "{keeping}");
         assert!(keeping.ends_with("console-resume --save-interval=1"), "{keeping}");
@@ -397,8 +397,8 @@ mod tests {
 
     #[test]
     fn the_keeper_that_is_putting_back_is_not_the_one_that_saves() {
-        let Ok(saving) = keeping(Path::new("/tmp/somewhere"), SAVING);
-        let Ok(putting_back) = keeping(Path::new("/tmp/somewhere"), NOT_SAVING_AGAIN);
+        let Ok(saving) = resume_command(Path::new("/tmp/somewhere"), SAVING);
+        let Ok(putting_back) = resume_command(Path::new("/tmp/somewhere"), NOT_SAVING_AGAIN);
 
         assert_ne!(
             saving, putting_back,
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn nothing_is_started_until_the_thing_it_waits_for_is_there() {
-        let Ok(waited) = when(Path::new("/tmp/said"), "alacritty");
+        let Ok(waited) = after_file(Path::new("/tmp/said"), "alacritty");
 
         assert!(waited.starts_with("until [ -s /tmp/said ];"), "{waited}");
         assert!(waited.ends_with("; alacritty"), "{waited}");

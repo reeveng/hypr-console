@@ -18,9 +18,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use console_core_iteration::{Endless, Step};
 use console_core_never::Never;
 use console_response_times::measuring::{self, Measuring};
-use console_resource_usage::{Moment, between, kept, of, taken, told, where_};
+use console_resource_usage::{Moment, usage_between, append, of, sample, summarize, where_};
 
 const USAGE: &str = "usage: console-resource-usage [note] [--file PATH]";
 
@@ -28,29 +29,26 @@ const NOTE: &str = "note";
 
 fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
-    let mut note = false;
-    let Ok(mut at) = where_();
-
-    let mut words = asked.iter();
-
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            NOTE => note = true,
-            "--file" => match words.next() {
-                Some(said) => at = Some(PathBuf::from(said)),
-                None => {
-                    eprintln!("{USAGE}");
-
-                    return ExitCode::FAILURE;
-                }
+    let Ok(at) = where_();
+    let reading = Reading { words: asked.iter(), note: Note::No, at };
+    let read = console_core_iteration::iterate(reading, |mut reading| {
+        Ok(match reading.words.next() {
+            None => Step::Halt(Some(reading)),
+            Some(word) => match heard(&mut reading, word) {
+                Ok(Recognized::Understood) => Step::Again(reading),
+                Ok(Recognized::Not) => Step::Halt(None),
             },
-            _unknown => {
-                eprintln!("{USAGE}");
+        })
+    });
 
-                return ExitCode::FAILURE;
-            }
+    let Reading { note, at, .. } = match read {
+        Ok(Some(reading)) => reading,
+        Ok(None) | Err(Endless) => {
+            eprintln!("{USAGE}");
+
+            return ExitCode::FAILURE;
         }
-    }
+    };
 
     let at = match at {
         Some(at) => at,
@@ -62,8 +60,8 @@ fn main() -> ExitCode {
     };
 
     match note {
-        true => {
-            let Ok(chosen) = measuring::chosen();
+        Note::Yes => {
+            let Ok(chosen) = measuring::current();
 
             match chosen {
                 Measuring::On => {}
@@ -78,9 +76,9 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            let Ok(moment) = taken(now);
+            let Ok(moment) = sample(now);
 
-            match kept(&at, &moment) {
+            match append(&at, &moment) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(fault) => {
                     eprintln!("console-resource-usage: {fault}");
@@ -89,7 +87,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        false => {
+        Note::No => {
             let store = match File::open(&at) {
                 Ok(store) => store,
                 Err(_nothing_kept_yet) => {
@@ -98,12 +96,12 @@ fn main() -> ExitCode {
                     return ExitCode::SUCCESS;
                 }
             };
-            let Ok(moments) = held(store);
-            let Ok(used) = between(&moments);
+            let Ok(moments) = read_moments(store);
+            let Ok(used) = usage_between(&moments);
 
             match used {
                 Some(used) => {
-                    let Ok(said) = told(&used);
+                    let Ok(said) = summarize(&used);
 
                     print!("{said}");
 
@@ -119,7 +117,38 @@ fn main() -> ExitCode {
     }
 }
 
-fn held(store: File) -> Result<Vec<Moment>, Never> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Note {
+    Yes,
+    No,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Recognized {
+    Understood,
+    Not,
+}
+
+struct Reading<'a> {
+    words: std::slice::Iter<'a, String>,
+    note: Note,
+    at: Option<PathBuf>,
+}
+
+fn heard(reading: &mut Reading<'_>, word: &str) -> Result<Recognized, Never> {
+    match word {
+        NOTE => reading.note = Note::Yes,
+        "--file" => match reading.words.next() {
+            Some(said) => reading.at = Some(PathBuf::from(said)),
+            None => return Ok(Recognized::Not),
+        },
+        _unknown => return Ok(Recognized::Not),
+    }
+
+    Ok(Recognized::Understood)
+}
+
+fn read_moments(store: File) -> Result<Vec<Moment>, Never> {
     let mut kept: Vec<Moment> = Vec::new();
 
     for said in BufReader::new(store).lines() {

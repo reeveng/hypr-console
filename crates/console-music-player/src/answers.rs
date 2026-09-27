@@ -10,17 +10,17 @@
 //! in as well as the place. A player that left it out would be asking the panel
 //! to seek in whatever happened to be playing when the call landed.
 //!
-//! A path is spelled into a url by putting `file://` in front of it and nothing
-//! else. That is not the encoding the specification asks for, and it is what
-//! `console_music::player::local` reads back: it strips the prefix and takes
-//! what is left as a path, so a song with a space in its name survives this and
-//! would not survive being percent-encoded. The reader and the writer are both
-//! in this repository, which is the only reason that is allowed to be true.
+//! A path is spelled into a url the way the specification asks, through
+//! `console_core_file_urls`, which is also what the panel and this player's own
+//! bus read one back with. Spelling it raw was once allowed here because the
+//! reader and the writer were both in this repository; the panel's reader then
+//! decoded what this had not encoded, and a name with `%41` in it came back as
+//! one with `A`.
 
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_i64};
 use console_core_words::Words;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::playlist::Over;
 
@@ -30,7 +30,7 @@ pub const OBJECT: &str = "/org/mpris/MediaPlayer2";
 
 pub const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
-pub const OURS: &str = "console.Player";
+pub const APPLICATION: &str = "console.Player";
 
 pub const POSITION_CHANGED: &str = "PositionChanged";
 
@@ -97,10 +97,6 @@ pub enum Reply {
     Long(i64),
 }
 
-pub fn url(at: &Path) -> Result<String, Never> {
-    Ok(format!("file://{}", at.display()))
-}
-
 pub fn metadata(song: &Song) -> Result<Vec<(String, Reply)>, Never> {
     let Ok(length) = micros(song.length);
 
@@ -114,7 +110,7 @@ pub fn metadata(song: &Song) -> Result<Vec<(String, Reply)>, Never> {
 
     match &song.art {
         Some(art) => {
-            let Ok(url) = url(art);
+            let Ok(url) = console_core_file_urls::url(art);
 
             said.push(("mpris:artUrl".to_string(), Reply::Word(url)));
         },
@@ -155,10 +151,10 @@ mod tests {
     }
 
     #[test]
-    fn a_song_with_a_space_in_its_name_survives_being_spelled_as_a_url() {
-        let Ok(url) = url(&PathBuf::from("/music/The Last Shadow Puppets.opus"));
+    fn a_song_with_a_space_in_its_name_is_spelled_as_the_specification_spells_it() {
+        let Ok(url) = console_core_file_urls::url(&PathBuf::from("/music/The Last Shadow Puppets.opus"));
 
-        assert_eq!(url, "file:///music/The Last Shadow Puppets.opus");
+        assert_eq!(url, "file:///music/The%20Last%20Shadow%20Puppets.opus");
     }
 
     #[test]

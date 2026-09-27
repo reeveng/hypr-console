@@ -107,7 +107,7 @@ fn expected(root: &Path) -> Result<BTreeSet<Built>, MapError> {
         reason = "one small file per crate in the workspace, read once when the map is drawn; the directory is the lint's to write and this is the one place it is read"
     )
 )]
-fn gathered(into: &Path, built: &BTreeSet<Built>) -> Result<String, MapError> {
+fn gather(into: &Path, built: &BTreeSet<Built>) -> Result<String, MapError> {
     let mut said = String::new();
     let mut missing = Vec::new();
 
@@ -129,18 +129,18 @@ fn gathered(into: &Path, built: &BTreeSet<Built>) -> Result<String, MapError> {
     }
 }
 
-fn drawn(into: &Path) -> Result<(), MapError> {
+fn draw_map(into: &Path) -> Result<(), MapError> {
     let root = console_repository::root().map_err(MapError::Rootless)?;
     let built = expected(&root)?;
-    let said = gathered(into, &built)?;
+    let said = gather(into, &built)?;
     let facts = console_architecture::facts::read(&said).map_err(MapError::Facts)?;
     let Ok(facts) = console_architecture::facts::pruned(facts);
-    let Ok(written) = console_architecture::facts::written(&facts);
+    let Ok(written) = console_architecture::facts::serialize(&facts);
 
     console_core_atomic_writes::whole(&root.join(FACTS), written.as_bytes()).map_err(MapError::Writing)?;
 
     let architecture = Architecture::read(&root).map_err(MapError::Read)?;
-    let Ok(map) = architecture.drawn();
+    let Ok(map) = architecture.render();
 
     console_core_atomic_writes::whole(&root.join(MAP), map.as_bytes()).map_err(MapError::Writing)
 }
@@ -149,7 +149,7 @@ fn run() -> Result<(), MapError> {
     let said: Vec<String> = std::env::args().skip(1).collect();
 
     match said.as_slice() {
-        [into] => drawn(Path::new(into)),
+        [into] => draw_map(Path::new(into)),
         [] | [_, _, ..] => Err(MapError::Arguments(said)),
     }
 }

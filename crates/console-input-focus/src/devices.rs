@@ -31,7 +31,7 @@ impl DeviceKind {
         let one = match self {
             DeviceKind::Pad => finding::gamepad(said)?,
             DeviceKind::Keys => finding::keyboard(said)?,
-            DeviceKind::Typing => return finding::typing(said),
+            DeviceKind::Typing => return finding::keyboards(said),
             DeviceKind::Touch => finding::touchpad(said)?,
         };
 
@@ -53,7 +53,7 @@ pub enum ClaimError {
 }
 
 impl ClaimError {
-    pub fn said(&self) -> Result<String, Never> {
+    pub fn message(&self) -> Result<String, Never> {
         Ok(match self {
             ClaimError::NothingToTake => {
                 "nothing to read: none of these devices is on this machine".to_string()
@@ -122,11 +122,11 @@ impl Claim {
         Ok(Claim { held })
     }
 
-    pub fn holding(&self) -> Result<Vec<(DeviceKind, &str)>, Never> {
+    pub fn devices(&self) -> Result<Vec<(DeviceKind, &str)>, Never> {
         Ok(self.held.iter().map(|taken| (taken.which, taken.path.as_str())).collect())
     }
 
-    pub fn watching(&self) -> Result<Vec<BorrowedFd<'_>>, Never> {
+    pub fn descriptors(&self) -> Result<Vec<BorrowedFd<'_>>, Never> {
         Ok(self.held.iter().map(|taken| taken.device.as_fd()).collect())
     }
 
@@ -150,7 +150,7 @@ impl Claim {
         Ok(spans)
     }
 
-    pub fn arrived(&mut self) -> Result<Received, Never> {
+    pub fn receive(&mut self) -> Result<Received, Never> {
         let mut heard = Received::default();
 
         let mut lost: Vec<String> = Vec::new();
@@ -237,8 +237,8 @@ mod tests {
             path: "/dev/input/event5".to_string(),
             why: "Device or resource busy".to_string(),
         };
-        let Ok(said) = elsewhere.said();
-        let Ok(nothing) = ClaimError::NothingToTake.said();
+        let Ok(said) = elsewhere.message();
+        let Ok(nothing) = ClaimError::NothingToTake.message();
 
         assert!(said.contains("something else has the input"));
         assert!(said.contains("event5"), "and which device it was");

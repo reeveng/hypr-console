@@ -44,7 +44,7 @@ extern crate rustc_middle;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::UpvarCapture;
 
 dylint_linting::declare_late_lint! {
@@ -56,16 +56,8 @@ dylint_linting::declare_late_lint! {
     "a closure holding the permission to write something it captured"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl<'tcx> LateLintPass<'tcx> for Explicit047NoCapturedPermission {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

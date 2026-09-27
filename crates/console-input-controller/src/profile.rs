@@ -149,13 +149,13 @@ impl Program for Profile {
 
     fn init(arguments: &Arguments) -> Initial<Attempt> {
         let Ok(subscriptions) = ProfileState::of(arguments);
-        let Ok(given) = arguments.given(PAD);
+        let Ok(given) = arguments.flag(PAD);
         let Ok(pad) = has(given);
         let holding = Attempt { subscriptions, pad, step: Step::Initial, tried: 0 };
         let Ok(file) = holding.subscriptions.file();
 
         let Ok(opening) = match (file, pad) {
-            (Some(_), Has::Yes) => Initial::subscribed(holding, vec![Subscription::Timer(AGAIN)]),
+            (Some(_), Has::Yes) => Initial::with_subscriptions(holding, vec![Subscription::Timer(AGAIN)]),
             (Some(_), Has::No) | (None, _) => Initial::new(holding),
         };
 
@@ -195,7 +195,7 @@ impl Program for Profile {
                 )
             }
 
-            (_, _, Event::Replied(answer)) => answered(state, &answer.status, &answer.output),
+            (_, _, Event::Replied(answer)) => on_exit(state, &answer.status, &answer.output),
 
             (_, _, Event::Tick(_, _)) => tried(state),
 
@@ -208,7 +208,7 @@ impl Program for Profile {
     }
 }
 
-fn answered(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Attempt, ProfileEffect>, Never> {
+fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Attempt, ProfileEffect>, Never> {
     match (state.step, went) {
         (Step::Waiting, ExitStatus::Failure(_)) => Update::none(state.clone()),
 
@@ -246,7 +246,7 @@ fn answered(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Att
         },
 
         (Step::Sender, ExitStatus::Success) => {
-            let Ok(named) = named(said);
+            let Ok(named) = parse_profile_name(said);
 
             Update::new(
                 state.clone(),
@@ -316,7 +316,7 @@ fn loading(file: &str) -> Result<Command, Never> {
     )
 }
 
-pub fn named(said: &str) -> Result<Option<String>, Never> {
+pub fn parse_profile_name(said: &str) -> Result<Option<String>, Never> {
     let (_taken, after) = match said.split_once('"') {
         Some((_taken, after)) => (_taken, after),
         None => return Ok(None),
@@ -336,10 +336,10 @@ mod tests {
 
     use super::*;
 
-    fn answered_with(went: ExitStatus, said: &str) -> Event<Never> {
+    fn answered_with(went: ExitStatus, said: &str) -> Result<Event<Never>, Never> {
         let Ok(reading) = reading();
 
-        Event::Replied(Answer { command: reading, output: said.to_string(), status: went })
+        Ok(Event::Replied(Answer { command: reading, output: said.to_string(), status: went }))
     }
 
     #[test]
@@ -368,15 +368,17 @@ mod tests {
 
     #[test]
     fn the_wait_for_the_bus_ends_the_moment_it_answers() {
-        let mut words = vec![Event::Opened, answered_with(ExitStatus::Failure(Some(1)), "")];
+        let Ok(refused) = answered_with(ExitStatus::Failure(Some(1)), "");
+        let Ok(answered) = answered_with(ExitStatus::Success, "s \"router\"");
+        let mut words = vec![Event::Opened, refused.clone()];
 
         for _ in 0..40 {
             words.push(Event::Tick(AGAIN, Duration::ZERO));
-            words.push(answered_with(ExitStatus::Failure(Some(1)), ""));
+            words.push(refused.clone());
         }
 
         words.push(Event::Tick(AGAIN, Duration::ZERO));
-        words.push(answered_with(ExitStatus::Success, "s \"router\""));
+        words.push(answered);
 
         let Ok(router) = Arguments::of(&["router", PAD]);
         let Ok(said) = run::<Profile>(&router, &words);
@@ -388,11 +390,12 @@ mod tests {
 
     #[test]
     fn a_bus_that_never_appears_is_said_out_loud_rather_than_waited_on_for_ever() {
-        let mut words = vec![Event::Opened, answered_with(ExitStatus::Failure(Some(1)), "")];
+        let Ok(refused) = answered_with(ExitStatus::Failure(Some(1)), "");
+        let mut words = vec![Event::Opened, refused.clone()];
 
         for _ in 0..MOST {
             words.push(Event::Tick(AGAIN, Duration::ZERO));
-            words.push(answered_with(ExitStatus::Failure(Some(1)), ""));
+            words.push(refused.clone());
         }
 
         let Ok(router) = Arguments::of(&["router", PAD]);
@@ -410,10 +413,8 @@ mod tests {
     #[test]
     fn asking_which_profile_is_on_prints_the_name_out_of_what_the_bus_said() {
         let Ok(pad) = Arguments::of(&[PAD]);
-        let Ok(said) = run::<Profile>(
-            &pad,
-            &[Event::Opened, answered_with(ExitStatus::Success, "s \"router\"\n")],
-        );
+        let Ok(answered) = answered_with(ExitStatus::Success, "s \"router\"\n");
+        let Ok(said) = run::<Profile>(&pad, &[Event::Opened, answered]);
 
         assert_eq!(
             said.on(1),
@@ -446,11 +447,11 @@ mod tests {
     #[test]
     fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() {
         let Ok(router) = Arguments::of(&["router"]);
-        let initial = Profile::init(&router);
+        let init = Profile::init(&router);
         let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
-        assert_eq!(initial.subscriptions, Vec::new());
+        assert_eq!(init.subscriptions, Vec::new());
         assert!(!effects.iter().any(|effect| matches!(effect, Effect::Run(_))), "{effects:?}");
     }
 

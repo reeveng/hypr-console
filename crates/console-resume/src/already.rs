@@ -48,10 +48,10 @@ fn mark() -> Result<Option<PathBuf>, Never> {
         None => return Ok(None),
     };
 
-    Ok(Some(runtime.join(crate::OURS).join(instance)))
+    Ok(Some(runtime.join(crate::APPLICATION).join(instance)))
 }
 
-pub fn asked() -> Result<Already, Never> {
+pub fn check() -> Result<Already, Never> {
     let Ok(mark) = mark();
 
     let at = match mark {
@@ -65,7 +65,7 @@ pub fn asked() -> Result<Already, Never> {
     })
 }
 
-pub fn said() -> Result<(), Unresumed> {
+pub fn mark_resumed() -> Result<(), Unresumed> {
     let Ok(mark) = mark();
 
     let at = match mark {

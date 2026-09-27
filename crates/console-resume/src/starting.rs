@@ -101,7 +101,7 @@ fn from_its_command_line(window: &Window) -> Result<String, Unresumed> {
     }
 
     let Ok(pid) = console_core_number_conversion::fitted::<i64, i32>(window.pid);
-    let Ok(restored) = crate::terminal::restored(&arguments, pid);
+    let Ok(restored) = crate::terminal::restore_command(&arguments, pid);
 
     let arguments = match restored {
         Some(restored) => restored,
@@ -178,33 +178,29 @@ pub fn what_starts_it(
 mod tests {
     use super::*;
 
-    fn arguments(words: &[&str]) -> Vec<String> {
-        words.iter().map(|word| (*word).to_string()).collect()
-    }
+    fn command(words: &[&str]) -> Result<String, Never> {
+        let arguments: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
 
-    fn command(words: &[&str]) -> String {
-        let Ok(command) = command_from_argv(&arguments(words));
-
-        command
+        command_from_argv(&arguments)
     }
 
     #[test]
     fn a_program_comes_back_by_its_name_rather_than_by_where_it_was_installed() {
-        assert_eq!(command(&["/usr/bin/firefox"]), "firefox");
-        assert_eq!(command(&["code"]), "code");
-        assert_eq!(command(&["/usr/bin/firefox", "--new-window"]), "firefox --new-window");
-        assert_eq!(command(&["/nix/store/.firefox-wrapped"]), ".firefox-wrapped");
+        assert_eq!(command(&["/usr/bin/firefox"]), Ok("firefox".to_string()));
+        assert_eq!(command(&["code"]), Ok("code".to_string()));
+        assert_eq!(command(&["/usr/bin/firefox", "--new-window"]), Ok("firefox --new-window".to_string()));
+        assert_eq!(command(&["/nix/store/.firefox-wrapped"]), Ok(".firefox-wrapped".to_string()));
     }
 
     #[test]
     fn keeps_an_argument_that_carries_a_space() {
-        assert_eq!(command(&["/usr/bin/foot", "--title=Two Words"]), "foot '--title=Two Words'");
-        assert_eq!(command(&["foot", "-e", "sh", "-c", "sleep 900"]), "foot -e sh -c 'sleep 900'");
+        assert_eq!(command(&["/usr/bin/foot", "--title=Two Words"]), Ok("foot '--title=Two Words'".to_string()));
+        assert_eq!(command(&["foot", "-e", "sh", "-c", "sleep 900"]), Ok("foot -e sh -c 'sleep 900'".to_string()));
     }
 
     #[test]
     fn reads_back_the_words_of_a_command_line_a_program_flattened() {
-        assert_eq!(command(&["/usr/lib/signal-desktop/signal-desktop --"]), "signal-desktop --");
+        assert_eq!(command(&["/usr/lib/signal-desktop/signal-desktop --"]), Ok("signal-desktop --".to_string()));
     }
 
     #[test]

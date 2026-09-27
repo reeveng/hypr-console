@@ -51,7 +51,7 @@ fn push(names: &mut Vec<Watched>, found: Watched) -> Result<(), Never> {
 
 fn asked_here(names: &mut Vec<Watched>, missing: &mut Vec<String>, question: Question) -> Result<(), Never> {
     let Question { program, rest, what } = question;
-    let Ok(answer) = said(program, rest);
+    let Ok(answer) = run_output(program, rest);
 
     match answer {
         Some(answer) => push(names, Watched { name: answer, what }),
@@ -72,7 +72,7 @@ struct Question<'a> {
 
 const ON_THE_DEVICE: [&str; 2] = ["the device", "whoever the device belongs to"];
 
-pub fn watched() -> Result<(Vec<Watched>, Vec<String>), Never> {
+pub fn forbidden_names() -> Result<(Vec<Watched>, Vec<String>), Never> {
     let mut names = Vec::new();
     let mut missing = Vec::new();
 
@@ -121,7 +121,7 @@ pub fn watched() -> Result<(Vec<Watched>, Vec<String>), Never> {
 
     let Ok(()) = push(&mut names, Watched { name: named.to_string(), what: "the device" });
 
-    let Ok(asked) = said(Program::Ssh, &[
+    let Ok(asked) = run_output(Program::Ssh, &[
         "-o",
         "BatchMode=yes",
         "-o",
@@ -188,7 +188,7 @@ enum Spelling {
     JustLetters,
 }
 
-fn said(program: Program, rest: &[&str]) -> Result<Option<String>, Never> {
+fn run_output(program: Program, rest: &[&str]) -> Result<Option<String>, Never> {
     let Ok(mut asking) = program.command();
 
     let done = match asking.args(rest).output() {
@@ -208,27 +208,25 @@ fn said(program: Program, rest: &[&str]) -> Result<Option<String>, Never> {
 mod tests {
     use super::*;
 
-    fn watching(names: &[&str]) -> Vec<Watched> {
+    fn watching(names: &[&str]) -> Result<Vec<Watched>, Never> {
         let mut watched = Vec::new();
 
         for name in names {
             let Ok(()) = push(&mut watched, Watched { name: name.to_string(), what: "someone" });
         }
 
-        watched
+        Ok(watched)
     }
 
-    fn leaked<'a>(text: &str, names: &'a [Watched]) -> Option<&'a Watched> {
-        let Ok(leaks) = leaks(text.as_bytes(), names);
-
-        leaks
+    fn leaked<'a>(text: &str, names: &'a [Watched]) -> Result<Option<&'a Watched>, Never> {
+        leaks(text.as_bytes(), names)
     }
 
     #[test]
     fn a_name_that_is_said_is_the_name_that_comes_back() {
-        let names = watching(&["ada", "her-laptop"]);
-        let both = leaked("ada on her-laptop", &names);
-        let one = leaked("on her-laptop", &names);
+        let Ok(names) = watching(&["ada", "her-laptop"]);
+        let Ok(both) = leaked("ada on her-laptop", &names);
+        let Ok(one) = leaked("on her-laptop", &names);
 
         assert_eq!(both.map(|watched| watched.name.as_str()), Some("ada"));
         assert_eq!(one.map(|watched| watched.name.as_str()), Some("her-laptop"));
@@ -236,49 +234,49 @@ mod tests {
 
     #[test]
     fn text_saying_none_of_them_says_nothing() {
-        let names = watching(&["ada"]);
+        let Ok(names) = watching(&["ada"]);
 
-        assert_eq!(leaked("a handheld belonging to a player", &names), None);
+        assert_eq!(leaked("a handheld belonging to a player", &names), Ok(None));
     }
 
     #[test]
     fn a_name_inside_a_longer_word_was_not_said() {
-        let names = watching(&["nimbus"]);
+        let Ok(names) = watching(&["nimbus"]);
 
-        assert_eq!(leaked("nimbusos-gamescope-autologin.service", &names), None);
-        assert_eq!(leaked("because NimbusOS put it there", &names), None);
-        assert!(leaked("root@nimbus", &names).is_some());
-        assert!(leaked("ssh://root@nimbus-handheld/etc/console", &names).is_some());
-        assert!(leaked("the nimbus in question", &names).is_some());
+        assert_eq!(leaked("nimbusos-gamescope-autologin.service", &names), Ok(None));
+        assert_eq!(leaked("because NimbusOS put it there", &names), Ok(None));
+        assert!(matches!(leaked("root@nimbus", &names), Ok(Some(_))));
+        assert!(matches!(leaked("ssh://root@nimbus-handheld/etc/console", &names), Ok(Some(_))));
+        assert!(matches!(leaked("the nimbus in question", &names), Ok(Some(_))));
     }
 
     #[test]
     fn a_name_in_a_path_was_said() {
-        let names = watching(&["ada"]);
+        let Ok(names) = watching(&["ada"]);
 
-        assert!(leaked("files/home/ada/.config", &names).is_some());
-        assert_eq!(leaked("files/home/adam/.config", &names), None);
-        assert_eq!(leaked("the adage about it", &names), None);
+        assert!(matches!(leaked("files/home/ada/.config", &names), Ok(Some(_))));
+        assert_eq!(leaked("files/home/adam/.config", &names), Ok(None));
+        assert_eq!(leaked("the adage about it", &names), Ok(None));
     }
 
     #[test]
     fn a_name_with_a_capital_is_the_same_name() {
-        let names = watching(&["ada"]);
+        let Ok(names) = watching(&["ada"]);
 
-        assert!(leaked("Signed-off-by: ADA", &names).is_some());
-        assert!(leaked("files/home/Ada/.config", &names).is_some());
+        assert!(matches!(leaked("Signed-off-by: ADA", &names), Ok(Some(_))));
+        assert!(matches!(leaked("files/home/Ada/.config", &names), Ok(Some(_))));
     }
 
     #[test]
     fn a_name_watched_for_with_a_capital_is_found_without_one() {
-        let names = watching(&["Nimbus"]);
+        let Ok(names) = watching(&["Nimbus"]);
 
-        assert!(leaked("root@nimbus", &names).is_some());
+        assert!(matches!(leaked("root@nimbus", &names), Ok(Some(_))));
     }
 
     #[test]
     fn a_file_that_is_not_text_is_still_read() {
-        let names = watching(&["ada"]);
+        let Ok(names) = watching(&["ada"]);
         let mut picture = vec![0x89, b'P', b'N', b'G', 0xff, 0xfe, 0x00];
 
         picture.extend_from_slice(b"/home/ada/Pictures");
@@ -291,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_name_too_short_to_mean_anything_is_not_watched_for() {
-        let names = watching(&["", "  ", "al", "ada"]);
+        let Ok(names) = watching(&["", "  ", "al", "ada"]);
 
         assert_eq!(names.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), vec!["ada"]);
     }
@@ -313,7 +311,7 @@ mod tests {
 
     #[test]
     fn this_machine_can_be_asked_who_it_is() {
-        let Ok((names, _)) = watched();
+        let Ok((names, _)) = forbidden_names();
 
         assert!(!names.is_empty(), "nothing could be asked of this machine");
     }

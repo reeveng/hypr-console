@@ -174,41 +174,21 @@ mod tests {
     const MIDWINTER: f64 = 1_797_681_600.0;
     const EQUINOX: f64 = 1_774_008_000.0;
 
-    fn at(latitude: f64, longitude: f64) -> Where {
-        Where { latitude, longitude }
-    }
-
-    fn up(at: &Where, unix: f64) -> f64 {
-        let Ok(height) = height(at, unix);
-
-        height
-    }
-
-    fn band(at: &Where, unix: f64) -> Sky {
-        let Ok(sky) = sky(at, unix);
-
-        sky
-    }
-
-    fn quarter(at: &Where, unix: f64) -> Season {
-        let Ok(season) = season(at, unix);
-
-        season
-    }
-
-    fn along(unix: f64) -> f64 {
-        let Ok(along) = along_the_year(unix);
-
-        along
-    }
+    const POLE: Where = Where { latitude: 90.0, longitude: 0.0 };
+    const MERIDIAN: Where = Where { latitude: 0.0, longitude: 0.0 };
+    const FAR_SIDE: Where = Where { latitude: 0.0, longitude: 180.0 };
+    const BRUSSELS: Where = Where { latitude: 50.85, longitude: 4.35 };
+    const UTRECHT: Where = Where { latitude: 52.0, longitude: 5.0 };
+    const SYDNEY: Where = Where { latitude: -33.9, longitude: 151.2 };
 
     #[test]
     fn the_midsummer_sun_over_the_pole_stands_at_the_tilt_of_the_earth() {
         for hour in 0..24 {
-            let height = up(&at(90.0, 0.0), SOLSTICE + f64::from(hour) * 3600.0);
+            let Ok(up) = height(&POLE, SOLSTICE + f64::from(hour) * 3600.0);
+
             assert!(
-                (height - 23.4).abs() < 0.3,
-                "at {hour}:00 the pole's sun was {height} degrees up, not the tilt"
+                (up - 23.4).abs() < 0.3,
+                "at {hour}:00 the pole's sun was {up} degrees up, not the tilt"
             );
         }
     }
@@ -216,34 +196,38 @@ mod tests {
     #[test]
     fn the_midwinter_sun_over_the_pole_never_comes_up() {
         for hour in 0..24 {
-            let height = up(&at(90.0, 0.0), MIDWINTER + f64::from(hour) * 3600.0);
-            assert!(height < -22.0, "at {hour}:00 the pole's sun was {height} degrees up");
+            let Ok(up) = height(&POLE, MIDWINTER + f64::from(hour) * 3600.0);
+
+            assert!(up < -22.0, "at {hour}:00 the pole's sun was {up} degrees up");
         }
     }
 
     #[test]
     fn the_equinox_sun_over_the_meridian_at_noon_is_overhead() {
-        let height = up(&at(0.0, 0.0), EQUINOX);
-        assert!(height > 87.0, "the equinox noon sun was only {height} degrees up");
+        let Ok(up) = height(&MERIDIAN, EQUINOX);
+
+        assert!(up > 87.0, "the equinox noon sun was only {up} degrees up");
     }
 
     #[test]
     fn the_far_side_of_the_earth_is_in_the_dark() {
-        assert_eq!(band(&at(0.0, 180.0), EQUINOX), Sky::Night);
-        assert_eq!(band(&at(0.0, 0.0), EQUINOX), Sky::Day);
+        assert_eq!(sky(&FAR_SIDE, EQUINOX), Ok(Sky::Night));
+        assert_eq!(sky(&MERIDIAN, EQUINOX), Ok(Sky::Day));
     }
 
     #[test]
     fn a_day_passes_through_its_bands_in_order() {
-        let place = at(50.85, 4.35);
         let midnight = SOLSTICE - 43_200.0;
-        let mut seen = Vec::new();
-        for minute in 0..1440 {
-            let band = band(&place, midnight + f64::from(minute) * 60.0);
-            if seen.last() != Some(&band) {
-                seen.push(band);
-            }
-        }
+        let mut seen: Vec<Sky> = (0..1440)
+            .map(|minute| {
+                let Ok(band) = sky(&BRUSSELS, midnight + f64::from(minute) * 60.0);
+
+                band
+            })
+            .collect();
+
+        seen.dedup();
+
         assert_eq!(
             seen,
             [
@@ -259,17 +243,23 @@ mod tests {
     }
 
     #[test]
-    fn the_same_height_is_a_morning_going_up_and_an_evening_coming_down() {
-        let place = at(52.0, 5.0);
+    fn the_same_height_is_a_morning_going_up_and_an_evening_coming_down() -> Result<(), &'static str> {
         let level = |from: f64| {
             (0..2880)
                 .map(|tick| from + f64::from(tick) * 60.0)
-                .find(|moment| (0.0..RISEN).contains(&up(&place, *moment)))
+                .find(|moment| {
+                    let Ok(up) = height(&UTRECHT, *moment);
+
+                    (0.0..RISEN).contains(&up)
+                })
         };
-        let morning = level(SOLSTICE - 43_200.0).expect("a morning");
-        let evening = level(SOLSTICE).expect("an evening");
-        assert_eq!(band(&place, morning), Sky::Sunrise);
-        assert_eq!(band(&place, evening), Sky::Sunset);
+        let morning = level(SOLSTICE - 43_200.0).ok_or("a morning")?;
+        let evening = level(SOLSTICE).ok_or("an evening")?;
+
+        assert_eq!(sky(&UTRECHT, morning), Ok(Sky::Sunrise));
+        assert_eq!(sky(&UTRECHT, evening), Ok(Sky::Sunset));
+
+        Ok(())
     }
 
     #[test]
@@ -290,29 +280,26 @@ mod tests {
 
     #[test]
     fn each_quarter_of_the_year_is_its_own_season() {
-        let north = at(50.85, 4.35);
-        assert_eq!(quarter(&north, MID_SPRING), Season::Spring);
-        assert_eq!(quarter(&north, MID_SUMMER), Season::Summer);
-        assert_eq!(quarter(&north, MID_AUTUMN), Season::Autumn);
-        assert_eq!(quarter(&north, MID_WINTER), Season::Winter);
+        assert_eq!(season(&BRUSSELS, MID_SPRING), Ok(Season::Spring));
+        assert_eq!(season(&BRUSSELS, MID_SUMMER), Ok(Season::Summer));
+        assert_eq!(season(&BRUSSELS, MID_AUTUMN), Ok(Season::Autumn));
+        assert_eq!(season(&BRUSSELS, MID_WINTER), Ok(Season::Winter));
     }
 
     #[test]
     fn the_year_turns_in_the_week_the_solstice_is_in() {
-        let north = at(50.85, 4.35);
-        assert_eq!(quarter(&north, 1_781_784_000.0), Season::Spring);
-        assert_eq!(quarter(&north, 1_782_302_400.0), Season::Summer);
-        assert_eq!(quarter(&north, 1_797_681_600.0), Season::Autumn);
-        assert_eq!(quarter(&north, 1_798_113_600.0), Season::Winter);
+        assert_eq!(season(&BRUSSELS, 1_781_784_000.0), Ok(Season::Spring));
+        assert_eq!(season(&BRUSSELS, 1_782_302_400.0), Ok(Season::Summer));
+        assert_eq!(season(&BRUSSELS, 1_797_681_600.0), Ok(Season::Autumn));
+        assert_eq!(season(&BRUSSELS, 1_798_113_600.0), Ok(Season::Winter));
     }
 
     #[test]
     fn the_southern_hemisphere_gets_its_own_seasons() {
-        let south = at(-33.9, 151.2);
-        assert_eq!(quarter(&south, MID_SUMMER), Season::Winter);
-        assert_eq!(quarter(&south, MID_WINTER), Season::Summer);
-        assert_eq!(quarter(&south, MID_SPRING), Season::Autumn);
-        assert_eq!(quarter(&south, MID_AUTUMN), Season::Spring);
+        assert_eq!(season(&SYDNEY, MID_SUMMER), Ok(Season::Winter));
+        assert_eq!(season(&SYDNEY, MID_WINTER), Ok(Season::Summer));
+        assert_eq!(season(&SYDNEY, MID_SPRING), Ok(Season::Autumn));
+        assert_eq!(season(&SYDNEY, MID_AUTUMN), Ok(Season::Spring));
     }
 
     #[test]
@@ -328,7 +315,10 @@ mod tests {
 
     #[test]
     fn the_sun_comes_back_to_where_it_started_after_a_year() {
-        let apart = (along(EQUINOX + 365.2422 * 86_400.0) - along(EQUINOX)).abs();
+        let Ok(later) = along_the_year(EQUINOX + 365.2422 * 86_400.0);
+        let Ok(now) = along_the_year(EQUINOX);
+        let apart = (later - now).abs();
+
         assert!(apart < 1.0 || apart > 359.0, "a year later it was {apart} degrees away");
     }
 }

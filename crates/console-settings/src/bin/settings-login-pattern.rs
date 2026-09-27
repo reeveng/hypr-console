@@ -13,14 +13,13 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use console_core_color::palette::{Wearing, WearingError};
-use console_core_geometry::{Point, Size};
-use console_core_shapes::Shape;
+use console_core_geometry::Size;
+use console_core_iteration::Step;
 use console_core_never::Never;
-use console_draw_painting::{self as painting, Frame};
-use console_draw_surface::{Anchor, Closed, Keyboard, KeyboardEvent, Keysym, Margin, PointerEvent, Room, Surface, SurfaceError, Under, Wanted};
-use console_input_event_devices::presses::ButtonPress;
-use console_login_greeter::picture::{in_the_room, labelled};
-use console_login_pattern::Touch;
+use console_draw_painting::{Rendered, painter};
+use console_draw_surface::{Anchor, Closed, Keyboard, KeyboardEvent, Margin, Room, Surface, SurfaceError, Under, Wanted};
+use console_login_greeter::picture::render;
+use console_login_greeter::session::{press, touch};
 use console_login_window::stored_pattern::{self, PatternStoreError};
 use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
 use console_settings::login::{Drawing, LoginPattern, LoginPatternEffect, LoginPatternEvent};
@@ -77,7 +76,7 @@ fn ran() -> Result<Result<(), LoginPatternError>, Never> {
     };
 
     Ok(match words.as_slice() {
-        [] => chosen(&home),
+        [] => run(&home),
         [word] => match word.as_str() {
             OFF => stored_pattern::remove(&home).map_err(LoginPatternError::Store),
             _ => Err(LoginPatternError::Arguments),
@@ -86,7 +85,7 @@ fn ran() -> Result<Result<(), LoginPatternError>, Never> {
     })
 }
 
-fn chosen(home: &Path) -> Result<(), LoginPatternError> {
+fn run(home: &Path) -> Result<(), LoginPatternError> {
     let worn = Wearing::worn().map_err(LoginPatternError::Palette);
     let wearing = worn?;
     let connected = Surface::connect();
@@ -106,67 +105,64 @@ fn chosen(home: &Path) -> Result<(), LoginPatternError> {
 
     let Ok(arguments) = Arguments::of(&[]);
     let Initial { state, subscriptions: _ } = LoginPattern::init(&arguments);
-    let mut drawing = state;
-    let mut rendered: Option<Vec<Shape>> = None;
+    let turned = console_core_iteration::iterate((surface, state, Rendered::default()), |(mut surface, mut drawing, mut rendered)| {
+        Ok(match turn(&mut surface, &mut drawing, &mut rendered, (&wearing, home)) {
+            Ok(Flow::Continue) => Step::Again((surface, drawing, rendered)),
+            Ok(Flow::Finished) => Step::Halt(Ok(())),
+            Err(fault) => Step::Halt(Err(fault)),
+        })
+    });
 
-    loop {
-        let Ok(()) = drawn(&mut surface, &drawing, &wearing, &mut rendered);
-        let waited = surface.wait(&[], None);
-
-        waited.map_err(LoginPatternError::Surface)?;
-
-        let Ok(closed) = surface.closed();
-
-        match closed {
-            Closed::Yes => return Ok(()),
-            Closed::No => {}
-        }
-
-        let Ok(keys) = surface.keyboard_events();
-        let Ok(pointer) = surface.pointer_events();
-        let Ok(logical) = surface.logical();
-        let pressed = keys.into_iter().filter_map(|KeyboardEvent::Down { key }| {
-            let Ok(press) = press(key);
-
-            press.map(LoginPatternEvent::Pressed)
-        });
-        let touched = pointer.into_iter().filter_map(|event| {
-            let Ok(touch) = touch(event, logical);
-
-            touch.map(LoginPatternEvent::Touched)
-        });
-        let events: Vec<LoginPatternEvent> = pressed.chain(touched).collect();
-
-        for event in events {
-            let turned = turned(&mut drawing, event, home);
-            let flow = turned?;
-
-            match flow {
-                Flow::Continue => {}
-                Flow::Finished => return Ok(()),
-            }
-        }
+    match turned {
+        Ok(turned) => turned,
+        Err(_endless) => Ok(()),
     }
 }
 
-fn touch(event: PointerEvent, logical: Option<Size<u32>>) -> Result<Option<Touch>, Never> {
-    let room = |at: (f64, f64)| {
-        logical.map(|canvas| {
-            let Ok(room) = in_the_room(canvas, Point { x: at.0, y: at.1 });
+fn turn(
+    surface: &mut Surface,
+    drawing: &mut Drawing,
+    rendered: &mut Rendered,
+    (wearing, home): (&Wearing, &Path),
+) -> Result<Flow, LoginPatternError> {
+    let Ok(()) = draw(surface, drawing, wearing, rendered);
+    let waited = surface.wait(&[], None);
 
-            room
-        })
-    };
+    waited.map_err(LoginPatternError::Surface)?;
 
-    Ok(match event {
-        PointerEvent::Down { at } => room(at).map(Touch::Down),
-        PointerEvent::Moved { at } => room(at).map(Touch::Moved),
-        PointerEvent::Up => Some(Touch::Up),
-        PointerEvent::Scrolled { .. } | PointerEvent::Pinched { .. } | PointerEvent::Left => None,
-    })
+    let Ok(closed) = surface.closed();
+
+    match closed {
+        Closed::Yes => return Ok(Flow::Finished),
+        Closed::No => {}
+    }
+
+    let Ok(keys) = surface.keyboard_events();
+    let Ok(pointer) = surface.pointer_events();
+    let Ok(logical) = surface.logical();
+    let pressed = keys.into_iter().filter_map(|KeyboardEvent::Down { key }| {
+        let Ok(press) = press(key);
+
+        press.map(LoginPatternEvent::Pressed)
+    });
+    let touched = pointer.into_iter().filter_map(|event| {
+        let Ok(touch) = touch(event, logical);
+
+        touch.map(LoginPatternEvent::Touched)
+    });
+    let mut flow = Flow::Continue;
+
+    for event in pressed.chain(touched) {
+        flow = match flow {
+            Flow::Finished => Flow::Finished,
+            Flow::Continue => apply_event(drawing, event, home)?,
+        };
+    }
+
+    Ok(flow)
 }
 
-fn turned(drawing: &mut Drawing, event: LoginPatternEvent, home: &Path) -> Result<Flow, LoginPatternError> {
+fn apply_event(drawing: &mut Drawing, event: LoginPatternEvent, home: &Path) -> Result<Flow, LoginPatternError> {
     let Update { state, effects } = LoginPattern::update(drawing, &Event::Custom(event));
 
     *drawing = state;
@@ -174,7 +170,7 @@ fn turned(drawing: &mut Drawing, event: LoginPatternEvent, home: &Path) -> Resul
     for effect in effects {
         match effect {
             Effect::Custom(LoginPatternEffect::Save(secret)) => {
-                let Ok(letters) = secret.spelled();
+                let Ok(letters) = secret.as_str();
                 let hashed = stored_pattern::hashed(letters);
                 let hash = hashed.map_err(LoginPatternError::Store)?;
                 let stored = stored_pattern::store(home, &hash);
@@ -197,41 +193,25 @@ fn turned(drawing: &mut Drawing, event: LoginPatternEvent, home: &Path) -> Resul
     Ok(Flow::Continue)
 }
 
-fn press(key: Keysym) -> Result<Option<ButtonPress>, Never> {
-    Ok(match key {
-        Keysym::Up => Some(ButtonPress::Up),
-        Keysym::Down => Some(ButtonPress::Down),
-        Keysym::Left => Some(ButtonPress::Left),
-        Keysym::Right => Some(ButtonPress::Right),
-        Keysym::Return | Keysym::KP_Enter | Keysym::space => Some(ButtonPress::Choose),
-        Keysym::Escape | Keysym::BackSpace => Some(ButtonPress::Back),
-        _ => None,
-    })
-}
-
-fn drawn(surface: &mut Surface, drawing: &Drawing, wearing: &Wearing, rendered: &mut Option<Vec<Shape>>) -> Result<(), Never> {
+fn draw(surface: &mut Surface, drawing: &Drawing, wearing: &Wearing, rendered: &mut Rendered) -> Result<(), Never> {
     let Ok(logical) = surface.logical();
     let logical = match logical {
         Some(logical) => logical,
         None => return Ok(()),
     };
     let Ok(button) = drawing.button();
-    let Ok(shapes) = labelled(&drawing.greeting, wearing, logical, button);
+    let Ok(shapes) = render(&drawing.greeting, wearing, logical, button);
 
-    match rendered.as_ref() == Some(&shapes) {
-        true => return Ok(()),
-        false => {}
+    let Ok(wanted) = rendered.wanted(shapes);
+
+    match wanted {
+        Some(shapes) => {
+            let Ok(()) = surface.resize(logical);
+            let Ok(painting) = painter(logical, shapes, "settings-login-pattern");
+            let _ = surface.draw(painting);
+        }
+        None => {},
     }
-
-    let Ok(()) = surface.resize(logical);
-    let _ = surface.draw(|pixels, device, _scale| {
-        let frame = Frame { device, points: logical };
-        let _ = painting::onto(pixels, frame, &shapes);
-
-        Ok(())
-    });
-
-    *rendered = Some(shapes);
 
     Ok(())
 }

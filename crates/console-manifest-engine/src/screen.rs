@@ -57,7 +57,7 @@ pub fn wrote(home: &Path) -> Result<Option<String>, Never> {
 
     let Ok(()) = handed_over(holding);
 
-    match console_core_atomic_writes::settled(&at, block.as_bytes()) {
+    match console_core_atomic_writes::write_and_sync(&at, block.as_bytes()) {
         Ok(()) => {},
         Err(fault) => {
             eprintln!("{fault}");

@@ -40,7 +40,7 @@
 //! daemon's answer again.
 
 
-use console_compositor::Query;
+use console_compositor::{ActiveWorkspace, Layers, Question};
 use console_compositor::events::CompositorEvent;
 use console_core_never::Never;
 use console_onscreen::{Over, over_the_desktop};
@@ -80,8 +80,8 @@ pub fn something_over_it(layers: &[console_compositor::Layer]) -> Result<Covered
     })
 }
 
-fn asking(question: Query, told: &mut Notified) -> Result<Option<console_compositor::Answer>, Never> {
-    Ok(match console_compositor::query(question) {
+fn query_once<Q: Question>(question: Q, told: &mut Notified) -> Result<Option<Q::Reply>, Never> {
+    Ok(match console_compositor::ask(question) {
         Ok(said) => Some(said),
         Err(why) => {
             match *told {
@@ -99,14 +99,11 @@ fn asking(question: Query, told: &mut Notified) -> Result<Option<console_composi
 }
 
 pub fn now(told: &mut Notified) -> Result<Covered, Never> {
-    let Ok(front) = asking(Query::ActiveWorkspace, told);
-    let Ok(screens) = asking(Query::Layers, told);
+    let Ok(front) = query_once(ActiveWorkspace, told);
+    let Ok(screens) = query_once(Layers, told);
 
     match (front, screens) {
-        (
-            Some(console_compositor::Answer::ActiveWorkspace(workspace)),
-            Some(console_compositor::Answer::Layers(layers)),
-        ) => {
+        (Some(workspace), Some(layers)) => {
             *told = Notified::NotYet;
 
             let window = holds_a_window(workspace.as_ref())?;
@@ -151,90 +148,119 @@ pub enum Worth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
         "0":[{"address":"0x1","namespace":"awww-daemon"}],
         "2":[{"address":"0x2","namespace":"console-bar"}]}}}"#;
 
-    fn front(text: &str) -> Option<console_compositor::Workspace> {
-        match console_compositor::read(console_compositor::Query::ActiveWorkspace, text) {
-            Ok(console_compositor::Answer::ActiveWorkspace(front)) => front,
-            Ok(other) => panic!("the fixture read as {other:?}"),
-            Err(fault) => panic!("the fixture is not json: {fault}"),
-        }
+    fn front(text: &str) -> Result<Option<console_compositor::Workspace>, Box<dyn Error>> {
+        let front = console_compositor::read(ActiveWorkspace, text)?;
+
+        Ok(front)
     }
 
-    fn said(text: &str) -> Vec<console_compositor::Layer> {
-        match console_compositor::read(console_compositor::Query::Layers, text) {
-            Ok(console_compositor::Answer::Layers(layers)) => layers,
-            Ok(other) => panic!("the fixture read as {other:?}"),
-            Err(fault) => panic!("the fixture is not json: {fault}"),
-        }
+    fn layers_from(text: &str) -> Result<Vec<console_compositor::Layer>, Box<dyn Error>> {
+        let layers = console_compositor::read(Layers, text)?;
+
+        Ok(layers)
     }
 
     #[test]
-    fn a_workspace_with_a_window_on_it_covers_the_wallpaper() {
-        assert_eq!(holds_a_window(front(r#"{"id":3,"name":"3","windows":1}"#).as_ref()), Ok(Covered::Yes));
-        assert_eq!(holds_a_window(front(r#"{"id":3,"name":"3","windows":2}"#).as_ref()), Ok(Covered::Yes));
+    fn a_workspace_with_a_window_on_it_covers_the_wallpaper() -> Result<(), Box<dyn Error>> {
+        let one = front(r#"{"id":3,"name":"3","windows":1}"#)?;
+        let two = front(r#"{"id":3,"name":"3","windows":2}"#)?;
+
+        assert_eq!(holds_a_window(one.as_ref()), Ok(Covered::Yes));
+        assert_eq!(holds_a_window(two.as_ref()), Ok(Covered::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn an_empty_workspace_does_not() {
-        assert_eq!(holds_a_window(front(r#"{"id":1,"name":"1","windows":0}"#).as_ref()), Ok(Covered::No));
+    fn an_empty_workspace_does_not() -> Result<(), Box<dyn Error>> {
+        let workspace = front(r#"{"id":1,"name":"1","windows":0}"#)?;
+
+        assert_eq!(holds_a_window(workspace.as_ref()), Ok(Covered::No));
+
+        Ok(())
     }
 
     #[test]
-    fn the_wallpaper_and_the_bar_are_not_in_front_of_the_wallpaper() {
-        assert_eq!(something_over_it(&said(NOTHING_UP)), Ok(Covered::No));
+    fn the_wallpaper_and_the_bar_are_not_in_front_of_the_wallpaper() -> Result<(), Box<dyn Error>> {
+        let layers = layers_from(NOTHING_UP)?;
+
+        assert_eq!(something_over_it(&layers), Ok(Covered::No));
+
+        Ok(())
     }
 
     #[test]
-    fn the_home_screen_is_the_desktop_and_not_something_in_front_of_it() {
-        let home = r#"{"eDP-1":{"levels":{
+    fn the_home_screen_is_the_desktop_and_not_something_in_front_of_it() -> Result<(), Box<dyn Error>> {
+        let home = layers_from(r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
-            "2":[{"namespace":"console-bar","h":40}]}}}"#;
-        assert_eq!(something_over_it(&said(home)), Ok(Covered::No));
+            "2":[{"namespace":"console-bar","h":40}]}}}"#)?;
+
+        assert_eq!(something_over_it(&home), Ok(Covered::No));
+
+        Ok(())
     }
 
     #[test]
-    fn a_card_opened_from_the_home_screen_is() {
-        let card = r#"{"eDP-1":{"levels":{
+    fn a_card_opened_from_the_home_screen_is() -> Result<(), Box<dyn Error>> {
+        let card = layers_from(r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
-            "3":[{"namespace":"home-square","h":760}]}}}"#;
-        assert_eq!(something_over_it(&said(card)), Ok(Covered::Yes));
+            "3":[{"namespace":"home-square","h":760}]}}}"#)?;
+
+        assert_eq!(something_over_it(&card), Ok(Covered::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn a_card_that_has_gone_away_is_not_in_front_of_anything() {
-        let gone = r#"{"eDP-1":{"levels":{
+    fn a_card_that_has_gone_away_is_not_in_front_of_anything() -> Result<(), Box<dyn Error>> {
+        let gone = layers_from(r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":800}],
             "1":[{"namespace":"console-home","h":760}],
-            "3":[{"namespace":"home-square","h":0}]}}}"#;
-        assert_eq!(something_over_it(&said(gone)), Ok(Covered::No));
+            "3":[{"namespace":"home-square","h":0}]}}}"#)?;
+
+        assert_eq!(something_over_it(&gone), Ok(Covered::No));
+
+        Ok(())
     }
 
     #[test]
-    fn a_menu_is_in_front_of_it() {
-        let menu = r#"{"eDP-1":{"levels":{
+    fn a_menu_is_in_front_of_it() -> Result<(), Box<dyn Error>> {
+        let menu = layers_from(r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon"}],
             "2":[{"namespace":"console-bar"}],
-            "3":[{"namespace":"wofi"}]}}}"#;
-        assert_eq!(something_over_it(&said(menu)), Ok(Covered::Yes));
+            "3":[{"namespace":"wofi"}]}}}"#)?;
+
+        assert_eq!(something_over_it(&menu), Ok(Covered::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn anything_this_has_never_heard_of_is_in_front_of_it() {
-        let new_thing = r#"{"eDP-1":{"levels":{
+    fn anything_this_has_never_heard_of_is_in_front_of_it() -> Result<(), Box<dyn Error>> {
+        let new_thing = layers_from(r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon"}],
-            "3":[{"namespace":"something-written-next-year"}]}}}"#;
-        assert_eq!(something_over_it(&said(new_thing)), Ok(Covered::Yes));
+            "3":[{"namespace":"something-written-next-year"}]}}}"#)?;
+
+        assert_eq!(something_over_it(&new_thing), Ok(Covered::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn a_workspace_that_counts_nothing_is_taken_as_covered() {
-        assert_eq!(holds_a_window(front(r#"{"id":1}"#).as_ref()), Ok(Covered::Yes));
+    fn a_workspace_that_counts_nothing_is_taken_as_covered() -> Result<(), Box<dyn Error>> {
+        let workspace = front(r#"{"id":1}"#)?;
+
+        assert_eq!(holds_a_window(workspace.as_ref()), Ok(Covered::Yes));
+
+        Ok(())
     }
 
     #[test]

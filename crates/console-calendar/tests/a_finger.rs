@@ -10,52 +10,43 @@
 //! the one thing worth pressing here is that the month a person is looking at
 //! is the month the d-pad left them on, and that walking back comes back.
 
+use std::error::Error;
+
 use console_panel::description::Description;
 use console_test_stages::panels::Panel;
 
-fn drawn(keys: &[&str]) -> Vec<Description> {
+fn describe_after(keys: &[&str]) -> Result<Vec<Description>, Box<dyn Error>> {
     let Ok(mut panel) = Panel::opening("calendar-panel", &[]);
 
     for key in keys {
-        match panel.key(key) {
-            Ok(()) => {},
-            Err(why) => panic!("{why}"),
-        }
+        panel.key(key)?;
     }
 
-    match panel.drawn() {
-        Ok(drawn) => drawn,
-        Err(why) => panic!("the calendar could not be asked what it drew: {why}"),
+    let drawn = panel.descriptions().map_err(|why| format!("the calendar could not be asked what it drew: {why}"))?;
+
+    Ok(drawn)
+}
+
+fn month(card: &Description) -> Result<String, Box<dyn Error>> {
+    match card.lines.iter().find(|line| !line.says.is_empty()) {
+        Some(line) => Ok(line.says.clone()),
+        None => Err(Box::from("the card says nothing at all")),
     }
 }
 
-fn month(card: &Description) -> String {
-    let said = card.lines.iter().find(|line| !line.says.is_empty());
-
-    match said {
-        Some(line) => line.says.clone(),
-        None => String::new(),
-    }
+fn first(every: &[Description]) -> Result<&Description, Box<dyn Error>> {
+    every.first().ok_or_else(|| Box::from("the calendar drew nothing at all"))
 }
 
-fn first(every: &[Description]) -> Description {
-    match every.first() {
-        Some(card) => card.clone(),
-        None => panic!("the calendar drew nothing at all"),
-    }
-}
-
-fn last(every: &[Description]) -> Description {
-    match every.last() {
-        Some(card) => card.clone(),
-        None => panic!("the calendar drew nothing at all"),
-    }
+fn last(every: &[Description]) -> Result<&Description, Box<dyn Error>> {
+    every.last().ok_or_else(|| Box::from("the calendar drew nothing at all"))
 }
 
 #[test]
-fn it_opens_saying_which_month_it_is_showing() {
-    let every = drawn(&[]);
-    let said = month(&first(&every));
+fn it_opens_saying_which_month_it_is_showing() -> Result<(), Box<dyn Error>> {
+    let every = describe_after(&[])?;
+    let card = first(&every)?;
+    let said = month(card)?;
     let words: Vec<&str> = said.split_whitespace().collect();
 
     assert_eq!(words.len(), 2, "the month it opened on is written {said:?}");
@@ -63,22 +54,32 @@ fn it_opens_saying_which_month_it_is_showing() {
         words.last().is_some_and(|year| year.chars().all(|letter| letter.is_ascii_digit())),
         "the month it opened on names no year: {said:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_dpad_walks_to_the_month_after_this_one() {
-    let every = drawn(&["Right"]);
-    let opened = month(&first(&every));
-    let on = month(&last(&every));
+fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
+    let every = describe_after(&["Right"])?;
+    let card = first(&every)?;
+    let opened = month(card)?;
+    let card = last(&every)?;
+    let on = month(card)?;
 
     assert_ne!(opened, on, "right on the month drew the same month again");
+
+    Ok(())
 }
 
 #[test]
-fn walking_back_comes_back() {
-    let every = drawn(&["Right", "Left"]);
-    let opened = month(&first(&every));
-    let back = month(&last(&every));
+fn walking_back_comes_back() -> Result<(), Box<dyn Error>> {
+    let every = describe_after(&["Right", "Left"])?;
+    let card = first(&every)?;
+    let opened = month(card)?;
+    let card = last(&every)?;
+    let back = month(card)?;
 
     assert_eq!(opened, back, "a month on and a month back is not where it started");
+
+    Ok(())
 }

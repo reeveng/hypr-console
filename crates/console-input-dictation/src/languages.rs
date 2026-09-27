@@ -41,8 +41,8 @@ pub const UNLESS_TOLD: &str = "auto";
 
 const SETTING: &str = "dictation";
 
-pub fn chosen() -> Result<String, Never> {
-    console_defaults::chosen(console_defaults::Choice { setting: SETTING, unless_told: UNLESS_TOLD, known: one })
+pub fn current() -> Result<String, Never> {
+    console_defaults::current_value(console_defaults::Choice { setting: SETTING, unless_told: UNLESS_TOLD, known: one })
 }
 
 pub fn one(key: &str) -> Result<Option<&'static Language>, Never> {
@@ -78,14 +78,20 @@ mod tests {
 
     #[test]
     fn deciding_for_itself_is_offered_and_offered_first() {
-        assert_eq!(EVERY[0].key, UNLESS_TOLD);
+        assert_eq!(EVERY.first().map(|language| language.key), Some(UNLESS_TOLD));
     }
 
     #[test]
     fn every_language_is_named_once() {
         let mut seen = BTreeSet::new();
-        let twice: Vec<&str> =
-            EVERY.iter().map(|language| language.key).filter(|key| !seen.insert(*key)).collect();
+        let mut twice: Vec<&str> = Vec::new();
+
+        for language in EVERY {
+            match seen.insert(language.key) {
+                true => {}
+                false => twice.push(language.key),
+            }
+        }
 
         assert!(twice.is_empty(), "{twice:?} is named twice");
     }

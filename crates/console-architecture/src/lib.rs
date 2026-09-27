@@ -33,8 +33,10 @@ pub mod units;
 
 use std::path::{Path, PathBuf};
 
-use console_core_ini_files::Under;
 use console_core_never::Never;
+use console_manifest_engine::manifest::{Manifest, Section};
+use console_manifest_engine::unapplied::Unapplied;
+use console_repository::MARK;
 
 use facts::Fact;
 use units::Unit;
@@ -45,14 +47,11 @@ pub const MAP: &str = "docs/architecture/map.dot";
 
 pub const UNITS: &str = "files/etc/systemd/user";
 
-pub const MANIFEST: &str = "desktop.conf";
-
-pub const SERVICES: Under<'static> = Under("services");
-
 #[derive(Debug)]
 pub enum Unread {
     Read(PathBuf, std::io::Error),
     Facts(facts::Unread),
+    Manifest(Unapplied),
 }
 
 impl std::fmt::Display for Unread {
@@ -60,6 +59,7 @@ impl std::fmt::Display for Unread {
         match self {
             Unread::Read(at, fault) => write!(to, "{}: {fault}", at.display()),
             Unread::Facts(fault) => write!(to, "{FACTS}: {fault}"),
+            Unread::Manifest(fault) => write!(to, "{MARK}: {fault}"),
         }
     }
 }
@@ -117,15 +117,16 @@ impl Architecture {
     pub fn read(root: &Path) -> Result<Self, Unread> {
         let said = text(&root.join(FACTS))?;
         let facts = facts::read(&said)?;
-        let manifest = text(&root.join(MANIFEST))?;
+        let manifest = text(&root.join(MARK))?;
+        let manifest = Manifest::read(&manifest).map_err(Unread::Manifest)?;
         let units = unit_files(&root.join(UNITS))?;
-        let Ok(enabled) = console_core_ini_files::lines(&manifest, SERVICES);
-        let enabled = enabled.into_iter().map(String::from).collect();
+        let Ok(enabled) = manifest.of(Section::Services);
+        let enabled = enabled.to_vec();
 
         Ok(Architecture { facts, enabled, units })
     }
 
-    pub fn drawn(&self) -> Result<String, Never> {
-        drawing::drawn(self)
+    pub fn render(&self) -> Result<String, Never> {
+        drawing::draw(self)
     }
 }

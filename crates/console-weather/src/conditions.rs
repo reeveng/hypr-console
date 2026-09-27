@@ -69,7 +69,7 @@ impl Weather {
     }
 }
 
-pub fn named(code: u32) -> Result<Option<&'static str>, Never> {
+pub fn label(code: u32) -> Result<Option<&'static str>, Never> {
     Ok(Some(match code {
         0 => "Clear",
         1 => "Mostly Clear",
@@ -95,7 +95,7 @@ pub fn named(code: u32) -> Result<Option<&'static str>, Never> {
 
 pub const SERVICE: &str = "https://api.open-meteo.com/v1/forecast";
 
-pub fn asking(at: &crate::here::Where) -> Result<String, Never> {
+pub fn request_url(at: &crate::here::Where) -> Result<String, Never> {
     Ok(format!(
         "{SERVICE}?latitude={:.4}&longitude={:.4}&current=weather_code",
         at.latitude, at.longitude
@@ -142,7 +142,7 @@ pub enum Notified {
 }
 
 pub fn now(at: &crate::here::Where, told: &mut Notified) -> Result<Option<Weather>, Never> {
-    let asked = asking(at)?;
+    let asked = request_url(at)?;
 
     let said = match answer(&asked) {
         Ok(said) => {
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn the_question_names_the_place_it_is_asked_about() {
-        let Ok(asked) = asking(&crate::here::Where {
+        let Ok(asked) = request_url(&crate::here::Where {
             latitude: 13.7563,
             longitude: 100.5018,
         });
@@ -276,8 +276,8 @@ mod tests {
 
     #[test]
     fn a_code_is_named_as_finely_as_it_was_written_down() {
-        assert_eq!(named(2), Ok(Some("Partly Cloudy")));
-        assert_eq!(named(65), Ok(Some("Heavy Rain")));
-        assert_eq!(named(4), Ok(None));
+        assert_eq!(label(2), Ok(Some("Partly Cloudy")));
+        assert_eq!(label(65), Ok(Some("Heavy Rain")));
+        assert_eq!(label(4), Ok(None));
     }
 }

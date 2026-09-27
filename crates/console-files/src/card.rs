@@ -151,7 +151,7 @@ fn called(held: &ActorAddress, tab: u32) -> Result<String, Never> {
 fn typed_in(held: &ActorAddress, tab: u32) -> Result<String, Never> {
     let standing = standing_of(held)?;
 
-    standing::typed(&standing, tab)
+    standing::search_text(&standing, tab)
 }
 
 fn stand_where_asked(held: &ActorAddress, tab: u32, showing: &dyn Showing) -> Result<(), Never> {
@@ -195,7 +195,7 @@ fn read(path: &Path) -> Result<Vec<Entry>, Never> {
 
     for about in children.flatten() {
         let name = about.file_name().to_string_lossy().to_string();
-        let wanted = listing::wanted(&name)?;
+        let wanted = listing::visibility(&name)?;
 
         match wanted {
             Shown::No => continue,
@@ -265,11 +265,11 @@ fn home() -> Result<Vec<Place>, Never> {
 
     let wanted = places::wanted_at(&home, &said)?;
 
-    places::kept(wanted, |path| path.is_dir())
+    places::existing(wanted, |path| path.is_dir())
 }
 
 fn cache_store() -> Result<PathBuf, Never> {
-    let Ok(cache) = console_core_places::Base::Cache.hers();
+    let Ok(cache) = console_core_places::Base::Cache.user();
 
     match cache {
         Some(cache) => thumbnails::store(&cache),
@@ -296,7 +296,7 @@ fn plugged_in() -> Result<Vec<Place>, Never> {
 }
 
 fn wanting_pictures(showing: &dyn Showing, here: &Path) -> Result<(), Never> {
-    let said = said(here)?;
+    let said = path_text(here)?;
 
     showing.later(vec!["files-thumbnails".to_string(), said]);
 
@@ -405,7 +405,7 @@ fn found_rows(held: &ActorAddress, tab: u32, here: &Path, word: &str) -> Result<
 
     match found.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("No Results");
+            let Ok(row) = Row::placeholder("No Results");
 
             rows.push(row);
 
@@ -456,7 +456,7 @@ fn found_row(held: &ActorAddress, tab: u32, one: &Found, picture: &Picture) -> R
         false => {
             let here = here_of(held, tab)?;
             let at = one.at(&here)?;
-            let said = said(&at)?;
+            let said = path_text(&at)?;
             let Ok(opens) = Program::XdgOpen.name();
             let Ok(runs) = Handler::run(&[opens, &said]);
             let Ok(row) = Row::new(&one.thing.name, Aside(&aside), runs);
@@ -486,7 +486,7 @@ fn picture(store: &Path, here: &Path, thing: &Entry, room: Room) -> Result<Pictu
     let worth = thing.worth_a_picture()?;
 
     let found = match worth {
-        Worth::APicture => thumbnails::found(store, &here.join(&thing.name))?,
+        Worth::APicture => thumbnails::find_thumbnail(store, &here.join(&thing.name))?,
         Worth::ItsNameAlone => None,
     };
 
@@ -552,7 +552,7 @@ fn thing_row(
     let held = held.clone();
     let thing = thing.clone();
     let here = here_of(&held, tab)?;
-    let key = said(&here.join(&thing.name))?;
+    let key = path_text(&here.join(&thing.name))?;
 
     let Ok(pictured) = row.picturing(picture.clone());
     let Ok(pictured) = pictured.selectable(&key);
@@ -580,7 +580,7 @@ fn put_down_row(held: &ActorAddress, holding: &Holding, here: &Path) -> Result<R
         },
     };
     let what: Vec<String> = holding.paths.iter().map(|path| path.to_string_lossy().to_string()).collect();
-    let into = said(here)?;
+    let into = path_text(here)?;
     let arguments = [arguments, what, vec![into]].concat();
     let held = held.clone();
     let says = holding.says()?;
@@ -604,7 +604,7 @@ fn ask_for_a_folder(
     let here = here.to_path_buf();
     let held = held.clone();
 
-    let answer = answered(move |showing, word| {
+    let answer = answer(move |showing, word| {
         let Ok(name) = doing::a_name(word);
 
         let name = match name {
@@ -614,7 +614,7 @@ fn ask_for_a_folder(
 
         let Ok(()) = back_to_the_folder(&held, tab, showing, from);
 
-        let Ok(made) = said(&here.join(name));
+        let Ok(made) = path_text(&here.join(name));
 
         let Ok(making) = Program::Mkdir.arguments(&["--", &made]);
 
@@ -677,7 +677,7 @@ fn one_format_row(held: &ActorAddress, tab: u32, here: &Path, from: Line) -> Res
         let here = here.clone();
         let held = held.clone();
 
-        let Ok(whole) = said(&here);
+        let Ok(whole) = path_text(&here);
 
         let folder = match here.file_name() {
             Some(folder) => folder.to_string_lossy().to_string(),
@@ -685,12 +685,12 @@ fn one_format_row(held: &ActorAddress, tab: u32, here: &Path, from: Line) -> Res
         };
         let said_as = folder.clone();
 
-        let Ok(then) = taken(move |showing, _| {
+        let Ok(then) = on_chosen(move |showing, _| {
             let Ok(()) = back_to_the_folder(&held, tab, showing, from);
 
             showing.note(&format!("Converting {folder}…"));
 
-            let Ok(at) = said(&here);
+            let Ok(at) = path_text(&here);
 
             showing.later(vec!["downloads-format".to_string(), at]);
         });
@@ -768,7 +768,7 @@ fn program_rows(
 
     match found.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("No App Opens This");
+            let Ok(row) = Row::placeholder("No App Opens This");
 
             rows.push(row);
 
@@ -819,7 +819,7 @@ fn deed_row(
     let path = path.to_path_buf();
 
     let Ok(does) = Handler::and_stay(move |showing| {
-        let Ok(()) = done(&held, tab, &thing, from, &path, deed, showing);
+        let Ok(()) = perform(&held, tab, &thing, from, &path, deed, showing);
     });
     let Ok(row) = Row::new(says, Aside(""), does);
 
@@ -833,7 +833,7 @@ fn deed_row(
     })
 }
 
-fn done(
+fn perform(
     held: &ActorAddress,
     tab: u32,
     thing: &Entry,
@@ -854,10 +854,10 @@ fn done(
             let path = path.to_path_buf();
             let says = deed.says()?;
 
-            let then = taken(move |showing, _| {
+            let then = on_chosen(move |showing, _| {
                 let Ok(()) = back_to_the_folder(&held, tab, showing, from);
 
-                let Ok(at) = said(&path);
+                let Ok(at) = path_text(&path);
 
                 let Ok(trashing) = Program::Gio.arguments(&["trash", "--", &at]);
 
@@ -879,7 +879,7 @@ fn done(
         FileAction::Select => {
             back_to_the_folder(held, tab, showing, from)?;
 
-            let at = said(path)?;
+            let at = path_text(path)?;
 
             showing.select(vec![at]);
         }
@@ -888,7 +888,7 @@ fn done(
 
             showing.note(&format!("Unzipping {}…", thing.name));
 
-            let at = said(path)?;
+            let at = path_text(path)?;
 
             showing.later(vec![UNZIPS.to_string(), at]);
         }
@@ -897,7 +897,7 @@ fn done(
 
             showing.note(&format!("Setting {} as wallpaper…", thing.name));
 
-            let at = said(path)?;
+            let at = path_text(path)?;
 
             showing.later(vec!["wallpaper-render".to_string(), "--take".to_string(), at]);
         }
@@ -905,7 +905,7 @@ fn done(
             let held = held.clone();
             let path = path.to_path_buf();
 
-            let answer = answered(move |showing, word| {
+            let answer = answer(move |showing, word| {
                 let Ok(name) = doing::a_name(word);
 
                 let name = match name {
@@ -917,9 +917,9 @@ fn done(
 
                 let beside = path.with_file_name(name);
 
-                let Ok(was) = said(&path);
+                let Ok(was) = path_text(&path);
 
-                let Ok(now) = said(&beside);
+                let Ok(now) = path_text(&beside);
 
                 showing.later(vec!["mv".to_string(), "--".to_string(), was, now]);
             })?;
@@ -944,17 +944,17 @@ fn went_up(held: &ActorAddress, tab: u32, showing: &dyn Showing) -> Result<(), N
     press(held, FilesEvent::Up { tab }, showing)
 }
 
-fn said(path: &Path) -> Result<String, Never> {
+fn path_text(path: &Path) -> Result<String, Never> {
     Ok(path.to_string_lossy().to_string())
 }
 
-fn answered(
+fn answer(
     then: impl Fn(&dyn Showing, &str) + Send + Sync + 'static,
 ) -> Result<Answer, Never> {
     Ok(Arc::new(then))
 }
 
-fn taken(then: impl Fn(&dyn Showing, u32) + Send + Sync + 'static) -> Result<OnChosen, Never> {
+fn on_chosen(then: impl Fn(&dyn Showing, u32) + Send + Sync + 'static) -> Result<OnChosen, Never> {
     Ok(Arc::new(then))
 }
 
@@ -1002,7 +1002,7 @@ fn page(held: &ActorAddress, tab: u32, title: &str) -> Result<Page, Never> {
     let backing = held.clone();
     let arriving = held.clone();
 
-    let Ok(asking) = Rows::asked(move || {
+    let Ok(asking) = Rows::computed(move || {
         let Ok(rows) = rows(&reading, tab);
 
         rows

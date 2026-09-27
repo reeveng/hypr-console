@@ -30,12 +30,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::visit::Visit;
 
+use console_core_iteration::Step;
+use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
 const SHORTEST: u32 = 60;
@@ -46,14 +48,7 @@ const MET: u32 = 8;
 
 const ALIKE_ENOUGH: f64 = 0.7;
 
-const ALIKE: [(&[&str], &str); 9] = [
-    (
-        &[
-            "crates/console-core-color/src/palette.rs::out_of",
-            "crates/console-status-bar/src/showing.rs::out_of",
-        ],
-        "each surface takes the colors it wears by name, and which names is the whole of what differs",
-    ),
+const ALIKE: [(&[&str], &str); 8] = [
     (
         &[
             "crates/console-home-screen/src/bin/console-home.rs::worth_asking_after",
@@ -72,17 +67,10 @@ const ALIKE: [(&[&str], &str); 9] = [
     ),
     (
         &[
-            "crates/console-program-contract/src/effect.rs::spawned",
-            "crates/console-program-contract/src/effect.rs::written",
+            "crates/console-program-contract/src/effect.rs::as_spawn",
+            "crates/console-program-contract/src/effect.rs::as_file_write",
         ],
         "one accessor per variant of Effect, and the no-wildcard rule writes the other variants out in each",
-    ),
-    (
-        &[
-            "crates/console-media-viewer/src/editing.rs::made",
-            "crates/console-pictures/src/lib.rs::made_for",
-        ],
-        "each crate's tests draw their own fixture with ffmpeg, and sharing it would put a test's helper in the pictures crate's public face",
     ),
     (
         &[
@@ -112,23 +100,30 @@ const ALIKE: [(&[&str], &str); 9] = [
         ],
         "the stage's type decides which Body variant is asked for, and a function over two types is two functions",
     ),
+    (
+        &[
+            "crates/console-core-color/src/palette.rs::out_of",
+            "crates/console-status-bar/src/showing.rs::out_of",
+        ],
+        "each surface's Wearing names the colours it spends and no others, and the reading they share is find_color already",
+    ),
 ];
 
 const NOT_YET: [&[&str]; 4] = [
     &[
-        "crates/console-core-places/src/lib.rs::said",
-        "crates/console-test-desktop/src/lib.rs::said",
+        "crates/console-core-places/src/lib.rs::env_var",
+        "crates/console-test-desktop/src/lib.rs::env_var",
     ],
     &[
         "crates/console-device/src/bin/console-deploy.rs::today",
         "crates/console-input-dictation/src/bin/voice-compare.rs::stamped",
     ],
     &[
-        "crates/console-input-controller/src/reading.rs::told",
+        "crates/console-input-controller/src/reading.rs::path_from_environment",
         "crates/console-panel/src/description.rs::where_to",
     ],
     &[
-        "crates/console-notifications/src/serving.rs::kept",
+        "crates/console-notifications/src/serving.rs::inbox_path",
         "crates/console-notifications/src/updating.rs::at",
     ],
 ];
@@ -139,9 +134,15 @@ const KEYWORDS: [&str; 30] = [
     "self", "static", "struct", "super", "true", "while",
 ];
 
-fn root() -> PathBuf {
+type Pair = (String, String, f64);
+
+fn root() -> Result<PathBuf, Never> {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
+
+    match from.canonicalize() {
+        Ok(found) => Ok(found),
+        Err(_not_there) => Ok(from),
+    }
 }
 
 struct Written {
@@ -149,29 +150,76 @@ struct Written {
     shape: BTreeSet<u64>,
 }
 
-fn named_by_where(this: &TokenTree) -> bool {
-    match this {
+#[derive(Clone, Copy)]
+enum Closing {
+    End,
+    Top,
+}
+
+struct Level {
+    trees: Vec<TokenTree>,
+    at: u32,
+    closing: Closing,
+}
+
+#[derive(Clone, Copy)]
+enum Meaning {
+    Named,
+    AnyName,
+}
+
+fn meaning(said: &str, (before, after): (Option<&TokenTree>, Option<&TokenTree>)) -> Result<Meaning, Never> {
+    let called = after.is_some_and(|after| match after {
         TokenTree::Group(group) => group.delimiter() == Delimiter::Parenthesis,
         TokenTree::Punct(punct) => punct.as_char() == ':' || punct.as_char() == '!',
         TokenTree::Ident(_) | TokenTree::Literal(_) => false,
-    }
+    });
+
+    let reached = before.is_some_and(|before| match before {
+        TokenTree::Punct(punct) => punct.as_char() == '.' || punct.as_char() == ':',
+        TokenTree::Group(_) | TokenTree::Ident(_) | TokenTree::Literal(_) => false,
+    });
+
+    let meant = KEYWORDS.contains(&said) || said.starts_with(|first: char| first.is_uppercase()) || called || reached;
+
+    Ok(match meant {
+        true => Meaning::Named,
+        false => Meaning::AnyName,
+    })
 }
 
-fn flatten(stream: TokenStream, into: &mut Vec<String>) {
-    let trees: Vec<TokenTree> = stream.into_iter().collect();
+fn flatten(stream: TokenStream) -> Result<Vec<String>, Never> {
+    let walking = vec![Level { trees: stream.into_iter().collect(), at: 0, closing: Closing::Top }];
+    let flattened = console_core_iteration::iterate((Vec::new(), walking), |(mut into, mut walking)| {
+        let top = match walking.last_mut() {
+            Some(top) => top,
+            None => return Ok(Step::Halt(into)),
+        };
 
-    for (at, tree) in trees.iter().enumerate() {
-        let before = at.checked_sub(1).and_then(|before| trees.get(before));
-        let after = trees.get(at.saturating_add(1));
+        let Ok(at) = index(top.at);
+        let tree = top.trees.get(at).cloned();
+        let before = at.checked_sub(1).and_then(|before| top.trees.get(before)).cloned();
+        let after = top.trees.get(at.saturating_add(1)).cloned();
+
+        top.at = top.at.saturating_add(1);
 
         match tree {
-            TokenTree::Group(group) => {
-                into.push(format!("{:?}", group.delimiter()));
-                flatten(group.stream(), into);
-                into.push("end".to_string());
+            None => {
+                let closing = top.closing;
+
+                walking.pop();
+
+                match closing {
+                    Closing::End => into.push("end".to_string()),
+                    Closing::Top => {}
+                }
             }
-            TokenTree::Punct(punct) => into.push(punct.as_char().to_string()),
-            TokenTree::Literal(literal) => {
+            Some(TokenTree::Group(group)) => {
+                into.push(format!("{:?}", group.delimiter()));
+                walking.push(Level { trees: group.stream().into_iter().collect(), at: 0, closing: Closing::End });
+            }
+            Some(TokenTree::Punct(punct)) => into.push(punct.as_char().to_string()),
+            Some(TokenTree::Literal(literal)) => {
                 let said = literal.to_string();
 
                 match said.starts_with('"') || said.starts_with('r') {
@@ -179,35 +227,32 @@ fn flatten(stream: TokenStream, into: &mut Vec<String>) {
                     false => into.push(said),
                 }
             }
-            TokenTree::Ident(ident) => {
+            Some(TokenTree::Ident(ident)) => {
                 let said = ident.to_string();
-
-                let meant = KEYWORDS.contains(&said.as_str())
-                    || said.starts_with(|first: char| first.is_uppercase())
-                    || after.is_some_and(named_by_where)
-                    || before.is_some_and(|before| match before {
-                        TokenTree::Punct(punct) => punct.as_char() == '.' || punct.as_char() == ':',
-                        TokenTree::Group(_) | TokenTree::Ident(_) | TokenTree::Literal(_) => false,
-                    });
+                let Ok(meant) = meaning(&said, (before.as_ref(), after.as_ref()));
 
                 match meant {
-                    true => into.push(said),
-                    false => into.push("_".to_string()),
+                    Meaning::Named => into.push(said),
+                    Meaning::AnyName => into.push("_".to_string()),
                 }
             }
         }
-    }
+
+        Ok(Step::Again((into, walking)))
+    });
+
+    Ok(match flattened {
+        Ok(into) => into,
+        Err(_endless) => Vec::new(),
+    })
 }
 
-fn shape(body: &syn::Block) -> Option<BTreeSet<u64>> {
-    let mut tokens = Vec::new();
-
-    flatten(body.to_token_stream(), &mut tokens);
-
+fn shape(body: &syn::Block) -> Result<Option<BTreeSet<u64>>, Never> {
+    let Ok(tokens) = flatten(body.to_token_stream());
     let Ok(long) = fitted::<_, u32>(tokens.len());
     let Ok(run) = index(RUN);
 
-    match long < SHORTEST {
+    Ok(match long < SHORTEST {
         true => None,
         false => Some(
             tokens
@@ -219,11 +264,20 @@ fn shape(body: &syn::Block) -> Option<BTreeSet<u64>> {
                 })
                 .collect(),
         ),
-    }
+    })
 }
 
-fn is_test(attributes: &[syn::Attribute]) -> bool {
-    attributes.iter().any(|attribute| attribute.path().is_ident("test"))
+#[derive(Clone, Copy)]
+enum Caller {
+    ByATest,
+    ByTheTree,
+}
+
+fn asked_by(attributes: &[syn::Attribute]) -> Result<Caller, Never> {
+    Ok(match attributes.iter().any(|attribute| attribute.path().is_ident("test")) {
+        true => Caller::ByATest,
+        false => Caller::ByTheTree,
+    })
 }
 
 struct Reading<'a> {
@@ -232,21 +286,26 @@ struct Reading<'a> {
 }
 
 impl Reading<'_> {
-    fn keep(&mut self, ident: &syn::Ident, attributes: &[syn::Attribute], body: &syn::Block) {
+    fn keep(&mut self, (ident, attributes, body): (&syn::Ident, &[syn::Attribute], &syn::Block)) -> Result<(), Never> {
         let Ok(line) = fitted::<_, u32>(ident.span().start().line);
+        let Ok(asked) = asked_by(attributes);
+        let Ok(shape) = shape(body);
 
-        match (is_test(attributes), shape(body)) {
-            (false, Some(shape)) => {
+        match (asked, shape) {
+            (Caller::ByTheTree, Some(shape)) => {
                 self.found.push(Written { named: format!("{}::{ident}:{line}", self.file), shape })
             }
-            (true, _) | (false, None) => {}
+            (Caller::ByATest, _) | (Caller::ByTheTree, None) => {}
         }
+
+        Ok(())
     }
 }
 
 impl<'ast> Visit<'ast> for Reading<'_> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        self.keep(&item.sig.ident, &item.attrs, &item.block);
+        let Ok(()) = self.keep((&item.sig.ident, &item.attrs, &item.block));
+
         syn::visit::visit_item_fn(self, item);
     }
 
@@ -258,12 +317,13 @@ impl<'ast> Visit<'ast> for Reading<'_> {
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.keep(&item.sig.ident, &item.attrs, &item.block);
+        let Ok(()) = self.keep((&item.sig.ident, &item.attrs, &item.block));
+
         syn::visit::visit_impl_item_fn(self, item);
     }
 }
 
-fn read(top: &Path, files: &[PathBuf]) -> Vec<Written> {
+fn read(top: &Path, files: &[PathBuf]) -> Result<Vec<Written>, Never> {
     let mut found = Vec::new();
 
     for at in files {
@@ -275,37 +335,47 @@ fn read(top: &Path, files: &[PathBuf]) -> Vec<Written> {
             Ok(parsed) => parsed,
             Err(_not_rust_syn_reads) => continue,
         };
-        let file = at.strip_prefix(top).unwrap_or(at).display().to_string();
+        let file = match at.strip_prefix(top) {
+            Ok(inside) => inside.display().to_string(),
+            Err(_outside_the_tree) => at.display().to_string(),
+        };
 
         Reading { file: &file, found: &mut found }.visit_file(&parsed);
     }
 
-    found
+    Ok(found)
 }
 
-fn written() -> Vec<Written> {
-    let top = root();
+fn scan_sources() -> Result<Vec<Written>, Never> {
+    let Ok(top) = root();
     let Ok(files) = console_repository::sources::under(&top.join("crates"));
     let Ok(hands) = fitted::<_, u32>(std::thread::available_parallelism().map_or(1, |hands| hands.get()));
     let Ok(many) = fitted::<_, u32>(files.len());
     let Ok(each) = index(many.div_ceil(hands.max(1)).max(1));
+    let found: Mutex<Vec<Written>> = Mutex::new(Vec::new());
+    let (top, held) = (&top, &found);
 
     std::thread::scope(|scope| {
-        let reading: Vec<_> =
-            files.chunks(each).map(|share| scope.spawn(|| read(&top, share))).collect();
+        for share in files.chunks(each) {
+            scope.spawn(move || {
+                let Ok(read) = read(top, share);
 
-        reading.into_iter().flat_map(|one| one.join().unwrap_or_default()).collect()
+                match held.lock() {
+                    Ok(mut held) => held.extend(read),
+                    Err(poisoned) => poisoned.into_inner().extend(read),
+                }
+            });
+        }
+    });
+
+    Ok(match found.into_inner() {
+        Ok(found) => found,
+        Err(poisoned) => poisoned.into_inner(),
     })
 }
 
-fn pairs() -> &'static [(String, String, f64)] {
-    static FOUND: OnceLock<Vec<(String, String, f64)>> = OnceLock::new();
-
-    FOUND.get_or_init(compared)
-}
-
-fn compared() -> Vec<(String, String, f64)> {
-    let every = written();
+fn similar_pairs() -> Result<Vec<Pair>, Never> {
+    let Ok(every) = scan_sources();
     let mut holding: BTreeMap<u64, Vec<u32>> = BTreeMap::new();
 
     for (one, at) in every.iter().zip(0u32..) {
@@ -325,11 +395,13 @@ fn compared() -> Vec<(String, String, f64)> {
         }
     }
 
-    let mut alike: Vec<(String, String, f64)> = met
+    let mut alike: Vec<Pair> = met
         .into_iter()
         .filter(|(_, shared)| *shared >= MET)
         .filter_map(|((one, other), _)| {
-            let (one, other) = every.get(index(one).ok()?).zip(every.get(index(other).ok()?))?;
+            let Ok(one) = index(one);
+            let Ok(other) = index(other);
+            let (one, other) = every.get(one).zip(every.get(other))?;
             let Ok(shared) = fitted::<_, u32>(one.shape.intersection(&other.shape).count());
             let Ok(first) = fitted::<_, u32>(one.shape.len());
             let Ok(second) = fitted::<_, u32>(other.shape.len());
@@ -343,14 +415,14 @@ fn compared() -> Vec<(String, String, f64)> {
 
     alike.sort_by(|one, other| other.2.total_cmp(&one.2).then_with(|| one.0.cmp(&other.0)));
 
-    alike
+    Ok(alike)
 }
 
-fn without_line(named: &str) -> &str {
-    named.rsplit_once(':').map_or(named, |(named, _line)| named)
+fn without_line(named: &str) -> Result<&str, Never> {
+    Ok(named.rsplit_once(':').map_or(named, |(named, _line)| named))
 }
 
-fn groups(pairs: &[(String, String, f64)]) -> Vec<BTreeSet<String>> {
+fn groups(pairs: &[Pair]) -> Result<Vec<BTreeSet<String>>, Never> {
     let mut held: Vec<BTreeSet<String>> = Vec::new();
 
     for (one, other, _) in pairs {
@@ -367,27 +439,38 @@ fn groups(pairs: &[(String, String, f64)]) -> Vec<BTreeSet<String>> {
 
     held.sort();
 
-    held
+    Ok(held)
 }
 
-fn let_through() -> Result<impl Iterator<Item = &'static [&'static str]>, console_core_never::Never> {
+fn let_through() -> Result<impl Iterator<Item = &'static [&'static str]>, Never> {
     Ok(ALIKE.iter().map(|(group, _why)| *group).chain(NOT_YET.iter().copied()))
 }
 
-fn accepted(one: &str, other: &str) -> bool {
-    let (one, other) = (without_line(one), without_line(other));
+fn allowed() -> Result<BTreeSet<(&'static str, &'static str)>, Never> {
+    let Ok(every) = let_through();
 
-    let Ok(mut every) = let_through();
-
-    every.any(|group| group.contains(&one) && group.contains(&other))
+    Ok(every
+        .flat_map(|group| group.iter().flat_map(move |one| group.iter().map(move |other| (*one, *other))))
+        .collect())
 }
 
 #[test]
 fn no_function_is_written_twice() {
-    let twice: Vec<(String, String, f64)> =
-        pairs().iter().filter(|(one, other, _)| !accepted(one, other)).cloned().collect();
+    let Ok(pairs) = similar_pairs();
+    let Ok(allowed) = allowed();
 
-    let said: Vec<String> = groups(&twice)
+    let twice: Vec<Pair> = pairs
+        .into_iter()
+        .filter(|(one, other, _)| {
+            let (Ok(one), Ok(other)) = (without_line(one), without_line(other));
+
+            !allowed.contains(&(one, other))
+        })
+        .collect();
+
+    let Ok(grouped) = groups(&twice);
+
+    let said: Vec<String> = grouped
         .into_iter()
         .map(|group| group.into_iter().collect::<Vec<String>>().join("\n    "))
         .collect();
@@ -401,20 +484,26 @@ fn no_function_is_written_twice() {
 
 #[test]
 fn every_group_let_stay_is_still_alike() {
-    let found = pairs();
-
+    let Ok(pairs) = similar_pairs();
+    let Ok(allowed) = allowed();
     let Ok(every) = let_through();
 
-    let stale: Vec<String> = every
-        .flat_map(|group| {
-            group.iter().filter(|member| {
-                !found.iter().any(|(one, other, _)| {
-                    let (one, other) = (without_line(one), without_line(other));
+    let met: BTreeSet<&str> = pairs
+        .iter()
+        .filter_map(|(one, other, _)| {
+            let (Ok(one), Ok(other)) = (without_line(one), without_line(other));
 
-                    (one == **member && group.contains(&other)) || (other == **member && group.contains(&one))
-                })
-            })
+            match allowed.contains(&(one, other)) {
+                true => Some([one, other]),
+                false => None,
+            }
         })
+        .flatten()
+        .collect();
+
+    let stale: Vec<String> = every
+        .flatten()
+        .filter(|member| !met.contains(**member))
         .map(|member| member.to_string())
         .collect();
 

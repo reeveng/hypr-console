@@ -19,7 +19,7 @@ use std::process::{Command, ExitCode};
 
 use console_battery::{Cable, Charge, Step, charge};
 use console_core_never::Never;
-use console_waiting::{Schedule, found};
+use console_waiting::{Schedule, until_some};
 use console_notifications::saying::{StatePath, Content, journal, raise, raise_kept};
 use console_settings::stopping::{GRACE, LOOKING, Stop, card, for_the_journal, saved, stop};
 
@@ -29,7 +29,7 @@ const NOTHING_SAID: i32 = 0;
 const USAGE: &str = "usage: console-battery [low|lower|protect]";
 
 fn main() -> ExitCode {
-    let Ok(named) = std::env::args().nth(1).as_deref().map(Step::named).transpose();
+    let Ok(named) = std::env::args().nth(1).as_deref().map(Step::from_word).transpose();
 
     let step = match named.flatten() {
         Some(step) => step,
@@ -62,7 +62,7 @@ fn main() -> ExitCode {
         }
         Step::Low | Step::Lower => {
             let Ok(card) = card(step, percent, stop);
-            let Ok(kept) = StatePath::named("battery");
+            let Ok(kept) = StatePath::new("battery");
             let Ok(()) = raise_kept(card, &kept);
 
             ExitCode::SUCCESS
@@ -72,7 +72,7 @@ fn main() -> ExitCode {
 
 fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
     let Ok(card) = card(Step::Protect, percent, stop);
-    let Ok(kept) = StatePath::named("battery");
+    let Ok(kept) = StatePath::new("battery");
     let Ok(()) = raise_kept(card, &kept);
     let Ok(plugged) = plugged_in_within(GRACE);
 
@@ -82,7 +82,7 @@ fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
                 journal(&format!("battery at {percent}%: the cable went in, so nothing was stopped"));
 
             let Ok(saved) = saved();
-            let Ok(kept) = StatePath::named("battery");
+            let Ok(kept) = StatePath::new("battery");
             let Ok(()) = raise_kept(saved, &kept);
 
             return Ok(ExitCode::SUCCESS);
@@ -132,7 +132,7 @@ fn stopping(percent: i32, stop: Stop) -> Result<ExitCode, Never> {
 fn plugged_in_within(waiting: std::time::Duration) -> Result<Option<i32>, Never> {
     let Ok(patience) = Schedule::asking_every(waiting, LOOKING);
 
-    found(patience, || {
+    until_some(patience, || {
         let said = charge()?;
         let now = Charge::of(&said)?;
 

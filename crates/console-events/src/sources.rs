@@ -112,7 +112,7 @@ pub enum Subscribed {
 
 pub const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 
-pub const OURS: &str = "console.Notifications";
+pub const APPLICATION: &str = "console.Notifications";
 
 pub const PLAYERS: &str = "/org/mpris/MediaPlayer2";
 
@@ -149,33 +149,33 @@ pub fn hold(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
             Subscribed::Yes
         }
         Topic::Sound => {
-            let Ok(arguments) = worded(&["subscribe"]);
+            let Ok(arguments) = to_strings(&["subscribe"]);
             let Ok(()) = theirs(Topic::Sound, Program::Pactl, arguments, say);
 
             Subscribed::Yes
         }
         Topic::Network => {
-            let Ok(arguments) = worded(&["monitor"]);
+            let Ok(arguments) = to_strings(&["monitor"]);
             let Ok(()) = theirs(Topic::Network, Program::Nmcli, arguments, say);
 
             Subscribed::Yes
         }
         Topic::Wifi => {
             let Ok(gdbus) = Program::Gdbus.name();
-            let Ok(arguments) = worded(&["-oL", gdbus, "monitor", "--system", "--dest", NETWORK_MANAGER]);
+            let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", NETWORK_MANAGER]);
             let Ok(()) = theirs(Topic::Wifi, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
         Topic::Bluetooth => {
             let Ok(gdbus) = Program::Gdbus.name();
-            let Ok(arguments) = worded(&["-oL", gdbus, "monitor", "--system", "--dest", BLUEZ]);
+            let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", BLUEZ]);
             let Ok(()) = theirs(Topic::Bluetooth, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
         Topic::Battery => {
-            let Ok(arguments) = worded(&["monitor", "--udev", "--subsystem-match=power_supply"]);
+            let Ok(arguments) = to_strings(&["monitor", "--udev", "--subsystem-match=power_supply"]);
             let Ok(()) = theirs(Topic::Battery, Program::Udevadm, arguments, say);
 
             Subscribed::Yes
@@ -183,7 +183,7 @@ pub fn hold(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
         Topic::Notifications => {
             let Ok(arguments) = monitoring(&[
                 format!("--match=interface={NOTIFICATIONS}"),
-                format!("--match=interface={OURS}"),
+                format!("--match=interface={APPLICATION}"),
             ]);
             let Ok(()) = theirs(Topic::Notifications, Program::Stdbuf, arguments, say);
 
@@ -207,13 +207,13 @@ pub fn hold(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
     })
 }
 
-fn worded(arguments: &[&str]) -> Result<Vec<String>, Never> {
+fn to_strings(arguments: &[&str]) -> Result<Vec<String>, Never> {
     Ok(arguments.iter().map(|word| (*word).to_string()).collect())
 }
 
 fn monitoring(matches: &[String]) -> Result<Vec<String>, Never> {
     let Ok(busctl) = Program::Busctl.name();
-    let Ok(mut arguments) = worded(&["-oL", busctl, "--user", "monitor"]);
+    let Ok(mut arguments) = to_strings(&["-oL", busctl, "--user", "monitor"]);
 
     arguments.extend(matches.iter().cloned());
 
@@ -291,7 +291,7 @@ fn theirs(
             Err(_would_not_start) => return Round::Another,
         };
 
-        let reading = match running.reading() {
+        let reading = match running.take_stdout() {
             Ok(Some(reading)) => reading,
             Ok(None) | Err(_) => return Round::Another,
         };

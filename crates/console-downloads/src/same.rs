@@ -55,7 +55,7 @@ pub fn wants(name: &str) -> Result<Wants, Never> {
 
     let end = end.to_lowercase();
 
-    match end == "opus" || end == "mkv" {
+    match end == crate::getting::SOUND || end == crate::getting::FILM {
         true => return Ok(Wants::None),
         false => {},
     }
@@ -253,6 +253,21 @@ mod tests {
     }
 
     #[test]
+    fn every_ending_this_calls_a_sound_is_one_the_player_lists() {
+        let sounds = SOUNDS.iter().chain(EITHER.iter()).chain([&crate::getting::SOUND]);
+
+        for ending in sounds {
+            let named = format!("a song.{ending}");
+
+            assert_eq!(
+                console_music_player::library::playable(Path::new(&named)),
+                Ok(console_music_player::library::Playable::Yes),
+                "downloads calls .{ending} a sound and the music player does not list it"
+            );
+        }
+    }
+
+    #[test]
     fn what_the_name_cannot_say_is_asked_of_the_file() {
         assert_eq!(wants("something.webm"), Ok(Wants::Ask));
         assert_eq!(wants("something.ogg"), Ok(Wants::Ask));
@@ -276,9 +291,9 @@ mod tests {
     #[test]
     fn a_film_is_moved_rather_than_decoded() {
         let Ok(arguments) = film(Path::new("/a/one.mp4"), Path::new("/a/one.mkv"));
-        let coded = arguments.iter().skip_while(|word| *word != "-c").nth(1).expect("how it is coded");
+        let coded = arguments.iter().skip_while(|word| *word != "-c").nth(1);
 
-        assert_eq!(coded, "copy");
+        assert_eq!(coded.map(String::as_str), Some("copy"));
     }
 
     #[test]

@@ -26,8 +26,8 @@ use std::process::{Command, ExitCode, Stdio};
 use console_core_internal_programs::InternalProgram;
 use console_program_lifetime::let_go;
 use console_input_dictation::{
-    VoiceActivity, detect_speech, cloning, compiling, configuring, fetching, hearing, languages, made, making,
-    Note, model, recording, said, taken, taking, tidy, told_by, typing, whisper,
+    VoiceActivity, detect_speech, cloning, compiling, configuring, fetching, whisper_arguments, languages, whisper_binary, making,
+    Note, model, recording, recording_path, serialize_note, taking, tidy, told_by, typing, whisper,
 };
 use console_core_external_programs::Program;
 use console_core_atomic_writes::Stored;
@@ -83,7 +83,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            let Ok(taken) = listening();
+            let Ok(taken) = claim_state();
 
             match taken {
                 Claimed::Yes => {
@@ -105,7 +105,7 @@ enum Claimed {
     No,
 }
 
-fn listening() -> Result<Claimed, Never> {
+fn claim_state() -> Result<Claimed, Never> {
     let Ok(holder) = holder();
 
     Ok(match holder.is_some() {
@@ -141,7 +141,7 @@ fn holder() -> Result<Option<(i32, u32)>, Never> {
 fn listen() -> Result<(), Never> {
     let Ok(mut waiting) = Waiting::on(Wait { who: "console-dictate", what: "listening" });
     let press = std::process::id();
-    let Ok(into) = said(press);
+    let Ok(into) = recording_path(press);
 
     match into.parent() {
         Some(parent) => {
@@ -179,12 +179,12 @@ fn listen() -> Result<(), Never> {
         Ok(child) => {
             let Ok(id) = child.id();
             let Ok(at) = taking();
-            let Ok(note) = taken(Note { recorder: id, press });
+            let Ok(note) = serialize_note(Note { recorder: id, press });
             let _ = console_core_atomic_writes::whole(&at, note.as_bytes());
             let Ok(()) = waiting.mark("microphone");
-            let Ok(()) = told("Listening", UNTIL_IT_CHANGES);
-            let Ok(()) = waiting.done();
-            let Ok(()) = console_response_times::settled();
+            let Ok(()) = notify("Listening", UNTIL_IT_CHANGES);
+            let Ok(()) = waiting.finish();
+            let Ok(()) = console_response_times::flush();
         }
     }
 
@@ -212,12 +212,12 @@ fn wrote_down() -> Result<(), Never> {
     let _ = std::fs::remove_file(at);
 
     let Ok(()) = waiting.mark("stopped");
-    let Ok(recorded) = said(press);
+    let Ok(recorded) = recording_path(press);
     let Ok(()) = read_out(&recorded, &mut waiting);
     let _ = std::fs::remove_file(&recorded);
 
-    let Ok(()) = waiting.done();
-    let Ok(()) = console_response_times::settled();
+    let Ok(()) = waiting.finish();
+    let Ok(()) = console_response_times::flush();
 
     Ok(())
 }
@@ -236,11 +236,11 @@ fn read_out(recorded: &Path, waiting: &mut Waiting) -> Result<(), Never> {
     }
 
     let Ok(()) = waiting.mark("model");
-    let Ok(()) = told("Transcribing…", UNTIL_IT_CHANGES);
+    let Ok(()) = notify("Transcribing…", UNTIL_IT_CHANGES);
 
-    match heard(recorded) {
+    match transcribe(recorded) {
         Err(why) => {
-            let Ok(()) = told("Couldn't understand that", BRIEFLY);
+            let Ok(()) = notify("Couldn't understand that", BRIEFLY);
             let Ok(()) = report("hearing", Failure {
                 summary: "Couldn't understand that",
                 body: &why.to_string(),
@@ -249,7 +249,7 @@ fn read_out(recorded: &Path, waiting: &mut Waiting) -> Result<(), Never> {
         Ok(words) => match words.is_empty() {
             true => {
                 let Ok(()) = waiting.mark("heard");
-                let Ok(()) = told("No speech detected", BRIEFLY);
+                let Ok(()) = notify("No speech detected", BRIEFLY);
             }
             false => {
                 let Ok(()) = waiting.mark("heard");
@@ -257,7 +257,7 @@ fn read_out(recorded: &Path, waiting: &mut Waiting) -> Result<(), Never> {
                 let Ok(()) = waiting.counted("letters", letters);
                 let Ok(()) = write(&words);
                 let Ok(()) = waiting.mark("typed");
-                let Ok(()) = told(&words, BRIEFLY);
+                let Ok(()) = notify(&words, BRIEFLY);
             }
         },
     }
@@ -301,7 +301,7 @@ impl std::fmt::Display for DictationError {
 
 impl std::error::Error for DictationError {}
 
-fn heard(recorded: &Path) -> Result<String, DictationError> {
+fn transcribe(recorded: &Path) -> Result<String, DictationError> {
     let wav = std::fs::read(recorded).map_err(DictationError::Machine)?;
 
     let Ok(heard) = detect_speech(&wav);
@@ -319,8 +319,8 @@ fn heard(recorded: &Path) -> Result<String, DictationError> {
         None => return Err(DictationError::NoModel),
     };
 
-    let Ok(language) = languages::chosen();
-    let Ok(arguments) = hearing(&engine, &model, recorded, &language);
+    let Ok(language) = languages::current();
+    let Ok(arguments) = whisper_arguments(&engine, &model, recorded, &language);
 
     let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
@@ -481,7 +481,7 @@ fn build(ours: &Path) -> Result<(), BuildError> {
         None => {},
     }
 
-    let Ok(()) = told("Setting up dictation…", UNTIL_IT_CHANGES);
+    let Ok(()) = notify("Setting up dictation…", UNTIL_IT_CHANGES);
     let Ok(cloning) = cloning(&at);
     let Ok(configuring) = configuring(&at);
     let Ok(compiling) = compiling(&at);
@@ -509,13 +509,13 @@ fn build(ours: &Path) -> Result<(), BuildError> {
     }
 
     let coming = ours.with_extension("coming");
-    let Ok(made) = made(&at);
+    let Ok(made) = whisper_binary(&at);
 
     std::fs::copy(made, &coming).map_err(BuildError::Machine)?;
     std::fs::rename(&coming, ours).map_err(BuildError::Machine)?;
 
     let _ = std::fs::remove_dir_all(&at);
-    let Ok(()) = told("Dictation is ready", BRIEFLY);
+    let Ok(()) = notify("Dictation is ready", BRIEFLY);
 
     Ok(())
 }
@@ -540,7 +540,7 @@ fn fetched() -> Result<(), DictationError> {
 
     std::fs::create_dir_all(parent).map_err(DictationError::Machine)?;
 
-    let Ok(()) = told("Downloading the language…", UNTIL_IT_CHANGES);
+    let Ok(()) = notify("Downloading the language…", UNTIL_IT_CHANGES);
     let coming = parent.join("coming.bin");
     let Ok(arguments) = fetching(&coming);
 
@@ -574,7 +574,7 @@ const UNTIL_IT_CHANGES: Until = Until(0);
 
 const BRIEFLY: Until = Until(2_000);
 
-fn told(what: &str, until: Until) -> Result<(), Never> {
+fn notify(what: &str, until: Until) -> Result<(), Never> {
     let Ok(mut saying) = Program::NotifySend.command();
 
     saying

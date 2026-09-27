@@ -38,13 +38,13 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
 use console_manifest_migrations::history::EVERY;
-use console_manifest_migrations::{Section as Carried, holds, sweeping, whoevers};
+use console_manifest_migrations::{holds, sweeping, whoevers};
 
 use crate::generations;
 use crate::install::{self, User};
 use crate::machine::{self, Ran};
 use crate::machines;
-use crate::manifest::{Configuration, Manifest, Section, Written};
+use crate::manifest::{Configuration, Manifest, Reading, Section, Written};
 use crate::unapplied::Unapplied;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,16 +102,16 @@ pub struct Recorded {
     pub manifest: Manifest,
 }
 
-pub fn left(
+pub fn leftovers(
     recorded: &[Recorded],
     now: &Manifest,
     answered: &BTreeSet<String>,
 ) -> Result<Vec<Left>, Never> {
-    let Ok(held_now) = held(now);
+    let Ok(held_now) = current_entries(now);
     let mut ever: BTreeMap<String, Left> = BTreeMap::new();
 
     for one in recorded {
-        let Ok(held) = held(&one.manifest);
+        let Ok(held) = current_entries(&one.manifest);
 
         for (holds, placed) in held {
             let once = placed == Left::File { declared: holds.clone(), written: Written::Once };
@@ -133,16 +133,14 @@ pub fn left(
         .collect())
 }
 
-fn held(manifest: &Manifest) -> Result<BTreeMap<String, Left>, Never> {
+fn current_entries(manifest: &Manifest) -> Result<BTreeMap<String, Left>, Never> {
     let mut found = BTreeMap::new();
 
     for section in [Section::Build, Section::Files, Section::Services, Section::Masked] {
-        let Ok(name) = section.name();
-        let bracketed = format!("[{name}]");
         let Ok(entries) = manifest.of(section);
 
         'over_entries: for entry in entries {
-            let Ok(holds) = holds(Carried(&bracketed), entry);
+            let Ok(holds) = holds(section, entry);
 
             let holds = match holds {
                 Some(holds) => holds,
@@ -152,7 +150,7 @@ fn held(manifest: &Manifest) -> Result<BTreeMap<String, Left>, Never> {
             let placed = match section {
                 Section::Build => Left::Program(holds.clone()),
                 Section::Files => {
-                    let Ok(written) = manifest.written(entry);
+                    let Ok(written) = manifest.write_policy(entry);
 
                     Left::File { declared: holds.clone(), written }
                 }
@@ -168,7 +166,7 @@ fn held(manifest: &Manifest) -> Result<BTreeMap<String, Left>, Never> {
     Ok(found)
 }
 
-pub fn standing(on: &Path, known: Known<'_>, written: Written, owned: Ownership, user: User<'_>) -> Result<Standing, Never> {
+pub fn status(on: &Path, known: Known<'_>, written: Written, owned: Ownership, user: User<'_>) -> Result<Standing, Never> {
     let there = match std::fs::symlink_metadata(on) {
         Ok(_there) => Standing::Left,
         Err(fault) => match fault.kind() == std::io::ErrorKind::NotFound {
@@ -235,7 +233,7 @@ pub fn take(on: &Path, attic: &Path) -> Result<PathBuf, Unapplied> {
     let Ok(mv) = Program::Mv.name();
     let from = on.display().to_string();
     let to = under.display().to_string();
-    let Ok(moved) = machine::answered(&[mv, &from, &to]);
+    let Ok(moved) = machine::run_captured(&[mv, &from, &to]);
 
     match moved.ran {
         Ran::Fine => Ok(under),
@@ -265,11 +263,11 @@ pub fn pending(root: &Path, now: &Manifest, user: User<'_>) -> Result<Pending, U
         },
     }
 
-    let Ok(left) = left(&recorded, now, &answered);
+    let Ok(left) = leftovers(&recorded, now, &answered);
     let mut standing_of = Vec::new();
 
     for placed in left {
-        let Ok(stands) = asked(root, &recorded, &placed, user);
+        let Ok(stands) = status_of(root, &recorded, &placed, user);
 
         standing_of.push((placed, stands));
     }
@@ -277,11 +275,11 @@ pub fn pending(root: &Path, now: &Manifest, user: User<'_>) -> Result<Pending, U
     Ok(Pending { left: standing_of, unread })
 }
 
-fn asked(root: &Path, recorded: &[Recorded], placed: &Left, user: User<'_>) -> Result<Standing, Never> {
+fn status_of(root: &Path, recorded: &[Recorded], placed: &Left, user: User<'_>) -> Result<Standing, Never> {
     Ok(match placed {
         Left::Program(live) => {
             let Ok(owned) = owned(Path::new(live));
-            let Ok(stands) = standing(Path::new(live), Known::Compiled, Written::Always, owned, user);
+            let Ok(stands) = status(Path::new(live), Known::Compiled, Written::Always, owned, user);
 
             stands
         }
@@ -289,7 +287,7 @@ fn asked(root: &Path, recorded: &[Recorded], placed: &Left, user: User<'_>) -> R
             let Ok(on) = install::on_machine(declared, user);
             let Ok(owned) = owned(Path::new(&on));
             let Ok(versions) = versions(root, recorded, declared);
-            let Ok(stands) = standing(Path::new(&on), Known::Versions(&versions), *written, owned, user);
+            let Ok(stands) = status(Path::new(&on), Known::Versions(&versions), *written, owned, user);
 
             stands
         }
@@ -316,7 +314,7 @@ fn owned(on: &Path) -> Result<Ownership, Never> {
     let Ok(env) = Program::Env.name();
     let Ok(pacman) = Program::Pacman.name();
     let at = on.display().to_string();
-    let Ok(asked) = machine::answered(&[env, "LC_ALL=C", pacman, "-Qoq", &at]);
+    let Ok(asked) = machine::run_captured(&[env, "LC_ALL=C", pacman, "-Qoq", &at]);
 
     read_owner(&asked)
 }
@@ -380,14 +378,14 @@ fn recorded(root: &Path) -> Result<(Vec<Recorded>, Vec<Unread>), Unapplied> {
 }
 
 fn as_manifest(desktop: &[u8], quirks: Option<&[u8]>) -> Result<Manifest, Unapplied> {
-    let read = Manifest::read(&String::from_utf8_lossy(desktop))?;
+    let read = Manifest::read_as(&String::from_utf8_lossy(desktop), Reading::Recorded)?;
 
     let mine = match quirks {
         Some(quirks) => machines::here(&String::from_utf8_lossy(quirks), Path::new(machines::FIRMWARE))?,
         None => String::new(),
     };
 
-    read.and(Configuration(machines::AT), &mine)
+    read.and_as(Configuration(machines::AT), &mine, Reading::Recorded)
 }
 
 fn versions(root: &Path, recorded: &[Recorded], declared: &str) -> Result<Vec<Vec<u8>>, Never> {
@@ -446,54 +444,42 @@ fn shown(root: &Path, commit: generations::Commit<'_>, path: &str) -> Result<Opt
 pub(crate) mod tests {
     use super::*;
 
-    fn manifest(said: &str) -> Manifest {
-        match Manifest::read(said) {
-            Ok(manifest) => manifest,
-            Err(fault) => panic!("{fault}"),
-        }
+    pub(crate) type Failure = Box<dyn std::error::Error>;
+
+    fn manifest(said: &str) -> Result<Manifest, Failure> {
+        let manifest = Manifest::read(said)?;
+
+        Ok(manifest)
     }
 
-    fn recorded(said: &str) -> Recorded {
-        Recorded { commit: "a1b2c3d".to_string(), manifest: manifest(said) }
+    fn recorded(said: &str) -> Result<Recorded, Failure> {
+        let manifest = manifest(said)?;
+
+        Ok(Recorded { commit: "a1b2c3d".to_string(), manifest })
     }
 
-    fn nothing() -> BTreeSet<String> {
-        BTreeSet::new()
+    pub(crate) fn a_machine(named: &str) -> Result<PathBuf, Failure> {
+        let at = console_core_temporary_directories::fresh(&format!("pruning-{named}"))?;
+
+        Ok(at)
     }
 
-    pub(crate) fn a_machine(named: &str) -> PathBuf {
-        let at = std::env::temp_dir().join(format!("console-pruning-{named}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&at);
+    pub(crate) fn place_file(at: &Path, held: &[u8]) -> Result<(), Failure> {
+        console_core_atomic_writes::whole_with_folders(at, held)?;
 
-        match std::fs::create_dir_all(&at) {
-            Ok(()) => at,
-            Err(fault) => panic!("{}: {fault}", at.display()),
-        }
+        Ok(())
     }
 
-    pub(crate) fn placed(at: &Path, held: &[u8]) {
-        match at.parent().map(std::fs::create_dir_all) {
-            Some(Ok(())) | None => {},
-            Some(Err(fault)) => panic!("{}: {fault}", at.display()),
-        }
-
-        match std::fs::write(at, held) {
-            Ok(()) => {},
-            Err(fault) => panic!("{}: {fault}", at.display()),
-        }
-    }
-
-    fn standing(on: &Path, versions: &[Vec<u8>], written: Written, owned: Ownership) -> Standing {
-        let Ok(stands) = super::standing(on, Known::Versions(versions), written, owned, User("ada"));
-
-        stands
+    fn status_with(on: &Path, versions: &[Vec<u8>], written: Written, owned: Ownership) -> Result<Standing, Never> {
+        super::status(on, Known::Versions(versions), written, owned, User("ada"))
     }
 
     #[test]
-    fn what_a_recorded_commit_named_and_today_does_not_is_left() {
-        let then = [recorded("[build]\nfiles-panel\nfiles\n\n[files]\n/etc/old.conf\n\n[services]\nold.service\n\n[masked]\nmako.service\n")];
-        let now = manifest("[build]\nfiles\n");
-        let Ok(left) = left(&then, &now, &nothing());
+    fn what_a_recorded_commit_named_and_today_does_not_is_left() -> Result<(), Failure> {
+        let recorded = recorded("[build]\nfiles-panel\nfiles\n\n[files]\n/etc/old.conf\n\n[services]\nold.service\n\n[masked]\nmako.service\n")?;
+        let then = [recorded];
+        let now = manifest("[build]\nfiles\n")?;
+        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
 
         assert_eq!(
             left,
@@ -504,122 +490,161 @@ pub(crate) mod tests {
                 Left::Masked("mako.service".to_string()),
             ]
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_name_a_migration_or_a_reason_answers_for_is_not_taken_here() {
-        let then = [recorded("[build]\nfiles-panel\nviewer-panel\n")];
-        let answered: BTreeSet<String> = ["/usr/local/bin/files-panel".to_string()].into();
-        let Ok(left) = left(&then, &manifest(""), &answered);
+    fn a_name_a_migration_or_a_reason_answers_for_is_not_taken_here() -> Result<(), Failure> {
+        let recorded = recorded("[build]\nfiles-panel\nviewer-panel\n")?;
+        let then = [recorded];
+        let answered = BTreeSet::from(["/usr/local/bin/files-panel".to_string()]);
+        let now = manifest("")?;
+        let Ok(left) = leftovers(&then, &now, &answered);
 
         assert_eq!(left, vec![Left::Program("/usr/local/bin/viewer-panel".to_string())]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_package_leaving_the_manifest_is_pacmans_and_not_this() {
-        let then = [recorded("[packages]\ngrim\n")];
-        let Ok(left) = left(&then, &manifest(""), &nothing());
+    fn a_package_leaving_the_manifest_is_pacmans_and_not_this() -> Result<(), Failure> {
+        let recorded = recorded("[packages]\ngrim\n")?;
+        let then = [recorded];
+        let now = manifest("")?;
+        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
 
         assert!(left.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn a_program_that_moved_between_sections_is_still_there_and_not_left() {
-        let then = [recorded("[files]\n/usr/local/bin/launcher\n")];
-        let Ok(left) = left(&then, &manifest("[build]\nlauncher\n"), &nothing());
+    fn a_program_that_moved_between_sections_is_still_there_and_not_left() -> Result<(), Failure> {
+        let recorded = recorded("[files]\n/usr/local/bin/launcher\n")?;
+        let then = [recorded];
+        let now = manifest("[build]\nlauncher\n")?;
+        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
 
         assert!(left.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn a_home_path_is_the_same_file_whoever_the_home_was_written_for() {
-        let then = [recorded("[files]\n/home/@user@/.config/wofi/config\n")];
-        let Ok(left) = left(&then, &manifest(""), &nothing());
+    fn a_home_path_is_the_same_file_whoever_the_home_was_written_for() -> Result<(), Failure> {
+        let recorded = recorded("[files]\n/home/@user@/.config/wofi/config\n")?;
+        let then = [recorded];
+        let now = manifest("")?;
+        let Ok(left) = leftovers(&then, &now, &BTreeSet::new());
 
         assert_eq!(
             left,
             vec![Left::File { declared: "/home/@user@/.config/wofi/config".to_string(), written: Written::Always }]
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_still_holding_what_was_shipped_is_taken_into_the_attic() {
-        let machine = a_machine("shipped");
+    fn a_generation_from_before_once_had_its_name_is_still_read() -> Result<(), Failure> {
+        let desktop = b"[files]\n/etc/plasmalogin.conf.d/zz-steamos-autologin.conf theirs\n";
+
+        let manifest = as_manifest(desktop, None)?;
+        let Ok(written) = manifest.write_policy("/etc/plasmalogin.conf.d/zz-steamos-autologin.conf");
+
+        assert_eq!(written, Written::Once);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_still_holding_what_was_shipped_is_taken_into_the_attic() -> Result<(), Failure> {
+        let machine = a_machine("shipped")?;
         let on = machine.join("etc/old.conf");
         let attic = machine.join("attic");
 
-        placed(&on, b"hello ada\n");
+        place_file(&on, b"hello ada\n")?;
 
-        let stands = standing(&on, &[b"hello @user@\n".to_vec()], Written::Always, Ownership::Unowned);
+        let Ok(stands) = status_with(&on, &[b"hello @user@\n".to_vec()], Written::Always, Ownership::Unowned);
 
         assert_eq!(stands, Standing::Left);
 
-        let under = match take(&on, &attic) {
-            Ok(under) => under,
-            Err(fault) => panic!("{fault}"),
-        };
+        let under = take(&on, &attic)?;
 
         assert!(!on.exists(), "{} is still where the manifest stopped naming it", on.display());
-        assert_eq!(std::fs::read(&under).ok(), Some(b"hello ada\n".to_vec()));
+        let held = std::fs::read(&under)?;
+
+        assert_eq!(held, b"hello ada\n".to_vec());
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_edited_since_it_was_placed_is_reported_and_left() {
-        let machine = a_machine("edited");
+    fn a_file_edited_since_it_was_placed_is_reported_and_left() -> Result<(), Failure> {
+        let machine = a_machine("edited")?;
         let on = machine.join("etc/old.conf");
 
-        placed(&on, b"what somebody wrote\n");
+        place_file(&on, b"what somebody wrote\n")?;
 
-        let stands = standing(&on, &[b"what was shipped\n".to_vec()], Written::Always, Ownership::Unowned);
+        let Ok(stands) = status_with(&on, &[b"what was shipped\n".to_vec()], Written::Always, Ownership::Unowned);
 
         assert_eq!(stands, Standing::Edited);
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_no_recorded_commit_can_show_is_not_known_to_be_ours() {
-        let machine = a_machine("unshown");
+    fn a_file_no_recorded_commit_can_show_is_not_known_to_be_ours() -> Result<(), Failure> {
+        let machine = a_machine("unshown")?;
         let on = machine.join("etc/old.conf");
 
-        placed(&on, b"anything\n");
+        place_file(&on, b"anything\n")?;
 
-        assert_eq!(standing(&on, &[], Written::Always, Ownership::Unowned), Standing::Edited);
+        assert_eq!(status_with(&on, &[], Written::Always, Ownership::Unowned), Ok(Standing::Edited));
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_a_package_owns_or_something_else_writes_is_kept() {
-        let machine = a_machine("kept");
+    fn a_file_a_package_owns_or_something_else_writes_is_kept() -> Result<(), Failure> {
+        let machine = a_machine("kept")?;
         let on = machine.join("etc/old.conf");
         let shipped = [b"shipped\n".to_vec()];
 
-        placed(&on, b"shipped\n");
+        place_file(&on, b"shipped\n")?;
 
-        assert_eq!(standing(&on, &shipped, Written::Always, Ownership::Owned), Standing::Packaged);
-        assert_eq!(standing(&on, &shipped, Written::Once, Ownership::Unowned), Standing::WrittenOnce);
+        assert_eq!(status_with(&on, &shipped, Written::Always, Ownership::Owned), Ok(Standing::Packaged));
+        assert_eq!(status_with(&on, &shipped, Written::Once, Ownership::Unowned), Ok(Standing::WrittenOnce));
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 
     #[test]
-    fn a_path_whose_owner_could_not_be_asked_is_kept_and_not_taken() {
-        let machine = a_machine("unknown");
+    fn a_path_whose_owner_could_not_be_asked_is_kept_and_not_taken() -> Result<(), Failure> {
+        let machine = a_machine("unknown")?;
         let on = machine.join("etc/old.conf");
         let shipped = [b"shipped\n".to_vec()];
 
-        placed(&on, b"shipped\n");
+        place_file(&on, b"shipped\n")?;
 
-        assert_eq!(standing(&on, &shipped, Written::Always, Ownership::Unknown), Standing::OwnerUnknown);
+        assert_eq!(status_with(&on, &shipped, Written::Always, Ownership::Unknown), Ok(Standing::OwnerUnknown));
 
-        let Ok(program) = super::standing(&on, Known::Compiled, Written::Always, Ownership::Unknown, User("ada"));
+        let Ok(program) = super::status(&on, Known::Compiled, Written::Always, Ownership::Unknown, User("ada"));
 
         assert_eq!(program, Standing::OwnerUnknown);
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 
     #[test]
@@ -638,25 +663,29 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_file_already_gone_is_nothing_to_do() {
-        let machine = a_machine("gone");
+    fn a_file_already_gone_is_nothing_to_do() -> Result<(), Failure> {
+        let machine = a_machine("gone")?;
 
-        assert_eq!(standing(&machine.join("etc/old.conf"), &[], Written::Always, Ownership::Unowned), Standing::Gone);
+        assert_eq!(status_with(&machine.join("etc/old.conf"), &[], Written::Always, Ownership::Unowned), Ok(Standing::Gone));
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 
     #[test]
-    fn a_program_is_taken_whatever_it_holds_when_no_package_owns_it() {
-        let machine = a_machine("program");
+    fn a_program_is_taken_whatever_it_holds_when_no_package_owns_it() -> Result<(), Failure> {
+        let machine = a_machine("program")?;
         let on = machine.join("usr/local/bin/files-panel");
 
-        placed(&on, b"\x7fELF");
+        place_file(&on, b"\x7fELF")?;
 
-        let Ok(stands) = super::standing(&on, Known::Compiled, Written::Always, Ownership::Unowned, User("ada"));
+        let Ok(stands) = super::status(&on, Known::Compiled, Written::Always, Ownership::Unowned, User("ada"));
 
         assert_eq!(stands, Standing::Left);
 
         let _ = std::fs::remove_dir_all(&machine);
+
+        Ok(())
     }
 }

@@ -29,6 +29,7 @@
 use std::path::PathBuf;
 
 use console_core_external_programs::Program;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 
 use crate::subscription::Subscription;
@@ -56,7 +57,7 @@ pub struct Command {
 }
 
 impl<F> Effect<F> {
-    pub fn written(&self) -> Result<Option<&FileWrite>, Never> {
+    pub fn as_file_write(&self) -> Result<Option<&FileWrite>, Never> {
         Ok(match self {
             Effect::Write(writing) => Some(writing),
             Effect::Run(_)
@@ -72,7 +73,7 @@ impl<F> Effect<F> {
         })
     }
 
-    pub fn spawned(&self) -> Result<Option<&Command>, Never> {
+    pub fn as_spawn(&self) -> Result<Option<&Command>, Never> {
         Ok(match self {
             Effect::Spawn(runs) => Some(runs),
             Effect::Run(_)
@@ -91,13 +92,13 @@ impl<F> Effect<F> {
 
 impl Command {
     pub fn external(program: Program, arguments: &[&str]) -> Result<Self, Never> {
-        let Ok(arguments) = worded(arguments);
+        let Ok(arguments) = to_strings(arguments);
 
         Ok(Command { program: Executable::External(program), arguments })
     }
 
-    pub fn internal(program: &'static str, arguments: &[&str]) -> Result<Self, Never> {
-        let Ok(arguments) = worded(arguments);
+    pub fn internal(program: InternalProgram, arguments: &[&str]) -> Result<Self, Never> {
+        let Ok(arguments) = to_strings(arguments);
 
         Ok(Command { program: Executable::Internal(program), arguments })
     }
@@ -106,14 +107,14 @@ impl Command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Executable {
     External(Program),
-    Internal(&'static str),
+    Internal(InternalProgram),
 }
 
 impl Executable {
     pub const fn name(self) -> Result<&'static str, Never> {
         match self {
             Executable::External(program) => program.name(),
-            Executable::Internal(name) => Ok(name),
+            Executable::Internal(program) => program.name(),
         }
     }
 }
@@ -154,6 +155,6 @@ pub enum Exit {
     Failure(String),
 }
 
-fn worded(arguments: &[&str]) -> Result<Vec<String>, Never> {
+fn to_strings(arguments: &[&str]) -> Result<Vec<String>, Never> {
     Ok(arguments.iter().map(|word| (*word).to_string()).collect())
 }

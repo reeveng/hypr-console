@@ -251,133 +251,96 @@ impl Float for isize {
 mod tests {
     use super::*;
 
-    macro_rules! unwrapping {
-        ($($name:ident: $kind:ty),* $(,)?) => {
-            $(fn $name(value: f64) -> $kind {
-                let Ok(value) = super::$name(value);
-
-                value
-            })*
-        };
-    }
-
-    unwrapping!(
-        whole_u8: u8,
-        whole_u32: u32,
-        whole_u64: u64,
-        whole_usize: usize,
-        whole_i32: i32,
-        whole_i64: i64,
-        toward_zero_u8: u8,
-        toward_zero_u16: u16,
-        toward_zero_u32: u32,
-        toward_zero_u64: u64,
-        toward_zero_usize: usize,
-        toward_zero_i32: i32,
-        toward_zero_i64: i64,
-    );
-
-    fn fitted<F, T>(value: F) -> T
-    where
-        T: TryFrom<F> + Ends,
-        F: Ends + PartialOrd + Copy,
-    {
-        let Ok(value) = super::fitted::<F, T>(value);
-
-        value
-    }
-
-    fn float<T: Float>(value: T) -> f64 {
-        let Ok(value) = value.float();
-
-        value
-    }
-
     #[test]
     fn the_nearest_whole_number_is_the_one_rounding_gives() {
-        assert_eq!(whole_u32(2.4), 2);
-        assert_eq!(whole_u32(2.6), 3);
-        assert_eq!(whole_i32(-2.6), -3);
-        assert_eq!(whole_usize(0.0), 0);
+        assert_eq!(whole_u32(2.4), Ok(2));
+        assert_eq!(whole_u32(2.6), Ok(3));
+        assert_eq!(whole_i32(-2.6), Ok(-3));
+        assert_eq!(whole_usize(0.0), Ok(0));
     }
 
     #[test]
     fn a_half_goes_away_from_zero() {
-        assert_eq!(whole_i32(2.5), 3);
-        assert_eq!(whole_i32(-2.5), -3);
+        assert_eq!(whole_i32(2.5), Ok(3));
+        assert_eq!(whole_i32(-2.5), Ok(-3));
     }
 
     #[test]
     fn the_two_families_round_the_opposite_way_off_a_half() {
-        assert_eq!(toward_zero_u32(2.6), 2);
-        assert_eq!(whole_u32(2.6), 3);
-        assert_eq!(toward_zero_u32(0.9), 0);
-        assert_eq!(whole_u32(0.9), 1);
-        assert_eq!(toward_zero_i32(-2.6), -2);
-        assert_eq!(whole_i32(-2.6), -3);
+        assert_eq!(toward_zero_u32(2.6), Ok(2));
+        assert_eq!(whole_u32(2.6), Ok(3));
+        assert_eq!(toward_zero_u32(0.9), Ok(0));
+        assert_eq!(whole_u32(0.9), Ok(1));
+        assert_eq!(toward_zero_i32(-2.6), Ok(-2));
+        assert_eq!(whole_i32(-2.6), Ok(-3));
     }
 
     #[test]
     fn both_families_saturate_and_answer_nan_the_same_way() {
-        assert_eq!(toward_zero_u8(300.0), 255);
-        assert_eq!(toward_zero_u8(-4.0), 0);
-        assert_eq!(toward_zero_u32(f64::NAN), 0);
-        assert_eq!(toward_zero_i32(f64::NEG_INFINITY), i32::MIN);
+        assert_eq!(toward_zero_u8(300.0), Ok(255));
+        assert_eq!(toward_zero_u8(-4.0), Ok(0));
+        assert_eq!(toward_zero_u32(f64::NAN), Ok(0));
+        assert_eq!(toward_zero_i32(f64::NEG_INFINITY), Ok(i32::MIN));
     }
 
     #[test]
     fn a_value_past_the_end_comes_back_as_the_end() {
-        assert_eq!(whole_u8(300.0), 255);
-        assert_eq!(whole_u8(-4.0), 0);
-        assert_eq!(whole_u32(-1.0), 0);
-        assert_eq!(whole_i32(f64::MAX), i32::MAX);
-        assert_eq!(whole_i32(f64::MIN), i32::MIN);
+        assert_eq!(whole_u8(300.0), Ok(255));
+        assert_eq!(whole_u8(-4.0), Ok(0));
+        assert_eq!(whole_u32(-1.0), Ok(0));
+        assert_eq!(whole_i32(f64::MAX), Ok(i32::MAX));
+        assert_eq!(whole_i32(f64::MIN), Ok(i32::MIN));
     }
 
     #[test]
     fn nothing_is_not_a_number_and_so_it_is_zero() {
-        assert_eq!(whole_u32(f64::NAN), 0);
-        assert_eq!(whole_i64(f64::NAN), 0);
+        assert_eq!(whole_u32(f64::NAN), Ok(0));
+        assert_eq!(whole_i64(f64::NAN), Ok(0));
     }
 
     #[test]
     fn an_infinity_is_the_end_of_the_range() {
-        assert_eq!(whole_u32(f64::INFINITY), u32::MAX);
-        assert_eq!(whole_i32(f64::NEG_INFINITY), i32::MIN);
+        assert_eq!(whole_u32(f64::INFINITY), Ok(u32::MAX));
+        assert_eq!(whole_i32(f64::NEG_INFINITY), Ok(i32::MIN));
     }
 
     #[test]
     fn a_count_becomes_the_float_it_is_measured_against() {
-        assert!((float(7_usize) - 7.0).abs() < f64::EPSILON);
-        assert!((float(7_u64) - 7.0).abs() < f64::EPSILON);
-        assert!((float(-7_i64) + 7.0).abs() < f64::EPSILON);
+        assert_eq!(7_usize.float().map(f64::to_bits), Ok(7.0_f64.to_bits()));
+        assert_eq!(7_u64.float().map(f64::to_bits), Ok(7.0_f64.to_bits()));
+        assert_eq!((-7_i64).float().map(f64::to_bits), Ok((-7.0_f64).to_bits()));
     }
 
     #[test]
     fn a_number_that_fits_another_width_arrives_unchanged() {
-        assert_eq!(fitted::<u32, usize>(7), 7);
-        assert_eq!(fitted::<usize, u32>(7), 7);
-        assert_eq!(fitted::<i32, i64>(-7), -7);
+        assert_eq!(fitted::<u32, usize>(7), Ok(7));
+        assert_eq!(fitted::<usize, u32>(7), Ok(7));
+        assert_eq!(fitted::<i32, i64>(-7), Ok(-7));
     }
 
     #[test]
     fn a_number_too_big_for_a_width_comes_back_as_that_width_and_not_as_a_wrap() {
-        assert_eq!(fitted::<u32, i32>(u32::MAX), i32::MAX);
-        assert_eq!(fitted::<u64, u8>(300), u8::MAX);
-        assert_eq!(fitted::<i64, u32>(-5), 0);
-        assert_eq!(fitted::<i64, i8>(-500), i8::MIN);
+        assert_eq!(fitted::<u32, i32>(u32::MAX), Ok(i32::MAX));
+        assert_eq!(fitted::<u64, u8>(300), Ok(u8::MAX));
+        assert_eq!(fitted::<i64, u32>(-5), Ok(0));
+        assert_eq!(fitted::<i64, i8>(-500), Ok(i8::MIN));
     }
 
     #[test]
     fn a_count_past_two_to_the_fifty_third_is_the_nearest_float_and_not_the_count() {
-        let past = (1_u64 << 53) + 1;
-        assert!((float(past) - float(1_u64 << 53)).abs() < f64::EPSILON);
+        let edge = 9_007_199_254_740_992_u64;
+        let past = edge.saturating_add(1);
+
+        assert_eq!(past.float().map(f64::to_bits), edge.float().map(f64::to_bits));
     }
 
-    fn spread(state: &mut u64) -> f64 {
+    #[cfg_attr(dylint_lib = "explicit011_no_as_cast", allow(explicit011_no_as_cast, reason = "`as` is what every answer here is held against, so it is the one place it is written"))]
+    #[cfg_attr(dylint_lib = "explicit015_no_bare_arithmetic", allow(explicit015_no_bare_arithmetic, reason = "a generator that wraps on purpose, spelled the way the published constants are"))]
+    fn spread(state: &mut u64) -> Result<f64, Never> {
         *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         let raw = *state;
         let unit = (raw >> 11) as f64 / (1_u64 << 53) as f64;
+
         let reach = match raw % 7 {
             0 => 1.0,
             1 => 255.0,
@@ -388,10 +351,10 @@ mod tests {
             _ => 1.8446744073709552e19,
         };
 
-        (unit * 2.5 - 1.25) * reach
+        Ok((unit * 2.5 - 1.25) * reach)
     }
 
-    fn edges() -> Vec<f64> {
+    fn edges() -> Result<Vec<f64>, Never> {
         let mut held = vec![
             f64::NAN,
             -f64::NAN,
@@ -418,57 +381,64 @@ mod tests {
             held.extend([end - 1.0, end - 0.5, end, end + 0.5, end + 1.0, -end, end * 2.0]);
         }
 
-        held
+        Ok(held)
     }
 
     #[test]
+    #[cfg_attr(dylint_lib = "explicit011_no_as_cast", allow(explicit011_no_as_cast, reason = "`as` is what every answer here is held against, so it is the one place it is written"))]
     fn every_family_answers_exactly_what_as_answered() {
         let mut state = 0x9E37_79B9_7F4A_7C15_u64;
-        let mut tried = edges();
+        let Ok(mut tried) = edges();
+
         for _ in 0..200_000 {
-            tried.push(spread(&mut state));
+            let Ok(next) = spread(&mut state);
+
+            tried.push(next);
         }
 
         for value in tried {
-            assert_eq!(toward_zero_u8(value), value as u8, "toward_zero_u8({value})");
-            assert_eq!(toward_zero_u16(value), value as u16, "toward_zero_u16({value})");
-            assert_eq!(toward_zero_u32(value), value as u32, "toward_zero_u32({value})");
-            assert_eq!(toward_zero_u64(value), value as u64, "toward_zero_u64({value})");
-            assert_eq!(toward_zero_usize(value), value as usize, "toward_zero_usize({value})");
-            assert_eq!(toward_zero_i32(value), value as i32, "toward_zero_i32({value})");
-            assert_eq!(toward_zero_i64(value), value as i64, "toward_zero_i64({value})");
+            assert_eq!(toward_zero_u8(value), Ok(value as u8), "toward_zero_u8({value})");
+            assert_eq!(toward_zero_u16(value), Ok(value as u16), "toward_zero_u16({value})");
+            assert_eq!(toward_zero_u32(value), Ok(value as u32), "toward_zero_u32({value})");
+            assert_eq!(toward_zero_u64(value), Ok(value as u64), "toward_zero_u64({value})");
+            assert_eq!(toward_zero_usize(value), Ok(value as usize), "toward_zero_usize({value})");
+            assert_eq!(toward_zero_i32(value), Ok(value as i32), "toward_zero_i32({value})");
+            assert_eq!(toward_zero_i64(value), Ok(value as i64), "toward_zero_i64({value})");
 
             let rounded = value.round();
-            assert_eq!(whole_u8(value), rounded as u8, "whole_u8({value})");
-            assert_eq!(whole_u32(value), rounded as u32, "whole_u32({value})");
-            assert_eq!(whole_u64(value), rounded as u64, "whole_u64({value})");
-            assert_eq!(whole_i32(value), rounded as i32, "whole_i32({value})");
-            assert_eq!(whole_i64(value), rounded as i64, "whole_i64({value})");
+
+            assert_eq!(whole_u8(value), Ok(rounded as u8), "whole_u8({value})");
+            assert_eq!(whole_u32(value), Ok(rounded as u32), "whole_u32({value})");
+            assert_eq!(whole_u64(value), Ok(rounded as u64), "whole_u64({value})");
+            assert_eq!(whole_i32(value), Ok(rounded as i32), "whole_i32({value})");
+            assert_eq!(whole_i64(value), Ok(rounded as i64), "whole_i64({value})");
         }
     }
 
     #[test]
+    #[cfg_attr(dylint_lib = "explicit011_no_as_cast", allow(explicit011_no_as_cast, reason = "`as` is what every answer here is held against, so it is the one place it is written"))]
+    #[cfg_attr(dylint_lib = "explicit015_no_bare_arithmetic", allow(explicit015_no_bare_arithmetic, reason = "a generator that wraps on purpose, spelled the way the published constants are"))]
     fn a_count_becomes_exactly_the_float_as_made() {
         let mut state = 0x2545_F491_4F6C_DD1D_u64;
         let mut tried: Vec<u64> = vec![
             0, 1, 2, 255, 256, u32::MAX as u64, (1_u64 << 53) - 1, 1_u64 << 53,
             (1_u64 << 53) + 1, (1_u64 << 63), u64::MAX, u64::MAX - 1,
         ];
+
         for _ in 0..200_000 {
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             tried.push(state);
         }
 
         for held in tried {
-            assert_eq!(float(held).to_bits(), (held as f64).to_bits(), "u64 {held}");
-            assert_eq!(float(held as usize).to_bits(), (held as usize as f64).to_bits());
-
             let signed = held as i64;
-            assert_eq!(float(signed).to_bits(), (signed as f64).to_bits(), "i64 {signed}");
-            assert_eq!(float(signed as isize).to_bits(), (signed as isize as f64).to_bits());
+
+            assert_eq!(held.float().map(f64::to_bits), Ok((held as f64).to_bits()), "u64 {held}");
+            assert_eq!((held as usize).float().map(f64::to_bits), Ok((held as usize as f64).to_bits()));
+            assert_eq!(signed.float().map(f64::to_bits), Ok((signed as f64).to_bits()), "i64 {signed}");
+            assert_eq!((signed as isize).float().map(f64::to_bits), Ok((signed as isize as f64).to_bits()));
         }
 
-        assert_eq!(float(i64::MIN).to_bits(), (i64::MIN as f64).to_bits());
+        assert_eq!(i64::MIN.float().map(f64::to_bits), Ok((i64::MIN as f64).to_bits()));
     }
-
 }

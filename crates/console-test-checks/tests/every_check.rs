@@ -14,25 +14,28 @@
 //! what it has to press. Arithmetic is a unit test beside the code that does
 //! it, and what is left over is what nothing here can answer.
 
+use std::error::Error;
+
 use console_test_checks::CHECKS;
 use console_test_stages::checking::{How, here};
 use console_test_stages::here::Here;
 
 #[test]
-fn every_check_written_for_here_passes_here() {
-    let failed: Vec<String> = CHECKS
-        .into_iter()
-        .filter_map(|check| {
-            let mut stage = Here::new().expect("a stage");
-            let Ok(how) = here(check, &mut stage);
+fn every_check_written_for_here_passes_here() -> Result<(), Box<dyn Error>> {
+    let mut failed: Vec<String> = Vec::new();
 
-            match how {
-                How::Failed(why) => Some(format!("{}: {why}", check.name)),
-                _ => None,
-            }
-        })
-        .collect();
+    for check in CHECKS {
+        let mut stage = Here::new()?;
+        let Ok(how) = here(check, &mut stage);
+
+        match how {
+            How::Failed(why) => failed.push(format!("{}: {why}", check.name)),
+            How::Ok | How::Skipped(_) | How::Would => {}
+        }
+    }
+
     assert!(failed.is_empty(), "{}", failed.join("\n"));
+    Ok(())
 }
 
 #[test]

@@ -59,7 +59,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::Res;
 use rustc_hir::{AmbigArg, GenericArg, Item, ItemKind, PrimTy, QPath, Ty, TyKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT048: a type that can be written into a state it does not have.
@@ -69,10 +69,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT048_NO_UNREAL_STATE,
     Deny,
     "a type spelling more states than it has; name them in an enum"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 fn is_flag<A>(ty: &Ty<'_, A>) -> bool {
@@ -138,10 +134,6 @@ fn is_a_nested_question(outside: &str, inside: &str) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit048NoUnrealState {
     fn check_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx Item<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if item.span.from_expansion() {
             return;
         }
@@ -191,10 +183,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit048NoUnrealState {
     }
 
     fn check_ty(&mut self, cx: &LateContext<'tcx>, ty: &'tcx Ty<'tcx, AmbigArg>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         let ty: &Ty<'tcx> = ty.as_unambig_ty();
 
         if ty.span.from_expansion() {

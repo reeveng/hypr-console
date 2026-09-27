@@ -89,7 +89,7 @@ use clippy_utils::sym;
 use clippy_utils::ty::implements_trait;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, HirId, LoopSource, Node};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 
 dylint_linting::declare_late_lint! {
@@ -100,10 +100,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT028_NO_SEARCH_IN_A_LOOP,
     Deny,
     "a list walked from end to end inside a loop; the work grows with the square"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // A slice, an array or a `Vec`: the shapes with no way to find something but
@@ -396,10 +392,6 @@ fn a_loop_stands_over_it(cx: &LateContext<'_>, expr: &Expr<'_>, made: Option<Hir
 
 impl<'tcx> LateLintPass<'tcx> for Explicit028NoSearchInALoop {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

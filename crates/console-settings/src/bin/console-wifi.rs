@@ -61,9 +61,9 @@ impl std::fmt::Display for Unasked {
 impl std::error::Error for Unasked {}
 
 fn look(left: &mut Left) -> Result<(), Unasked> {
-    let in_range = asked(Program::Nmcli, &IN_RANGE)?;
-    let known = asked(Program::Nmcli, &KNOWN)?;
-    let devices = asked(Program::Nmcli, &DEVICES)?;
+    let in_range = run_output(Program::Nmcli, &IN_RANGE)?;
+    let known = run_output(Program::Nmcli, &KNOWN)?;
+    let devices = run_output(Program::Nmcli, &DEVICES)?;
 
     let Ok(networks) = wifi::networks(&in_range);
     let Ok(saved) = wifi::saved(&known);
@@ -71,7 +71,7 @@ fn look(left: &mut Left) -> Result<(), Unasked> {
 
     let link = match device {
         Some(device) => {
-            let said = asked(Program::Iw, &["dev", &device, "link"])?;
+            let said = run_output(Program::Iw, &["dev", &device, "link"])?;
             let Ok(link) = wifi::receiving(&said);
 
             link
@@ -104,12 +104,12 @@ fn look(left: &mut Left) -> Result<(), Unasked> {
         Why::Weak | Why::Near => {},
     }
 
-    let _ = asked(Program::Nmcli, &["connection", "up", "id", &chosen.to.name])?;
+    let _ = run_output(Program::Nmcli, &["connection", "up", "id", &chosen.to.name])?;
 
     Ok(())
 }
 
-fn asked(program: Program, words: &[&str]) -> Result<String, Unasked> {
+fn run_output(program: Program, words: &[&str]) -> Result<String, Unasked> {
     let Ok(mut asking) = program.command();
     let Ok(spelled) = program.arguments(words);
 

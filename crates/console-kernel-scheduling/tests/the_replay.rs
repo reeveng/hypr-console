@@ -16,15 +16,10 @@ fn task(id: TaskId, job: JobId, statistics: Statistics, latency: Latency) -> Res
 }
 
 fn every(period: Duration, work: Duration, task: TaskId) -> Result<Vec<Wake>, SchedulingError> {
-    let mut wakes = Vec::new();
-    let mut at = Duration::ZERO;
-
-    while at < SECOND {
-        wakes.push(Wake { at: Instant { since_boot: at }, task, work });
-        at = at.saturating_add(period);
-    }
-
-    Ok(wakes)
+    Ok(std::iter::successors(Some(Duration::ZERO), |at| Some(at.saturating_add(period)))
+        .take_while(|at| *at < SECOND)
+        .map(|at| Wake { at: Instant { since_boot: at }, task, work })
+        .collect())
 }
 
 fn light_interactive() -> Result<Workload, SchedulingError> {
@@ -40,10 +35,15 @@ fn light_interactive() -> Result<Workload, SchedulingError> {
     };
     let mut wakes = every(Duration::from_micros(8333), Duration::from_micros(300), COMPOSITOR)?;
 
-    wakes.extend(every(Duration::from_millis(100), Duration::from_millis(2), INDEXER)?);
+    let indexer_wakes = every(Duration::from_millis(100), Duration::from_millis(2), INDEXER)?;
+
+    wakes.extend(indexer_wakes);
+
+    let compositor = task(COMPOSITOR, DESKTOP, frames, Latency::Critical)?;
+    let indexer = task(INDEXER, DESKTOP, indexing, Latency::Tolerant)?;
 
     Ok(Workload {
-        tasks: vec![task(COMPOSITOR, DESKTOP, frames, Latency::Critical)?, task(INDEXER, DESKTOP, indexing, Latency::Tolerant)?],
+        tasks: vec![compositor, indexer],
         wakes,
         budgets: Vec::new(),
         cores: Cores { count: 8 },
@@ -65,7 +65,9 @@ fn game_under_a_cap() -> Result<Workload, SchedulingError> {
     let mut wakes = vec![];
 
     for thread in threads {
-        tasks.push(task(thread, GAME, render, Latency::Tolerant)?);
+        let rendering = task(thread, GAME, render, Latency::Tolerant)?;
+
+        tasks.push(rendering);
         wakes.push(Wake { at: Instant { since_boot: Duration::ZERO }, task: thread, work: SECOND });
     }
 
@@ -106,7 +108,9 @@ fn on_one_busy_core_a_frame_waits_less_under_lavd_than_under_round_robin() -> Re
     workload.cores = Cores { count: 1 };
 
     for id in [20, 21, 22] {
-        workload.tasks.push(task(TaskId(id), DESKTOP, batch, Latency::Tolerant)?);
+        let batch_task = task(TaskId(id), DESKTOP, batch, Latency::Tolerant)?;
+
+        workload.tasks.push(batch_task);
         workload.wakes.push(Wake { at: Instant { since_boot: Duration::ZERO }, task: TaskId(id), work: SECOND });
     }
 

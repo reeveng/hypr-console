@@ -76,7 +76,7 @@
 //! ```no_run
 //! # use console_test_stages::panels::Panel;
 //! let Ok(mut panel) = Panel::opening("viewer", &["/home/me/Pictures/beach.jpg"]);
-//! let drawn = panel.drawn().expect("the viewer drew nothing");
+//! let drawn = panel.descriptions().expect("the viewer drew nothing");
 //!
 //! for card in &drawn {
 //!     console_test_stages::panels::every_offer_answered(card).expect("a finger can reach it");
@@ -87,6 +87,7 @@ use rustix::fs::flock;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use console_core_directory_listing::Descend;
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_panel::description::{self, Bare, Line, Offers, Reachable, Spot, Description};
@@ -99,6 +100,13 @@ const ONE_AT_A_TIME: &str = "console-panel-stage.lock";
 
 impl Room {
     fn for_one_more() -> Result<Room, Never> {
+        #[cfg_attr(
+            dylint_lib = "explicit044_no_ambient_value",
+            allow(
+                explicit044_no_ambient_value,
+                reason = "the lock every run of the checks on this machine queues on, so it is in the directory they share rather than in one of this process's own"
+            )
+        )]
         let at = std::env::temp_dir().join(ONE_AT_A_TIME);
 
         #[cfg_attr(
@@ -170,34 +178,21 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), Error> {
         None => return Ok(()),
     };
 
-    let mut newest = None;
-    let mut look = vec![library.clone()];
-
-    while let Some(at) = look.pop() {
-        let entries = match std::fs::read_dir(&at) {
-            Ok(entries) => entries,
-            Err(_unreadable) => continue,
-        };
-
-        for found in entries.flatten() {
-            let at = found.path();
-
-            match at.is_dir() {
-                true => match at.file_name().is_some_and(|named| named == PROGRAMS) {
-                    true => {},
-                    false => look.push(at),
-                },
-                false => {
-                    let named = at.extension().is_some_and(|it| it == "rs" || it == "css");
-
-                    match named {
-                        true => newest = newest.max(when(&at)),
-                        false => {},
-                    }
-                }
-            }
+    let Ok(listing) = console_core_directory_listing::recursive(&library, |at| {
+        match at.file_name().is_some_and(|named| named == PROGRAMS) {
+            true => Descend::Past,
+            false => Descend::Into,
         }
-    }
+    });
+
+    let mut newest = listing
+        .filter_map(|entry| match entry {
+            Ok(at) => Some(at),
+            Err(_unreadable) => None,
+        })
+        .filter(|at| !at.is_dir() && at.extension().is_some_and(|it| it == "rs" || it == "css"))
+        .filter_map(|at| when(&at))
+        .max();
 
     let its_own = program
         .file_name()
@@ -238,6 +233,13 @@ impl Panel {
     pub fn opening(program: &str, arguments: &[&str]) -> Result<Panel, Never> {
         let mine = ONE_AFTER_ANOTHER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
+        #[cfg_attr(
+            dylint_lib = "explicit044_no_ambient_value",
+            allow(
+                explicit044_no_ambient_value,
+                reason = "the directory is named when the panel is and made when it is opened, and dropping the panel takes it away, which `fresh` has no half of"
+            )
+        )]
         let here = std::env::temp_dir()
             .join(format!("console-panel-{program}-{}-{mine}", std::process::id()));
 
@@ -281,7 +283,7 @@ impl Panel {
     }
 
     fn script(&self, told: &Path) -> Result<Option<String>, Never> {
-        let Ok(desktop) = crate::beside("console-desktop");
+        let Ok(desktop) = console_core_internal_programs::beside_this_program("console-desktop");
 
         let every: Vec<String> = self
             .presses
@@ -301,14 +303,14 @@ impl Panel {
         })
     }
 
-    pub fn drawn(&mut self) -> Result<Vec<Description>, Error> {
+    pub fn descriptions(&mut self) -> Result<Vec<Description>, Error> {
         match &self.read {
             Some(read) => return Ok(read.clone()),
             None => {},
         }
 
         let Ok(_room) = Room::for_one_more();
-        let Ok(program) = crate::beside(&self.program);
+        let Ok(program) = console_core_internal_programs::beside_this_program(&self.program);
 
         match program.is_file() {
             true => built_since_the_panel_code(&program)?,
@@ -327,7 +329,7 @@ impl Panel {
             self.arguments.join(" ")
         );
 
-        let Ok(desktop) = crate::beside("console-desktop");
+        let Ok(desktop) = console_core_internal_programs::beside_this_program("console-desktop");
         let mut nesting = Command::new(desktop);
         nesting.arg("describe");
 
@@ -413,7 +415,7 @@ pub fn every_offer_answered(card: &Description) -> Result<(), Error> {
         .iter()
         .filter(|line| line.offers == Offers::Yes && line.bare == Bare::No)
         .filter(|line| {
-            let Ok(worn) = line.wearing("else");
+            let Ok(worn) = line.spot("else");
 
             worn.is_none()
         })
@@ -435,7 +437,7 @@ pub fn one_mark_for_one_subject(card: &Description) -> Result<(), Error> {
         .lines
         .iter()
         .filter(|line| {
-            let Ok(worn) = line.wearing("else");
+            let Ok(worn) = line.spot("else");
 
             worn.is_some()
         })
@@ -468,7 +470,7 @@ pub fn every_mark_reachable(card: &Description) -> Result<(), Error> {
 }
 
 pub fn a_way_out_is_drawn(card: &Description) -> Result<(), Error> {
-    let Ok(worn) = card.wearing("shut");
+    let Ok(worn) = card.spot("shut");
 
     match worn {
         Some(_) => Ok(()),
@@ -515,12 +517,14 @@ fn said_of(line: &Line) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Spot {
-        Spot { name: name.to_string(), at, big, scrolls: description::Scrolls::No }
+    type Failure = Box<dyn std::error::Error>;
+
+    fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
+        Ok(Spot { name: name.to_string(), at, big, scrolls: description::Scrolls::No })
     }
 
-    fn line(at: u32, offers: Offers, bare: Bare, spots: Vec<Spot>) -> Line {
-        Line {
+    fn line(at: u32, offers: Offers, bare: Bare, spots: Vec<Spot>) -> Result<Line, Never> {
+        Ok(Line {
             at,
             says: String::new(),
             aside: String::new(),
@@ -531,121 +535,154 @@ mod tests {
             spots,
             cells: Vec::new(),
             drew: Vec::new(),
-        }
+        })
     }
 
-    fn week(cells: &[&str], drew: &[&str]) -> Line {
-        Line {
+    fn week(cells: &[&str], drew: &[&str]) -> Result<Line, Never> {
+        let Ok(line) = line(0, Offers::No, Bare::No, Vec::new());
+
+        Ok(Line {
             cells: cells.iter().map(|cell| (*cell).to_string()).collect(),
             drew: drew.iter().map(|word| (*word).to_string()).collect(),
-            ..line(0, Offers::No, Bare::No, Vec::new())
-        }
+            ..line
+        })
     }
 
-    #[test]
-    fn a_week_whose_days_are_carried_and_not_drawn_is_the_fault() {
-        let card = card(vec![week(&["1", "2", "3"], &[])], Vec::new());
-
-        assert!(every_row_draws_what_it_carries(&card).is_err());
-    }
-
-    #[test]
-    fn a_week_that_draws_every_day_it_carries_holds() {
-        let card = card(vec![week(&["1", "2", "3"], &["1", "2", "3"])], Vec::new());
-
-        assert!(every_row_draws_what_it_carries(&card).is_ok());
-    }
-
-    #[test]
-    fn a_row_whose_words_never_reach_the_screen_is_the_fault() {
-        let quiet = Line { says: "Wi-Fi".to_string(), ..line(0, Offers::No, Bare::No, Vec::new()) };
-        let card = card(vec![quiet], Vec::new());
-
-        assert!(every_row_draws_what_it_carries(&card).is_err());
-    }
-
-    fn card(lines: Vec<Line>, spots: Vec<Spot>) -> Description {
-        Description {
+    fn card(lines: Vec<Line>, spots: Vec<Spot>) -> Result<Description, Never> {
+        Ok(Description {
             panel: "a-panel".to_string(),
             tab: "One".to_string(),
             out: description::Output::No,
             room: (1024, 600),
             spots,
             lines,
-        }
+            presses: 0,
+        })
+    }
+
+    fn shut_at(at: (i32, i32)) -> Result<Description, Never> {
+        let Ok(shut) = spot("shut", at, (56, 44));
+
+        card(Vec::new(), vec![shut])
+    }
+
+    #[test]
+    fn a_week_whose_days_are_carried_and_not_drawn_is_the_fault() {
+        let Ok(week) = week(&["1", "2", "3"], &[]);
+        let Ok(card) = card(vec![week], Vec::new());
+
+        assert!(matches!(every_row_draws_what_it_carries(&card), Err(crate::Error::Hidden(..))));
+    }
+
+    #[test]
+    fn a_week_that_draws_every_day_it_carries_holds() -> Result<(), Failure> {
+        let Ok(week) = week(&["1", "2", "3"], &["1", "2", "3"]);
+        let Ok(card) = card(vec![week], Vec::new());
+
+        every_row_draws_what_it_carries(&card)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_row_whose_words_never_reach_the_screen_is_the_fault() {
+        let Ok(line) = line(0, Offers::No, Bare::No, Vec::new());
+        let quiet = Line { says: "Wi-Fi".to_string(), ..line };
+        let Ok(card) = card(vec![quiet], Vec::new());
+
+        assert!(matches!(every_row_draws_what_it_carries(&card), Err(crate::Error::Hidden(..))));
     }
 
     #[test]
     fn a_row_offering_something_with_no_mark_on_it_is_the_fault() {
-        let card = card(vec![line(0, Offers::Yes, Bare::No, Vec::new())], Vec::new());
-        assert!(every_offer_answered(&card).is_err());
+        let Ok(offering) = line(0, Offers::Yes, Bare::No, Vec::new());
+        let Ok(card) = card(vec![offering], Vec::new());
+
+        assert!(matches!(every_offer_answered(&card), Err(crate::Error::OfferUnanswered(..))));
     }
 
     #[test]
-    fn the_mark_may_be_on_the_row_beside_the_one_that_offers() {
-        let bare = line(0, Offers::Yes, Bare::Yes, Vec::new());
-        let marked = line(1, Offers::Yes, Bare::No, vec![spot("else", (900, 300), (40, 30))]);
-        let card = card(vec![bare, marked], Vec::new());
+    fn the_mark_may_be_on_the_row_beside_the_one_that_offers() -> Result<(), Failure> {
+        let Ok(bare) = line(0, Offers::Yes, Bare::Yes, Vec::new());
+        let Ok(mark) = spot("else", (900, 300), (40, 30));
+        let Ok(marked) = line(1, Offers::Yes, Bare::No, vec![mark]);
+        let Ok(card) = card(vec![bare, marked], Vec::new());
 
-        every_offer_answered(&card).expect("the mark beside it answers");
-        one_mark_for_one_subject(&card).expect("one mark, one subject");
+        every_offer_answered(&card)?;
+        one_mark_for_one_subject(&card)?;
+
+        Ok(())
     }
 
     #[test]
     fn a_card_with_one_subject_and_a_mark_on_every_line_is_a_crowd() {
-        let card = card(
-            vec![
-                line(0, Offers::Yes, Bare::No, vec![spot("else", (900, 300), (40, 30))]),
-                line(1, Offers::Yes, Bare::No, vec![spot("else", (900, 360), (40, 30))]),
-            ],
-            Vec::new(),
-        );
+        let Ok(first) = spot("else", (900, 300), (40, 30));
+        let Ok(second) = spot("else", (900, 360), (40, 30));
+        let Ok(one) = line(0, Offers::Yes, Bare::No, vec![first]);
+        let Ok(other) = line(1, Offers::Yes, Bare::No, vec![second]);
+        let Ok(card) = card(vec![one, other], Vec::new());
 
-        assert!(one_mark_for_one_subject(&card).is_err());
+        assert!(matches!(one_mark_for_one_subject(&card), Err(crate::Error::TooManyMarks(_, 2))));
     }
 
     #[test]
-    fn a_panel_that_offers_nothing_needs_no_mark() {
-        let card = card(vec![line(0, Offers::No, Bare::No, Vec::new())], Vec::new());
+    fn a_panel_that_offers_nothing_needs_no_mark() -> Result<(), Failure> {
+        let Ok(plain) = line(0, Offers::No, Bare::No, Vec::new());
+        let Ok(card) = card(vec![plain], Vec::new());
 
-        every_offer_answered(&card).expect("nothing is offered");
-        one_mark_for_one_subject(&card).expect("nothing is offered");
+        every_offer_answered(&card)?;
+        one_mark_for_one_subject(&card)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_mark_hanging_off_the_room_is_a_mark_no_one_can_press() {
-        let off = card(Vec::new(), vec![spot("shut", (982, 14), (56, 44))]);
-        let on = card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))]);
+    fn a_mark_hanging_off_the_room_is_a_mark_no_one_can_press() -> Result<(), Failure> {
+        let Ok(off) = shut_at((982, 14));
+        let Ok(on) = shut_at((954, 14));
 
-        assert!(every_mark_reachable(&off).is_err());
-        every_mark_reachable(&on).expect("a mark inside the room");
+        assert!(matches!(every_mark_reachable(&off), Err(crate::Error::OutOfReach(..))));
+
+        every_mark_reachable(&on)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_card_with_no_way_out_is_a_card_a_finger_is_shut_into() {
-        assert!(a_way_out_is_drawn(&card(Vec::new(), Vec::new())).is_err());
-        a_way_out_is_drawn(&card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))]))
-            .expect("a way out");
+    fn a_card_with_no_way_out_is_a_card_a_finger_is_shut_into() -> Result<(), Failure> {
+        let Ok(shut_in) = card(Vec::new(), Vec::new());
+        let Ok(way_out) = shut_at((954, 14));
+
+        assert!(matches!(a_way_out_is_drawn(&shut_in), Err(crate::Error::NoWayOut(..))));
+
+        a_way_out_is_drawn(&way_out)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_press_is_aimed_inside_the_panel_and_says_which_panel() {
+    fn a_press_is_aimed_inside_the_panel_and_says_which_panel() -> Result<(), Failure> {
         let Ok(mut panel) = Panel::opening("a-panel", &[]);
-        let card = card(Vec::new(), vec![spot("shut", (954, 14), (56, 44))]);
-        let Ok(worn) = card.wearing("shut");
-        let shut = worn.expect("a way out to press");
+        let Ok(card) = shut_at((954, 14));
+        let Ok(worn) = card.spot("shut");
+        let shut = worn.ok_or("a way out to press")?;
 
-        panel.press(&card, shut).expect("a place inside the panel");
+        panel.press(&card, shut)?;
+
         assert_eq!(panel.presses, vec!["console-point --in a-panel 982 36 --click".to_string()]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_press_at_a_place_outside_the_panel_is_refused() {
+    fn a_press_at_a_place_outside_the_panel_is_refused() -> Result<(), Failure> {
         let Ok(mut panel) = Panel::opening("a-panel", &[]);
-        let card = card(Vec::new(), vec![spot("shut", (-80, 14), (56, 44))]);
-        let Ok(worn) = card.wearing("shut");
-        let shut = worn.expect("a way out to press");
+        let Ok(card) = shut_at((-80, 14));
+        let Ok(worn) = card.spot("shut");
+        let shut = worn.ok_or("a way out to press")?;
 
-        assert!(panel.press(&card, shut).is_err());
+        assert!(matches!(panel.press(&card, shut), Err(crate::Error::NotInside(..))));
+
+        Ok(())
     }
 }

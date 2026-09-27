@@ -52,7 +52,7 @@ impl Interpreter for Locking {
             }
 
             DeployingEffect::Read(at) => {
-                let Ok(holding) = holding(at);
+                let Ok(holding) = read_holder(at);
 
                 vec![Event::Custom(DeployingEvent::Holder(holding))]
             }
@@ -91,11 +91,11 @@ fn wrote(at: &Path, line: Line<'_>) -> Result<(), Never> {
     Ok(())
 }
 
-fn said(at: &Path, called: &str) -> Result<String, Never> {
-    kept(&at.join(called))
+fn read_field(at: &Path, called: &str) -> Result<String, Never> {
+    read_trimmed(&at.join(called))
 }
 
-fn kept(at: &Path) -> Result<String, Never> {
+fn read_trimmed(at: &Path) -> Result<String, Never> {
     Ok(match console_core_atomic_writes::text_or_empty(at) {
         Ok(said) => said.trim().to_string(),
         Err(fault) => {
@@ -106,10 +106,10 @@ fn kept(at: &Path) -> Result<String, Never> {
     })
 }
 
-fn holding(at: &Path) -> Result<Holder, Never> {
-    let Ok(pid) = said(at, "pid");
-    let Ok(on) = said(at, "on");
-    let Ok(since) = said(at, "since");
+fn read_holder(at: &Path) -> Result<Holder, Never> {
+    let Ok(pid) = read_field(at, "pid");
+    let Ok(on) = read_field(at, "on");
+    let Ok(since) = read_field(at, "since");
     let Ok(here) = here();
 
     Ok(Holder {
@@ -132,13 +132,13 @@ fn host_of(words: &[String]) -> Result<String, Never> {
 }
 
 fn here() -> Result<String, Never> {
-    kept(Path::new(NAMED))
+    read_trimmed(Path::new(NAMED))
 }
 
 fn today() -> Result<String, Never> {
     let Ok(asking) = ExternalProgram::Date.arguments(&[]);
 
-    Ok(match console_core_external_programs::printed(&asking) {
+    Ok(match console_core_external_programs::capture_output(&asking) {
         Ok(said) => said.trim().to_string(),
         Err(_unprinted) => String::new(),
     })

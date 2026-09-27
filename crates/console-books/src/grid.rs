@@ -87,7 +87,7 @@ pub struct Selection {
     pub count: u32,
 }
 
-pub fn moved(selection: Selection, columns: NonZeroU32, direction: Direction) -> Result<u32, Never> {
+pub fn step_selection(selection: Selection, columns: NonZeroU32, direction: Direction) -> Result<u32, Never> {
     let Selection { index: at, count: many } = selection;
     let last = many.saturating_sub(1);
     let columns = columns.get();
@@ -139,11 +139,11 @@ mod tests {
     fn the_dpad_reads_the_library_the_way_the_eye_does() {
         let seven = NonZeroU32::MIN.saturating_add(6);
 
-        assert_eq!(moved(Selection { index: 6, count: 20 }, seven, Direction::Right), Ok(7), "the end of a row goes on to the next one");
-        assert_eq!(moved(Selection { index: 19, count: 20 }, seven, Direction::Right), Ok(19), "the last book is the end of the library");
-        assert_eq!(moved(Selection { index: 3, count: 20 }, seven, Direction::Up), Ok(3), "the top row has nothing above it");
-        assert_eq!(moved(Selection { index: 15, count: 20 }, seven, Direction::Down), Ok(15), "a column that runs out stays put");
-        assert_eq!(moved(Selection { index: 10, count: 20 }, seven, Direction::Down), Ok(17));
+        assert_eq!(step_selection(Selection { index: 6, count: 20 }, seven, Direction::Right), Ok(7), "the end of a row goes on to the next one");
+        assert_eq!(step_selection(Selection { index: 19, count: 20 }, seven, Direction::Right), Ok(19), "the last book is the end of the library");
+        assert_eq!(step_selection(Selection { index: 3, count: 20 }, seven, Direction::Up), Ok(3), "the top row has nothing above it");
+        assert_eq!(step_selection(Selection { index: 15, count: 20 }, seven, Direction::Down), Ok(15), "a column that runs out stays put");
+        assert_eq!(step_selection(Selection { index: 10, count: 20 }, seven, Direction::Down), Ok(17));
     }
 
     #[test]

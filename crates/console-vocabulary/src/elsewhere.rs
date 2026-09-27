@@ -49,7 +49,7 @@ pub enum Name {
 }
 
 impl Name {
-    pub fn spelled(self) -> Result<&'static str, Never> {
+    pub fn description(self) -> Result<&'static str, Never> {
         Ok(match self {
             Name::ACrate => "a crate in this tree",
             Name::AProgram => "a program this desktop runs",

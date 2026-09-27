@@ -54,7 +54,7 @@ pub fn waiting_rows(
 
     match rows.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("No Notifications");
+            let Ok(row) = Row::placeholder("No Notifications");
 
             rows.push(row);
         }
@@ -74,14 +74,14 @@ pub fn one_rows(notification: &Notification, back: &Chosen, dismiss: Handler) ->
     let Ok(way_back) = Row::back(first, move |showing| going(showing));
     let Ok(by) = said_by(notification);
     let Ok(says) = notification.says();
-    let Ok(heading) = Row::said(&by, Aside(&says));
+    let Ok(heading) = Row::text(&by, Aside(&says));
     let mut rows = vec![way_back, heading];
 
     let worth_a_row = !notification.body.trim().is_empty() && notification.body.trim() != says;
 
     match worth_a_row {
         true => {
-            let Ok(body) = Row::said("", Aside(notification.body.trim()));
+            let Ok(body) = Row::text("", Aside(notification.body.trim()));
 
             rows.push(body);
         }
@@ -106,7 +106,7 @@ pub fn cleared_rows(back: &Chosen) -> Result<Vec<Row>, Never> {
     let going = Arc::clone(back);
     let Ok(first) = tab(0);
     let Ok(way_back) = Row::back(first, move |showing| going(showing));
-    let Ok(cleared) = Row::nothing("Cleared");
+    let Ok(cleared) = Row::placeholder("Cleared");
 
     Ok(vec![way_back, cleared])
 }
@@ -114,7 +114,7 @@ pub fn cleared_rows(back: &Chosen) -> Result<Vec<Row>, Never> {
 pub fn earlier_rows(held: &[Notification]) -> Result<Vec<Row>, Never> {
     match held.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("No Earlier Notifications");
+            let Ok(row) = Row::placeholder("No Earlier Notifications");
 
             return Ok(vec![row]);
         }
@@ -126,7 +126,7 @@ pub fn earlier_rows(held: &[Notification]) -> Result<Vec<Row>, Never> {
         .map(|notification| {
             let Ok(said) = earlier_aside(notification);
             let Ok(says) = notification.says();
-            let Ok(row) = Row::said(&says, Aside(&said));
+            let Ok(row) = Row::text(&says, Aside(&said));
 
             row
         })
@@ -150,112 +150,115 @@ mod tests {
     use super::*;
     use crate::reading::Urgency;
 
-    fn nothing() -> Handler {
-        let Ok(does) = Handler::and_stay(|_| ());
+    type NotFound = &'static str;
 
-        does
+    fn nothing() -> Result<Handler, Never> {
+        Handler::and_stay(|_| ())
     }
 
-    fn opening(_: &Notification) -> Handler {
-        nothing()
+    fn back() -> Result<Chosen, Never> {
+        Ok(Arc::new(|_: &dyn Showing| ()))
     }
 
-    fn back() -> Chosen {
-        Arc::new(|_: &dyn Showing| ())
+    fn waiting(held: &[Notification]) -> Result<Vec<Row>, Never> {
+        let Ok(clear) = nothing();
+
+        waiting_rows(
+            held,
+            |_| {
+                let Ok(does) = nothing();
+
+                does
+            },
+            clear,
+        )
     }
 
-    fn waiting(held: &[Notification]) -> Vec<Row> {
-        let Ok(rows) = waiting_rows(held, opening, nothing());
+    fn one(notification: &Notification) -> Result<Vec<Row>, Never> {
+        let Ok(back) = back();
+        let Ok(dismiss) = nothing();
 
-        rows
+        one_rows(notification, &back, dismiss)
     }
 
-    fn one(notification: &Notification) -> Vec<Row> {
-        let Ok(rows) = one_rows(notification, &back(), nothing());
+    fn cleared() -> Result<Vec<Row>, Never> {
+        let Ok(back) = back();
 
-        rows
+        cleared_rows(&back)
     }
 
-    fn cleared() -> Vec<Row> {
-        let Ok(rows) = cleared_rows(&back());
-
-        rows
-    }
-
-    fn earlier(held: &[Notification]) -> Vec<Row> {
-        let Ok(rows) = earlier_rows(held);
-
-        rows
-    }
-
-    fn acts(row: &Row) -> Action {
-        let Ok(acts) = row.acts();
-
-        acts
-    }
-
-    fn beside(notification: &Notification) -> String {
-        let Ok(said) = aside(notification);
-
-        said
-    }
-
-    fn fault() -> Notification {
-        Notification {
+    fn fault() -> Result<Notification, Never> {
+        Ok(Notification {
             id: 4,
             application: "Console".to_string(),
             summary: "Notifications fell over".to_string(),
             body: "console-notify.service stopped".to_string(),
             urgency: Urgency::Critical,
-        }
+        })
     }
 
-    fn ordinary() -> Notification {
-        Notification {
+    fn ordinary() -> Result<Notification, Never> {
+        Ok(Notification {
             id: 3,
             application: "Librewolf".to_string(),
             summary: "A download finished".to_string(),
             urgency: Urgency::Low,
             ..Notification::default()
-        }
+        })
     }
 
     #[test]
-    fn the_first_row_that_does_anything_is_a_notification() {
-        let rows = waiting(&[fault()]);
-        let first = rows.iter().find(|row| acts(row) == Action::Yes).expect("a row that acts");
+    fn the_first_row_that_does_anything_is_a_notification() -> Result<(), NotFound> {
+        let Ok(fault) = fault();
+        let Ok(rows) = waiting(&[fault]);
+        let first = rows.iter().find(|row| matches!(row.acts(), Ok(Action::Yes))).ok_or("no row acts")?;
+
         assert_eq!(first.says, "Notifications fell over");
+
+        Ok(())
     }
 
     #[test]
     fn a_notification_says_that_it_opens() {
-        let rows = waiting(&[fault()]);
-        assert!(rows[0].opens);
+        let Ok(fault) = fault();
+        let Ok(rows) = waiting(&[fault]);
+
+        assert!(rows.first().is_some_and(|row| row.opens));
     }
 
     #[test]
     fn a_fault_is_marked_and_an_ordinary_notification_is_named_by_its_app() {
-        assert_eq!(beside(&fault()), "Urgent");
-        assert_eq!(beside(&ordinary()), "Librewolf");
+        let Ok(fault) = fault();
+        let Ok(ordinary) = ordinary();
+
+        assert_eq!(aside(&fault), Ok("Urgent".to_string()));
+        assert_eq!(aside(&ordinary), Ok("Librewolf".to_string()));
     }
 
     #[test]
     fn there_is_nothing_to_clear_when_nothing_is_waiting() {
-        let rows = waiting(&[]);
+        let Ok(rows) = waiting(&[]);
+
         assert!(!rows.iter().any(|row| row.says == "Clear all"));
-        assert_eq!(rows[0].says, "No Notifications");
+        assert_eq!(rows.first().map(|row| row.says.as_str()), Some("No Notifications"));
     }
 
     #[test]
     fn what_is_waiting_can_be_cleared_in_one_press() {
-        let rows = waiting(&[fault(), ordinary()]);
-        assert!(rows.iter().any(|row| row.says == "Clear all" && acts(row) == Action::Yes));
+        let Ok(fault) = fault();
+        let Ok(ordinary) = ordinary();
+        let Ok(rows) = waiting(&[fault, ordinary]);
+
+        assert!(rows.iter().filter(|row| matches!(row.acts(), Ok(Action::Yes))).any(|row| row.says == "Clear all"));
     }
 
     #[test]
     fn the_tab_holds_notifications_and_no_preferences() {
-        for held in [Vec::new(), vec![fault()]] {
-            let rows = waiting(&held);
+        let Ok(fault) = fault();
+
+        for held in [Vec::new(), vec![fault]] {
+            let Ok(rows) = waiting(&held);
+
             assert!(
                 !rows.iter().any(|row| row.says.contains("off the screen")),
                 "a preference is still standing on the notifications tab"
@@ -265,23 +268,36 @@ mod tests {
 
     #[test]
     fn opening_one_shows_the_body_the_card_could_not_fit() {
-        let rows = one(&fault());
+        let Ok(fault) = fault();
+        let Ok(rows) = one(&fault);
         let said: Vec<&str> = rows.iter().map(|row| row.aside.as_str()).collect();
+
         assert!(said.contains(&"console-notify.service stopped"), "{said:?}");
-        assert_eq!(rows[1].says, "Console");
+        assert_eq!(rows.get(1).map(|row| row.says.as_str()), Some("Console"));
     }
 
     #[test]
-    fn the_way_back_is_the_first_row_of_a_notification() {
-        for rows in [one(&fault()), cleared()] {
-            assert!(rows[0].says.ends_with(TABS[0]), "{}", rows[0].says);
-            assert_eq!(acts(&rows[0]), Action::Yes);
+    fn the_way_back_is_the_first_row_of_a_notification() -> Result<(), NotFound> {
+        let Ok(fault) = fault();
+        let Ok(opened) = one(&fault);
+        let Ok(cleared) = cleared();
+        let first_tab = TABS.first().ok_or("there are no tabs")?;
+
+        for rows in [opened, cleared] {
+            let way_back = rows.first().ok_or("there are no rows")?;
+
+            assert!(way_back.says.ends_with(first_tab), "{}", way_back.says);
+            assert_eq!(way_back.acts(), Ok(Action::Yes));
         }
+
+        Ok(())
     }
 
     #[test]
     fn a_notification_with_no_body_is_not_given_an_empty_line() {
-        let rows = one(&ordinary());
+        let Ok(ordinary) = ordinary();
+        let Ok(rows) = one(&ordinary);
+
         assert!(!rows.iter().any(|row| row.says.is_empty() && row.aside.is_empty()));
         assert_eq!(rows.len(), 3);
     }
@@ -289,28 +305,41 @@ mod tests {
     #[test]
     fn a_notification_that_is_only_a_body_says_it_once() {
         let bodied = Notification { body: "the microphone is on".to_string(), ..Notification::default() };
-        let rows = one(&bodied);
+        let Ok(rows) = one(&bodied);
+
         assert_eq!(rows.iter().filter(|row| row.aside == "the microphone is on").count(), 1);
     }
 
     #[test]
     fn a_notification_can_be_dismissed_where_it_is_read() {
-        let rows = one(&fault());
-        assert!(rows.iter().any(|row| row.says == "Clear" && acts(row) == Action::Yes));
+        let Ok(fault) = fault();
+        let Ok(rows) = one(&fault);
+
+        assert!(rows.iter().filter(|row| matches!(row.acts(), Ok(Action::Yes))).any(|row| row.says == "Clear"));
     }
 
     #[test]
-    fn what_was_cleared_is_read_where_it_stands() {
-        let rows = earlier(&[fault()]);
+    fn what_was_cleared_is_read_where_it_stands() -> Result<(), NotFound> {
+        let Ok(fault) = fault();
+        let Ok(rows) = earlier_rows(&[fault]);
+        let row = rows.first().ok_or("there are no rows")?;
+
         assert_eq!(rows.len(), 1);
-        assert_eq!(acts(&rows[0]), Action::None);
-        assert_eq!(rows[0].says, "Notifications fell over");
-        assert_eq!(rows[0].aside, "console-notify.service stopped");
+        assert_eq!(row.acts(), Ok(Action::None));
+        assert_eq!(row.says, "Notifications fell over");
+        assert_eq!(row.aside, "console-notify.service stopped");
+
+        Ok(())
     }
 
     #[test]
-    fn an_empty_history_says_so_rather_than_drawing_nothing() {
-        assert_eq!(earlier(&[]).len(), 1);
-        assert_eq!(acts(&earlier(&[])[0]), Action::None);
+    fn an_empty_history_says_so_rather_than_drawing_nothing() -> Result<(), NotFound> {
+        let Ok(rows) = earlier_rows(&[]);
+        let row = rows.first().ok_or("there are no rows")?;
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(row.acts(), Ok(Action::None));
+
+        Ok(())
     }
 }

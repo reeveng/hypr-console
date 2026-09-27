@@ -37,70 +37,87 @@
 
 use std::path::Path;
 
-fn root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+use console_manifest_engine::manifest::{Manifest, Section};
+
+type Failure = Box<dyn std::error::Error>;
+
+const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+
+fn manifest() -> Result<Manifest, Failure> {
+    let held = std::fs::read_to_string(Path::new(ROOT).join(console_repository::MARK))?;
+    let manifest = Manifest::read(&held)?;
+
+    Ok(manifest)
 }
 
-fn manifest() -> String {
-    std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
+fn section(manifest: &Manifest, want: Section) -> Result<Vec<String>, Failure> {
+    let Ok(entries) = manifest.of(want);
+
+    Ok(entries.to_vec())
 }
 
-fn section(held: &str, want: &str) -> Vec<String> {
-    held.lines()
-        .skip_while(|line| line.trim() != format!("[{want}]"))
-        .skip(1)
-        .take_while(|line| !line.trim_start().starts_with('['))
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_string)
-        .collect()
-}
-
-fn the_bin() -> String {
-    let held = std::fs::read_to_string(root().join("crates/console-input-keyboard/Cargo.toml"))
-        .expect("the keyboard's manifest");
+fn the_bin() -> Result<String, Failure> {
+    let held = std::fs::read_to_string(Path::new(ROOT).join("crates/console-input-keyboard/Cargo.toml"))?;
     let mut name = None;
     let mut seen = None;
+
     for line in held.lines().map(str::trim) {
-        if let Some(rest) = line.strip_prefix("name = ") {
-            seen = rest.trim().trim_matches('"').to_string().into();
+        match line.strip_prefix("name = ") {
+            Some(rest) => seen = Some(rest.trim().trim_matches('"').to_string()),
+            None => {},
         }
-        if line.contains("src/bin/keyboard.rs") {
-            name = seen.clone();
+
+        match line.contains("src/bin/keyboard.rs") {
+            true => name = seen.clone(),
+            false => {},
         }
     }
-    name.expect("a [[bin]] built from src/bin/keyboard.rs")
+
+    let name = name.ok_or("a [[bin]] built from src/bin/keyboard.rs")?;
+
+    Ok(name)
 }
 
 #[test]
-fn the_program_the_manifest_builds_is_the_one_the_desktop_looks_for() {
+fn the_program_the_manifest_builds_is_the_one_the_desktop_looks_for() -> Result<(), Failure> {
     let looked_for = console_input_controller::mode::KEYBOARD;
+    let built = the_bin()?;
+    let manifest = manifest()?;
+    let building = section(&manifest, Section::Build)?;
+
     assert_eq!(
-        the_bin(),
+        built,
         looked_for,
         "this crate builds a program under a different name than the one the desktop looks for. \
          A daemon that never sees the keyboard never stands down, and both of them go on reading \
          the pad."
     );
     assert!(
-        section(&manifest(), "build").iter().any(|name| name == looked_for),
+        building.iter().any(|name| name == looked_for),
         "{looked_for} is not in the manifest's [build], so the device never compiles it"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_keyboard_is_built_and_not_also_carried() {
+fn the_keyboard_is_built_and_not_also_carried() -> Result<(), Failure> {
     let looked_for = console_input_controller::mode::KEYBOARD;
     let carried = format!("/usr/local/bin/{looked_for}");
+    let manifest = manifest()?;
+    let files = section(&manifest, Section::Files)?;
+
     assert!(
-        !section(&manifest(), "files").iter().any(|path| path == &carried),
+        !files.contains(&carried),
         "{carried} is carried in [files] as well as built in [build]"
     );
     assert!(
-        !root().join("files/usr/local/bin").join(looked_for).exists(),
+        !Path::new(ROOT).join("files/usr/local/bin").join(looked_for).exists(),
         "there is a compiled keyboard in the tree again. The device builds this one now, and a \
          carried copy is the stale-binary bug this file exists for."
     );
+
+    Ok(())
 }
 
 #[test]
@@ -113,9 +130,9 @@ fn the_unit_starts_the_program_the_desktop_looks_for() {
 }
 
 #[test]
-fn the_toggle_the_show_and_the_keyboard_are_all_built() {
-    let held = manifest();
-    let built = section(&held, "build");
+fn the_toggle_the_show_and_the_keyboard_are_all_built() -> Result<(), Failure> {
+    let held = manifest()?;
+    let built = section(&held, Section::Build)?;
 
     for name in ["keyboard-toggle", "keyboard-show", console_input_controller::mode::KEYBOARD] {
         assert!(
@@ -123,14 +140,15 @@ fn the_toggle_the_show_and_the_keyboard_are_all_built() {
             "[build] does not name {name}, so pressing X would ask a keyboard nothing installed"
         );
     }
+
+    Ok(())
 }
 
 #[test]
-fn the_unit_names_the_keyboard_and_not_something_that_starts_it() {
+fn the_unit_names_the_keyboard_and_not_something_that_starts_it() -> Result<(), Failure> {
     let unit = std::fs::read_to_string(
-        root().join("files/etc/systemd/user/console-input-keyboard.service"),
-    )
-    .expect("console-input-keyboard.service");
+        Path::new(ROOT).join("files/etc/systemd/user/console-input-keyboard.service"),
+    )?;
     let path = console_input_keyboard::palette::VIRTUAL_KEYBOARD;
     let started: Vec<&str> = unit
         .lines()
@@ -145,6 +163,8 @@ fn the_unit_names_the_keyboard_and_not_something_that_starts_it() {
          the unit and the keyboard is a program `named_by` cannot see through, and a rebuilt \
          keyboard then restarts nothing."
     );
+
+    Ok(())
 }
 
 #[test]

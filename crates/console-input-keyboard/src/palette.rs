@@ -61,7 +61,7 @@ pub fn role(option: &str) -> Result<Option<&'static str>, Never> {
     Ok(COLORS.iter().find(|(named, _)| *named == option).map(|(_, role)| *role))
 }
 
-pub fn missing(palette: &BTreeMap<String, String>) -> Result<Vec<&'static str>, Never> {
+pub fn missing_colors(palette: &BTreeMap<String, String>) -> Result<Vec<&'static str>, Never> {
     let mut wanted: Vec<&'static str> =
         COLORS.iter().map(|(_, role)| *role).filter(|role| !palette.contains_key(*role)).collect();
     wanted.sort_unstable();
@@ -100,28 +100,32 @@ pub fn arguments(palette: &BTreeMap<String, String>, rest: &[String]) -> Result<
 mod tests {
     use super::*;
 
-    fn palette() -> BTreeMap<String, String> {
-        let Ok(palette) = console_core_color::palette::read("night=110b12\npanel=241a24\nground=382a38\ntext=ebdce7\nsoft=b79fb2\npink=ffb5e2\nmauve=dbc2ff");
+    type Failure = Box<dyn std::error::Error>;
 
-        palette
+    const PALETTE: [(&str, &str); 7] = [
+        ("night", "110b12"),
+        ("panel", "241a24"),
+        ("ground", "382a38"),
+        ("text", "ebdce7"),
+        ("soft", "b79fb2"),
+        ("pink", "ffb5e2"),
+        ("mauve", "dbc2ff"),
+    ];
+
+    fn palette() -> Result<BTreeMap<String, String>, Never> {
+        Ok(PALETTE.iter().map(|(name, color)| ((*name).to_string(), (*color).to_string())).collect())
     }
 
-    fn arguments(palette: &BTreeMap<String, String>, rest: &[String]) -> Vec<String> {
-        let Ok(arguments) = super::arguments(palette, rest);
-
-        arguments
+    fn given<'a>(arguments: &'a [String], option: &str) -> Result<Option<&'a str>, Never> {
+        Ok(arguments.iter().skip_while(|word| **word != option).nth(1).map(String::as_str))
     }
 
-    fn role(option: &str) -> Option<&'static str> {
-        let Ok(role) = super::role(option);
+    fn color<'a>(palette: &'a BTreeMap<String, String>, option: &str) -> Result<&'a String, Failure> {
+        let Ok(role) = role(option);
+        let role = role.ok_or_else(|| format!("--{option} has no role"))?;
+        let color = palette.get(role).ok_or_else(|| format!("the palette has no {role}"))?;
 
-        role
-    }
-
-    fn missing(palette: &BTreeMap<String, String>) -> Vec<&'static str> {
-        let Ok(missing) = super::missing(palette);
-
-        missing
+        Ok(color)
     }
 
     #[test]
@@ -131,69 +135,85 @@ mod tests {
 
     #[test]
     fn every_option_is_handed_the_color_it_is_for() {
-        let arguments = arguments(&palette(), &[]);
-        let given = arguments.iter().skip_while(|word| *word != "--bg").nth(1);
-        assert_eq!(given.map(String::as_str), Some("110b12"));
+        let Ok(palette) = palette();
+        let Ok(arguments) = arguments(&palette, &[]);
+
+        assert_eq!(given(&arguments, "--bg"), Ok(Some("110b12")));
     }
 
     #[test]
     fn every_color_is_six_digits_and_nothing_else() {
-        let arguments = arguments(&palette(), &[]);
+        let Ok(palette) = palette();
+        let Ok(arguments) = arguments(&palette, &[]);
+
         for (option, _) in COLORS {
-            let given = arguments.iter().skip_while(|word| **word != format!("--{option}")).nth(1).map(String::as_str).unwrap_or_default();
-            assert_eq!(given.len(), 6, "--{option} is given {given}");
-            assert!(given.chars().all(|digit| digit.is_ascii_hexdigit()), "--{option} is given {given}");
-        }
-    }
+            let Ok(given) = given(&arguments, &format!("--{option}"));
 
-    #[test]
-    fn no_two_backgrounds_are_the_same_color() {
-        let palette = palette();
-        let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
-        for option in BACKGROUNDS {
-            let color = palette.get(role(option).expect(option)).expect("a color");
-            if let Some(other) = seen.get(color.as_str()) {
-                panic!("--{option} and --{other} are both #{color}, so one is invisible on the other");
-            }
-            seen.insert(color, option);
-        }
-    }
-
-    #[test]
-    fn nothing_is_written_in_the_color_it_is_written_on() {
-        let palette = palette();
-        for (background, ink) in INK {
-            let ink = match ink {
-                Some(ink) => ink,
-                None => continue,
-            };
-            let (under, over) = (role(background).expect(background), role(ink).expect(ink));
-            assert_ne!(
-                palette.get(under),
-                palette.get(over),
-                "--{background} and --{ink} are the same color, so the writing is invisible"
+            assert!(
+                given.is_some_and(|given| given.len() == 6 && given.chars().all(|one| one.is_ascii_hexdigit())),
+                "--{option} is given {given:?}"
             );
         }
     }
 
     #[test]
+    fn no_two_backgrounds_are_the_same_color() -> Result<(), Failure> {
+        let Ok(palette) = palette();
+        let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
+
+        for option in BACKGROUNDS {
+            let color = color(&palette, option)?;
+            let other = seen.insert(color, option);
+
+            assert_eq!(other, None, "--{option} and --{other:?} are both #{color}, so one is invisible on the other");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn nothing_is_written_in_the_color_it_is_written_on() -> Result<(), Failure> {
+        let Ok(palette) = palette();
+
+        for (background, ink) in INK {
+            let ink = match ink {
+                Some(ink) => ink,
+                None => continue,
+            };
+            let under = color(&palette, background)?;
+            let over = color(&palette, ink)?;
+
+            assert_ne!(under, over, "--{background} and --{ink} are the same color, so the writing is invisible");
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn every_background_is_named_at_all() {
         for option in BACKGROUNDS {
-            assert!(role(option).is_some(), "the keyboard is never told what color --{option} is");
+            let Ok(found) = role(option);
+
+            assert!(found.is_some(), "the keyboard is never told what color --{option} is");
         }
     }
 
     #[test]
     fn a_color_the_palette_does_not_have_is_named() {
-        let mut palette = palette();
+        let Ok(mut palette) = palette();
+        let Ok(whole) = missing_colors(&palette);
+
         palette.remove("mauve");
-        assert_eq!(missing(&palette), ["mauve"]);
-        assert!(missing(&self::palette()).is_empty());
+
+        assert_eq!(missing_colors(&palette), Ok(vec!["mauve"]));
+        assert!(whole.is_empty());
     }
 
     #[test]
     fn what_it_was_given_is_handed_on_after_the_colors() {
-        let arguments = arguments(&palette(), &["-l".to_string(), "simple".to_string()]);
-        assert_eq!(&arguments[arguments.len() - 2..], ["-l", "simple"]);
+        let Ok(palette) = palette();
+        let Ok(arguments) = arguments(&palette, &["-l".to_string(), "simple".to_string()]);
+
+        assert_eq!(arguments.last_chunk::<2>(), Some(&["-l".to_string(), "simple".to_string()]));
     }
 }

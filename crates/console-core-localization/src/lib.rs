@@ -107,7 +107,7 @@ pub fn text(what: &impl Localized) -> Result<String, Never> {
 }
 
 pub fn language() -> Result<Language, Never> {
-    let Ok(asked) = asked();
+    let Ok(asked) = locale_from_environment();
 
     read(&asked)
 }
@@ -119,7 +119,7 @@ pub fn language() -> Result<Language, Never> {
         reason = "the three names the standard gives for what language someone reads, in the crate that is what reading them means"
     )
 )]
-fn asked() -> Result<String, Never> {
+fn locale_from_environment() -> Result<String, Never> {
     for name in ["LC_ALL", "LC_MESSAGES", "LANG"] {
         let said = match std::env::var(name) {
             Ok(said) => said,

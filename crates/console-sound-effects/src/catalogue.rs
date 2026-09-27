@@ -121,35 +121,30 @@ impl Sound {
             Sound::Celebrate => Cue { voice: Voice::Bell, notes: CELEBRATE },
         })
     }
-
-    #[must_use]
-    pub fn named(word: &str) -> Result<Option<Sound>, Never> {
-        Ok(EVERY.iter().copied().find(|sound| sound.word() == Ok(word)))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::synthesis::rendered;
+    use crate::synthesis::render;
 
     #[test]
     fn every_sound_is_found_by_its_own_word() {
         for sound in EVERY {
             let Ok(word) = sound.word();
 
-            assert_eq!(Sound::named(word), Ok(Some(*sound)));
+            assert_eq!(Sound::from_word(word), Ok(Some(*sound)));
         }
 
-        assert_eq!(Sound::named("Confirm"), Ok(None));
-        assert_eq!(Sound::named(""), Ok(None));
+        assert_eq!(Sound::from_word("Confirm"), Ok(None));
+        assert_eq!(Sound::from_word(""), Ok(None));
     }
 
     #[test]
     fn every_sound_fits_in_a_pipe_so_playing_it_never_waits() {
         for sound in EVERY {
             let Ok(cue) = sound.cue();
-            let Ok(bytes) = rendered(&cue, Degree(10));
+            let Ok(bytes) = render(&cue, Degree(10));
 
             assert!(bytes.len() < 65_536, "{sound:?} is {} bytes", bytes.len());
         }
@@ -158,7 +153,7 @@ mod tests {
     #[test]
     fn no_two_sounds_are_the_same_cue() {
         for (index, sound) in EVERY.iter().enumerate() {
-            for other in EVERY.iter().skip(index + 1) {
+            for other in EVERY.iter().skip(index.saturating_add(1)) {
                 assert_ne!(sound.cue(), other.cue(), "{sound:?} and {other:?}");
             }
         }

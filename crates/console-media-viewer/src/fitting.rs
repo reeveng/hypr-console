@@ -193,7 +193,7 @@ fn along(across: Across, looking: f64) -> Result<i32, Never> {
     Ok(from_the_left.saturating_neg())
 }
 
-pub fn showing(of: Size<u32>, room: Size<u32>, zoom: Zoom) -> Result<f64, Never> {
+pub fn visible_fraction(of: Size<u32>, room: Size<u32>, zoom: Zoom) -> Result<f64, Never> {
     let Ok(scale) = zoom.scale(of, room);
     let Ok(drawn) = drawn_at(of, scale);
     let across = (f64::from(room.width) / f64::from(drawn.width)).min(1.0);
@@ -212,7 +212,7 @@ pub fn room(card: Size<u32>, taken: u32) -> Result<Size<u32>, Never> {
     Ok(Size { width: card.width, height: card.height.saturating_sub(taken).max(1) })
 }
 
-pub fn said(of: Size<u32>) -> Result<String, Never> {
+pub fn format_size(of: Size<u32>) -> Result<String, Never> {
     Ok(format!("{} x {}", of.width, of.height))
 }
 
@@ -229,29 +229,23 @@ pub fn megapixels(of: Size<u32>) -> Result<f64, Never> {
 
 #[cfg(test)]
 mod tests {
+    use console_core_number_conversion::fitted;
+
     use super::*;
 
     const CARD: Size<u32> = Size { width: 1180, height: 700 };
 
-    fn sized(wide: u32, tall: u32) -> Size<u32> {
-        Size { width: wide, height: tall }
-    }
+    const PHOTOGRAPH: Size<u32> = Size { width: 4000, height: 3000 };
 
-    fn photograph() -> Size<u32> {
-        sized(4000, 3000)
-    }
-
-    fn icon() -> Size<u32> {
-        sized(32, 32)
-    }
+    const ICON: Size<u32> = Size { width: 32, height: 32 };
 
     #[test]
     fn a_photograph_larger_than_the_card_is_shrunk_to_fit() {
-        let Ok(scale) = contain(photograph(), CARD);
+        let Ok(scale) = contain(PHOTOGRAPH, CARD);
 
         assert!(scale < 1.0);
 
-        let Ok(drawn) = drawn_at(photograph(), scale);
+        let Ok(drawn) = drawn_at(PHOTOGRAPH, scale);
 
         assert!(drawn.width <= CARD.width, "{drawn:?}");
         assert!(drawn.height <= CARD.height, "{drawn:?}");
@@ -259,15 +253,15 @@ mod tests {
 
     #[test]
     fn something_smaller_than_the_card_is_left_at_its_own_size() {
-        let Ok(scale) = contain(icon(), CARD);
+        let Ok(scale) = contain(ICON, CARD);
 
         assert_eq!(scale, 1.0);
-        assert_eq!(drawn_at(icon(), scale), Ok(icon()));
+        assert_eq!(drawn_at(ICON, scale), Ok(ICON));
     }
 
     #[test]
     fn fitting_keeps_the_shape_it_had() {
-        let of = sized(4000, 1000);
+        let of = Size { width: 4000, height: 1000 };
         let Ok(scale) = contain(of, CARD);
         let Ok(drawn) = drawn_at(of, scale);
         let was = f64::from(of.width) / f64::from(of.height);
@@ -278,9 +272,9 @@ mod tests {
 
     #[test]
     fn a_picture_that_would_not_decode_does_not_divide_by_nothing() {
-        assert_eq!(contain(sized(0, 0), CARD), Ok(1.0));
-        assert_eq!(contain(photograph(), sized(0, 0)), Ok(1.0));
-        assert_eq!(drawn_at(sized(0, 0), 0.5), Ok(sized(1, 1)));
+        assert_eq!(contain(Size { width: 0, height: 0 }, CARD), Ok(1.0));
+        assert_eq!(contain(PHOTOGRAPH, Size { width: 0, height: 0 }), Ok(1.0));
+        assert_eq!(drawn_at(Size { width: 0, height: 0 }, 0.5), Ok(Size { width: 1, height: 1 }));
     }
 
     #[test]
@@ -314,11 +308,11 @@ mod tests {
 
     #[test]
     fn its_own_size_is_its_own_size_in_any_room() {
-        let Ok(scale) = Zoom::Actual.scale(photograph(), CARD);
+        let Ok(scale) = Zoom::Actual.scale(PHOTOGRAPH, CARD);
 
         assert_eq!(scale, 1.0);
-        assert_eq!(Zoom::Actual.scale(photograph(), sized(300, 200)), Ok(1.0));
-        assert_eq!(drawn_at(photograph(), scale), Ok(photograph()));
+        assert_eq!(Zoom::Actual.scale(PHOTOGRAPH, Size { width: 300, height: 200 }), Ok(1.0));
+        assert_eq!(drawn_at(PHOTOGRAPH, scale), Ok(PHOTOGRAPH));
     }
 
     #[test]
@@ -335,26 +329,29 @@ mod tests {
 
     #[test]
     fn the_whole_of_it_never_hangs_over_the_edge() {
-        assert_eq!(Zoom::Whole.hangs_over(photograph(), CARD), Ok(Hangs::Inside));
-        assert_eq!(Zoom::Actual.hangs_over(photograph(), CARD), Ok(Hangs::Over));
+        assert_eq!(Zoom::Whole.hangs_over(PHOTOGRAPH, CARD), Ok(Hangs::Inside));
+        assert_eq!(Zoom::Actual.hangs_over(PHOTOGRAPH, CARD), Ok(Hangs::Over));
     }
 
     #[test]
     fn a_small_picture_zoomed_in_may_still_have_nothing_to_pan() {
-        assert_eq!(Zoom::Four.hangs_over(icon(), CARD), Ok(Hangs::Inside));
+        assert_eq!(Zoom::Four.hangs_over(ICON, CARD), Ok(Hangs::Inside));
     }
 
     #[test]
     fn what_fits_is_drawn_in_the_middle_of_the_room() {
-        let Ok((left, top)) = corner(icon(), CARD, Zoom::Whole, Looking::default());
+        let Ok((left, top)) = corner(ICON, CARD, Zoom::Whole, Looking::default());
 
-        assert_eq!(left, i32::try_from((CARD.width - icon().width) / 2).expect("fits"));
-        assert_eq!(top, i32::try_from((CARD.height - icon().height) / 2).expect("fits"));
+        let Ok(across) = fitted::<u32, i32>(CARD.width.saturating_sub(ICON.width).div_euclid(2));
+        let Ok(down) = fitted::<u32, i32>(CARD.height.saturating_sub(ICON.height).div_euclid(2));
+
+        assert_eq!(left, across);
+        assert_eq!(top, down);
     }
 
     #[test]
     fn nothing_past_an_edge_is_ever_shown() {
-        let of = photograph();
+        let of = PHOTOGRAPH;
 
         for zoom in [Zoom::Actual, Zoom::Twice, Zoom::Four] {
             let Ok(scale) = zoom.scale(of, CARD);
@@ -367,11 +364,13 @@ mod tests {
                 assert!(left <= 0, "a gap on the left at {across}: {left}");
                 assert!(top <= 0, "a gap at the top at {across}: {top}");
 
-                let right = left + i32::try_from(drawn.width).expect("fits");
-                let bottom = top + i32::try_from(drawn.height).expect("fits");
+                let Ok(wide) = fitted::<u32, i32>(drawn.width);
+                let Ok(tall) = fitted::<u32, i32>(drawn.height);
+                let Ok(card_wide) = fitted::<u32, i32>(CARD.width);
+                let Ok(card_tall) = fitted::<u32, i32>(CARD.height);
 
-                assert!(right >= i32::try_from(CARD.width).expect("fits"), "a gap on the right");
-                assert!(bottom >= i32::try_from(CARD.height).expect("fits"), "a gap at the bottom");
+                assert!(left.saturating_add(wide) >= card_wide, "a gap on the right");
+                assert!(top.saturating_add(tall) >= card_tall, "a gap at the bottom");
             }
         }
     }
@@ -403,8 +402,8 @@ mod tests {
 
     #[test]
     fn the_whole_of_a_fitted_picture_is_on_the_screen() {
-        let Ok(whole) = showing(photograph(), CARD, Zoom::Whole);
-        let Ok(close) = showing(photograph(), CARD, Zoom::Four);
+        let Ok(whole) = visible_fraction(PHOTOGRAPH, CARD, Zoom::Whole);
+        let Ok(close) = visible_fraction(PHOTOGRAPH, CARD, Zoom::Four);
 
         assert!((whole - 1.0).abs() < 0.01);
         assert!(close < 0.1);
@@ -420,16 +419,16 @@ mod tests {
 
     #[test]
     fn the_room_is_the_card_less_what_the_card_keeps() {
-        assert_eq!(room(CARD, 120), Ok(sized(1180, 580)));
-        assert_eq!(room(CARD, 9000), Ok(sized(1180, 1)), "never nothing");
+        assert_eq!(room(CARD, 120), Ok(Size { width: 1180, height: 580 }));
+        assert_eq!(room(CARD, 9000), Ok(Size { width: 1180, height: 1 }), "never nothing");
     }
 
     #[test]
     fn a_size_is_said_the_way_a_camera_says_it() {
-        let Ok(many) = megapixels(photograph());
+        let Ok(many) = megapixels(PHOTOGRAPH);
 
-        assert_eq!(said(photograph()), Ok("4000 x 3000".to_string()));
-        assert_eq!(pixels(photograph()), Ok(12_000_000));
+        assert_eq!(format_size(PHOTOGRAPH), Ok(String::from("4000 x 3000")));
+        assert_eq!(pixels(PHOTOGRAPH), Ok(12_000_000));
         assert!((many - 12.0).abs() < 0.01);
     }
 }

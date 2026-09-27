@@ -171,7 +171,7 @@ pub fn pool(said: &str) -> Result<BTreeSet<u32>, Never> {
 }
 
 fn subscribes(facts: &[Fact], target: &Target) -> Result<Subscribes, Never> {
-    let Ok(reach) = facts::reaching(facts, target);
+    let Ok(reach) = facts::reachable(facts, target);
     let own = |fact: &&Fact| fact.whose(target).is_ok_and(|whose| whose == Ownership::Its);
     let linked = |fact: &&Fact| fact.target == LIBRARY && reach.contains(&fact.package);
 
@@ -209,7 +209,7 @@ fn started_by_running(architecture: &Architecture, seen: &Seen) -> Result<BTreeS
     let mut started = BTreeSet::new();
 
     for unit in architecture.units.iter().filter(|unit| seen.units.contains(&unit.name)) {
-        let Ok(program) = unit.started();
+        let Ok(program) = unit.exec_start();
 
         match program {
             Some(Started::InternalProgram(binary) | Started::ExternalProgram(binary)) => {
@@ -269,7 +269,7 @@ pub fn compared(architecture: &Architecture, seen: &Seen) -> Result<Vec<Differen
     Ok(found)
 }
 
-fn seen(stage: &mut Device) -> Result<Seen, Never> {
+fn observe(stage: &mut Device) -> Result<Seen, Never> {
     let Ok(systemctl) = Program::Systemctl.name();
     let Ok(ss) = Program::Ss.name();
     let Ok(ps) = Program::Ps.name();
@@ -291,7 +291,7 @@ fn mapped(stage: &mut Device) -> CheckResult {
         },
         Err(fault) => return cannot(&format!("{fault}")),
     };
-    let Ok(seen) = seen(stage);
+    let Ok(seen) = observe(stage);
 
     match seen.units.is_empty() {
         true => return cannot("the device named no running unit, so there is nothing to hold the map against"),
@@ -344,55 +344,68 @@ u_str ESTAB  0      0      * 301 * 302 users:((\"pipewire\",pid=30,fd=5))
         assert_eq!(held.get(&1).map(|one| one.binary.as_str()), Some("systemd"));
     }
 
-    fn fact(package: &str, target: &str, kind: Kind, what: &str) -> Fact {
-        Fact { package: String::from(package), target: String::from(target), kind, what: String::from(what) }
+    fn facts(said: &[(&str, &str, Kind, &str)]) -> Result<Vec<Fact>, Never> {
+        Ok(said
+            .iter()
+            .map(|(package, target, kind, what)| Fact {
+                package: String::from(*package),
+                target: String::from(*target),
+                kind: *kind,
+                what: String::from(*what),
+            })
+            .collect())
     }
 
-    fn architecture() -> Architecture {
-        Architecture {
-            facts: vec![
-                fact("console-status-bar", "console-bar", Kind::Builds, "console_bar"),
-                fact("console-status-bar", "console-bar", Kind::Links, "console_status_bar"),
-                fact("console-status-bar", "lib", Kind::Builds, "console_status_bar"),
-                fact("console-status-bar", "lib", Kind::Subscribes, "Sound"),
-                fact("console-screen", "console-scale", Kind::Builds, "console_scale"),
-            ],
+    fn architecture() -> Result<Architecture, Never> {
+        let Ok(facts) = facts(&[
+            ("console-status-bar", "console-bar", Kind::Builds, "console_bar"),
+            ("console-status-bar", "console-bar", Kind::Links, "console_status_bar"),
+            ("console-status-bar", "lib", Kind::Builds, "console_status_bar"),
+            ("console-status-bar", "lib", Kind::Subscribes, "Sound"),
+            ("console-screen", "console-scale", Kind::Builds, "console_scale"),
+        ]);
+
+        Ok(Architecture {
+            facts,
             enabled: vec![String::from("console-bar.service")],
             units: vec![console_architecture::units::Unit {
                 name: String::from("console-bar.service"),
                 text: String::from("[Service]\nExecStart=/usr/local/bin/console-bar\n"),
             }],
-        }
+        })
     }
 
-    fn process(parent: u32, binary: &str) -> Process {
-        Process { parent, binary: String::from(binary) }
+    fn running(said: &[(u32, u32, &str)]) -> Result<BTreeMap<u32, Process>, Never> {
+        Ok(said
+            .iter()
+            .map(|(pid, parent, binary)| (*pid, Process { parent: *parent, binary: String::from(*binary) }))
+            .collect())
     }
 
     #[test]
     fn a_device_that_matches_the_map_says_nothing() {
+        let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar")]);
         let seen = Seen {
             units: BTreeSet::from([String::from("console-bar.service")]),
-            processes: BTreeMap::from([(1, process(0, "systemd")), (20, process(1, "console-bar"))]),
+            processes,
             pool: BTreeSet::from([20]),
         };
-        let Ok(differences) = compared(&architecture(), &seen);
+        let Ok(architecture) = architecture();
+        let Ok(differences) = compared(&architecture, &seen);
 
         assert_eq!(differences, Vec::new());
     }
 
     #[test]
     fn what_is_in_one_and_not_the_other_is_said() {
+        let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar"), (21, 1, "console-scale")]);
         let seen = Seen {
             units: BTreeSet::from([String::from("console-stray.service")]),
-            processes: BTreeMap::from([
-                (1, process(0, "systemd")),
-                (20, process(1, "console-bar")),
-                (21, process(1, "console-scale")),
-            ]),
+            processes,
             pool: BTreeSet::from([20, 21]),
         };
-        let Ok(differences) = compared(&architecture(), &seen);
+        let Ok(architecture) = architecture();
+        let Ok(differences) = compared(&architecture, &seen);
 
         assert_eq!(
             differences,

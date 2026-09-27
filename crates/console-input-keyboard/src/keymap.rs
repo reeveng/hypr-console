@@ -149,8 +149,10 @@ mod tests {
                 tag
             })
             .collect();
+
         tags.sort();
         tags.dedup();
+
         assert_eq!(tags.len(), Layer::ALL.len(), "two layers share an xkb tag");
     }
 
@@ -165,29 +167,31 @@ mod tests {
     }
 
     #[test]
-    fn the_xkb_system_directory_resolves_on_this_machine() {
+    fn the_xkb_system_directory_resolves_on_this_machine() -> Result<(), Error> {
         let Ok(root) = default_symbols_root();
         let symbols = root.join("symbols");
-        if !symbols.is_dir() {
-            eprintln!("skipped: no xkb symbols at {}", symbols.display());
-            return;
+
+        match symbols.is_dir() {
+            true => {},
+            false => {
+                eprintln!("skipped: no xkb symbols at {}", symbols.display());
+
+                return Ok(());
+            },
         }
-        let result = available("evdev", &root);
-        assert!(result.is_ok(), "available: {:?}", result.err());
-        let keymaps = result.unwrap();
+
+        let keymaps = available("evdev", &root)?;
         let latin = keymaps
             .iter()
             .find(|keymap| keymap.layer == Layer::Latin)
-            .expect("latin");
-        assert!(latin.bytes.starts_with("xkb_keymap {"), "{:?}", &latin.bytes[..40]);
+            .ok_or(Error::UnknownLayout(Layer::Latin))?;
+
+        assert!(latin.bytes.starts_with("xkb_keymap {"), "{:?}", latin.bytes.get(..40));
         assert!(
             latin.bytes.contains("xkb_symbols"),
             "the serialised keymap has no symbols section"
         );
-        eprintln!(
-            "xkb keymaps: {} layers, {} bytes total",
-            keymaps.len(),
-            keymaps.iter().map(|keymap| u64::try_from(keymap.bytes.len()).unwrap()).sum::<u64>()
-        );
+
+        Ok(())
     }
 }

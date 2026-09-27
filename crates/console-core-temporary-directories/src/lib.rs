@@ -60,30 +60,41 @@ pub fn fresh(named: &str) -> Result<PathBuf, Unmade> {
 mod tests {
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn a_directory_is_made_and_is_empty() {
-        let at = fresh("temporary-made").expect("a directory");
+    fn a_directory_is_made_and_is_empty() -> Result<(), Failure> {
+        let at = fresh("temporary-made")?;
+        let inside = std::fs::read_dir(&at)?;
 
         assert!(at.is_dir());
-        assert_eq!(std::fs::read_dir(&at).expect("readable").count(), 0);
+        assert_eq!(inside.count(), 0);
+
+        Ok(())
     }
 
     #[test]
-    fn what_an_earlier_run_left_is_gone() {
-        let at = fresh("temporary-again").expect("a directory");
-        std::fs::write(at.join("left"), "from before").expect("a file");
+    fn what_an_earlier_run_left_is_gone() -> Result<(), Failure> {
+        let at = fresh("temporary-again")?;
 
-        let again = fresh("temporary-again").expect("a directory");
+        std::fs::create_dir(at.join("left"))?;
+
+        let again = fresh("temporary-again")?;
+        let inside = std::fs::read_dir(&again)?;
 
         assert_eq!(again, at);
-        assert_eq!(std::fs::read_dir(&again).expect("readable").count(), 0);
+        assert_eq!(inside.count(), 0);
+
+        Ok(())
     }
 
     #[test]
-    fn two_names_are_two_directories() {
-        let one = fresh("temporary-one").expect("a directory");
-        let other = fresh("temporary-other").expect("a directory");
+    fn two_names_are_two_directories() -> Result<(), Failure> {
+        let one = fresh("temporary-one")?;
+        let other = fresh("temporary-other")?;
 
         assert_ne!(one, other);
+
+        Ok(())
     }
 }

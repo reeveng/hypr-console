@@ -193,86 +193,99 @@ pub fn on_a_machine_standing(free: u64, went: &[Place]) -> Result<Room, Never> {
 mod tests {
     use super::*;
 
-    fn place(name: &str, bytes: u64) -> Place {
-        Place { name: name.to_string(), bytes }
+    type Failure = Box<dyn std::error::Error>;
+
+    const ONE_BYTE_SHORT_OF_A_BUILD: u64 = A_BUILD - 1;
+
+    const ONE_BYTE_SHORT_OF_A_GIGABYTE: u64 = GIGABYTE - 1;
+
+    const VIDEOS: u64 = 8 * GIGABYTE;
+
+    const STEAM: u64 = 122 * GIGABYTE;
+
+    fn place(name: &str, bytes: u64) -> Result<Place, Never> {
+        Ok(Place { name: name.to_string(), bytes })
     }
 
-    fn asking(free: u64) -> Room {
-        let Ok(room) = before_an_apply(free, &[]);
-
-        room
-    }
-
-    fn said(room: Room) -> String {
+    fn said(room: Room) -> Result<String, Failure> {
         match room {
-            Room::No(said) => said,
-            Room::Enough => panic!("it was allowed"),
+            Room::No(said) => Ok(said),
+            Room::Enough => Err(Failure::from("it was allowed")),
         }
     }
 
     #[test]
     fn an_apply_wants_room_for_the_build_it_is_about_to_run() {
-        assert_eq!(asking(A_BUILD), Room::Enough);
-        assert!(matches!(asking(A_BUILD - 1), Room::No(_)));
+        assert_eq!(before_an_apply(A_BUILD, &[]), Ok(Room::Enough));
+        assert!(matches!(before_an_apply(ONE_BYTE_SHORT_OF_A_BUILD, &[]), Ok(Room::No(_))));
     }
 
     #[test]
     fn a_machine_standing_still_is_asked_for_the_evening_as_well_as_the_apply() {
         let Ok(room) = on_a_machine_standing(A_BUILD, &[]);
+
         assert!(
             matches!(room, Room::No(_)),
             "room for the apply and nothing after it, and the card waited for the refusal"
         );
 
         let Ok(room) = on_a_machine_standing(STANDING, &[]);
+
         assert_eq!(room, Room::Enough);
     }
 
     #[test]
-    fn the_refusal_says_what_is_wrong_and_what_would_fix_it() {
-        let said = said(asking(GIGABYTE));
+    fn the_refusal_says_what_is_wrong_and_what_would_fix_it() -> Result<(), Failure> {
+        let Ok(room) = before_an_apply(GIGABYTE, &[]);
+        let said = said(room)?;
+
         assert!(said.contains("1 GB left"), "{said}");
         assert!(said.contains("6 GB"), "{said}");
         assert!(said.contains("Make some room"), "{said}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_refusal_names_the_biggest_places_and_the_size_of_each() {
-        let Ok(room) = before_an_apply(
-            GIGABYTE,
-            &[place("Videos", 8 * GIGABYTE), place("Steam", 122 * GIGABYTE)],
-        );
-        let said = said(room);
+    fn a_refusal_names_the_biggest_places_and_the_size_of_each() -> Result<(), Failure> {
+        let Ok(videos) = place("Videos", VIDEOS);
+        let Ok(steam) = place("Steam", STEAM);
+        let Ok(room) = before_an_apply(GIGABYTE, &[videos, steam]);
+        let said = said(room)?;
 
         assert!(said.contains("Steam (122 GB), Videos (8 GB)"), "{said}");
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_worth_clearing_is_nothing_said_about_it() {
-        let Ok(room) = before_an_apply(GIGABYTE, &[place("Downloads", 4096)]);
-        let said = said(room);
+    fn nothing_worth_clearing_is_nothing_said_about_it() -> Result<(), Failure> {
+        let Ok(downloads) = place("Downloads", 4096);
+        let Ok(room) = before_an_apply(GIGABYTE, &[downloads]);
+        let said = said(room)?;
 
         assert!(!said.contains("Most of the room"), "{said}");
         assert!(!said.contains("Downloads"), "{said}");
+
+        Ok(())
     }
 
     #[test]
-    fn only_the_few_worth_naming_are_named() {
+    fn only_the_few_worth_naming_are_named() -> Result<(), Failure> {
         let went: Vec<Place> = (1..8u64)
             .map(|which| {
-                let bytes = match which.checked_mul(GIGABYTE) {
-                    Some(bytes) => bytes,
-                    None => return place("nowhere", 0),
-                };
+                let Ok(place) = place(&format!("place{which}"), which.saturating_mul(GIGABYTE));
 
-                place(&format!("place{which}"), bytes)
+                place
             })
             .collect();
         let Ok(room) = before_an_apply(GIGABYTE, &went);
-        let said = said(room);
+        let said = said(room)?;
 
         assert!(said.contains("place7 (7 GB), place6 (6 GB), place5 (5 GB)"), "{said}");
         assert!(!said.contains("place4"), "{said}");
+
+        Ok(())
     }
 
     #[test]
@@ -283,9 +296,11 @@ mod tests {
     #[test]
     fn a_disk_that_would_not_say_is_not_a_disk_with_no_room() {
         let Ok(left) = free_in("");
+
         assert!(matches!(left, Left::Unknown(_)), "{left:?}");
 
         let Ok(left) = free_in("df: /nowhere: No such file or directory");
+
         assert!(matches!(left, Left::Unknown(_)), "{left:?}");
     }
 
@@ -299,14 +314,10 @@ mod tests {
 123000000000\t/home/someone/.local/share
 ";
         let Ok(places) = places_in(said, &roots);
+        let Ok(videos) = place("Videos", 8000000000);
+        let Ok(steam) = place("Steam", 122000000000);
 
-        assert_eq!(
-            places,
-            vec![
-                place("Videos", 8000000000),
-                place("Steam", 122000000000),
-            ]
-        );
+        assert_eq!(places, vec![videos, steam]);
     }
 
     #[test]
@@ -314,14 +325,15 @@ mod tests {
         let roots = vec!["/home/someone".to_string()];
         let said = "123000000000\t/home/someone/.local\n2000000000\t/home/someone/Music\n";
         let Ok(places) = places_in(said, &roots);
+        let Ok(music) = place("Music", 2000000000);
 
-        assert_eq!(places, vec![place("Music", 2000000000)]);
+        assert_eq!(places, vec![music]);
     }
 
     #[test]
     fn a_size_under_a_gigabyte_is_said_in_words_rather_than_as_a_zero() {
         assert_eq!(words(0), Ok("less than a gigabyte".to_string()));
-        assert_eq!(words(GIGABYTE - 1), Ok("less than a gigabyte".to_string()));
+        assert_eq!(words(ONE_BYTE_SHORT_OF_A_GIGABYTE), Ok("less than a gigabyte".to_string()));
         assert_eq!(words(GIGABYTE), Ok("1 GB".to_string()));
     }
 }

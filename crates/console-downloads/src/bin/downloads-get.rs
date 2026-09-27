@@ -72,7 +72,7 @@ fn main() {
         Ok(()) => {},
         Err(fault) => {
             let why = format!("{} cannot be written to: {fault}", into.display());
-            let Ok(named) = named(&called, NOTHING);
+            let Ok(named) = sentence(&called, NOTHING);
 
             let Ok(()) = say(KIND, Notification { summary: &named, body: &why });
             return;
@@ -88,7 +88,7 @@ fn main() {
                 None => have,
             };
 
-            let Ok(()) = told(&named, &into, ALREADY);
+            let Ok(()) = notify_arrived(&named, &into, ALREADY);
             return;
         }
         (Kind::Book, _) | (Kind::Sound | Kind::Film, None) => {},
@@ -100,8 +100,8 @@ fn main() {
         None => "",
     };
     let Ok(arguments) = getting::arguments(Fetch { kind, url, into: &into, title });
-    let Ok(nothing) = named(&called, NOTHING);
-    let Ok(missing) = looking::missing(kind);
+    let Ok(nothing) = sentence(&called, NOTHING);
+    let Ok(missing) = looking::missing_tool_message(kind);
 
     let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
@@ -126,7 +126,7 @@ fn main() {
             let said = match kind {
                 Kind::Book => {
                     let Ok(id) = id_of(url);
-                    let Ok(settled) = settled(&into, &said, getting::Book { id: &id, title });
+                    let Ok(settled) = final_path(&into, &said, getting::Book { id: &id, title });
 
                     settled
                 },
@@ -134,7 +134,7 @@ fn main() {
             };
 
             let Ok(arrived) = arrived(&said);
-            let Ok(()) = told(&arrived, &into, IS_IN);
+            let Ok(()) = notify_arrived(&arrived, &into, IS_IN);
         },
         false => {
             let Ok(()) = swept(&into, began);
@@ -151,7 +151,7 @@ struct Landed<'a>(&'a str);
 const IS_IN: Landed<'static> = Landed("is in");
 const ALREADY: Landed<'static> = Landed("was already in");
 
-fn named(called: &Option<String>, said: &str) -> Result<String, Never> {
+fn sentence(called: &Option<String>, said: &str) -> Result<String, Never> {
     Ok(match called {
         Some(called) => format!("{called} {said}"),
         None => format!("It {said}"),
@@ -183,7 +183,7 @@ fn already(into: &Path, url: &str) -> Result<Option<String>, Never> {
         None => return Ok(None),
     };
 
-    let named = console_music_player::library::named(&holding)?;
+    let named = console_core_file_names::title(&holding)?;
 
     Ok(Some(named))
 }
@@ -195,7 +195,7 @@ fn id_of(url: &str) -> Result<String, Never> {
     })
 }
 
-fn settled(into: &Path, said: &str, book: getting::Book<'_>) -> Result<String, Never> {
+fn final_path(into: &Path, said: &str, book: getting::Book<'_>) -> Result<String, Never> {
     let part = match said.lines().map(str::trim).rfind(|line| !line.is_empty()) {
         Some(part) => part,
         None => return Ok(said.to_string()),
@@ -230,12 +230,12 @@ fn settled(into: &Path, said: &str, book: getting::Book<'_>) -> Result<String, N
     Ok(whole.to_string())
 }
 
-fn written(said: &str) -> Result<Option<&str>, Never> {
+fn last_line(said: &str) -> Result<Option<&str>, Never> {
     Ok(said.lines().map(str::trim).rfind(|line| !line.is_empty()))
 }
 
 fn arrived(said: &str) -> Result<String, Never> {
-    let Ok(path) = written(said);
+    let Ok(path) = last_line(said);
     let named =
         path.map(Path::new).and_then(Path::file_name).map(|name| name.to_string_lossy().to_string());
 
@@ -246,7 +246,7 @@ fn arrived(said: &str) -> Result<String, Never> {
 
     Ok(match name.is_empty() {
         true => "It".to_string(),
-        false => console_music_player::library::named(&name)?,
+        false => console_core_file_names::title(&name)?,
     })
 }
 
@@ -277,7 +277,7 @@ fn swept(into: &Path, began: SystemTime) -> Result<(), Never> {
     Ok(())
 }
 
-fn told(name: &str, into: &Path, said: Landed<'_>) -> Result<(), Never> {
+fn notify_arrived(name: &str, into: &Path, said: Landed<'_>) -> Result<(), Never> {
     let said = said.0;
     let where_ = into.file_name().map(|name| name.to_string_lossy().to_string());
     let Ok(mut notifysend) = Program::NotifySend.command();
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn what_is_said_about_a_fault_names_the_thing_it_is_about() {
-        assert_eq!(named(&Some("Africa".to_string()), NOTHING), Ok("Africa couldn't be downloaded".to_string()));
-        assert_eq!(named(&None, NOTHING), Ok("It couldn't be downloaded".to_string()));
+        assert_eq!(sentence(&Some("Africa".to_string()), NOTHING), Ok("Africa couldn't be downloaded".to_string()));
+        assert_eq!(sentence(&None, NOTHING), Ok("It couldn't be downloaded".to_string()));
     }
 }

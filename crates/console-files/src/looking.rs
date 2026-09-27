@@ -6,9 +6,10 @@
 //! front of you: it looks under everything below it as well, and the row says
 //! where what it found is.
 
-use std::collections::VecDeque;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 
 use crate::listing::{self, Entry};
@@ -70,66 +71,103 @@ pub fn under(
         false => {},
     }
 
-    let mut found: Vec<Found> = Vec::new();
-    let mut waiting = VecDeque::from([PathBuf::new()]);
-    let mut read_so_far: u32 = 0;
+    let looking = Looking { here, word: Word(word), read };
 
-    while let Some(within) = waiting.pop_front() {
-        let Ok(many) = console_core_number_conversion::fitted::<_, u32>(found.len());
+    let looked = iterate(Walked { found: Vec::new(), opened: 0, deeper: vec![PathBuf::new()] }, |walked| looking.level(walked));
 
-        match many >= ENOUGH || read_so_far >= FAR {
-            true => break,
-            false => {},
-        }
+    Ok(match looked {
+        Ok(found) => found,
+        Err(Endless) => Vec::new(),
+    })
+}
 
-        read_so_far = read_so_far.saturating_add(1);
+struct Looking<'a> {
+    here: &'a Path,
+    word: Word<'a>,
+    read: &'a dyn Fn(&Path) -> Result<Vec<Entry>, Never>,
+}
+
+struct Walked {
+    found: Vec<Found>,
+    opened: u32,
+    deeper: Vec<PathBuf>,
+}
+
+impl Looking<'_> {
+    fn level(&self, walked: Walked) -> Result<Step<Walked, Vec<Found>>, Never> {
+        let Walked { found, opened, deeper } = walked;
+        let begun = Walked { found, opened, deeper: Vec::new() };
+
+        let walked = deeper.into_iter().try_fold(begun, |walked, within| {
+            let Ok(many) = console_core_number_conversion::fitted::<_, u32>(walked.found.len());
+
+            match many >= ENOUGH || walked.opened >= FAR {
+                true => ControlFlow::Break(walked),
+                false => {
+                    let Ok(walked) = self.opened(walked, within);
+
+                    ControlFlow::Continue(walked)
+                }
+            }
+        });
+
+        Ok(match walked {
+            ControlFlow::Break(walked) => Step::Halt(walked.found),
+            ControlFlow::Continue(walked) => match walked.deeper.is_empty() {
+                true => Step::Halt(walked.found),
+                false => Step::Again(walked),
+            },
+        })
+    }
+
+    fn opened(&self, walked: Walked, within: PathBuf) -> Result<Walked, Never> {
+        let Walked { mut found, opened, mut deeper } = walked;
         let at = match within.as_os_str().is_empty() {
-            true => here.to_path_buf(),
-            false => here.join(&within),
+            true => self.here.to_path_buf(),
+            false => self.here.join(&within),
         };
 
-        let things = read(&at)?;
+        let things = (self.read)(&at)?;
 
         for thing in things {
             match thing.folder {
-                true => waiting.push_back(within.join(&thing.name)),
+                true => deeper.push(within.join(&thing.name)),
                 false => {},
             }
 
-            let answers = answers(&thing.name, Word(word))?;
+            let answers = answers(&thing.name, self.word)?;
 
             match answers {
                 Answers::Yes => found.push(Found { thing, within: within.clone() }),
                 Answers::No => {},
             }
         }
-    }
 
-    Ok(found)
+        Ok(Walked { found, opened: opened.saturating_add(1), deeper })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn folder(name: &str) -> Entry {
-        let Ok(entry) = Entry::folder(name);
-
-        entry
-    }
-
-    fn file(name: &str, size: u64) -> Entry {
-        let Ok(entry) = Entry::file(name, size);
-
-        entry
-    }
+    use std::error::Error;
 
     fn tree(at: &Path) -> Result<Vec<Entry>, Never> {
         let said = at.to_string_lossy().to_string();
         let of = |names: &[&str], files: &[&str]| {
-            let mut things: Vec<Entry> = names.iter().map(|name| folder(name)).collect();
+            let mut things: Vec<Entry> = Vec::new();
 
-            things.extend(files.iter().map(|name| file(name, 1)));
+            for name in names {
+                let Ok(folder) = Entry::folder(name);
+
+                things.push(folder);
+            }
+
+            for name in files {
+                let Ok(file) = Entry::file(name, 1);
+
+                things.push(file);
+            }
 
             let Ok(things) = listing::sorted(things);
 
@@ -145,82 +183,116 @@ mod tests {
         })
     }
 
-    fn under_home(word: &str) -> Vec<Found> {
-        let Ok(found) = under(Path::new("/home"), word, &tree);
-
-        found
+    fn under_home(word: &str) -> Result<Vec<Found>, Never> {
+        under(Path::new("/home"), word, &tree)
     }
 
-    fn names(found: &[Found]) -> Vec<&str> {
-        found.iter().map(|one| one.thing.name.as_str()).collect()
-    }
-
-    #[test]
-    fn a_word_finds_what_is_under_the_folder_as_well_as_what_is_in_it() {
-        assert_eq!(names(&under_home("notes")), ["notes.txt", "notes.txt"]);
-        assert_eq!(under_home("notes")[0].within, PathBuf::new());
-        assert_eq!(under_home("notes")[1].within, PathBuf::from("Documents/Holiday"));
+    fn names(found: &[Found]) -> Result<Vec<&str>, Never> {
+        Ok(found.iter().map(|one| one.thing.name.as_str()).collect())
     }
 
     #[test]
-    fn what_is_nearest_is_found_first() {
-        let found = under_home("beach");
-        assert_eq!(found[0].within, PathBuf::from("Pictures"));
-        assert_eq!(found[1].within, PathBuf::from("Documents/Holiday"));
+    fn a_word_finds_what_is_under_the_folder_as_well_as_what_is_in_it() -> Result<(), Box<dyn Error>> {
+        let Ok(found) = under_home("notes");
+        let Ok(named) = names(&found);
+        let [here, deeper] = found.first_chunk::<2>().ok_or("two notes")?;
+
+        assert_eq!(named, ["notes.txt", "notes.txt"]);
+        assert_eq!(here.within, PathBuf::new());
+        assert_eq!(deeper.within, PathBuf::from("Documents/Holiday"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn what_is_nearest_is_found_first() -> Result<(), Box<dyn Error>> {
+        let Ok(found) = under_home("beach");
+        let [nearest, further] = found.first_chunk::<2>().ok_or("two beaches")?;
+
+        assert_eq!(nearest.within, PathBuf::from("Pictures"));
+        assert_eq!(further.within, PathBuf::from("Documents/Holiday"));
+
+        Ok(())
     }
 
     #[test]
     fn a_folder_answers_to_a_word_the_same_way_a_file_does() {
-        assert_eq!(names(&under_home("holi")), ["Holiday"]);
+        let Ok(found) = under_home("holi");
+        let Ok(named) = names(&found);
+
+        assert_eq!(named, ["Holiday"]);
     }
 
     #[test]
-    fn a_found_folder_is_arrived_at_a_step_at_a_time() {
-        assert_eq!(under_home("holi")[0].steps(), Ok(vec!["Documents".to_string(), "Holiday".to_string()]));
-        assert_eq!(under_home("docum")[0].steps(), Ok(vec!["Documents".to_string()]));
+    fn a_found_folder_is_arrived_at_a_step_at_a_time() -> Result<(), Box<dyn Error>> {
+        let Ok(holiday) = under_home("holi");
+        let Ok(documents) = under_home("docum");
+        let holiday = holiday.first().ok_or("the holiday")?;
+        let documents = documents.first().ok_or("the documents")?;
+
+        assert_eq!(holiday.steps(), Ok(vec!["Documents".to_string(), "Holiday".to_string()]));
+        assert_eq!(documents.steps(), Ok(vec!["Documents".to_string()]));
+
+        Ok(())
     }
 
     #[test]
     fn the_case_it_was_typed_in_does_not_matter() {
-        assert_eq!(names(&under_home("TAXES")), ["taxes.pdf"]);
-        assert_eq!(names(&under_home("  taxes ")), ["taxes.pdf"]);
+        let Ok(shouted) = under_home("TAXES");
+        let Ok(spaced) = under_home("  taxes ");
+        let Ok(shouted) = names(&shouted);
+        let Ok(spaced) = names(&spaced);
+
+        assert_eq!(shouted, ["taxes.pdf"]);
+        assert_eq!(spaced, ["taxes.pdf"]);
     }
 
     #[test]
     fn nothing_typed_looks_at_nothing() {
-        assert!(under_home("").is_empty());
-        assert!(under_home("   ").is_empty());
+        let Ok(empty) = under_home("");
+        let Ok(blank) = under_home("   ");
+
+        assert!(empty.is_empty());
+        assert!(blank.is_empty());
     }
 
     #[test]
     fn a_word_nothing_answers_to_finds_nothing() {
-        assert!(under_home("kangaroo").is_empty());
+        let Ok(kangaroo) = under_home("kangaroo");
+
+        assert!(kangaroo.is_empty());
     }
 
     #[test]
-    fn a_row_says_where_what_it_found_is() {
-        let found = under_home("notes");
+    fn a_row_says_where_what_it_found_is() -> Result<(), Box<dyn Error>> {
+        let Ok(found) = under_home("notes");
+        let [here, deeper] = found.first_chunk::<2>().ok_or("two notes")?;
 
-        assert_eq!(found[0].aside(), listing::aside(&found[0].thing));
-        assert_eq!(found[1].aside(), Ok("Documents/Holiday".to_string()));
-        assert_eq!(
-            found[1].at(Path::new("/home")),
-            Ok(PathBuf::from("/home/Documents/Holiday/notes.txt")),
-        );
+        assert_eq!(here.aside(), listing::aside(&here.thing));
+        assert_eq!(deeper.aside(), Ok("Documents/Holiday".to_string()));
+        assert_eq!(deeper.at(Path::new("/home")), Ok(PathBuf::from("/home/Documents/Holiday/notes.txt")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_tree_that_goes_on_for_ever_is_still_left() {
+    fn a_tree_that_goes_on_for_ever_is_still_left() -> Result<(), Box<dyn Error>> {
         let round = |at: &Path| {
+            let Ok(folder) = Entry::folder("down");
+            let Ok(file) = Entry::file("notes.txt", 1);
+
             Ok(match at.to_string_lossy().len() < 4000 {
-                true => vec![folder("down"), file("notes.txt", 1)],
+                true => vec![folder, file],
                 false => Vec::new(),
             })
         };
 
         let Ok(found) = under(Path::new("/home"), "notes", &round);
+        let many = u32::try_from(found.len())?;
 
         assert!(!found.is_empty());
-        assert!(u32::try_from(found.len()).unwrap() <= ENOUGH);
+        assert!(many <= ENOUGH);
+
+        Ok(())
     }
 }

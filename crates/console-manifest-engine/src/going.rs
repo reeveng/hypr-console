@@ -173,7 +173,7 @@ impl Moving<'_> {
 
     pub fn at(&mut self, far: Progress, now: &str) -> Result<(), Never> {
         let Ok(part) = console_how_far::fraction(far);
-        let Ok(counted) = console_how_far::counted(far);
+        let Ok(counted) = console_how_far::format_count(far);
 
         self.far(part, &format!("{counted} {now}"))
     }
@@ -192,11 +192,11 @@ impl Going {
     }
 
     #[cfg(test)]
-    pub fn quiet() -> Self {
+    pub fn quiet() -> Result<Self, Never> {
         let Ok(many) = fitted::<_, u32>(STAGES.len());
-        let Ok(bar) = Bar::unwatched(many);
+        let Ok(bar) = Bar::without_terminal(many);
 
-        Going { done: 0, bar, told: Audience::NoOne, took: Vec::new() }
+        Ok(Going { done: 0, bar, told: Audience::NoOne, took: Vec::new() })
     }
 
     pub fn through<T>(&mut self, label: &'static str, work: impl FnOnce() -> T) -> Result<T, Never> {
@@ -269,7 +269,7 @@ impl Going {
         let Ok(inside) = toward_zero_u16(f64::from(reach.weight) * far);
         let reached = reach.start.saturating_add(inside).min(WHOLE);
 
-        let Ok(()) = self.bar.filling(into, now.0);
+        let Ok(()) = self.bar.set_progress(into, now.0);
 
         match reached <= self.done {
             true => return Ok(()),
@@ -317,14 +317,14 @@ impl Going {
         Ok(self.done)
     }
 
-    pub fn done(mut self) -> Result<Vec<(&'static str, Duration)>, Never> {
+    pub fn finish(mut self) -> Result<Vec<(&'static str, Duration)>, Never> {
         self.done = WHOLE;
 
         let Ok(()) = self.bar.wiped();
 
         match self.told == Audience::Bar {
             true => {
-                let Ok(()) = updating::done();
+                let Ok(()) = updating::clear();
             }
             false => {},
         }
@@ -343,70 +343,63 @@ fn weight_of(label: &str) -> Result<u16, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::collections::BTreeSet;
 
-    fn far(going: &Going) -> u16 {
-        let Ok(far) = going.far();
-
-        far
-    }
-
-    fn line(going: &Going) -> String {
-        let Ok(line) = going.bar.line();
-
-        line
-    }
+    const HALF_THE_WORK: u16 = WHOLE / 2;
 
     #[test]
     fn a_stage_that_says_how_far_it_has_got_moves_the_bar_and_still_lands_where_it_should() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
         let Ok(()) = going.through(READING, || ());
         let Ok(()) = going.through(WANTED, || ());
         let Ok(()) = going.through(PACKAGES, || ());
         let Ok(()) = going.through(KEEPING, || ());
         let Ok(()) = going.through(SWEEPING, || ());
-        let before = far(&going);
-        let mut seen = Vec::new();
-        let Ok(()) = going.during(BUILDING, |moving| {
+        let Ok(before) = going.far();
+        let Ok(seen) = going.during(BUILDING, |moving| {
+            let mut seen = Vec::new();
+
             for far in [0.1, 0.5, 0.9] {
                 let Ok(()) = moving.far(far, "a-crate");
 
-                seen.push(0);
+                seen.push(far);
             }
+
+            seen
         });
         let Ok(weight) = weight_of(BUILDING);
 
         assert_eq!(seen.len(), 3);
-        assert_eq!(far(&going), before + weight);
+        assert_eq!(going.far(), Ok(before.saturating_add(weight)));
     }
 
     #[test]
     fn what_a_stage_says_on_the_way_stays_inside_its_own_weight() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
         let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 0.5, Now(""));
-        assert_eq!(far(&going), 40);
+        assert_eq!(going.far(), Ok(40));
         let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 2.0, Now(""));
-        assert_eq!(far(&going), 70, "a stage reported past its end went past it");
+        assert_eq!(going.far(), Ok(70), "a stage reported past its end went past it");
     }
 
     #[test]
     fn a_stage_that_says_it_has_gone_backwards_moves_nothing() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
         let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 0.5, Now(""));
         let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, 0.1, Now(""));
         let Ok(()) = going.inside(BUILDING, Reachability { start: 10, weight: 60 }, -1.0, Now(""));
-        assert_eq!(far(&going), 40);
+        assert_eq!(going.far(), Ok(40));
     }
 
     #[test]
     fn a_count_out_of_a_total_names_the_thing_and_says_how_many_are_left() {
-        let mut going = Going::quiet();
-        let mut said = String::new();
-        let Ok(()) = going.during(FILES, |moving| {
+        let Ok(mut going) = Going::quiet();
+        let Ok(said) = going.during(FILES, |moving| {
             let Ok(()) = moving.at(Progress { done: 1, many: 4 }, "console/palette.css");
             let Ok(drawn) = moving.going.bar.line();
 
-            said = drawn;
+            drawn
         });
 
         assert!(said.contains(" 25%"), "{said}");
@@ -415,19 +408,26 @@ mod tests {
 
     #[test]
     fn the_line_fills_as_the_count_climbs_and_never_runs_backwards() {
-        let mut going = Going::quiet();
-        let mut seen: Vec<String> = Vec::new();
-        let Ok(()) = going.during(BUILDING, |moving| {
+        let Ok(mut going) = Going::quiet();
+        let Ok(seen) = going.during(BUILDING, |moving| {
+            let mut seen: Vec<String> = Vec::new();
+
             for done in [0_u32, 1, 2, 1, 4] {
                 let Ok(()) = moving.at(Progress { done, many: 4 }, "console-panel");
                 let Ok(drawn) = moving.going.bar.line();
 
                 seen.push(drawn);
             }
+
+            seen
         });
         let filled: Vec<u32> = seen
             .iter()
-            .map(|line| u32::try_from(line.chars().filter(|one| *one == '#').count()).unwrap())
+            .map(|line| {
+                let Ok(filled) = fitted::<_, u32>(line.chars().filter(|one| *one == '#').count());
+
+                filled
+            })
             .collect();
         let mut sorted = filled.clone();
 
@@ -439,9 +439,9 @@ mod tests {
 
     #[test]
     fn the_line_is_shaped_the_way_pacman_shapes_one() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
         let Ok(()) = going.through(READING, || ());
-        let said = line(&going);
+        let Ok(said) = going.bar.line();
 
         assert!(said.starts_with(&format!("( 1/{}) ", STAGES.len())), "{said}");
         assert!(said.ends_with("] 100%"), "{said}");
@@ -450,94 +450,111 @@ mod tests {
     #[test]
     fn the_weights_add_up() {
         let all: u16 = STAGES.iter().map(|stage| stage.weight).sum();
+
         assert_eq!(all, WHOLE, "the weights come to {all} rather than {WHOLE}");
     }
 
     #[test]
     fn no_stage_is_named_twice() {
         let mut seen = BTreeSet::new();
-        let twice: Vec<&str> = STAGES
-            .iter()
-            .map(|stage| stage.label)
-            .filter(|label| !seen.insert(*label))
-            .collect();
+        let mut twice: Vec<&str> = Vec::new();
+
+        for stage in STAGES {
+            match seen.insert(stage.label) {
+                true => {},
+                false => twice.push(stage.label),
+            }
+        }
 
         assert!(twice.is_empty(), "{twice:?} is in the table more than once");
     }
 
     #[test]
     fn the_first_half_of_the_stages_is_most_of_the_work() {
-        let front: u16 = STAGES.iter().take(STAGES.len() / 2).map(|stage| stage.weight).sum();
+        let front: u16 = STAGES.iter().take(STAGES.len().div_euclid(2)).map(|stage| stage.weight).sum();
+
         assert!(
-            front > WHOLE / 2,
+            front > HALF_THE_WORK,
             "the first {} stages are only {front} of {WHOLE}, so the bar would run at \
              the start and crawl at the end",
-            STAGES.len() / 2
+            STAGES.len().div_euclid(2),
         );
     }
 
     #[test]
     fn walking_all_of_them_arrives() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
+
         for stage in STAGES {
             let Ok(()) = going.through(stage.label, || ());
         }
-        assert_eq!(far(&going), WHOLE);
+
+        assert_eq!(going.far(), Ok(WHOLE));
     }
 
     #[test]
     fn every_stage_walked_is_counted_once() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
+
         for stage in STAGES {
             let Ok(()) = going.through(stage.label, || ());
         }
-        assert!(line(&going).starts_with(&format!("({0}/{0})", STAGES.len())), "{}", line(&going));
+
+        let Ok(said) = going.bar.line();
+
+        assert!(said.starts_with(&format!("({0}/{0})", STAGES.len())), "{said}");
     }
 
     #[test]
     fn a_skipped_stage_still_ends_at_the_end() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
+
         for stage in STAGES.iter().filter(|stage| stage.label != PACKAGES) {
             let Ok(()) = going.through(stage.label, || ());
         }
-        assert!(far(&going) < WHOLE, "nothing was skipped");
 
-        let Ok(_) = going.done();
+        let Ok(far) = going.far();
+
+        assert!(far < WHOLE, "nothing was skipped");
+
+        let Ok(_) = going.finish();
     }
 
     #[test]
     fn a_stage_says_what_it_would_have_said_without_a_bar() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
         let Ok(seven) = going.through(BUILDING, || 7);
         let Ok(said) = going.through(FILES, || Err::<(), String>("would not".to_string()));
 
         assert_eq!(seven, 7);
         assert_eq!(said, Err("would not".to_string()));
 
-        let mut ran = 0;
-        let Ok(()) = going.through(SERVICES, || ran += 1);
+        let ran = Cell::new(0_u32);
+        let Ok(()) = going.through(SERVICES, || ran.set(ran.get().saturating_add(1)));
 
-        assert_eq!(ran, 1, "the work did not run exactly once");
+        assert_eq!(ran.get(), 1, "the work did not run exactly once");
     }
 
     #[test]
     fn a_stage_no_one_weighed_does_not_move_it() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
         let Ok(()) = going.through(BUILDING, || ());
-        let before = far(&going);
+        let Ok(before) = going.far();
         let Ok(()) = going.through("something no one put in the table", || ());
 
-        assert_eq!(far(&going), before);
+        assert_eq!(going.far(), Ok(before));
     }
 
     #[test]
     fn it_does_not_go_past_the_end() {
-        let mut going = Going::quiet();
+        let Ok(mut going) = Going::quiet();
+
         for _ in 0..4 {
             for stage in STAGES {
                 let Ok(()) = going.arrived(stage.label);
             }
         }
-        assert_eq!(far(&going), WHOLE);
+
+        assert_eq!(going.far(), Ok(WHOLE));
     }
 }

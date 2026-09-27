@@ -154,7 +154,7 @@ impl Turning {
                             }
                         }
                         Err(Closed) => {
-                            let Ok(went) = self.went(which, &path, now);
+                            let Ok(went) = self.remove_device(which, &path, now);
 
                             effect.extend(went);
                             break 'over_tries;
@@ -169,7 +169,7 @@ impl Turning {
             false => {},
         }
 
-        let Ok(carried) = self.held.finger.carried();
+        let Ok(carried) = self.held.finger.flush_motion();
         let Ok(ticked) = self.held.tick(since);
 
         effect.extend(carried);
@@ -205,14 +205,14 @@ impl Turning {
         Ok(())
     }
 
-    pub fn missing(&self) -> Result<Vec<From>, Never> {
+    pub fn missing_devices(&self) -> Result<Vec<From>, Never> {
         Ok(READ
             .into_iter()
             .filter(|which| !self.open.contains_key(which))
             .collect())
     }
 
-    pub fn holding(&self) -> Result<Vec<(From, String)>, Never> {
+    pub fn open_devices(&self) -> Result<Vec<(From, String)>, Never> {
         Ok(self
             .open
             .iter()
@@ -220,7 +220,7 @@ impl Turning {
             .collect())
     }
 
-    fn went(&mut self, which: From, path: &str, now: f64) -> Result<Vec<Effect>, Never> {
+    fn remove_device(&mut self, which: From, path: &str, now: f64) -> Result<Vec<Effect>, Never> {
         let empty = match self.open.get_mut(&which) {
             Some(paths) => {
                 let _ = paths.remove(path);
@@ -326,7 +326,7 @@ impl Turning {
         let said = machine.every();
 
         let Ok(every) = match which {
-            From::Typing => finding::typing(&said),
+            From::Typing => finding::keyboards(&said),
             From::Pad | From::Keys | From::Touch => {
                 let Ok(one) = match which {
                     From::Pad => finding::gamepad(&said),
@@ -345,12 +345,6 @@ impl Turning {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
 
     #[derive(Default)]
     struct Machine {
@@ -383,83 +377,96 @@ mod tests {
 
     const PAD: &str = "/dev/input/event1";
 
-    fn told() -> BTreeMap<From, String> {
-        [(From::Pad, PAD), (From::Keys, "/dev/input/event2"), (From::Touch, "/dev/input/event3")]
+    fn sample_paths() -> Result<BTreeMap<From, String>, Never> {
+        Ok([(From::Pad, PAD), (From::Keys, "/dev/input/event2"), (From::Touch, "/dev/input/event3")]
             .into_iter()
             .map(|(which, at)| (which, at.to_string()))
-            .collect()
+            .collect())
     }
 
-    fn at(since_boot: f64) -> Instant {
-        Instant { since_boot, suspended: 0.0 }
+    fn at(since_boot: f64) -> Result<Instant, Never> {
+        Ok(Instant { since_boot, suspended: 0.0 })
+    }
+
+    fn turned(turning: &mut Turning, machine: &mut Machine, since_boot: f64) -> Result<Vec<Effect>, Never> {
+        let Ok(now) = at(since_boot);
+
+        turning.turn(machine, now)
     }
 
     #[test]
     fn with_everything_found_and_nothing_held_it_waits_for_a_press() {
-        let mut machine = Machine { plugged: told().into_values().collect() };
-        let mut turning = ok(Turning::pointed_at(told()));
+        let Ok(paths) = sample_paths();
+        let mut machine = Machine { plugged: paths.values().cloned().collect() };
+        let Ok(mut turning) = Turning::pointed_at(paths);
+        let Ok(_) = turned(&mut turning, &mut machine, 1000.0);
 
-        ok(turning.turn(&mut machine, at(1000.0)));
-
-        assert_eq!(ok(turning.wake()), Wake::OnInput);
+        assert_eq!(turning.wake(), Ok(Wake::OnInput));
     }
 
     #[test]
     fn a_pad_that_is_missing_is_looked_for_on_a_clock() {
-        let mut machine = Machine { plugged: told().into_values().filter(|at| at != PAD).collect() };
-        let mut turning = ok(Turning::pointed_at(told()));
+        let Ok(paths) = sample_paths();
+        let mut machine = Machine { plugged: paths.values().filter(|at| *at != PAD).cloned().collect() };
+        let Ok(mut turning) = Turning::pointed_at(paths);
+        let Ok(_) = turned(&mut turning, &mut machine, 1000.0);
 
-        ok(turning.turn(&mut machine, at(1000.0)));
-
-        assert_eq!(ok(turning.wake()), Wake::Within(HUNT_SECONDS));
+        assert_eq!(turning.wake(), Ok(Wake::Within(HUNT_SECONDS)));
     }
 
     #[test]
     fn something_plugged_in_is_looked_for_at_once_rather_than_after_the_hunt() {
-        let mut machine = Machine { plugged: told().into_values().filter(|at| at != PAD).collect() };
-        let mut turning = ok(Turning::pointed_at(told()));
+        let Ok(paths) = sample_paths();
+        let mut machine = Machine { plugged: paths.values().filter(|at| *at != PAD).cloned().collect() };
+        let Ok(mut turning) = Turning::pointed_at(paths);
+        let Ok(_) = turned(&mut turning, &mut machine, 1000.0);
 
-        ok(turning.turn(&mut machine, at(1000.0)));
         machine.plugged.insert(PAD.to_string());
-        ok(turning.turn(&mut machine, at(1000.1)));
 
-        assert_eq!(ok(turning.missing()), [From::Pad, From::Typing], "not yet: the hunt was a moment ago");
+        let Ok(_) = turned(&mut turning, &mut machine, 1000.1);
 
-        ok(turning.hunt_now());
-        ok(turning.turn(&mut machine, at(1000.2)));
+        assert_eq!(turning.missing_devices(), Ok(vec![From::Pad, From::Typing]), "not yet: the hunt was a moment ago");
 
-        assert_eq!(ok(turning.missing()), [From::Typing]);
+        let Ok(()) = turning.hunt_now();
+        let Ok(_) = turned(&mut turning, &mut machine, 1000.2);
+
+        assert_eq!(turning.missing_devices(), Ok(vec![From::Typing]));
     }
 
-    fn reconnections(effects: &[Effect]) -> Vec<Reconnected> {
-        effects
+    fn reconnections(effects: &[Effect]) -> Result<Vec<Reconnected>, Never> {
+        Ok(effects
             .iter()
             .filter_map(|effect| match effect {
                 Effect::Reconnected(back) => Some(*back),
                 Effect::Run(_) | Effect::Frame(_) | Effect::Tell(_) | Effect::Using(_) => None,
             })
-            .collect()
+            .collect())
     }
 
     #[test]
     fn a_pad_that_went_and_came_back_says_how_long_it_was_gone() {
-        let mut machine = Machine { plugged: told().into_values().collect() };
-        let mut turning = ok(Turning::pointed_at(told()));
+        let Ok(paths) = sample_paths();
+        let mut machine = Machine { plugged: paths.values().cloned().collect() };
+        let Ok(mut turning) = Turning::pointed_at(paths);
+        let Ok(first) = turned(&mut turning, &mut machine, 1000.0);
 
-        let first = ok(turning.turn(&mut machine, at(1000.0)));
-
-        assert_eq!(reconnections(&first), Vec::new(), "finding it the first time is not coming back");
+        assert_eq!(reconnections(&first), Ok(Vec::new()), "finding it the first time is not coming back");
 
         machine.plugged.remove(PAD);
-        ok(turning.turn(&mut machine, at(1001.0)));
+
+        let Ok(_) = turned(&mut turning, &mut machine, 1001.0);
+
         machine.plugged.insert(PAD.to_string());
 
-        let back = ok(turning.turn(&mut machine, at(1004.0)));
+        let Ok(back) = turned(&mut turning, &mut machine, 1004.0);
 
-        assert_eq!(reconnections(&back), vec![Reconnected { device: From::Pad, gone: std::time::Duration::from_secs(3) }]);
+        assert_eq!(
+            reconnections(&back),
+            Ok(vec![Reconnected { device: From::Pad, gone: std::time::Duration::from_secs(3) }])
+        );
 
-        let after = ok(turning.turn(&mut machine, at(1006.0)));
+        let Ok(after) = turned(&mut turning, &mut machine, 1006.0);
 
-        assert_eq!(reconnections(&after), Vec::new(), "it came back once");
+        assert_eq!(reconnections(&after), Ok(Vec::new()), "it came back once");
     }
 }

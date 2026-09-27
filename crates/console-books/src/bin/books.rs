@@ -43,6 +43,7 @@ use console_books::grid::{self, Direction, ScrollOffset, Selection, Grid};
 use console_core_color::Oklch;
 use console_core_color::palette::{Wearing, WearingError};
 use console_core_external_programs::Program;
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_events::subscription::Received;
@@ -51,7 +52,7 @@ use std::sync::mpsc::Receiver;
 use console_core_number_conversion::{fitted, toward_zero_i32};
 use console_core_internal_programs::InternalProgram;
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
-use console_draw_painting::{Frame, Run};
+use console_draw_painting::Run;
 use console_draw_surface::standing::{Anchor, Closed, Keyboard, KeyboardEvent, Margin, PointerEvent, Room, Under, Wanted};
 use console_draw_surface::{Keysym, Surface};
 use console_panel::picker::{self, Alone};
@@ -185,7 +186,7 @@ fn run(arguments: &[String]) -> Result<(), BooksError> {
     let Ok(home) = console_core_places::home();
     let home = home.ok_or(BooksError::NoHome)?;
     let wearing = Wearing::worn().map_err(BooksError::Palette)?;
-    let Ok(appearance) = Appearance::chosen();
+    let Ok(appearance) = Appearance::current();
     let Ok(library) = Library::of(home);
     let mut app = App { library, view: View::Library, wearing, appearance, pointer_down: None };
 
@@ -215,55 +216,62 @@ fn event_loop(app: &mut App, surface: &mut Surface) -> Result<(), BooksError> {
     let Ok(shelf) = library::books_folder(&app.library.home);
     let Ok(changes) = console_events::subscription::connect(&[Topic::Path(shelf)]);
     let Ok(arriving) = changes.received();
-    let mut update = Update::Redraw;
-    let mut drawn_at: Option<Size<u32>> = None;
-
-    loop {
-        match update {
+    let looked = iterate((app, surface, Update::Redraw, None::<Size<u32>>), |(app, surface, update, drawn_at)| {
+        let drawn_at = match update {
             Update::Redraw => {
                 let Ok(()) = draw(app, surface);
                 let Ok(room) = logical_size(surface);
 
-                drawn_at = Some(room);
+                Some(room)
             },
-            Update::None => {},
-            Update::Exit => return Ok(()),
-        }
+            Update::None => drawn_at,
+            Update::Exit => return Ok(Step::Halt(Ok(()))),
+        };
 
-        surface.wait(&[], Some(WAITING)).map_err(BooksError::Surface)?;
+        match surface.wait(&[], Some(WAITING)) {
+            Ok(()) => {},
+            Err(fault) => return Ok(Step::Halt(Err(BooksError::Surface(fault)))),
+        }
 
         let Ok(closed) = surface.closed();
 
         match closed {
-            Closed::Yes => return Ok(()),
+            Closed::Yes => return Ok(Step::Halt(Ok(()))),
             Closed::No => {},
         }
 
         let Ok(room) = logical_size(surface);
         let Ok(input) = handle_input(app, surface, room);
-        let Ok(restyled) = app.restyled();
+        let Ok(restyled) = app.reload_appearance();
         let Ok(recataloged) = app.library.reload_if_changed();
-        let Ok(landed) = heard(&mut app.library, arriving);
+        let Ok(landed) = receive(&mut app.library, arriving);
         let Ok(changed) = merge(recataloged, landed);
         let Ok(changed) = merge(changed, restyled);
         let Ok(resized) = resized(drawn_at, room);
 
-        update = match (input, changed, resized) {
+        let update = match (input, changed, resized) {
             (Update::Exit, _, _) => Update::Exit,
             (Update::Redraw, _, _) | (_, Update::Redraw, _) | (_, _, Update::Redraw) => Update::Redraw,
             (Update::None, Update::None | Update::Exit, Update::None | Update::Exit) => Update::None,
         };
+
+        Ok(Step::Again((app, surface, update, drawn_at)))
+    });
+
+    match looked {
+        Ok(looked) => looked,
+        Err(Endless) => Ok(()),
     }
 }
 
-fn heard(library: &mut Library, arriving: &Receiver<Received>) -> Result<Update, Never> {
+fn receive(library: &mut Library, arriving: &Receiver<Received>) -> Result<Update, Never> {
     let landed = arriving.try_iter().find_map(|received| match received {
         Received::Event(change) => Some(change),
         Received::Connected => None,
     });
 
     match landed {
-        Some(change) => library.landed(&change),
+        Some(change) => library.apply_change(&change),
         None => Ok(Update::None),
     }
 }
@@ -406,7 +414,7 @@ impl Library {
         })
     }
 
-    fn landed(&mut self, change: &Change) -> Result<Update, Never> {
+    fn apply_change(&mut self, change: &Change) -> Result<Update, Never> {
         let Ok(folder) = library::books_folder(&self.home);
 
         Ok(match (&change.topic, Path::new(&change.text).starts_with(&folder)) {
@@ -536,7 +544,7 @@ impl App {
             },
         };
 
-        let Ok(title) = library::title_from_name(&name);
+        let Ok(title) = console_core_file_names::title(&name);
 
         self.open_book(Book { path: at.to_path_buf(), name, format, title, cover: None })
     }
@@ -641,7 +649,7 @@ impl App {
         let Ok(visible) = self.library.visible_books();
         let Ok(count) = fitted::<_, u32>(visible.len());
         let selection = Selection { index: self.library.selected, count: count.saturating_add(1) };
-        let Ok(selected) = grid::moved(selection, grid.columns, direction);
+        let Ok(selected) = grid::step_selection(selection, grid.columns, direction);
         let Ok(scroll) = grid::scroll_offset(grid, selected, self.library.scroll);
 
         self.library.selected = selected;
@@ -880,7 +888,7 @@ fn style_font(style: Style, typeface: Typeface) -> Result<(Font, Weight), Never>
 
 fn line_height(style: Style, typeface: Typeface) -> Result<u32, Never> {
     let Ok((font, weight)) = style_font(style, typeface);
-    let Ok(measured) = console_draw_painting::measured(Run { said: "Ag", weight, width: 4096 }, &font);
+    let Ok(measured) = console_draw_painting::measure_text(Run { said: "Ag", weight, width: 4096 }, &font);
 
     Ok(measured.height.saturating_mul(5).saturating_div(4))
 }
@@ -1146,7 +1154,7 @@ fn centered_lines(text: &str, box_at: Point<i32>, box_wide: u32, style: TextStyl
     let mut placed = Vec::new();
 
     for (row, line_text) in (0u32..).zip(lines.into_iter().take(2)) {
-        let Ok(measured) = console_draw_painting::measured(Run { said: &line_text, weight: style.weight, width: box_wide }, &font);
+        let Ok(measured) = console_draw_painting::measure_text(Run { said: &line_text, weight: style.weight, width: box_wide }, &font);
         let left = box_wide.saturating_sub(measured.width).saturating_div(2);
         let Ok(at) = offset(box_at, Point { x: left, y: row.saturating_mul(line) });
 
@@ -1157,7 +1165,7 @@ fn centered_lines(text: &str, box_at: Point<i32>, box_wide: u32, style: TextStyl
 }
 
 fn line_height_of(font: &Font, weight: Weight) -> Result<u32, Never> {
-    let Ok(measured) = console_draw_painting::measured(Run { said: "Ag", weight, width: 4096 }, font);
+    let Ok(measured) = console_draw_painting::measure_text(Run { said: "Ag", weight, width: 4096 }, font);
 
     Ok(measured.height)
 }
@@ -1332,7 +1340,7 @@ fn header(library: &Library, room: Size<u32>, colors: &Wearing) -> Result<Vec<Sh
 
 fn typed_at(search: &Panel, shown: &str, style: TextStyle) -> Result<Point<i32>, Never> {
     let Ok(font) = font(SANS, style.size);
-    let Ok(measured) = console_draw_painting::measured(Run { said: shown, weight: style.weight, width: style.width }, &font);
+    let Ok(measured) = console_draw_painting::measure_text(Run { said: shown, weight: style.weight, width: style.width }, &font);
     let down = search.size.height.saturating_sub(measured.height).saturating_div(2);
 
     offset(search.at, Point { x: 20, y: down })
@@ -1406,7 +1414,7 @@ fn cover_pixel_size(grid: Grid, room: Size<u32>, device: Size<u32>) -> Result<Si
 }
 
 fn decode_image(cache: &Path, named: &str, bytes: &[u8], within: Size<u32>) -> Result<Option<Pixels>, Never> {
-    let Ok(ending) = open::ending(named);
+    let Ok(ending) = open::extension(named);
     let at = cache.join(format!("page.{ending}"));
 
     match std::fs::create_dir_all(cache).map(|()| console_core_atomic_writes::whole(&at, bytes)) {
@@ -1488,7 +1496,7 @@ impl Reader {
             },
             Content::Publication { book, pages } => match (pages.get(page), book.publication.chapters.get(section)) {
                 (Some(Page::Picture(link)), Some(chapter)) => {
-                    let Ok(named) = flow::resolved(Relative { base: chapter, path: link });
+                    let Ok(named) = flow::resolve(Relative { base: chapter, path: link });
 
                     (named, &book.archive)
                 },
@@ -1508,7 +1516,7 @@ impl Reader {
 }
 
 fn centered_picture(pixels: Pixels, area: Size<u32>) -> Result<Shape, Never> {
-    let Ok(size) = console_pictures::fitted(Size { width: pixels.width, height: pixels.height }, area);
+    let Ok(size) = console_pictures::fit_within(Size { width: pixels.width, height: pixels.height }, area);
     let Ok(across) = fitted::<u32, i32>(area.width.saturating_sub(size.width).saturating_div(2));
     let Ok(down) = fitted::<u32, i32>(area.height.saturating_sub(size.height).saturating_div(2));
 
@@ -1612,8 +1620,8 @@ fn look(wearing: &Wearing, appearance: Appearance) -> Result<Look, Never> {
 }
 
 impl App {
-    fn restyled(&mut self) -> Result<Update, Never> {
-        let Ok(chosen) = Appearance::chosen();
+    fn reload_appearance(&mut self) -> Result<Update, Never> {
+        let Ok(chosen) = Appearance::current();
 
         Ok(match chosen == self.appearance {
             true => Update::None,
@@ -1650,14 +1658,8 @@ fn draw(app: &mut App, surface: &mut Surface) -> Result<(), Never> {
 
     let Ok(shapes) = shapes;
 
-    let drawn = surface.draw(|pixels, device, _scale| {
-        match console_draw_painting::onto(pixels, Frame { device, points: room }, &shapes) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("books: {fault}"),
-        }
-
-        Ok(())
-    });
+    let Ok(painting) = console_draw_painting::painter(room, &shapes, "books");
+    let drawn = surface.draw(painting);
 
     match drawn {
         Ok(()) => {},
@@ -1682,36 +1684,37 @@ mod tests {
     }
 
     #[test]
-    fn a_book_that_lands_in_books_while_the_library_is_open_is_on_the_shelf() {
-        let home = std::env::temp_dir().join(format!("console-books-landing-{}", std::process::id()));
+    fn a_book_that_lands_in_books_while_the_library_is_open_is_on_the_shelf() -> Result<(), Box<dyn std::error::Error>> {
+        let home = console_core_temporary_directories::fresh("books-landing")?;
         let Ok(folder) = library::books_folder(&home);
-        std::fs::create_dir_all(&folder).expect("a Books folder");
+        std::fs::create_dir_all(&folder)?;
         let Ok(mut open) = Library::of(home.clone());
 
         assert_eq!(open.books.len(), 0);
 
         let book = folder.join("Meditations [2680].epub");
-        std::fs::write(&book, b"").expect("a finished download");
+        console_core_atomic_writes::whole(&book, b"")?;
         let song = home.join("Music").join("Africa [x].opus");
 
-        let Ok(elsewhere) = open.landed(&Change { topic: Topic::Path(folder.clone()), text: song.display().to_string() });
+        let Ok(elsewhere) = open.apply_change(&Change { topic: Topic::Path(folder.clone()), text: song.display().to_string() });
 
         assert_eq!(elsewhere, Update::None, "a song is not a book");
 
-        let Ok(landed) = open.landed(&Change { topic: Topic::Path(folder.clone()), text: book.display().to_string() });
+        let Ok(landed) = open.apply_change(&Change { topic: Topic::Path(folder.clone()), text: book.display().to_string() });
 
         assert_eq!(landed, Update::Redraw, "the finished download went unnoticed");
         assert_eq!(open.books.len(), 1);
 
-        std::fs::remove_dir_all(&home).expect("the made-up home taken away");
+        std::fs::remove_dir_all(&home)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_book_is_read_on_the_page_and_in_the_ink_that_were_chosen() {
-        let palette = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../files/usr/local/lib/console/palette.sh"))
-            .expect("the palette as the machine spends it");
+    fn a_book_is_read_on_the_page_and_in_the_ink_that_were_chosen() -> Result<(), Box<dyn std::error::Error>> {
+        let palette = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../files/usr/local/lib/console/palette.sh"))?;
         let Ok(spent) = console_core_color::palette::read(&palette);
-        let wearing = Wearing::out_of(&spent).expect("the desktop's own colors");
+        let wearing = Wearing::out_of(&spent)?;
         let sepia = Oklch { lightness: 0.93, chroma: 0.045, hue: 72.0 };
         let brown = Oklch { lightness: 0.42, chroma: 0.12, hue: 36.0 };
         let chosen = Appearance { background: Paint::Chosen(sepia), text: Paint::Chosen(brown), typeface: Typeface::Serif };
@@ -1722,6 +1725,8 @@ mod tests {
             Ok(Look { ground: wearing.ground, ink: wearing.text }),
             "nothing chosen is the desktop's own"
         );
+
+        Ok(())
     }
 
     #[test]
@@ -1730,7 +1735,7 @@ mod tests {
         let style = TextStyle { size: 16, weight: Weight::Plain, width: search.size.width.saturating_sub(40) };
         let shown = format!("\u{2315}  {SEARCH}");
         let Ok(font) = font(SANS, style.size);
-        let Ok(measured) = console_draw_painting::measured(Run { said: &shown, weight: style.weight, width: style.width }, &font);
+        let Ok(measured) = console_draw_painting::measure_text(Run { said: &shown, weight: style.weight, width: style.width }, &font);
         let Ok(at) = typed_at(&search, &shown, style);
         let Ok(tall) = fitted::<u32, i32>(measured.height);
         let Ok(field) = fitted::<u32, i32>(search.size.height);

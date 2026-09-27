@@ -45,8 +45,8 @@ static TELLING: AtomicI32 = AtomicI32::new(NOWHERE);
 )]
 static HELD: OnceLock<OwnedFd> = OnceLock::new();
 
-pub fn told() -> Result<Option<OwnedFd>, Never> {
-    let (hear, tell) = match rustix::pipe::pipe() {
+pub fn signal_pipe() -> Result<Option<OwnedFd>, Never> {
+    let (hear, tell) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
         Ok(ends) => ends,
         Err(fault) => {
             eprintln!("console-panel: nothing to hear a signal on: {fault}");
@@ -65,7 +65,7 @@ pub fn told() -> Result<Option<OwnedFd>, Never> {
     TELLING.store(raw, Ordering::SeqCst);
 
     // SAFETY: the handler allocates nothing and writes one byte to a pipe.
-    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, asked) };
+    let answering = unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) };
 
     match answering {
         Ok(()) => {},
@@ -75,7 +75,7 @@ pub fn told() -> Result<Option<OwnedFd>, Never> {
     Ok(Some(hear))
 }
 
-extern "C" fn asked(_number: core::ffi::c_int) {
+extern "C" fn on_signal(_number: core::ffi::c_int) {
     let telling = TELLING.load(Ordering::SeqCst);
 
     match telling {
@@ -87,5 +87,21 @@ extern "C" fn asked(_number: core::ffi::c_int) {
             let held = unsafe { BorrowedFd::borrow_raw(fd) };
             let _ = rustix::io::write(held, &said);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_signal_pipe_is_not_handed_to_the_programs_a_panel_starts() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(heard) = signal_pipe();
+        let hear = heard.ok_or("no pipe to hear a signal on")?;
+        let flags = rustix::io::fcntl_getfd(&hear)?;
+
+        assert!(flags.contains(rustix::io::FdFlags::CLOEXEC), "every app a panel starts would keep this pipe open for its whole life");
+
+        Ok(())
     }
 }

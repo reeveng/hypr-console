@@ -45,44 +45,64 @@ pub fn preferences(palette: &Palette) -> Result<String, Short> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::spend::tests::blossom;
 
     #[test]
-    fn every_role_is_a_custom_property() {
-        let css = stylesheet(&blossom()).expect("every color it spends is declared");
+    fn every_role_is_a_custom_property() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = stylesheet(&palette)?;
+
         for name in ROLES {
             assert!(css.contains(&format!("--{name}")), "{name} is missing");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_properties_are_inside_the_root_block() {
-        let css = stylesheet(&blossom()).expect("every color it spends is declared");
-        let (before, inside) = css.split_once(":host, :root {").expect("a root block");
+    fn the_properties_are_inside_the_root_block() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let css = stylesheet(&palette)?;
+        let (before, inside) = css.split_once(":host, :root {").ok_or("a root block")?;
         assert!(!before.contains("--night"));
         assert!(inside.trim_end().ends_with('}'));
+
+        Ok(())
     }
 
     #[test]
-    fn a_page_that_has_not_painted_is_painted_the_darkest_ground() {
-        let script = preferences(&blossom()).expect("every color it spends is declared");
-        let palette = blossom();
-        let night = palette.must("night").expect("a declared color");
+    fn a_page_that_has_not_painted_is_painted_the_darkest_ground() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let script = preferences(&palette)?;
+        let night = palette.must("night")?;
         assert!(script.contains(&format!("\"browser.display.background_color\", \"#{night}\"")));
         assert!(script.contains(&format!("\"browser.display.background_color.dark\", \"#{night}\"")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_link_and_a_visited_link_are_told_apart() {
-        let script = preferences(&blossom()).expect("every color it spends is declared");
-        let palette = blossom();
-        assert_ne!(palette.must("sky").expect("a declared color"), palette.must("mauve").expect("a declared color"));
-        assert!(script.contains(&format!("anchor_color\", \"#{}\"", palette.must("sky").expect("a declared color"))));
-        assert!(script.contains(&format!("visited_color\", \"#{}\"", palette.must("mauve").expect("a declared color"))));
+    fn a_link_and_a_visited_link_are_told_apart() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let script = preferences(&palette)?;
+        let sky = palette.must("sky")?;
+        let mauve = palette.must("mauve")?;
+
+        assert_ne!(sky, mauve);
+        assert!(script.contains(&format!("anchor_color\", \"#{sky}\"")));
+        assert!(script.contains(&format!("visited_color\", \"#{mauve}\"")));
+
+        Ok(())
     }
 
     #[test]
-    fn the_prefs_are_a_block_to_splice_and_do_not_end_in_a_newline() {
-        assert!(!preferences(&blossom()).expect("every color it spends is declared").ends_with('\n'));
+    fn the_prefs_are_a_block_to_splice_and_do_not_end_in_a_newline() -> Result<(), Box<dyn Error>> {
+        let palette = blossom()?;
+        let script = preferences(&palette)?;
+
+        assert!(!script.ends_with('\n'));
+
+        Ok(())
     }
 }

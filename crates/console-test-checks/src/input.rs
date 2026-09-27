@@ -43,7 +43,7 @@ pub const OWNED: Check = Check {
 const ALLOWED: [&str; 5] =
     ["systemd", "systemd-logind", "Hyprland", "inputplumber", "controller-desktop"];
 
-const OURS: &str = "controller-desktop";
+const APPLICATION: &str = "controller-desktop";
 
 const ASKING: &str = "for fd in /proc/[0-9]*/fd/*; do \
      seen=$(readlink \"$fd\" 2>/dev/null) || continue; \
@@ -60,7 +60,7 @@ fn owned(stage: &mut Device) -> CheckResult {
     let holding: Vec<&str> =
         said.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
 
-    let Ok(ours_is) = comm(OURS);
+    let Ok(ours_is) = comm(APPLICATION);
 
     let ours = holding
         .iter()
@@ -71,7 +71,7 @@ fn owned(stage: &mut Device) -> CheckResult {
         true => {},
         false => {
             return failed(format!(
-                "nothing is reading the buttons: {OURS} has no input device open -- \
+                "nothing is reading the buttons: {APPLICATION} has no input device open -- \
                  the kernel would call it {ours_is} -- and what does is {holding:?}"
             ));
         }

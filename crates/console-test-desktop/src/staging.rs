@@ -14,42 +14,24 @@
 //! first four bytes, and asking for them used to read the whole file into memory
 //! first -- every binary in the stage, one at a time, to look at four bytes.
 
-
-use console_core_ini_files::Under;
+use console_manifest_engine::manifest::{Manifest, Section};
+use console_manifest_migrations::USER;
 use console_manifest_engine::modes;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
+use console_core_directory_listing::Descend;
 use std::path::{Path, PathBuf};
 
 use crate::nested::Wallpaper;
-use crate::{HOME, Unnested, nested, root, screen, session, stage};
+use crate::{Unnested, nested, root, screen, session, stage};
 
 pub const ROOM: f64 = 0.9;
 
 pub fn walk(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let mut found = Vec::new();
-    let mut waiting = vec![root.to_path_buf()];
-
-    while let Some(folder) = waiting.pop() {
-        let entries = match std::fs::read_dir(&folder) {
-            Ok(entries) => entries,
-            Err(_unreadable) => continue,
-        };
-
-        for path in entries.flatten().map(|entry| entry.path()) {
-            match path.is_dir() && !path.is_symlink() {
-                true => waiting.push(path),
-                false => found.push(path),
-            }
-        }
-    }
-
-    found.sort();
-
-    Ok(found)
+    console_core_directory_listing::files(root)
 }
 
 const HEAD: u64 = 4;
@@ -67,7 +49,7 @@ pub enum Shared {
         reason = "sharing extents is an ioctl between two descriptors and there is no rename over a name to do it with. What makes that safe is the stage rather than the write: a session directory is built whole and swept whole, and one that stopped halfway is named after a process that is gone, which is what `session::abandoned` removes before the next run stages anything"
     )
 )]
-fn cloned(from: &Path, to: &Path) -> std::io::Result<Shared> {
+fn clone_file(from: &Path, to: &Path) -> std::io::Result<Shared> {
     let source = std::fs::File::open(from)?;
     let target = std::fs::File::create(to)?;
 
@@ -91,32 +73,37 @@ fn head_of(at: &Path) -> std::io::Result<Vec<u8>> {
     Ok(head)
 }
 
-fn copied(root: &Path, into: &Path) -> std::io::Result<()> {
-    let mut waiting = vec![(root.to_path_buf(), into.to_path_buf())];
+fn copy_tree(root: &Path, into: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(into)?;
 
-    while let Some((from, to)) = waiting.pop() {
-        std::fs::create_dir_all(&to)?;
+    let Ok(mut listing) = console_core_directory_listing::recursive(root, |_| Descend::Into);
 
-        let listed = std::fs::read_dir(&from)?;
+    listing.try_for_each(|entry| {
+        let source = entry.map_err(|unlisted| unlisted.fault)?;
+        let target = match source.strip_prefix(root) {
+            Ok(inside) => into.join(inside),
+            Err(outside) => return Err(std::io::Error::other(outside)),
+        };
 
-        for entry in listed.flatten() {
-            let (source, target) = (entry.path(), to.join(entry.file_name()));
+        copied(&source, &target)
+    })
+}
 
-            match (source.is_symlink(), source.is_dir()) {
-                (true, _) => {
-                    let at = std::fs::read_link(&source)?;
-                    let _ = std::fs::remove_file(&target);
-                    std::os::unix::fs::symlink(at, &target)?;
-                }
-                (_, true) => waiting.push((source, target)),
-                _ => {
-                    let _shared = cloned(&source, &target)?;
-                }
-            }
+fn copied(source: &Path, target: &Path) -> std::io::Result<()> {
+    match (source.is_symlink(), source.is_dir()) {
+        (true, _) => {
+            let at = std::fs::read_link(source)?;
+            let _ = std::fs::remove_file(target);
+
+            std::os::unix::fs::symlink(at, target)
+        }
+        (false, true) => std::fs::create_dir_all(target),
+        (false, false) => {
+            let _shared = clone_file(source, target)?;
+
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 pub fn built() -> Result<Vec<(String, PathBuf)>, Never> {
@@ -146,61 +133,39 @@ pub fn built() -> Result<Vec<(String, PathBuf)>, Never> {
         }
     };
 
-    let Ok(named) = section(&held, Under("build"));
+    let manifest = match Manifest::read(&held) {
+        Ok(manifest) => manifest,
+        Err(fault) => {
+            eprintln!("console-desktop: {}: {fault}", at.display());
+
+            Manifest::default()
+        }
+    };
+
+    let Ok(named) = manifest.of(Section::Build);
 
     Ok(named
-        .into_iter()
+        .iter()
         .map(|name| (name.clone(), beside.join(name)))
         .filter(|(_, at)| at.is_file())
         .collect())
 }
 
-fn section(held: &str, wanted: Under<'_>) -> Result<Vec<String>, Never> {
-    Ok(held
-        .lines()
-        .map(|line| {
-            let Ok(said) = console_core_ini_files::without_a_comment(line);
-
-            said
-        })
-        .filter(|line| !line.is_empty())
-        .fold((Vec::new(), String::new()), |(mut out, at), line| {
-            match line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-                Some(name) => (out, name.to_string()),
-                None => {
-                    match at == wanted.0 {
-                        true => {
-                            match line.split_whitespace().next() {
-                                Some(name) => out.push(name.to_string()),
-                                None => {},
-                            }
-                        }
-                        false => {},
-                    }
-
-                    (out, at)
-                }
-            }
-        })
-        .0)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Here<'a>(&'a str);
 
-fn rewritten(said: &str, here: Here<'_>) -> Result<String, Never> {
+fn rewrite_paths(said: &str, here: Here<'_>) -> Result<String, Never> {
     let here = here.0;
 
     Ok(said
-        .replace(HOME, &format!("{here}/home"))
+        .replace(&format!("/home/{USER}"), &format!("{here}/home"))
         .replace("/usr/local", &format!("{here}/usr/local"))
         .replace("/usr/share", &format!("{here}/usr/share")))
 }
 
 pub fn room_here(go: &console_screen::Screen) -> Result<Size<u32>, Never> {
-    let monitors = match console_compositor::query(console_compositor::Query::Monitors) {
-        Ok(console_compositor::Answer::Monitors(monitors)) => monitors,
-        Ok(_not_what_was_asked) => Vec::new(),
+    let monitors = match console_compositor::ask(console_compositor::Monitors) {
+        Ok(monitors) => monitors,
         Err(_no_compositor_here) => {
             let Ok(pixels) = go.pixels();
 
@@ -250,7 +215,7 @@ pub enum Screen {
     InAWindow,
 }
 
-pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, Unnested> {
+pub fn stage_desktop(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result<PathBuf, Unnested> {
     let Ok(()) = session::swept();
     let Ok(here) = stage();
 
@@ -262,8 +227,8 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
     let Ok(root) = root();
 
     let files = root.join("files");
-    copied(&files.join("home/@user@"), &here.join("home")).map_err(fault("the home"))?;
-    copied(&files.join("usr"), &here.join("usr")).map_err(fault("the system"))?;
+    copy_tree(&files.join("home/@user@"), &here.join("home")).map_err(fault("the home"))?;
+    copy_tree(&files.join("usr"), &here.join("usr")).map_err(fault("the system"))?;
 
     let said_here = here.display().to_string();
     let Ok(staged) = walk(&here);
@@ -279,7 +244,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
             Err(_unreadable) => continue,
         };
 
-        let Ok(now) = rewritten(&was, Here(&said_here));
+        let Ok(now) = rewrite_paths(&was, Here(&said_here));
 
         match now == was {
             true => {},
@@ -291,7 +256,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
     let Ok(programs) = built();
 
     for (name, at) in programs {
-        let _ = cloned(&at, &here.join("usr/local/bin").join(&name));
+        let _ = clone_file(&at, &here.join("usr/local/bin").join(&name));
     }
 
     let unit = root.join(nested::UNIT);
@@ -301,7 +266,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
     let keyboard = started_by.ok_or_else(|| Unnested::NoExecStart(unit.clone()))?;
     let start = here.join("usr/local/bin/session-start");
     let Ok(start_said) = nested::session_start(&keyboard, wallpaper);
-    let Ok(session) = rewritten(&start_said, Here(&said_here));
+    let Ok(session) = rewrite_paths(&start_said, Here(&said_here));
 
     console_core_atomic_writes::whole(&start, session.as_bytes())
         .map_err(unwritten("session-start"))?;
@@ -323,7 +288,7 @@ pub fn staged(told: Verbosity, headless: Screen, wallpaper: Wallpaper) -> Result
     }
 
     let go = screen()?;
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(&here.join("home"));
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(&here.join("home"));
 
     let device_configuration = ours.join("hypr/hyprland.lua");
     let at_scale = match headless {
@@ -404,21 +369,24 @@ pub fn environment() -> Result<Vec<(String, String)>, Never> {
 mod tests {
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn the_stage_starts_the_keyboard_the_unit_starts_and_from_inside_the_stage() {
-        let root = root().expect("the tree");
-        let held = std::fs::read_to_string(root.join(nested::UNIT)).expect("the keyboard's unit");
-        let started = nested::started_by(&held).expect("a unit").expect("an ExecStart");
-        let keyboard = started.split(' ').next().expect("a word").to_string();
-        let start =
-            nested::session_start(&keyboard, Wallpaper::Started).expect("the session's start");
-        let said = rewritten(&start, Here("/s")).expect("the rewriting");
+    fn the_stage_starts_the_keyboard_the_unit_starts_and_from_inside_the_stage() -> Result<(), Failure> {
+        let root = root()?;
+        let held = std::fs::read_to_string(root.join(nested::UNIT))?;
+        let unit = nested::started_by(&held)?;
+        let started = unit.ok_or("the keyboard's unit starts nothing")?;
+        let keyboard = started.split(' ').next().ok_or("the keyboard's unit starts an empty line")?;
+        let start = nested::session_start(keyboard, Wallpaper::Started)?;
+        let said = rewrite_paths(&start, Here("/s"))?;
+
         assert!(
             said.contains(r#"keyboard="/s/usr/local/bin/console-keyboard"#),
             "the staged session starts a keyboard the staged toggle cannot signal: {said}"
         );
 
-        let Ok(wanted) = rewritten(&keyboard, Here("/s"));
+        let Ok(wanted) = rewrite_paths(keyboard, Here("/s"));
 
         assert!(
             said.contains(&format!("keyboard=\"{wanted}\"")),
@@ -429,6 +397,8 @@ mod tests {
             said.contains("/s/usr/local/lib/console/palette.sh"),
             "the staged session reads a palette that is not this tree's: {said}"
         );
+
+        Ok(())
     }
 
     #[test]
@@ -443,43 +413,48 @@ mod tests {
     #[test]
     fn every_absolute_path_points_back_into_the_stage() {
         let said =
-            rewritten("url(/usr/share/backgrounds/console.webp)\n/home/@user@/.cache", Here("/s"));
+            rewrite_paths("url(/usr/share/backgrounds/console.webp)\n/home/@user@/.cache", Here("/s"));
+
         assert_eq!(said, Ok("url(/s/usr/share/backgrounds/console.webp)\n/s/home/.cache".to_string()));
     }
 
     #[test]
-    fn the_programs_the_device_builds_are_staged_too() {
-        let root = root().expect("the tree");
-        let held = std::fs::read_to_string(root.join("desktop.conf")).expect("desktop.conf");
-        let built = section(&held, Under("build")).expect("the build section");
+    fn the_programs_the_device_builds_are_staged_too() -> Result<(), Failure> {
+        let root = root()?;
+        let held = std::fs::read_to_string(root.join("desktop.conf"))?;
+        let manifest = Manifest::read(&held)?;
+        let Ok(built) = manifest.of(Section::Build);
+
         assert!(built.contains(&"launcher".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_staged_file_cannot_reach_the_one_it_came_from() {
+    #[cfg_attr(dylint_lib = "explicit040_no_torn_write", allow(explicit040_no_torn_write, reason = "a write in place is what is being asked about: a rename would give the staged copy a new file and prove nothing about the clone"))]
+    fn a_staged_file_cannot_reach_the_one_it_came_from() -> Result<(), Failure> {
         let Ok(root) = root();
 
         let here = root.join(".stage").join(format!("cloning-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&here);
-        std::fs::create_dir_all(&here).expect("somewhere to clone into");
+        std::fs::create_dir_all(&here)?;
 
         let from = here.join("built");
         let to = here.join("staged");
-        std::fs::write(&from, b"the program as it was built").expect("something to share");
+        std::fs::write(&from, b"the program as it was built")?;
 
-        let shared = cloned(&from, &to).expect("a staged copy");
+        let shared = clone_file(&from, &to)?;
+        let staged = std::fs::read(&to)?;
+
+        assert_eq!(staged, b"the program as it was built".to_vec(), "the staged copy is not what it came from");
+
+        std::fs::write(&to, b"and what the stage did to it")?;
+
+        let built = std::fs::read(&from)?;
 
         assert_eq!(
-            std::fs::read(&to).ok(),
-            Some(b"the program as it was built".to_vec()),
-            "the staged copy is not what it came from"
-        );
-
-        std::fs::write(&to, b"and what the stage did to it").expect("a write into the stage");
-
-        assert_eq!(
-            std::fs::read(&from).ok(),
-            Some(b"the program as it was built".to_vec()),
+            built,
+            b"the program as it was built".to_vec(),
             "a write into the stage reached the build it was cloned from"
         );
 
@@ -492,32 +467,44 @@ mod tests {
                  costs what it copies"
             ),
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_mode_is_decided_by_four_bytes_and_reads_four_bytes() {
-        let here = std::env::temp_dir().join(format!("console-head-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&here);
-        std::fs::create_dir_all(&here).expect("somewhere to read from");
-
+    fn a_mode_is_decided_by_four_bytes_and_reads_four_bytes() -> Result<(), Failure> {
+        let here = console_core_temporary_directories::fresh("head")?;
         let at = here.join("script");
-        std::fs::write(&at, b"#!/bin/sh\nand a great deal more after it\n").expect("a script");
 
-        assert_eq!(head_of(&at).ok(), Some(b"#!/b".to_vec()));
+        console_core_atomic_writes::whole(&at, b"#!/bin/sh\nand a great deal more after it\n")?;
+
+        let head = head_of(&at)?;
+
+        assert_eq!(head, b"#!/b".to_vec());
 
         let short = here.join("short");
-        std::fs::write(&short, b"ab").expect("a file shorter than a head");
-        assert_eq!(head_of(&short).ok(), Some(b"ab".to_vec()));
+
+        console_core_atomic_writes::whole(&short, b"ab")?;
+
+        let head = head_of(&short)?;
+
+        assert_eq!(head, b"ab".to_vec());
 
         let _ = std::fs::remove_dir_all(&here);
+
+        Ok(())
     }
 
     #[test]
-    fn a_session_is_told_the_stage_is_the_whole_system() {
-        let environment = environment().expect("the environment");
+    fn a_session_is_told_the_stage_is_the_whole_system() -> Result<(), Failure> {
+        let environment = environment()?;
         let named: Vec<String> = environment.into_iter().map(|(name, _)| name).collect();
         let mut ordered = named.clone();
+
         ordered.sort();
+
         assert_eq!(named, ordered, "the environment is not in order");
+
+        Ok(())
     }
 }

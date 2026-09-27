@@ -29,19 +29,19 @@ use crate::rows::{Chosen, earlier_rows, cleared_rows, one_rows, tab, waiting_row
 use console_panel::actor::{self, Address, Answer};
 use console_panel::card::{Card, Door};
 use console_panel::page::{Handler, Page, Row, Rows, Showing};
-use console_panel::running::said;
+use console_panel::running::run_output;
 use console_core_never::Never;
 use console_program_contract::{Arguments, Effect, Executable, Program as _, Topic, Update, Event};
 
 
 fn waiting() -> Result<Vec<Notification>, Never> {
-    let Ok(held) = serving::held();
+    let Ok(held) = serving::load_inbox();
 
     Ok(held.waiting)
 }
 
 fn earlier() -> Result<Vec<Notification>, Never> {
-    let Ok(held) = serving::held();
+    let Ok(held) = serving::load_inbox();
 
     Ok(held.earlier)
 }
@@ -108,13 +108,12 @@ fn carry(effect: &Effect<NotificationsEffect>, showing: &dyn Showing) -> Result<
 
             match runs.program {
                 Executable::External(program) => {
-                    let _ = said(program, &arguments);
+                    let _ = run_output(program, &arguments);
                 }
-                Executable::Internal(name) => {
-                    let mut whole = vec![name.to_string()];
+                Executable::Internal(_) => {
+                    let Ok(words) = console_panel::running::words_of(runs);
 
-                    whole.extend(runs.arguments.clone());
-                    showing.later(whole);
+                    showing.later(words);
                 }
             }
         }
@@ -211,14 +210,14 @@ fn earlier_tab() -> Result<Vec<Row>, Never> {
 fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
     let drawing = looking.clone();
     let backing = looking.clone();
-    let Ok(asked) = Rows::asked(move || {
+    let Ok(asked) = Rows::computed(move || {
         let Ok(rows) = waiting_tab(&drawing);
 
         rows
     });
     let Ok(first) = tab(0);
     let Ok(waiting) = Page::new(first, asked);
-    let Ok(watching) = waiting.listening(Topic::Notifications, console_events::again::notifications);
+    let Ok(watching) = waiting.with_subscription(Topic::Notifications, console_events::again::notifications);
     let Ok(waiting) = watching.on_back(move |showing| {
         let Ok(onto) = looking_at(&backing);
         let Ok(()) = press(&backing, NotificationsEvent::Back, showing);
@@ -230,7 +229,7 @@ fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
             Closes::No => false,
         }
     });
-    let Ok(read) = Rows::asked(|| {
+    let Ok(read) = Rows::computed(|| {
         let Ok(rows) = earlier_tab();
 
         rows

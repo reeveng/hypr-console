@@ -140,7 +140,7 @@ fn now() -> Result<Unix, Never> {
 fn still(forecast: &Forecast) -> Result<Option<PathBuf>, Never> {
     let Ok(since) = clock();
     let seconds = since.as_secs_f64();
-    let Ok(here) = here::asking();
+    let Ok(here) = here::locate();
     let Ok(weather) = Weather::of_code(forecast.now.code);
     let Ok(outside) = Outside::at(&here, seconds, Some(weather));
     let Ok(turn) = Turn::at(seconds);
@@ -149,7 +149,7 @@ fn still(forecast: &Forecast) -> Result<Option<PathBuf>, Never> {
 }
 
 fn kept_at() -> Result<Option<PathBuf>, Never> {
-    let Ok(cache) = Base::Cache.hers();
+    let Ok(cache) = Base::Cache.user();
 
     Ok(match cache {
         Some(cache) => {
@@ -161,9 +161,9 @@ fn kept_at() -> Result<Option<PathBuf>, Never> {
     })
 }
 
-fn kept(at: Option<&Path>) -> Result<Option<Forecast>, Never> {
+fn cached_forecast(at: Option<&Path>) -> Result<Option<Forecast>, Never> {
     match at {
-        Some(at) => forecast::kept(at),
+        Some(at) => forecast::read_cache(at),
         None => Ok(None),
     }
 }
@@ -178,7 +178,7 @@ fn pages() -> Result<Vec<Page>, Never> {
 }
 
 fn location_page() -> Result<Page, Never> {
-    let Ok(rows) = Rows::asked(|| {
+    let Ok(rows) = Rows::computed(|| {
         let Ok(rows) = location_rows();
 
         rows
@@ -188,7 +188,7 @@ fn location_page() -> Result<Page, Never> {
 }
 
 fn location_rows() -> Result<Vec<Row>, Never> {
-    let Ok(chosen) = here::chosen();
+    let Ok(chosen) = here::current();
     let Ok(every) = here::every_zone();
     let Ok(clock) = clock_city();
     let Ok(mine) = location_row(&format!("{HERE}  {clock}"), None, chosen.as_deref());
@@ -253,7 +253,7 @@ fn forget_forecast() -> Result<(), Never> {
 }
 
 fn page(tab: Tab) -> Result<Page, Never> {
-    let Ok(rows) = Rows::asked(move || {
+    let Ok(rows) = Rows::computed(move || {
         let Ok(rows) = rows(tab);
 
         rows
@@ -262,21 +262,21 @@ fn page(tab: Tab) -> Result<Page, Never> {
     let Ok(page) = Page::new(title, rows);
 
     page.meanwhile(move || {
-        let Ok(rows) = asking(tab);
+        let Ok(rows) = cached_rows(tab);
 
         rows
     })
 }
 
-fn asking(tab: Tab) -> Result<Vec<Row>, Never> {
+fn cached_rows(tab: Tab) -> Result<Vec<Row>, Never> {
     let Ok(place) = place();
     let Ok(at) = kept_at();
-    let Ok(kept) = kept(at.as_deref());
+    let Ok(kept) = cached_forecast(at.as_deref());
 
     match kept {
-        Some(kept) => drawn(tab, &place, &kept),
+        Some(kept) => render_rows(tab, &place, &kept),
         None => {
-            let Ok(row) = Row::nothing(&format!("{ASKING}{YET}"));
+            let Ok(row) = Row::placeholder(&format!("{ASKING}{YET}"));
             let Ok(heading) = Row::naming(&place, Aside(""));
 
             Ok(vec![heading, row])
@@ -287,7 +287,7 @@ fn asking(tab: Tab) -> Result<Vec<Row>, Never> {
 fn rows(tab: Tab) -> Result<Vec<Row>, Never> {
     let Ok(place) = place();
     let Ok(at) = kept_at();
-    let Ok(kept) = kept(at.as_deref());
+    let Ok(kept) = cached_forecast(at.as_deref());
     let Ok(now) = now();
 
     let freshness = match &kept {
@@ -300,21 +300,21 @@ fn rows(tab: Tab) -> Result<Vec<Row>, Never> {
     };
 
     match (freshness, kept) {
-        (Freshness::Fresh, Some(kept)) => drawn(tab, &place, &kept),
-        (Freshness::Fresh, None) | (Freshness::Stale, _) => asked(tab, &place, at.as_deref()),
+        (Freshness::Fresh, Some(kept)) => render_rows(tab, &place, &kept),
+        (Freshness::Fresh, None) | (Freshness::Stale, _) => fetch_rows(tab, &place, at.as_deref()),
     }
 }
 
-fn asked(tab: Tab, place: &str, keep: Option<&Path>) -> Result<Vec<Row>, Never> {
-    let Ok(here) = here::asking();
+fn fetch_rows(tab: Tab, place: &str, keep: Option<&Path>) -> Result<Vec<Row>, Never> {
+    let Ok(here) = here::locate();
 
-    match forecast::fetched(&here, keep) {
-        Ok(forecast) => drawn(tab, place, &forecast),
+    match forecast::fetch(&here, keep) {
+        Ok(forecast) => render_rows(tab, place, &forecast),
         Err(fault) => {
-            let Ok(kept) = kept(keep);
+            let Ok(kept) = cached_forecast(keep);
 
             match kept {
-                Some(kept) => drawn(tab, place, &kept),
+                Some(kept) => render_rows(tab, place, &kept),
                 None => unavailable(place, &fault),
             }
         }
@@ -332,13 +332,13 @@ fn place() -> Result<String, Never> {
 
 fn unavailable(place: &str, fault: &Unforecast) -> Result<Vec<Row>, Never> {
     let Ok(heading) = Row::naming(place, Aside(""));
-    let Ok(said) = Row::said(UNAVAILABLE, Aside(""));
-    let Ok(why) = Row::nothing(&fault.to_string());
+    let Ok(said) = Row::text(UNAVAILABLE, Aside(""));
+    let Ok(why) = Row::placeholder(&fault.to_string());
 
     Ok(vec![heading, said, why])
 }
 
-fn drawn(tab: Tab, place: &str, forecast: &Forecast) -> Result<Vec<Row>, Never> {
+fn render_rows(tab: Tab, place: &str, forecast: &Forecast) -> Result<Vec<Row>, Never> {
     match tab {
         Tab::Now => today_drawn(place, forecast),
         Tab::Hourly => the_day(&forecast.hours, forecast.now.at),
@@ -370,12 +370,12 @@ fn hour_row(hour: &Hour, now: LocalTime) -> Result<Row, Never> {
     let Ok(when) = hour_named(hour.at, now);
     let Ok(when) = o_clock(when);
     let Ok(sky) = match hour.code {
-        Some(code) => named(code),
+        Some(code) => condition_name(code),
         None => Ok(String::new()),
     };
     let Ok(rain) = rain(hour.rain);
     let Ok(temperature) = degrees(hour.temperature);
-    let Ok(row) = Row::said(&format!("{when}  {sky}{rain}"), Aside(&temperature));
+    let Ok(row) = Row::text(&format!("{when}  {sky}{rain}"), Aside(&temperature));
     let Ok(light) = light(hour.at);
 
     match hour.code {
@@ -403,7 +403,7 @@ fn today_drawn(place: &str, forecast: &Forecast) -> Result<Vec<Row>, Never> {
 fn headline(place: &str, forecast: &Forecast) -> Result<Row, Never> {
     let Ok(still) = still(forecast);
     let Ok(big) = degrees(forecast.now.temperature);
-    let Ok(says) = named(forecast.now.code);
+    let Ok(says) = condition_name(forecast.now.code);
     let Ok(aside) = today(forecast);
     let Ok(light) = light(forecast.now.at);
     let Ok(icon) = icon(forecast.now.code, light);
@@ -540,11 +540,11 @@ fn days(days: &[Day], now: LocalTime) -> Result<Vec<Row>, Never> {
 
 fn day_row(day: &Day, now: LocalTime) -> Result<Row, Never> {
     let Ok(when) = day_named(day.at, now);
-    let Ok(sky) = named(day.code);
+    let Ok(sky) = condition_name(day.code);
     let Ok(rain) = rain(day.rain);
     let Ok(range) = range(day);
     let Ok(icon) = icon(day.code, Light::Day);
-    let Ok(row) = Row::said(&format!("{when}  {sky}{rain}"), Aside(&range));
+    let Ok(row) = Row::text(&format!("{when}  {sky}{rain}"), Aside(&range));
 
     row.picturing(Picture::Named(icon))
 }
@@ -557,7 +557,7 @@ fn day_named(at: LocalTime, now: LocalTime) -> Result<String, Never> {
         true => Ok(TODAY.to_string()),
         false => {
             let Ok(weekday) = at.weekday();
-            let Ok(named) = weekday.named();
+            let Ok(named) = weekday.name();
 
             Ok(named.to_string())
         }
@@ -582,8 +582,8 @@ fn range(day: &Day) -> Result<String, Never> {
     Ok(format!("High {high}  Low {low}"))
 }
 
-fn named(code: u32) -> Result<String, Never> {
-    let Ok(said) = conditions::named(code);
+fn condition_name(code: u32) -> Result<String, Never> {
+    let Ok(said) = conditions::label(code);
 
     Ok(match said {
         Some(said) => said.to_string(),
@@ -605,14 +605,14 @@ mod tests {
 
     const WEDNESDAY_NOON: LocalTime = LocalTime(1_790_164_800);
 
-    fn day(at: LocalTime, rain: Option<Percent>) -> Day {
-        Day { at, code: 61, low: Degrees(-2), high: Degrees(14), rain }
+    fn day(at: LocalTime, rain: Option<Percent>) -> Result<Day, Never> {
+        Ok(Day { at, code: 61, low: Degrees(-2), high: Degrees(14), rain })
     }
 
     #[test]
     fn the_first_day_is_today_and_the_rest_are_named() {
         let Ok(first) = day_named(WEDNESDAY_NOON, WEDNESDAY_NOON);
-        let Ok(second) = day_named(LocalTime(WEDNESDAY_NOON.0 + 86_400), WEDNESDAY_NOON);
+        let Ok(second) = day_named(LocalTime(WEDNESDAY_NOON.0.saturating_add(86_400)), WEDNESDAY_NOON);
 
         assert_eq!(first, "Today");
         assert_eq!(second, "Thursday");
@@ -620,7 +620,8 @@ mod tests {
 
     #[test]
     fn a_day_says_its_sky_its_chance_of_rain_and_its_range() {
-        let Ok(row) = day_row(&day(WEDNESDAY_NOON, Some(Percent(80))), WEDNESDAY_NOON);
+        let Ok(today) = day(WEDNESDAY_NOON, Some(Percent(80)));
+        let Ok(row) = day_row(&today, WEDNESDAY_NOON);
 
         assert_eq!(row.says, "Today  Rain, 80%");
         assert_eq!(row.aside, "High 14\u{b0}  Low -2\u{b0}");
@@ -628,8 +629,10 @@ mod tests {
 
     #[test]
     fn no_chance_of_rain_is_not_written_down() {
-        let Ok(none) = day_row(&day(WEDNESDAY_NOON, Some(Percent(0))), WEDNESDAY_NOON);
-        let Ok(unknown) = day_row(&day(WEDNESDAY_NOON, None), WEDNESDAY_NOON);
+        let Ok(today) = day(WEDNESDAY_NOON, Some(Percent(0)));
+        let Ok(none) = day_row(&today, WEDNESDAY_NOON);
+        let Ok(today) = day(WEDNESDAY_NOON, None);
+        let Ok(unknown) = day_row(&today, WEDNESDAY_NOON);
 
         assert_eq!(none.says, "Today  Rain");
         assert_eq!(unknown.says, "Today  Rain");
@@ -638,10 +641,9 @@ mod tests {
     #[test]
     fn the_day_is_every_hour_of_today_and_only_this_one_is_now() {
         let hour = |at: i64, code| Hour { at: LocalTime(at), temperature: Degrees(9), rain: Some(Percent(20)), code };
-        let midnight = WEDNESDAY_NOON.0 - 12 * 3_600;
-        let hours = vec![hour(midnight - 3_600, Some(0)), hour(midnight, Some(0)), hour(WEDNESDAY_NOON.0, Some(61)), hour(midnight + 86_400, None)];
-
-        let Ok(rows) = the_day(&hours, LocalTime(WEDNESDAY_NOON.0 + 900));
+        let midnight = WEDNESDAY_NOON.0.saturating_sub(43_200);
+        let hours = vec![hour(midnight.saturating_sub(3_600), Some(0)), hour(midnight, Some(0)), hour(WEDNESDAY_NOON.0, Some(61)), hour(midnight.saturating_add(86_400), None)];
+        let Ok(rows) = the_day(&hours, LocalTime(WEDNESDAY_NOON.0.saturating_add(900)));
         let said: Vec<(&str, &str)> = rows.iter().map(|row| (row.says.as_str(), row.aside.as_str())).collect();
 
         assert_eq!(said, vec![("00:00  Clear, 20%", "9\u{b0}"), ("Now  Rain, 20%", "9\u{b0}")]);
@@ -649,9 +651,9 @@ mod tests {
 
     #[test]
     fn the_first_hour_is_now_and_the_rest_are_the_clock() {
-        let quarter_past = LocalTime(WEDNESDAY_NOON.0 + 900);
+        let quarter_past = LocalTime(WEDNESDAY_NOON.0.saturating_add(900));
 
         assert_eq!(hour_named(WEDNESDAY_NOON, quarter_past), Ok("Now".to_string()));
-        assert_eq!(hour_named(LocalTime(WEDNESDAY_NOON.0 + 3 * 3_600), quarter_past), Ok("15".to_string()));
+        assert_eq!(hour_named(LocalTime(WEDNESDAY_NOON.0.saturating_add(10_800)), quarter_past), Ok("15".to_string()));
     }
 }

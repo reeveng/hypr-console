@@ -86,6 +86,13 @@ fn exit(answer: u32) -> ! {
     halt()
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit054_no_loop",
+    allow(
+        explicit054_no_loop,
+        reason = "a machine that has halted has no next step to name: this returns `!`, and `hlt` wakes on every interrupt, so the only answer is to halt again"
+    )
+)]
 fn halt() -> ! {
     loop {
         // SAFETY: `hlt` waits for an interrupt and touches no memory.

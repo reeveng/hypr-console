@@ -174,7 +174,7 @@ impl From<Unresumed> for Unstarted {
     }
 }
 
-fn asked(words: &[String]) -> Result<Arguments, Unstarted> {
+fn parse_arguments(words: &[String]) -> Result<Arguments, Unstarted> {
     for word in words {
         let Ok(known) = known_flag(word);
 
@@ -253,13 +253,13 @@ fn where_sessions_live() -> Result<PathBuf, Unstarted> {
     let Ok(ours) = console_core_places::Base::Share.ours();
 
     match ours {
-        Some(ours) => Ok(ours.join(console_resume::OURS)),
+        Some(ours) => Ok(ours.join(console_resume::APPLICATION)),
         None => Err(Unstarted::Homeless),
     }
 }
 
 fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
-    let Ok(already) = console_resume::already::asked();
+    let Ok(already) = console_resume::already::check();
 
     match already {
         Already::Restore => {
@@ -278,7 +278,7 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
         Already::NotYet => {},
     }
 
-    console_resume::already::said()?;
+    console_resume::already::mark_resumed()?;
 
     let put_back = sessions.load(name)?;
 
@@ -295,7 +295,7 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
 fn run() -> Result<(), Unstarted> {
     let words: Vec<String> = env::args().skip(1).collect();
 
-    let asked = asked(&words)?;
+    let asked = parse_arguments(&words)?;
 
     let at = where_sessions_live()?;
 
@@ -360,36 +360,38 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
-    fn words(said: &[&str]) -> Vec<String> {
-        said.iter().map(|word| (*word).to_string()).collect()
+    fn words(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
     }
 
     #[test]
-    fn no_words_at_all_is_what_the_unit_starts() {
-        let asked = asked(&words(&[]));
-
-        let asked = asked.expect("what the unit starts");
+    fn no_words_at_all_is_what_the_unit_starts() -> Result<(), Unstarted> {
+        let Ok(none) = words(&[]);
+        let asked = parse_arguments(&none)?;
 
         assert_eq!(asked.mode, Mode::Default);
         assert_eq!(asked.name, "default".to_string());
+
+        Ok(())
     }
 
     #[test]
-    fn no_words_is_not_the_mode_that_closes_every_window() {
-        let asked = asked(&words(&[]));
+    fn no_words_is_not_the_mode_that_closes_every_window() -> Result<(), Unstarted> {
+        let Ok(none) = words(&[]);
+        let asked = parse_arguments(&none)?;
 
-        assert_ne!(
-            asked.expect("what the unit starts").mode,
-            Mode::Load,
-            "a bare run of this program must not sweep the desktop"
-        );
+        assert_ne!(asked.mode, Mode::Load, "a bare run of this program must not sweep the desktop");
+
+        Ok(())
     }
 
     #[test]
     fn a_word_this_does_not_know_is_refused_rather_than_read_as_no_word_at_all() {
         for unknown in ["--help", "--version", "sideways", "--save-duplicate-pids"] {
+            let Ok(said) = words(&[unknown]);
+
             assert!(
-                asked(&words(&[unknown])).is_err(),
+                matches!(parse_arguments(&said), Err(Unstarted::UnknownFlag(_) | Unstarted::UnknownMode(_))),
                 "{unknown} was read as no word at all, which is the mode that sweeps the desktop"
             );
         }
@@ -397,35 +399,43 @@ mod tests {
 
     #[test]
     fn a_mode_no_one_here_says_names_the_ones_that_are_said() {
-        let why = match asked(&words(&["sideways"])) {
-            Err(why) => why,
-            Ok(_no_such_mode) => panic!("sideways was read as a mode"),
+        let Ok(said) = words(&["sideways"]);
+        let why = match parse_arguments(&said) {
+            Err(why) => why.to_string(),
+            Ok(_no_such_mode) => "sideways was read as a mode".to_string(),
         };
 
-        assert!(why.to_string().contains("delete"), "{why}");
+        assert!(why.contains("delete"), "{why}");
     }
 
     #[test]
-    fn the_mode_is_a_word_and_the_name_is_the_word_after_it() {
-        let asked = asked(&words(&["load", "yesterday"])).expect("a mode and a name");
+    fn the_mode_is_a_word_and_the_name_is_the_word_after_it() -> Result<(), Unstarted> {
+        let Ok(said) = words(&["load", "yesterday"]);
+        let asked = parse_arguments(&said)?;
 
         assert_eq!(asked.mode, Mode::Load);
         assert_eq!(asked.name, "yesterday".to_string());
+
+        Ok(())
     }
 
     #[test]
-    fn a_flag_is_read_wherever_it_stands_among_the_words() {
-        let asked = asked(&words(&["save", "--load-time=5", "nightly", "--simulate"]))
-            .expect("a mode, a name and two flags");
+    fn a_flag_is_read_wherever_it_stands_among_the_words() -> Result<(), Unstarted> {
+        let Ok(said) = words(&["save", "--load-time=5", "nightly", "--simulate"]);
+        let asked = parse_arguments(&said)?;
 
         assert_eq!(asked.mode, Mode::Save);
         assert_eq!(asked.name, "nightly".to_string());
         assert_eq!(asked.adjusting_for, Duration::from_secs(5));
         assert_eq!(asked.really, Really::Simulated);
+
+        Ok(())
     }
 
     #[test]
     fn saving_every_nought_seconds_is_refused_rather_than_spun_on() {
-        assert!(asked(&words(&["--save-interval=0"])).is_err());
+        let Ok(said) = words(&["--save-interval=0"]);
+
+        assert!(matches!(parse_arguments(&said), Err(Unstarted::NeverSaving)));
     }
 }

@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -127,16 +128,13 @@ pub fn plugged_in(said: &str) -> Result<Vec<Place>, Never> {
 }
 
 fn unescaped(said: &str) -> Result<String, Never> {
-    let mut written = String::new();
-    let mut rest = said;
-
-    loop {
+    let unescaped = iterate((said, String::new()), |(rest, mut written)| {
         let (before, after) = match rest.split_once('\\') {
             Some(halves) => halves,
             None => {
                 written.push_str(rest);
 
-                return Ok(written);
+                return Ok(Step::Halt(written));
             }
         };
 
@@ -150,7 +148,7 @@ fn unescaped(said: &str) -> Result<String, Never> {
             None => None,
         };
 
-        rest = match read {
+        let rest = match read {
             Some(byte) => {
                 written.push(char::from(byte));
 
@@ -165,126 +163,130 @@ fn unescaped(said: &str) -> Result<String, Never> {
                 after
             }
         };
-    }
+
+        Ok(Step::Again((rest, written)))
+    });
+
+    Ok(match unescaped {
+        Ok(unescaped) => unescaped,
+        Err(Endless) => said.to_string(),
+    })
 }
 
-pub fn kept(places: Vec<Place>, there: impl Fn(&Path) -> bool) -> Result<Vec<Place>, Never> {
+pub fn existing(places: Vec<Place>, there: impl Fn(&Path) -> bool) -> Result<Vec<Place>, Never> {
     Ok(places.into_iter().filter(|place| there(&place.path)).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use std::path::Path;
 
-    fn at(path: &str) -> Option<PathBuf> {
-        Some(Path::new(path).to_path_buf())
+    const HOME: &str = "/home/ada";
+
+    fn titles(places: &[Place]) -> Result<Vec<&str>, Never> {
+        Ok(places.iter().map(|place| place.title.as_str()).collect())
     }
 
-    fn home() -> PathBuf {
-        Path::new("/home/ada").to_path_buf()
-    }
+    fn two_places() -> Result<Vec<Place>, Never> {
+        let Ok(home) = Place::new("Home", PathBuf::from(HOME));
+        let Ok(music) = Place::new("Music", Path::new(HOME).join("Music"));
 
-    fn titles(places: &[Place]) -> Vec<&str> {
-        places.iter().map(|place| place.title.as_str()).collect()
-    }
-
-    fn place(title: &str, path: PathBuf) -> Place {
-        let Ok(place) = Place::new(title, path);
-
-        place
-    }
-
-    fn wanted(home: &Path, said: &[(&str, Option<PathBuf>)]) -> Vec<Place> {
-        let Ok(places) = wanted_at(home, said);
-
-        places
-    }
-
-    fn there(places: Vec<Place>, there: impl Fn(&Path) -> bool) -> Vec<Place> {
-        let Ok(places) = kept(places, there);
-
-        places
-    }
-
-    fn leading(places: &[Place], path: &Path, folder: Is) -> Option<Leading> {
-        let Ok(leading) = leading_to(places, path, folder);
-
-        leading
+        Ok(vec![home, music])
     }
 
     #[test]
     fn a_place_that_is_not_there_is_not_a_tab() {
-        let places = wanted(&home(), &[
-            ("Home", at("/home/ada")),
-            ("Documents", at("/home/ada/Documents")),
-            ("Pictures", at("/home/ada/Pictures")),
+        let Ok(places) = wanted_at(Path::new(HOME), &[
+            ("Home", Some(PathBuf::from("/home/ada"))),
+            ("Documents", Some(PathBuf::from("/home/ada/Documents"))),
+            ("Pictures", Some(PathBuf::from("/home/ada/Pictures"))),
         ]);
-        let kept = there(places, |path| path != Path::new("/home/ada/Documents"));
+        let Ok(kept) = existing(places, |path| path != Path::new("/home/ada/Documents"));
+        let Ok(titles) = titles(&kept);
 
-        assert_eq!(titles(&kept), ["Home", "Pictures"]);
+        assert_eq!(titles, ["Home", "Pictures"]);
     }
 
     #[test]
     fn the_tabs_come_out_in_the_order_they_were_asked_for() {
         let said: Vec<(&str, Option<PathBuf>)> =
-            WANTED.iter().map(|title| (*title, at("/home/ada"))).collect();
-        let places = there(wanted(&home(), &said), |_| true);
+            WANTED.iter().map(|title| (*title, Some(PathBuf::from(HOME)))).collect();
+        let Ok(wanted) = wanted_at(Path::new(HOME), &said);
+        let Ok(places) = existing(wanted, |_| true);
+        let Ok(titles) = titles(&places);
 
-        assert_eq!(titles(&places), WANTED);
+        assert_eq!(titles, WANTED);
     }
 
     #[test]
-    fn a_place_the_machine_says_nothing_about_is_looked_for_under_its_own_name() {
-        let places = wanted(&home(), &[("Downloads", at("/data/downloads")), ("Pictures", None)]);
+    fn a_place_the_machine_says_nothing_about_is_looked_for_under_its_own_name() -> Result<(), Box<dyn Error>> {
+        let Ok(places) =
+            wanted_at(Path::new(HOME), &[("Downloads", Some(PathBuf::from("/data/downloads"))), ("Pictures", None)]);
+        let [downloads, pictures] = places.first_chunk::<2>().ok_or("two places")?;
 
-        assert_eq!(places[0].path, Path::new("/data/downloads"));
-        assert_eq!(places[1].path, Path::new("/home/ada/Pictures"));
+        assert_eq!(downloads.path, Path::new("/data/downloads"));
+        assert_eq!(pictures.path, Path::new("/home/ada/Pictures"));
+
+        Ok(())
     }
 
     #[test]
     fn home_is_the_first_of_them() {
-        assert_eq!(WANTED[0], "Home");
+        assert_eq!(WANTED.first(), Some(&"Home"));
     }
 
     #[test]
-    fn the_rest_are_in_the_alphabet_everyone_already_knows() {
-        let mut rest = WANTED[1..].to_vec();
-        rest.sort_by_key(|title| title.to_lowercase());
-        assert_eq!(rest, WANTED[1..]);
-    }
+    fn the_rest_are_in_the_alphabet_everyone_already_knows() -> Result<(), Box<dyn Error>> {
+        let (_home, rest) = WANTED.split_first().ok_or("a first place")?;
+        let mut sorted = rest.to_vec();
 
-    fn two_places() -> Vec<Place> {
-        vec![place("Home", home()), place("Music", home().join("Music"))]
+        sorted.sort_by_key(|title| title.to_lowercase());
+
+        assert_eq!(sorted, rest);
+
+        Ok(())
     }
 
     #[test]
-    fn a_path_arrives_in_the_most_particular_place_that_holds_it() {
-        let song = home().join("Music/Nujabes/aruarian dance.mp3");
-        let leading = leading(&two_places(), &song, Is::AFile).expect("the way to it");
+    fn a_path_arrives_in_the_most_particular_place_that_holds_it() -> Result<(), Box<dyn Error>> {
+        let song = Path::new(HOME).join("Music/Nujabes/aruarian dance.mp3");
+        let Ok(two_places) = two_places();
+        let Ok(leading) = leading_to(&two_places, &song, Is::AFile);
+        let leading = leading.ok_or("the way to it")?;
 
         assert_eq!(leading.place, 1);
         assert_eq!(leading.steps, ["Nujabes"]);
         assert_eq!(leading.stand_on.as_deref(), Some("aruarian dance.mp3"));
+
+        Ok(())
     }
 
     #[test]
-    fn a_thing_at_the_top_of_a_place_is_a_walk_of_no_steps() {
-        let song = home().join("Music/505.opus");
-        let leading = leading(&two_places(), &song, Is::AFile).expect("the way to it");
+    fn a_thing_at_the_top_of_a_place_is_a_walk_of_no_steps() -> Result<(), Box<dyn Error>> {
+        let song = Path::new(HOME).join("Music/505.opus");
+        let Ok(two_places) = two_places();
+        let Ok(leading) = leading_to(&two_places, &song, Is::AFile);
+        let leading = leading.ok_or("the way to it")?;
 
         assert_eq!(leading.place, 1);
         assert!(leading.steps.is_empty());
         assert_eq!(leading.stand_on.as_deref(), Some("505.opus"));
+
+        Ok(())
     }
 
     #[test]
-    fn a_folder_is_the_place_arrived_at_rather_than_the_row_stood_on() {
-        let leading =
-            leading(&two_places(), &home().join("Music/Nujabes"), Is::AFolder).expect("the way");
+    fn a_folder_is_the_place_arrived_at_rather_than_the_row_stood_on() -> Result<(), Box<dyn Error>> {
+        let Ok(two_places) = two_places();
+        let Ok(leading) = leading_to(&two_places, &Path::new(HOME).join("Music/Nujabes"), Is::AFolder);
+        let leading = leading.ok_or("the way")?;
 
         assert_eq!(leading.steps, ["Nujabes"]);
         assert_eq!(leading.stand_on, None);
+
+        Ok(())
     }
 
     #[test]
@@ -297,8 +299,9 @@ mod tests {
         );
 
         let Ok(places) = plugged_in(held);
+        let Ok(titles) = titles(&places);
 
-        assert_eq!(titles(&places), ["Field Notes", "films"]);
+        assert_eq!(titles, ["Field Notes", "films"]);
         assert_eq!(
             places.first().map(|place| place.path.clone()),
             Some(PathBuf::from("/run/media/someone/Field Notes"))
@@ -314,7 +317,9 @@ mod tests {
 
     #[test]
     fn a_path_under_none_of_the_places_leads_nowhere() {
-        assert_eq!(leading(&two_places(), Path::new("/etc/fstab"), Is::AFile), None);
-        assert_eq!(leading(&two_places(), Path::new("/"), Is::AFolder), None);
+        let Ok(two_places) = two_places();
+
+        assert_eq!(leading_to(&two_places, Path::new("/etc/fstab"), Is::AFile), Ok(None));
+        assert_eq!(leading_to(&two_places, Path::new("/"), Is::AFolder), Ok(None));
     }
 }

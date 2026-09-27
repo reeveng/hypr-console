@@ -43,6 +43,7 @@
 
 
 use console_core_geometry::{Point, Size};
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use std::os::fd::{AsFd, BorrowedFd};
@@ -56,7 +57,7 @@ use console_input_alphabets::{self as alphabets, Orientation as Holding};
 use console_input_keyboard::configuration::{self, Configuration};
 use console_input_keyboard::drawing::{Stride, Surface};
 use console_input_keyboard::gamepad::{self, KeyboardCommand, PendingRepeat, RepeatMode};
-use console_input_keyboard::layout::{Drops, Kind, LayoutKind, key, modifiers, named, of, placed, toward, under};
+use console_input_keyboard::layout::{Drops, Kind, LayoutKind, key, modifiers, find_layout, of, layout_keys, toward, under};
 use console_input_keyboard::paint;
 use console_input_keyboard::remote::{self, Command};
 use console_input_keyboard::surface::{Closed, SurfaceError, PointerEvent, Screen, Showing};
@@ -140,7 +141,7 @@ fn dressed(arguments: &[String]) -> Result<Vec<String>, Never> {
         },
     };
     let Ok(palette) = read(&held);
-    let Ok(missing) = console_input_keyboard::palette::missing(&palette);
+    let Ok(missing) = console_input_keyboard::palette::missing_colors(&palette);
 
     match missing.is_empty() {
         true => {},
@@ -190,16 +191,25 @@ struct State<'a> {
 
 impl State<'_> {
     fn while_open(&mut self) -> Result<(), SurfaceError> {
-        while self.screen.closed() == Ok(Closed::No) {
-            self.once_around()?;
-        }
+        let ended = console_core_iteration::iterate(self, |state| {
+            Ok(match state.screen.closed() == Ok(Closed::No) {
+                true => match state.once_around() {
+                    Ok(()) => Step::Again(state),
+                    Err(fault) => Step::Halt(Err(fault)),
+                },
+                false => Step::Halt(Ok(())),
+            })
+        });
 
-        Ok(())
+        match ended {
+            Ok(ended) => ended,
+            Err(_endless) => Ok(()),
+        }
     }
 
     fn once_around(&mut self) -> Result<(), SurfaceError> {
-        let Ok(showing_now) = self.screen.showing();
-        let Ok(()) = keeping(showing_now, &mut self.reading, &mut self.complained);
+        let Ok(showing_now) = self.screen.visibility();
+        let Ok(()) = sync_reading(showing_now, &mut self.reading, &mut self.complained);
 
         match self.typist.last_alphabet == self.worn {
             true => {},
@@ -217,7 +227,7 @@ impl State<'_> {
         let events = self.waiting_on()?;
         let now = Instant::now();
 
-        self.asked(events)?;
+        self.handle_commands(events)?;
 
         let Ok(()) = self.wants(now);
         let Ok(()) = self.pointer_events();
@@ -291,7 +301,7 @@ impl State<'_> {
 
                         let across = f64::from(wide) / f64::from(scale);
                         let deep = f64::from(tall) / f64::from(scale);
-                        let Ok(keys) = placed(layout, Size { width: across, height: deep });
+                        let Ok(keys) = layout_keys(layout, Size { width: across, height: deep });
                         let Ok(()) = paint::keyboard(&onto, &paint::Look {
                             configuration,
                             layout,
@@ -310,7 +320,7 @@ impl State<'_> {
                 match self.showing.take() {
                     Some(mut waiting) => {
                         let Ok(()) = waiting.mark("drawn");
-                        let Ok(()) = waiting.done();
+                        let Ok(()) = waiting.finish();
                     },
                     None => {},
                 }
@@ -327,7 +337,7 @@ impl State<'_> {
 
         match self.reading.as_ref() {
             Some(reading) => {
-                let Ok(fds) = reading.claim.watching();
+                let Ok(fds) = reading.claim.descriptors();
 
                 watching.extend(fds);
             },
@@ -339,13 +349,13 @@ impl State<'_> {
         self.screen.wait_with(&watching, until)
     }
 
-    fn asked(&mut self, events: u32) -> Result<(), SurfaceError> {
+    fn handle_commands(&mut self, events: u32) -> Result<(), SurfaceError> {
         match events & 1 != 0 {
             true => {
-                let Ok(heard) = heard(&self.told);
+                let Ok(heard) = receive_commands(&self.told);
 
                 for asked in heard {
-                    let Ok(showing_now) = self.screen.showing();
+                    let Ok(showing_now) = self.screen.visibility();
 
                     match (asked, showing_now) {
                         (Command::Show, Showing::No) | (Command::Toggle, Showing::No) => self.onto_the_screen()?,
@@ -367,7 +377,7 @@ impl State<'_> {
 
         match self.reading.as_mut() {
             Some(at_hand) => {
-                let Ok(heard) = at_hand.claim.arrived();
+                let Ok(heard) = at_hand.claim.receive();
 
                 let Ok(asked) = from_controller(&heard, &at_hand.spans, &mut self.held, now);
 
@@ -389,7 +399,7 @@ impl State<'_> {
         wants.extend(due);
 
         for want in wants {
-            let Ok(showing_now) = self.screen.showing();
+            let Ok(showing_now) = self.screen.visibility();
 
             match showing_now {
                 Showing::No => continue,
@@ -402,7 +412,7 @@ impl State<'_> {
             };
 
             let Ok(layout) = self.typist.layout();
-            let Ok(keys) = placed(layout, Size { width: f64::from(wide), height: f64::from(tall) });
+            let Ok(keys) = layout_keys(layout, Size { width: f64::from(wide), height: f64::from(tall) });
 
             match want {
                 KeyboardCommand::Toggle => {
@@ -461,7 +471,7 @@ impl State<'_> {
                         Waiting::here(Wait { who: "keyboard", what: "language" });
                     let Ok(_) = self.typist.pressed(Kind::Language, modifiers::NONE, Drops::None);
                     let Ok(()) = waiting.mark("keymap");
-                    let Ok(()) = waiting.done();
+                    let Ok(()) = waiting.finish();
 
                     self.selected = None;
                 },
@@ -485,7 +495,7 @@ impl State<'_> {
 
         for event in pointer_events {
             let Ok(layout) = self.typist.layout();
-            let Ok(keys) = placed(layout, Size { width: f64::from(wide), height: f64::from(tall) });
+            let Ok(keys) = layout_keys(layout, Size { width: f64::from(wide), height: f64::from(tall) });
 
             match event {
                 PointerEvent::Down { x, y } => {
@@ -519,7 +529,7 @@ impl State<'_> {
                     match changing {
                         Some(mut waiting) => {
                             let Ok(()) = waiting.mark("keymap");
-                            let Ok(()) = waiting.done();
+                            let Ok(()) = waiting.finish();
                         },
                         None => {},
                     }
@@ -631,7 +641,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
     let walk: Vec<LayoutKind> = asked
         .iter()
         .filter_map(|name| {
-            let Ok(named) = named(name.as_str());
+            let Ok(named) = find_layout(name.as_str());
 
             named
         })
@@ -642,7 +652,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
         false => {},
     }
 
-    let told = listening()?;
+    let told = bind_socket()?;
     let mut screen = Screen::connect()?;
 
     let Ok(()) = waiting.mark("compositor");
@@ -662,7 +672,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
 
     let Ok(()) = waiting.mark("typist");
     let Ok(()) = waiting.mark("pad");
-    let Ok(()) = waiting.done();
+    let Ok(()) = waiting.finish();
 
     let mut state = State {
         screen,
@@ -695,7 +705,7 @@ enum Logged {
     No,
 }
 
-fn keeping(showing: Showing, reading: &mut Option<Reading>, complained: &mut Logged) -> Result<(), Never> {
+fn sync_reading(showing: Showing, reading: &mut Option<Reading>, complained: &mut Logged) -> Result<(), Never> {
     match showing {
         Showing::No => *reading = None,
         Showing::Yes => match reading {
@@ -714,7 +724,7 @@ fn keeping(showing: Showing, reading: &mut Option<Reading>, complained: &mut Log
 fn taking(complained: &mut Logged) -> Result<Option<Reading>, Never> {
     Ok(match Claim::of(&CONTROLLER) {
         Ok(claim) => {
-            let Ok(holding) = claim.holding();
+            let Ok(holding) = claim.devices();
 
             for (which, path) in holding {
                 let Ok(said) = which.said();
@@ -726,7 +736,7 @@ fn taking(complained: &mut Logged) -> Result<Option<Reading>, Never> {
                 Ok(spans) => spans,
 
                 Err(refused) => {
-                    let Ok(said) = refused.said();
+                    let Ok(said) = refused.message();
 
                     eprintln!("console-keyboard: {said}; the sticks will not walk");
 
@@ -742,7 +752,7 @@ fn taking(complained: &mut Logged) -> Result<Option<Reading>, Never> {
             match *complained {
                 Logged::Yes => {},
                 Logged::No => {
-                    let Ok(said) = refused.said();
+                    let Ok(said) = refused.message();
 
                     eprintln!("console-keyboard: {said}, so it is touch only");
 
@@ -760,7 +770,7 @@ fn from_controller(heard: &Received, spans: &Spans, held: &mut PendingRepeat, no
 
     for (which, event) in &heard.events {
         let kind = event.kind;
-        let Ok(named) = claim::said(*which, kind, event.code, event.value);
+        let Ok(named) = claim::translate(*which, kind, event.code, event.value);
         let axis = match kind {
             EventType::ABSOLUTE => Some((AbsoluteAxisCode(event.code), event.value)),
             _ => None,
@@ -810,7 +820,7 @@ fn left_on(shape: Shape) -> Result<Option<LayoutKind>, Never> {
         Shape::Portrait => alphabet.upright,
     };
 
-    named(arrangement)
+    find_layout(arrangement)
 }
 
 fn keeps_its_own(showing: LayoutKind) -> Result<(), Never> {
@@ -849,7 +859,7 @@ fn orientation(configuration: &Configuration, shape: Shape) -> Result<(Vec<Strin
 
     let asked = match given.is_empty() {
         true => {
-            let Ok(chosen) = alphabets::chosen();
+            let Ok(chosen) = alphabets::current();
             let Ok(walk) = alphabets::walk(&chosen, holding);
 
             walk
@@ -860,7 +870,7 @@ fn orientation(configuration: &Configuration, shape: Shape) -> Result<(Vec<Strin
     Ok((asked, height))
 }
 
-fn listening() -> Result<UnixDatagram, Unopened> {
+fn bind_socket() -> Result<UnixDatagram, Unopened> {
     let Ok(at) = remote::socket();
     let at = at.ok_or(Unopened::Sessionless)?;
 
@@ -881,30 +891,33 @@ fn listening() -> Result<UnixDatagram, Unopened> {
     Ok(told)
 }
 
-fn heard(told: &UnixDatagram) -> Result<Vec<Command>, Never> {
-    let mut heard = Vec::new();
-    let mut said = [0_u8; 16];
+fn receive_commands(told: &UnixDatagram) -> Result<Vec<Command>, Never> {
+    let said = std::iter::from_fn(|| {
+        let mut said = [0_u8; 16];
 
-    loop {
-        let bytes = match told.recv(&mut said) {
-            Ok(got) => said.get(..got),
-            Err(_nothing_more_was_said) => return Ok(heard),
-        };
-
-        let word = match bytes.map(std::str::from_utf8) {
-            Some(Ok(word)) => Some(word),
-            Some(Err(_not_a_word)) => None,
-            None => None,
-        };
-
-        match word {
-            Some(word) => {
-                let Ok(asked) = Command::read(word);
-
-                heard.extend(asked);
-            },
-            None => eprintln!("console-keyboard: something was said that is not a word"),
+        match told.recv(&mut said) {
+            Ok(got) => Some(match said.get(..got).map(std::str::from_utf8) {
+                Some(Ok(word)) => Some(word.to_string()),
+                Some(Err(_not_a_word)) => None,
+                None => None,
+            }),
+            Err(_nothing_more_was_said) => None,
         }
-    }
+    });
+
+    Ok(said
+        .filter_map(|word| match word {
+            Some(word) => {
+                let Ok(asked) = Command::read(&word);
+
+                asked
+            },
+            None => {
+                eprintln!("console-keyboard: something was said that is not a word");
+
+                None
+            },
+        })
+        .collect())
 }
 

@@ -89,6 +89,7 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_program_contract::{Change, Topic};
@@ -177,14 +178,16 @@ pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
         }
     }));
 
-    let mut serving =
+    let serving =
         Serving { pool: Pool::default(), clients: BTreeMap::new(), held: Vec::new(), sources, holding, carried: 0 };
-    let mut door = Door::Open;
 
-    loop {
-        let ready = ready(&serving, &listening, &waiting, door)?;
+    let served = iterate((serving, Door::Open), |(mut serving, door)| {
+        let ready = match ready(&serving, &listening, &waiting, door) {
+            Ok(ready) => ready,
+            Err(fault) => return Ok(Step::Halt(Err(fault))),
+        };
 
-        door = match door {
+        let mut door = match door {
             Door::Resting => Door::Retrying,
             Door::Open | Door::Retrying => door,
         };
@@ -192,8 +195,8 @@ pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
         for (watched, flags) in ready {
             match watched {
                 Watched::Woken => {
-                    let Ok(()) = woken::drained(&waiting);
-                    let Ok(()) = told(&mut serving, &published);
+                    let Ok(()) = woken::drain(&waiting);
+                    let Ok(()) = publish_pending(&mut serving, &published);
                 }
                 Watched::Door => {
                     let Ok(let_in) = let_in(&mut serving, &listening, door);
@@ -201,12 +204,19 @@ pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
                     door = let_in;
                 }
                 Watched::Client(who) => {
-                    let Ok(()) = heard(&mut serving, who, flags);
+                    let Ok(()) = read_client(&mut serving, who, flags);
                 }
             }
         }
 
-        let Ok(()) = written(&mut serving);
+        let Ok(()) = flush(&mut serving);
+
+        Ok(Step::Again((serving, door)))
+    });
+
+    match served {
+        Ok(served) => served,
+        Err(Endless) => Ok(()),
     }
 }
 
@@ -290,9 +300,9 @@ fn breath(door: Door) -> Result<Option<Timespec>, Never> {
 }
 
 fn let_in(serving: &mut Serving, listening: &UnixListener, door: Door) -> Result<Door, Never> {
-    loop {
-        let fault = match listening.accept() {
-            Ok((stream, _from)) => {
+    for accepted in listening.incoming() {
+        let fault = match accepted {
+            Ok(stream) => {
                 let Ok(()) = arrived(serving, stream);
 
                 continue;
@@ -314,6 +324,8 @@ fn let_in(serving: &mut Serving, listening: &UnixListener, door: Door) -> Result
             (Rejected::Gone, Door::Resting | Door::Retrying) => Door::Resting,
         });
     }
+
+    Ok(door)
 }
 
 fn arrived(serving: &mut Serving, stream: UnixStream) -> Result<(), Never> {
@@ -333,7 +345,7 @@ fn arrived(serving: &mut Serving, stream: UnixStream) -> Result<(), Never> {
     Ok(())
 }
 
-fn heard(serving: &mut Serving, who: Who, flags: PollFlags) -> Result<(), Never> {
+fn read_client(serving: &mut Serving, who: Who, flags: PollFlags) -> Result<(), Never> {
     match flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR) {
         true => {},
         false => return Ok(()),
@@ -374,25 +386,30 @@ fn read(serving: &mut Serving, who: Who) -> Result<(Vec<u8>, Still), Never> {
         None => return Ok((Vec::new(), Still::Gone)),
     };
     let Ok(long) = index(READING);
-    let mut buffer = vec![0_u8; long];
+    let buffer = vec![0_u8; long];
 
-    let still = loop {
+    let heard = iterate((client, buffer), |(client, mut buffer)| {
         let fault = match client.connection.read(&mut buffer) {
-            Ok(0) => break Still::Gone,
+            Ok(0) => return Ok(Step::Halt((client, Still::Gone))),
             Ok(many) => {
                 client.heard.extend(buffer.iter().take(many));
 
-                continue;
+                return Ok(Step::Again((client, buffer)));
             }
             Err(fault) => fault,
         };
         let Ok(refused) = refused(&fault);
 
-        match refused {
-            Rejected::NotYet => break Still::Connected,
-            Rejected::Interrupted => {},
-            Rejected::Gone => break Still::Gone,
-        }
+        Ok(match refused {
+            Rejected::NotYet => Step::Halt((client, Still::Connected)),
+            Rejected::Interrupted => Step::Again((client, buffer)),
+            Rejected::Gone => Step::Halt((client, Still::Gone)),
+        })
+    });
+
+    let (client, still) = match heard {
+        Ok(heard) => heard,
+        Err(Endless) => return Ok((Vec::new(), Still::Gone)),
     };
 
     let rest = match client.heard.iter().rposition(|byte| *byte == b'\n') {
@@ -404,7 +421,7 @@ fn read(serving: &mut Serving, who: Who) -> Result<(Vec<u8>, Still), Never> {
 }
 
 fn let_go(serving: &mut Serving, who: Who) -> Result<(), Never> {
-    let Ok(()) = serving.pool.left(who);
+    let Ok(()) = serving.pool.remove(who);
     let _ = serving.clients.remove(&who);
 
     Ok(())
@@ -456,13 +473,13 @@ fn hold(serving: &mut Serving, topic: &Topic) -> Result<(), Never> {
     Ok(())
 }
 
-fn told(serving: &mut Serving, published: &Receiver<Change>) -> Result<(), Never> {
+fn publish_pending(serving: &mut Serving, published: &Receiver<Change>) -> Result<(), Never> {
     for change in published.try_iter() {
         let Ok(()) = publish(serving, &change);
 
         match serving.carried > BATCH {
             true => {
-                let Ok(()) = written(serving);
+                let Ok(()) = flush(serving);
             }
             false => {},
         }
@@ -517,7 +534,7 @@ fn send(serving: &mut Serving, who: Who, line: &[u8]) -> Result<(), Never> {
     Ok(())
 }
 
-fn written(serving: &mut Serving) -> Result<(), Never> {
+fn flush(serving: &mut Serving) -> Result<(), Never> {
     serving.carried = 0;
 
     let mut gone: Vec<Who> = Vec::new();
@@ -544,27 +561,32 @@ enum Wrote {
 }
 
 fn wrote(client: &mut Client) -> Result<Wrote, Never> {
-    loop {
+    let written = iterate(client, |client| {
         match client.outbox.is_empty() {
-            true => return Ok(Wrote::Retained),
+            true => return Ok(Step::Halt(Wrote::Retained)),
             false => {},
         }
 
         let fault = match client.connection.write(&client.outbox) {
-            Ok(0) => return Ok(Wrote::Gone),
+            Ok(0) => return Ok(Step::Halt(Wrote::Gone)),
             Ok(many) => {
                 let _ = client.outbox.drain(..many);
 
-                continue;
+                return Ok(Step::Again(client));
             }
             Err(fault) => fault,
         };
         let Ok(refused) = refused(&fault);
 
-        match refused {
-            Rejected::NotYet => return Ok(Wrote::Retained),
-            Rejected::Interrupted => {},
-            Rejected::Gone => return Ok(Wrote::Gone),
-        }
-    }
+        Ok(match refused {
+            Rejected::NotYet => Step::Halt(Wrote::Retained),
+            Rejected::Interrupted => Step::Again(client),
+            Rejected::Gone => Step::Halt(Wrote::Gone),
+        })
+    });
+
+    Ok(match written {
+        Ok(written) => written,
+        Err(Endless) => Wrote::Gone,
+    })
 }

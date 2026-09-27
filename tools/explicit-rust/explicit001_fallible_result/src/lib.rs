@@ -9,7 +9,7 @@ use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::is_lang_item_or_ctor;
 use rustc_hir::def::Res;
 use rustc_hir::{Arm, Expr, ExprKind, LangItem, Pat, PatKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
@@ -43,10 +43,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT001_FALLIBLE_RESULT,
     Deny,
     "a function that swallows a failure must return `Result<T, E>`"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // `Result`, whatever it is called at the point of use. Asking the type rather
@@ -138,7 +134,7 @@ fn says_a_fault(cx: &LateContext<'_>, body: &Expr<'_>) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit001FallibleResult {
     fn check_arm(&mut self, cx: &LateContext<'tcx>, arm: &'tcx Arm<'tcx>) {
-        if is_test_build(cx) || arm.pat.span.from_expansion() {
+        if arm.pat.span.from_expansion() {
             return;
         }
         if !unnamed_err(cx, arm.pat) || says_a_fault(cx, arm.body) {
@@ -156,9 +152,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit001FallibleResult {
     }
 
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         let ExprKind::MethodCall(path, receiver, _, _) = expr.kind else {
             return;
         };

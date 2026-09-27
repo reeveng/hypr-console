@@ -48,7 +48,7 @@ use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{BinOpKind, Body, Expr, ExprKind, FnDecl, UnOp};
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_span::Span;
 
 extern crate rustc_span;
@@ -62,10 +62,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT025_NO_SENTINEL_VALUE,
     Deny,
     "a value standing for a meaning the type does not declare; say it with `Option` or an enum"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // The end of a type, named as a constant: `usize::MAX`, `i32::MIN`, and the
@@ -144,10 +140,6 @@ fn answered_with<'tcx>(body: &'tcx Body<'tcx>) -> Option<&'tcx Expr<'tcx>> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit025NoSentinelValue {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }
@@ -183,10 +175,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit025NoSentinelValue {
         span: Span,
         def_id: LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if matches!(kind, FnKind::Closure) {
             return;
         }

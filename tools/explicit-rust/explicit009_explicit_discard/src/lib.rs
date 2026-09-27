@@ -6,7 +6,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::ty::is_must_use_ty;
 use rustc_hir::{Stmt, StmtKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT009: a `#[must_use]` value thrown away must be thrown away in
@@ -19,15 +19,8 @@ dylint_linting::declare_late_lint! {
     "a discarded `#[must_use]` value must be written `let _ = …`"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl<'tcx> LateLintPass<'tcx> for Explicit009ExplicitDiscard {
     fn check_stmt(&mut self, cx: &LateContext<'tcx>, stmt: &'tcx Stmt<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         // `let _ = …` is the spelling this rule asks for, and it is a
         // `StmtKind::Let`, so it never reaches here. Only a bare expression
         // statement does.

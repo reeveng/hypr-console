@@ -70,32 +70,23 @@ impl Between {
     }
 }
 
-pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
+pub fn keep(once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
     #[cfg_attr(
         dylint_lib = "explicit035_no_loose_thread",
         allow(
             explicit035_no_loose_thread,
-            reason = "this crate is what a subscription made again is, and the thread is the making: it runs until the caller's own round says Done or the program ends, which is what `keep` is asked for. There is nothing above it to hold a handle, and the word this rule asks for is the name of the function"
+            reason = "this crate is what a subscription made again is, and the thread is the making: it runs until the caller's own round says Halt or the program ends, which is what `keep` is asked for. There is nothing above it to hold a handle, and the word this rule asks for is the name of the function"
         )
     )]
     let _ = std::thread::spawn(move || {
         let Ok(mut between) = Between::tries();
+        let Ok(mut began) = now();
+        let rounds = std::iter::repeat_with(once).map_while(|round| match round {
+            Round::Another => Some(()),
+            Round::Finished => None,
+        });
 
-        loop {
-            #[cfg_attr(
-                dylint_lib = "explicit039_no_reading_the_clock",
-                allow(
-                    explicit039_no_reading_the_clock,
-                    reason = "the gap before the next try is measured from how long the last one took, which is this crate measuring its own waiting rather than deciding anything from the clock"
-                )
-            )]
-            let began = Instant::now();
-
-            match once() {
-                Round::Finished => return,
-                Round::Another => {}
-            }
-
+        for () in rounds {
             let Ok(again) = between.after(began.elapsed());
 
             #[cfg_attr(
@@ -106,15 +97,32 @@ pub fn keep(mut once: impl FnMut() -> Round + Send + 'static) -> Result<(), Neve
                 )
             )]
             std::thread::sleep(again);
+
+            let Ok(after_the_gap) = now();
+
+            began = after_the_gap;
         }
     });
 
     Ok(())
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit039_no_reading_the_clock",
+    allow(
+        explicit039_no_reading_the_clock,
+        reason = "the gap before the next try is measured from how long the last one took, which is this crate measuring its own waiting rather than deciding anything from the clock"
+    )
+)]
+fn now() -> Result<Instant, Never> {
+    Ok(Instant::now())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::error::Error;
 
     #[test]
     fn the_first_wait_is_short_enough_to_be_a_blink() {
@@ -192,31 +200,34 @@ mod tests {
     }
 
     #[test]
-    fn something_that_ends_is_done_again() {
+    fn something_that_ends_is_done_again() -> Result<(), Box<dyn Error>> {
         let (say, heard) = std::sync::mpsc::channel();
         let Ok(()) = keep(move || match say.send(()) {
             Ok(()) => Round::Another,
-            Err(_) => Round::Finished,
+            Err(_nobody_is_listening) => Round::Finished,
         });
 
         for turn in 1..=3 {
-            heard
-                .recv_timeout(Duration::from_secs(10))
-                .unwrap_or_else(|_| panic!("turn {turn} of 3"));
+            heard.recv_timeout(Duration::from_secs(10)).map_err(|_| format!("turn {turn} of 3"))?;
         }
+
+        Ok(())
     }
 
     #[test]
-    fn something_that_says_it_is_done_is_left_alone() {
+    fn something_that_says_it_is_done_is_left_alone() -> Result<(), Box<dyn Error>> {
         let (say, heard) = std::sync::mpsc::channel();
-        keep(move || {
-            say.send(()).ok();
+        let Ok(()) = keep(move || {
+            let _heard_or_gone = say.send(());
+
             Round::Finished
         });
-        heard.recv_timeout(Duration::from_secs(5)).expect("the one turn");
-        assert!(
-            heard.recv_timeout(Duration::from_secs(3)).is_err(),
-            "it went round again after saying it was done"
-        );
+
+        heard.recv_timeout(Duration::from_secs(5)).map_err(|_| "the one turn")?;
+
+        match heard.recv_timeout(Duration::from_secs(3)) {
+            Ok(()) => Err(Box::from("it went round again after saying it was done")),
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => Ok(()),
+        }
     }
 }

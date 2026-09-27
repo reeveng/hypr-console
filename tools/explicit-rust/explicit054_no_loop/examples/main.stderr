@@ -1,0 +1,16 @@
+error: `loop` ends wherever a `break` was written, and says so nowhere at its head
+  --> $DIR/main.rs:5:5
+   |
+LL | /     loop {
+LL | |         match n > 0 {
+LL | |             true => n = n.saturating_sub(1),
+LL | |             false => break n,
+LL | |         }
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+   = note: `#[deny(explicit054_no_loop)]` on by default
+
+error: aborting due to 1 previous error
+

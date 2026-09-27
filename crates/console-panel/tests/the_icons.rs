@@ -15,31 +15,30 @@
 
 use std::path::{Path, PathBuf};
 
+use console_core_never::Never;
 use console_panel::icons::EVERY;
 use console_repository::sources::{Spelled, Word, of_every_crate, spells};
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
+type Failure = Box<dyn std::error::Error>;
 
-fn sources() -> Vec<PathBuf> {
-    let (ourself, declaring) = (root().join(file!()), root().join("crates/console-panel/src/icons.rs"));
-    let Ok(every) = of_every_crate(&root(), &[&ourself, &declaring]);
+const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
-    every
+fn sources() -> Result<Vec<PathBuf>, Never> {
+    let root = Path::new(ROOT);
+    let ourself = root.join(file!());
+    let declaring = root.join("crates/console-panel/src/icons.rs");
+
+    of_every_crate(root, &[&ourself, &declaring])
 }
 
 #[test]
-fn nothing_hands_gtk_an_icon_name_it_spelled_itself() {
+fn nothing_hands_gtk_an_icon_name_it_spelled_itself() -> Result<(), Failure> {
     let doors = [format!("{}_icon_name(", "set"), format!("{}_icon_name(", "from")];
     let mut strange: Vec<String> = Vec::new();
+    let Ok(every) = sources();
 
-    for at in sources() {
-        let said = match std::fs::read_to_string(&at) {
-            Ok(said) => said,
-            Err(_fault) => continue,
-        };
+    for at in every {
+        let said = std::fs::read_to_string(&at)?;
 
         for door in &doors {
             for rest in said.split(door.as_str()).skip(1) {
@@ -58,15 +57,15 @@ fn nothing_hands_gtk_an_icon_name_it_spelled_itself() {
         strange.is_empty(),
         "these spell an icon name instead of asking console_panel::icons for one: {strange:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn nothing_named_here_has_stopped_being_drawn() {
-    let said: String = sources()
-        .iter()
-        .filter_map(|at| std::fs::read_to_string(at).ok())
-        .collect::<Vec<_>>()
-        .join("\n");
+fn nothing_named_here_has_stopped_being_drawn() -> Result<(), Failure> {
+    let Ok(every) = sources();
+    let read: Vec<String> = every.iter().map(std::fs::read_to_string).collect::<Result<_, _>>()?;
+    let said = read.join("\n");
     let gone: Vec<&str> = EVERY
         .iter()
         .filter(|icon| spells(&said, Word(&format!("Icon::{icon:?}"))) == Ok(Spelled::No))
@@ -78,4 +77,6 @@ fn nothing_named_here_has_stopped_being_drawn() {
         .collect();
 
     assert!(gone.is_empty(), "the enum names what nothing draws: {gone:?}");
+
+    Ok(())
 }

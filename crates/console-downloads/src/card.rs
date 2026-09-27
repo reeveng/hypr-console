@@ -38,7 +38,7 @@ use console_core_never::Never;
 use console_panel::actor::{self, Address, Answer};
 use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows, Showing};
 use console_panel::card::Card;
-use console_program_contract::{Arguments, Effect, Executable, Program, Update, Event};
+use console_program_contract::{Arguments, Effect, Program, Update, Event};
 
 enum Message {
     Event(DownloadsEvent, Answer<Vec<Effect<DownloadsEffect>>>),
@@ -113,15 +113,11 @@ fn carry(effect: &Effect<DownloadsEffect>, showing: &dyn Showing) -> Result<(), 
         Effect::Custom(DownloadsEffect::Note(said)) => showing.note(said),
         Effect::Custom(DownloadsEffect::ForgetTyping) => showing.forget_typing(),
 
-        Effect::Run(runs) => match runs.program {
-            Executable::Internal(name) => {
-                let mut whole = vec![name.to_string()];
+        Effect::Run(runs) => {
+            let Ok(words) = console_panel::running::words_of(runs);
 
-                whole.extend(runs.arguments.clone());
-                showing.later(whole);
-            }
-            Executable::External(_) => {},
-        },
+            showing.later(words);
+        }
 
         Effect::Stream(_)
         | Effect::Prompt(_)
@@ -152,7 +148,7 @@ fn looked(kind: Kind) -> Result<Looked, Never> {
         Err(_unreadable) => return Ok(Looked::default()),
     };
 
-    looking::kept(&said)
+    looking::parse(&said)
 }
 
 fn folder(kind: Kind) -> Result<String, Never> {
@@ -340,7 +336,7 @@ fn page(held: &Panel, tab: u32, kind: Kind) -> Result<Page, Never> {
     let reading = held.clone();
     let backing = held.clone();
     let Ok(word) = kind.tab();
-    let Ok(asked) = Rows::asked(move || {
+    let Ok(asked) = Rows::computed(move || {
         let Ok(rows) = rows_of(&reading, tab, kind);
 
         rows

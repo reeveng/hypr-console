@@ -15,91 +15,99 @@
 //! or without a user systemd to talk to. Both are common in a CI environment
 //! and neither is a reason to fail the rest of the suite.
 
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
+use console_core_never::Never;
 use console_program_lifetime::{Scopes, in_a_scope_of_its_own, scopes};
 
-#[test]
-fn a_launched_program_is_in_a_scope_of_its_own() {
-    let arguments = match wrap("sleep", &[HELD]) {
-        Some(arguments) => arguments,
-        None => return,
-    };
-    let mut child = match run(&arguments) {
-        Some(child) => child,
-        None => return,
-    };
-    let pid = child.id();
-    let cgroup = settled(pid);
-    let _ = child.kill();
-    let _ = child.wait();
-    let cgroup = match cgroup {
-        Some(cgroup) => cgroup,
-        None => {
-            panic!(
-                "/proc/{pid}/cgroup could not be read, though the program was given {HELD} seconds \
-                 to be there. Something ended it early, and this test has asked nothing."
-            )
-        }
-    };
-    assert!(
-        moved(&cgroup),
-        "the launched program is in the parent's cgroup, not a run-p scope: {cgroup}"
-    );
-}
+type Failure = Box<dyn std::error::Error>;
 
-fn wrap(name: &str, words: &[&str]) -> Option<Vec<String>> {
-    if !scopes_available() {
-        eprintln!("skipped: no systemd-run or no user systemd to talk to; scopes cannot be made");
-        return None;
-    }
-    let arguments: Vec<String> = std::iter::once(name.to_string())
-        .chain(words.iter().map(|word| (*word).to_string()))
-        .collect();
-    let Ok((_, wrapped)) = in_a_scope_of_its_own(None, &arguments);
-    Some(wrapped)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Moved {
+    Yes,
+    No,
 }
 
 const HELD: &str = "5";
 
-fn run(arguments: &[String]) -> Option<Child> {
-    Command::new(&arguments[0])
-        .args(&arguments[1..])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()
-}
-
-fn moved(cgroup: &str) -> bool {
-    let segment = cgroup.rsplit('/').next().unwrap_or("");
-    segment.starts_with("run-") && segment.ends_with(".scope")
-}
-
 const MOVES: Duration = Duration::from_secs(5);
 
-fn settled(pid: u32) -> Option<String> {
-    let until = Instant::now() + MOVES;
-    let mut last = None;
-    while Instant::now() < until {
-        let now = read_cgroup(pid);
-        if now.as_deref().is_some_and(moved) {
-            return now;
+#[test]
+fn a_launched_program_is_in_a_scope_of_its_own() -> Result<(), Failure> {
+    let Ok(available) = scopes();
+
+    match available {
+        Scopes::Available => {}
+        Scopes::Unavailable => {
+            eprintln!("skipped: no systemd-run or no user systemd to talk to; scopes cannot be made");
+
+            return Ok(());
         }
-        last = now.or(last);
-        std::thread::sleep(Duration::from_millis(50));
     }
-    last
+
+    let arguments = vec![String::from("sleep"), String::from(HELD)];
+    let Ok((_, wrapped)) = in_a_scope_of_its_own(None, &arguments);
+    let (program, rest) = wrapped.split_first().ok_or("the scope wrapped the program in nothing")?;
+    let spawned = Command::new(program).args(rest).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(_unstarted) => {
+            eprintln!("skipped: {program} would not start, so there is nothing in a scope to ask about");
+
+            return Ok(());
+        }
+    };
+    let pid = child.id();
+    let Ok(cgroup) = wait_for_cgroup(pid);
+    let _ = child.kill();
+    let _ = child.wait();
+    let cgroup = cgroup.ok_or(format!(
+        "/proc/{pid}/cgroup could not be read, though the program was given {HELD} seconds \
+         to be there. Something ended it early, and this test has asked nothing."
+    ))?;
+
+    assert_eq!(
+        moved(&cgroup),
+        Ok(Moved::Yes),
+        "the launched program is in the parent's cgroup, not a run-p scope: {cgroup}"
+    );
+
+    Ok(())
 }
 
-fn read_cgroup(pid: u32) -> Option<String> {
+fn moved(cgroup: &str) -> Result<Moved, Never> {
+    let segment = match cgroup.rsplit('/').next() {
+        Some(segment) => segment,
+        None => "",
+    };
+
+    Ok(match segment.starts_with("run-") && segment.ends_with(".scope") {
+        true => Moved::Yes,
+        false => Moved::No,
+    })
+}
+
+fn wait_for_cgroup(pid: u32) -> Result<Option<String>, Never> {
+    let Ok(patience) = console_waiting::Schedule::of(MOVES);
+    let found = console_waiting::until_some(patience, || {
+        let Ok(now) = read_cgroup(pid);
+
+        Ok(now.filter(|now| moved(now) == Ok(Moved::Yes)))
+    });
+
+    match found {
+        Ok(Some(found)) => Ok(Some(found)),
+        Ok(None) => read_cgroup(pid),
+    }
+}
+
+fn read_cgroup(pid: u32) -> Result<Option<String>, Never> {
     let at = format!("/proc/{pid}/cgroup");
-    let said = std::fs::read_to_string(at).ok()?;
-    let v2 = said.lines().find(|line| line.starts_with("0::"))?;
-    Some(v2.trim_start_matches("0::").to_string())
-}
+    let said = match std::fs::read_to_string(at) {
+        Ok(said) => said,
+        Err(_ended) => return Ok(None),
+    };
 
-fn scopes_available() -> bool {
-    scopes() == Ok(Scopes::Available)
+    Ok(said.lines().find(|line| line.starts_with("0::")).map(|v2| v2.trim_start_matches("0::").to_string()))
 }

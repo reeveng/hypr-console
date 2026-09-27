@@ -20,6 +20,7 @@ console-program-lifetime.workspace = true
 console-awake.workspace = true
 console-core-external-programs.workspace = true
 console-core-internal-programs.workspace = true
+console-core-iteration.workspace = true
 console-manifest-migrations.workspace = true
 console-core-ini-files.workspace = true
 console-core-never.workspace = true
@@ -37,10 +38,12 @@ console-input-gamepad.workspace = true
 console-core-atomic-writes.workspace = true
 
 [dev-dependencies]
+console-core-directory-listing.workspace = true
 console-core-fonts.workspace = true
 serde_json = "1"
 serde_yaml_ng = "0.10"
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

@@ -36,7 +36,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::LitKind;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT032: comparing `.count()` against nothing or one walks the
@@ -45,10 +45,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT032_NO_COUNTING_TO_ASK,
     Deny,
     "an iterator walked to its end to answer whether it holds anything"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // A count of an iterator, and whether a `filter` stands in front of it -- which
@@ -97,10 +93,6 @@ fn is_comparison(op: BinOpKind) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit032NoCountingToAsk {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

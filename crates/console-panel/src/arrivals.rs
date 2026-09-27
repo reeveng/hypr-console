@@ -3,7 +3,7 @@
 //! The music, the films, the files and the downloads are cards whose rows are
 //! a folder read again each time they are asked for, so what a change needs
 //! from them is only to be asked. The pool watches every folder
-//! `console_core_places::kept` names -- Music, Videos, Books and the rest --
+//! `console_core_places::user_folders` names -- Music, Videos, Books and the rest --
 //! and this listens for the whole life of the card and wakes the rows at each
 //! change. A song fetched, a screenshot taken, a book unzipped or a film thrown
 //! away by some other program all arrive the same way, because it is the
@@ -40,8 +40,8 @@ static FOLLOWING: Once = Once::new();
 
 pub fn follow() -> Result<(), Never> {
     FOLLOWING.call_once(|| {
-        let Ok(kept) = console_core_places::kept();
-        let Ok(folders) = watched(&kept);
+        let Ok(kept) = console_core_places::user_folders();
+        let Ok(folders) = topics_for(&kept);
         let Ok(listening) = subscription::connect(&folders);
         let Ok(()) = following(listening);
     });
@@ -50,13 +50,13 @@ pub fn follow() -> Result<(), Never> {
 }
 
 pub fn follow_at(socket: &Path, kept: &[PathBuf]) -> Result<(), Never> {
-    let Ok(folders) = watched(kept);
+    let Ok(folders) = topics_for(kept);
     let Ok(listening) = subscription::connect_at(socket, &folders);
 
     following(listening)
 }
 
-fn watched(kept: &[PathBuf]) -> Result<Vec<Topic>, Never> {
+fn topics_for(kept: &[PathBuf]) -> Result<Vec<Topic>, Never> {
     Ok(kept.iter().cloned().map(Topic::Path).collect())
 }
 

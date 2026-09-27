@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use console_input_controller::actions::Table;
-use console_input_gamepad::front::{DEVICES, Front, Read, asking};
+use console_input_gamepad::front::{DEVICES, Front, Read, capabilities_command};
 use console_input_bindings::moved::{Tasks, path_in};
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
@@ -79,7 +79,7 @@ pub fn write(jobs: &Tasks) -> Result<(), Unmapped> {
         None => {}
     }
 
-    let Ok(written) = jobs.written();
+    let Ok(written) = jobs.serialize();
 
     console_core_atomic_writes::whole(&at, written.as_bytes()).map_err(Unmapped::Writing)
 }
@@ -91,8 +91,8 @@ pub fn table() -> Result<Table, Never> {
 }
 
 pub fn front() -> Result<Front, Never> {
-    let Ok(asking) = asking();
-    let Ok(asked) = said(&asking);
+    let Ok(asking) = capabilities_command();
+    let Ok(asked) = run_output(&asking);
     let Ok(devices) = devices();
 
     Front::of(Read { said: &asked, devices: &devices })
@@ -109,7 +109,7 @@ fn devices() -> Result<String, Never> {
     })
 }
 
-pub fn said(arguments: &[&str]) -> Result<String, Never> {
+pub fn run_output(arguments: &[&str]) -> Result<String, Never> {
     let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Ok(String::new()),

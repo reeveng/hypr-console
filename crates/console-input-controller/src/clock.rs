@@ -81,6 +81,13 @@ mod tests {
     fn it_goes_forwards() {
         let Ok(first) = since_boot();
 
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "time passing is what is asked: there is nothing to wait for but the clock itself moving on"
+            )
+        )]
         std::thread::sleep(std::time::Duration::from_millis(20));
 
         let Ok(later) = since_boot();
@@ -100,6 +107,13 @@ mod tests {
     fn a_machine_that_has_not_slept_since_the_last_look_has_not_drawn_apart() {
         let Ok(first) = now();
 
+        #[cfg_attr(
+            dylint_lib = "explicit021_no_sleeping",
+            allow(
+                explicit021_no_sleeping,
+                reason = "time passing is what is asked: there is nothing to wait for but the clock itself moving on"
+            )
+        )]
         std::thread::sleep(std::time::Duration::from_millis(20));
 
         let Ok(later) = now();
@@ -109,17 +123,20 @@ mod tests {
     }
 
     #[test]
-    fn it_agrees_with_what_the_kernel_calls_uptime() {
+    fn it_agrees_with_what_the_kernel_calls_uptime() -> Result<(), Box<dyn std::error::Error>> {
         let said = match std::fs::read_to_string("/proc/uptime") {
             Ok(said) => said,
-            Err(_fault) => return,
+            Err(_no_proc_uptime_here) => return Ok(()),
         };
-        let uptime: f64 =
-            said.split_whitespace().next().expect("a first word").parse().expect("seconds");
-        let Ok(ours) = since_boot();
+        let first = said.split_whitespace().next().ok_or("a first word in /proc/uptime")?;
+        let uptime: f64 = first.parse()?;
+        let Ok(counted) = since_boot();
+
         assert!(
-            (ours - uptime).abs() < 2.0,
-            "the kernel says the machine has been up {uptime}s and this says {ours}s"
+            (counted - uptime).abs() < 2.0,
+            "the kernel says the machine has been up {uptime}s and this says {counted}s"
         );
+
+        Ok(())
     }
 }

@@ -15,6 +15,7 @@ path = "src/bin/console-response-times.rs"
 
 [dependencies]
 console-core-external-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-words.workspace = true
 console-defaults.workspace = true
 console-core-never.workspace = true
@@ -26,3 +27,6 @@ serde_json = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

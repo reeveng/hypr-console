@@ -8,7 +8,7 @@
 //! there before is touched.
 
 use console_test_stages::checking::{Body, Check, CheckResult, more_than, same};
-use console_test_stages::device::{A_PICTURE, Device, Ready, quoted};
+use console_test_stages::device::{A_PICTURE, Device, Ready, shell_quote};
 use console_test_stages::here::Here;
 use console_core_never::Never;
 
@@ -84,7 +84,7 @@ fn taken_away(
         )
     )]
     for name in now.iter().filter(|name| !was.contains(name)) {
-        let Ok(quoted) = quoted(&format!("{shots}/{name}"));
+        let Ok(quoted) = shell_quote(&format!("{shots}/{name}"));
         let Ok(_) = stage.user(&format!("rm -f {quoted}"));
     }
 

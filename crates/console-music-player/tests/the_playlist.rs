@@ -5,58 +5,76 @@
 //! rather than as a claim about a permutation, because what a person does is
 //! press next and see whether the song changes.
 
-use console_music_player::playlist::{Moved, Order, Over, Playlist};
+use std::error::Error;
 use std::path::PathBuf;
+
+use console_core_never::Never;
+use console_core_number_conversion::fitted;
+use console_music_player::playlist::{Moved, Order, Over, Playlist};
 
 const SONGS: u32 = 6;
 
-fn library() -> Vec<PathBuf> {
-    ["a", "b", "c", "d", "e", "f"]
+fn library() -> Result<Vec<PathBuf>, Never> {
+    Ok(["a", "b", "c", "d", "e", "f"]
         .iter()
         .map(|name| PathBuf::from(format!("/music/{name}.opus")))
-        .collect()
+        .collect())
 }
 
-fn names() -> Vec<String> {
-    let mut held: Vec<String> =
-        library().iter().map(|path| path.to_string_lossy().to_string()).collect();
+fn names() -> Result<Vec<String>, Never> {
+    let Ok(library) = library();
+    let mut held: Vec<String> = library.iter().map(|path| path.to_string_lossy().to_string()).collect();
 
     held.sort();
 
-    held
+    Ok(held)
 }
 
-fn song(list: &Playlist) -> String {
+fn song(list: &Playlist) -> Result<String, Box<dyn Error>> {
     let Ok(song) = list.song();
+    let path = song.ok_or("nothing is playing")?;
 
-    song.map(|path| path.to_string_lossy().to_string()).unwrap_or_default()
+    Ok(path.to_string_lossy().to_string())
 }
 
-fn walked(list: &mut Playlist) -> Vec<String> {
-    let mut seen = vec![song(list)];
+fn walked(list: &mut Playlist) -> Result<Vec<String>, Box<dyn Error>> {
+    let first = song(list)?;
+    let mut seen = vec![first];
 
     for _ in 1..SONGS {
         let Ok(_the_walk_is_what_is_asserted) = list.onward();
+        let now = song(list)?;
 
-        seen.push(song(list));
+        seen.push(now);
     }
 
     seen.sort();
 
-    seen
+    Ok(seen)
+}
+
+fn walked_through_every_song(list: &mut Playlist) -> Result<(), Box<dyn Error>> {
+    let walked = walked(list)?;
+    let Ok(names) = names();
+
+    assert_eq!(walked, names);
+    Ok(())
 }
 
 #[test]
-fn next_plays_each_song_once_and_then_comes_round() {
-    let Ok(mut list) = Playlist::of(library());
-    let first = song(&list);
+fn next_plays_each_song_once_and_then_comes_round() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
+    let first = song(&list)?;
     let mut played = vec![first.clone()];
 
     for _ in 1..SONGS {
         let Ok(moved) = list.onward();
+        let now = song(&list)?;
 
         assert_eq!(moved, Moved::Yes);
-        played.push(song(&list));
+
+        played.push(now);
     }
 
     let mut once = played.clone();
@@ -64,61 +82,72 @@ fn next_plays_each_song_once_and_then_comes_round() {
     once.sort();
     once.dedup();
 
-    assert_eq!(u32::try_from(once.len()).unwrap(), SONGS);
+    assert_eq!(fitted::<_, u32>(once.len()), Ok(SONGS));
 
     let Ok(moved) = list.onward();
+    let now = song(&list)?;
 
     assert_eq!(moved, Moved::Yes);
-    assert_eq!(song(&list), first);
+    assert_eq!(now, first);
+    Ok(())
 }
 
 #[test]
-fn shuffle_off_puts_the_library_back_rather_than_nothing() {
-    let Ok(mut list) = Playlist::of(library());
+fn shuffle_off_puts_the_library_back_rather_than_nothing() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
     let Ok(()) = list.shuffling(Order::Any, 7);
     let Ok(()) = list.shuffling(Order::AsListed, 7);
 
-    assert_eq!(walked(&mut list), names());
+    walked_through_every_song(&mut list)
 }
 
 #[test]
-fn shuffling_keeps_every_song_and_keeps_it_once() {
-    let Ok(mut list) = Playlist::of(library());
+fn shuffling_keeps_every_song_and_keeps_it_once() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
     let Ok(()) = list.shuffling(Order::Any, 99);
 
-    assert_eq!(walked(&mut list), names());
+    walked_through_every_song(&mut list)
 }
 
 #[test]
-fn the_press_after_the_shuffle_button_moves() {
-    let Ok(mut list) = Playlist::of(library());
-    let before = song(&list);
+fn the_press_after_the_shuffle_button_moves() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
+    let before = song(&list)?;
     let Ok(()) = list.shuffling(Order::Any, 11);
     let Ok(moved) = list.onward();
+    let now = song(&list)?;
 
     assert_eq!(moved, Moved::Yes);
-    assert_ne!(song(&list), before);
+    assert_ne!(now, before);
+    Ok(())
 }
 
 #[test]
-fn a_toggle_keeps_the_song_that_is_playing() {
-    let Ok(mut list) = Playlist::of(library());
+fn a_toggle_keeps_the_song_that_is_playing() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
     let Ok(_walking_to_somewhere_that_is_not_the_first) = list.onward();
     let Ok(_walking_to_somewhere_that_is_not_the_first) = list.onward();
-
-    let playing = song(&list);
+    let playing = song(&list)?;
     let Ok(()) = list.shuffling(Order::Any, 3);
+    let shuffled = song(&list)?;
 
-    assert_eq!(song(&list), playing);
+    assert_eq!(shuffled, playing);
 
     let Ok(()) = list.shuffling(Order::AsListed, 3);
+    let listed = song(&list)?;
 
-    assert_eq!(song(&list), playing);
+    assert_eq!(listed, playing);
+    Ok(())
 }
 
 #[test]
-fn a_list_with_no_repeat_stops_at_its_end() {
-    let Ok(mut list) = Playlist::of(library());
+fn a_list_with_no_repeat_stops_at_its_end() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
     let Ok(()) = list.repeat(Over::On);
 
     for _ in 1..SONGS {
@@ -127,38 +156,45 @@ fn a_list_with_no_repeat_stops_at_its_end() {
         assert_eq!(moved, Moved::Yes);
     }
 
-    let last = song(&list);
+    let last = song(&list)?;
     let Ok(moved) = list.onward();
+    let now = song(&list)?;
 
     assert_eq!(moved, Moved::No);
-    assert_eq!(song(&list), last);
+    assert_eq!(now, last);
+    Ok(())
 }
 
 #[test]
-fn repeating_one_track_is_the_ending_and_not_the_button() {
-    let Ok(mut list) = Playlist::of(library());
+fn repeating_one_track_is_the_ending_and_not_the_button() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
     let Ok(()) = list.repeat(Over::Again);
-
-    let playing = song(&list);
+    let playing = song(&list)?;
     let Ok(moved) = list.finished();
+    let again = song(&list)?;
 
     assert_eq!(moved, Moved::Yes);
-    assert_eq!(song(&list), playing);
+    assert_eq!(again, playing);
 
     let Ok(moved) = list.onward();
+    let next = song(&list)?;
 
     assert_eq!(moved, Moved::Yes);
-    assert_ne!(song(&list), playing);
+    assert_ne!(next, playing);
+    Ok(())
 }
 
 #[test]
-fn a_song_opened_is_the_one_that_plays_and_the_library_follows_it() {
-    let songs = library();
-    let asked = songs.get(3).cloned().unwrap_or_default();
+fn a_song_opened_is_the_one_that_plays_and_the_library_follows_it() -> Result<(), Box<dyn Error>> {
+    let Ok(songs) = library();
+    let asked = songs.get(3).cloned().ok_or("the library has no fourth song")?;
     let Ok(mut list) = Playlist::opened(songs, &asked);
+    let playing = song(&list)?;
 
-    assert_eq!(song(&list), asked.to_string_lossy().to_string());
-    assert_eq!(walked(&mut list), names());
+    assert_eq!(playing, asked.to_string_lossy().to_string());
+
+    walked_through_every_song(&mut list)
 }
 
 #[test]
@@ -174,19 +210,22 @@ fn an_empty_library_moves_nowhere_rather_than_saying_it_did() {
 }
 
 #[test]
-fn previous_at_the_start_comes_round_to_the_end() {
-    let Ok(mut list) = Playlist::of(library());
+fn previous_at_the_start_comes_round_to_the_end() -> Result<(), Box<dyn Error>> {
+    let Ok(library) = library();
+    let Ok(mut list) = Playlist::of(library);
     let Ok(moved) = list.back();
 
     assert_eq!(moved, Moved::Yes);
 
     let Ok(()) = list.repeat(Over::On);
-    let Ok(mut standing) = Playlist::of(library());
+    let Ok(library) = self::library();
+    let Ok(mut standing) = Playlist::of(library);
     let Ok(()) = standing.repeat(Over::On);
-
-    let first = song(&standing);
+    let first = song(&standing)?;
     let Ok(moved) = standing.back();
+    let now = song(&standing)?;
 
     assert_eq!(moved, Moved::No);
-    assert_eq!(song(&standing), first);
+    assert_eq!(now, first);
+    Ok(())
 }

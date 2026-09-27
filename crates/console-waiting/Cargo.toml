@@ -10,6 +10,7 @@ name = "console_waiting"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-iteration = { path = "../console-core-iteration" }
 console-core-never = { path = "../console-core-never" }
 
 rustix.workspace = true

@@ -5,7 +5,7 @@ extern crate rustc_hir;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Block, BlockCheckMode};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT012: every `unsafe { … }` must carry a `// SAFETY:` comment on the
@@ -18,20 +18,8 @@ dylint_linting::declare_late_lint! {
 // `declare_late_lint!` already creates the unit struct `Explicit012SafetyDoc`
 // and implements `LintPass` on it. We just add the `LateLintPass` impl.
 
-// Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
-// is true only for the harness build of a target -- the ordinary build of the
-// same library is linted as production, so nothing real is lost by skipping
-// this one.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl<'tcx> LateLintPass<'tcx> for Explicit012SafetyDoc {
     fn check_block(&mut self, cx: &LateContext<'tcx>, block: &'tcx Block<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         if !matches!(block.rules, BlockCheckMode::UnsafeBlock(_)) {
             return;
         }

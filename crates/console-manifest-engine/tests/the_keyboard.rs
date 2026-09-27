@@ -13,45 +13,40 @@
 //! skips every time. Asked where the program is built, it cannot.  This half
 //! stayed, because `[packages]` is the manifest's.
 
-use std::path::{Path, PathBuf};
+mod reading;
 
-fn root() -> PathBuf {
-    {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
-}
+use reading::{Failure, read, Section, section};
 
-fn packages() -> Vec<String> {
-    let said = std::fs::read_to_string(root().join("desktop.conf")).expect("the manifest");
-    let mut section = String::new();
-    let mut named = Vec::new();
-    for line in said.lines() {
-        let line = line.split('#').next().unwrap_or_default().trim();
-        match (line.starts_with('['), line.ends_with(']'), line.is_empty()) {
-            (true, true, _) => section = line[1..line.len() - 1].to_string(),
-            (_, _, false) if section == "packages" => named.push(line.to_string()),
-            _ => (),
-        }
-    }
-    named
+fn packages() -> Result<Vec<String>, Failure> {
+    let held = read("desktop.conf")?;
+    let named = section(&held, Section::Packages)?;
+
+    Ok(named)
 }
 
 #[test]
-fn the_fonts_that_draw_thai_are_installed() {
+fn the_fonts_that_draw_thai_are_installed() -> Result<(), Failure> {
+    let packages = packages()?;
+
     assert!(
-        packages().iter().any(|name| name == "noto-fonts"),
+        packages.iter().any(|name| name == "noto-fonts"),
         "nothing on the machine draws Thai: the keys and everything typed with them come out as \
          empty boxes"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_symbols_the_keyboard_composes_from_are_installed() {
+fn the_symbols_the_keyboard_composes_from_are_installed() -> Result<(), Failure> {
+    let packages = packages()?;
+
     assert!(
-        packages().iter().any(|name| name == "xkeyboard-config"),
+        packages.iter().any(|name| name == "xkeyboard-config"),
         "the manifest does not ask for xkeyboard-config, which is where every alphabet the \
          keyboard offers comes from. Without it there is no keymap to compose and the keyboard \
          says so and stops."
     );
+
+    Ok(())
 }

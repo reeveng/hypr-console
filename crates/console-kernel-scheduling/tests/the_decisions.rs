@@ -19,16 +19,16 @@ const BATCH: Statistics = Statistics {
 
 const LEGION_GO: Cores = Cores { count: 8 };
 
-fn queued(task: u64, statistics: Statistics, at_micros: u64) -> Result<Runnable, SchedulingError> {
+fn queued(task: TaskId, statistics: Statistics, at: Duration) -> Result<Runnable, SchedulingError> {
     Ok(Runnable {
-        task: TaskId(task),
-        job: JobId(task),
+        task,
+        job: JobId(task.0),
         statistics,
-        queued_at: Instant { since_boot: Duration::from_micros(at_micros) },
+        queued_at: Instant { since_boot: at },
     })
 }
 
-fn picked(choice: Choice) -> Result<TaskId, SchedulingError> {
+fn task_of(choice: Choice) -> Result<TaskId, SchedulingError> {
     match choice {
         Choice::Run { task, .. } => Ok(task),
         Choice::Idle => Ok(TaskId(0)),
@@ -37,24 +37,31 @@ fn picked(choice: Choice) -> Result<TaskId, SchedulingError> {
 
 #[test]
 fn an_interactive_task_reaches_the_core_before_a_batch_task_queued_ahead_of_it() -> Result<(), SchedulingError> {
-    let queue = [queued(1, BATCH, 0)?, queued(2, INTERACTIVE, 1000)?];
+    let batch = queued(TaskId(1), BATCH, Duration::from_micros(0))?;
+    let interactive = queued(TaskId(2), INTERACTIVE, Duration::from_micros(1000))?;
+    let queue = [batch, interactive];
 
     let Ok(lavd) = Lavd.pick_next(&queue);
     let Ok(round_robin) = RoundRobin.pick_next(&queue);
 
-    assert_eq!(picked(lavd)?, TaskId(2));
-    assert_eq!(picked(round_robin)?, TaskId(1));
+    let picked_by_lavd = task_of(lavd)?;
+    assert_eq!(picked_by_lavd, TaskId(2));
+    let picked_by_round_robin = task_of(round_robin)?;
+    assert_eq!(picked_by_round_robin, TaskId(1));
 
     Ok(())
 }
 
 #[test]
 fn a_batch_task_is_not_starved_once_its_deadline_comes() -> Result<(), SchedulingError> {
-    let queue = [queued(1, BATCH, 0)?, queued(2, INTERACTIVE, 20_000)?];
+    let batch = queued(TaskId(1), BATCH, Duration::from_micros(0))?;
+    let interactive = queued(TaskId(2), INTERACTIVE, Duration::from_micros(20_000))?;
+    let queue = [batch, interactive];
 
     let Ok(choice) = Lavd.pick_next(&queue);
 
-    assert_eq!(picked(choice)?, TaskId(1));
+    let chosen = task_of(choice)?;
+    assert_eq!(chosen, TaskId(1));
 
     Ok(())
 }
@@ -112,13 +119,17 @@ fn a_job_over_its_budget_is_throttled_and_one_within_it_is_not() -> Result<(), S
 
 #[test]
 fn the_same_queue_is_answered_the_same_way_twice() -> Result<(), SchedulingError> {
-    let queue = [queued(3, INTERACTIVE, 500)?, queued(1, BATCH, 0)?, queued(2, INTERACTIVE, 500)?];
+    let task_three = queued(TaskId(3), INTERACTIVE, Duration::from_micros(500))?;
+    let task_one = queued(TaskId(1), BATCH, Duration::from_micros(0))?;
+    let task_two = queued(TaskId(2), INTERACTIVE, Duration::from_micros(500))?;
+    let queue = [task_three, task_one, task_two];
 
     let Ok(first) = Lavd.pick_next(&queue);
     let Ok(second) = Lavd.pick_next(&queue);
 
     assert_eq!(first, second);
-    assert_eq!(picked(first)?, TaskId(2));
+    let chosen = task_of(first)?;
+    assert_eq!(chosen, TaskId(2));
 
     Ok(())
 }

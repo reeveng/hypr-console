@@ -16,9 +16,14 @@
 //! the installed one is not always the one that should answer: a nested
 //! desktop runs what was staged for it, and the checks run what was compiled a
 //! moment ago. So a program of ours is looked for beside the one that is
-//! running, and the bare name -- which is `PATH`, which is the installed one --
-//! is what answers when there is nothing beside it. Three crates had written that walk out
-//! separately before this crate existed.
+//! running, then one directory up -- a test is built into `deps/`, a step below
+//! the programs it drives -- and the bare name, which is `PATH`, which is the
+//! installed one, is what answers when there is nothing in either. Three crates
+//! had written that walk out separately before this crate existed, and the
+//! stages had a fourth that knew about `deps/` when this did not, so a check
+//! asking for one of these ran the installed copy. [`beside_this_program`] is
+//! the walk for a program that is not on this list, which is the checks' own
+//! tools.
 //!
 //! [`InternalProgram::path`] is where the engine installs a program, for the
 //! callers that must not be answered by `PATH` -- a key the compositor binds, a
@@ -42,7 +47,7 @@
 //! and the second is not the card's to give.
 
 use console_core_never::Never;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 macro_rules! executable_directory {
@@ -77,6 +82,7 @@ macro_rules! ours {
 }
 
 ours! {
+    Asking, "console-asking";
     BooksCatalog, "books-catalog";
     Brightness, "console-brightness";
     Browser, "console-browser";
@@ -86,15 +92,20 @@ ours! {
     ConsoleSay, "console-say";
     Dictate, "console-dictate";
     Downloads, "downloads";
+    DownloadsFind, "downloads-find";
+    DownloadsGet, "downloads-get";
     Files, "files";
     ForecastPanel, "forecast-panel";
     KeyboardToggle, "keyboard-toggle";
     Launcher, "launcher";
     LoginGreeter, "login-greeter";
     MappingPanel, "mapping-panel";
+    MusicIndex, "music-index";
+    MusicOnward, "music-onward";
     MusicPanel, "music-panel";
     NightShift, "console-warm";
     NotificationsPanel, "notifications-panel";
+    Overview, "console-overview";
     PanelPictures, "panel-pictures";
     PutAway, "console-put-away";
     Scale, "console-scale";
@@ -116,20 +127,7 @@ impl InternalProgram {
     pub fn at(self) -> Result<PathBuf, Never> {
         let Ok(named) = self.name();
 
-        let running = match std::env::current_exe() {
-            Ok(running) => running,
-            Err(_this_program_cannot_say_where_it_is) => return Ok(PathBuf::from(named)),
-        };
-
-        let beside = match running.parent() {
-            Some(beside) => beside.join(named),
-            None => return Ok(PathBuf::from(named)),
-        };
-
-        Ok(match beside.exists() {
-            true => beside,
-            false => PathBuf::from(named),
-        })
+        beside_this_program(named)
     }
 
     pub fn command(self) -> Result<Command, Never> {
@@ -137,4 +135,25 @@ impl InternalProgram {
 
         Ok(Command::new(at))
     }
+}
+
+pub fn beside_this_program(named: &str) -> Result<PathBuf, Never> {
+    let running = match std::env::current_exe() {
+        Ok(running) => running,
+        Err(_this_program_cannot_say_where_it_is) => return Ok(PathBuf::from(named)),
+    };
+
+    let beside = running.parent().map(Path::to_path_buf);
+    let above_that = running.parent().and_then(Path::parent).map(Path::to_path_buf);
+
+    let built = [beside, above_that]
+        .into_iter()
+        .flatten()
+        .map(|at| at.join(named))
+        .find(|at| at.is_file());
+
+    Ok(match built {
+        Some(built) => built,
+        None => PathBuf::from(named),
+    })
 }

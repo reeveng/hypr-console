@@ -34,46 +34,56 @@
 //! where `[packages]` is.
 
 use console_input_keyboard::layout::Kind;
+use std::collections::BTreeSet;
+use std::error::Error;
 use std::process::Command;
 
-fn layers() -> Vec<String> {
+type Failure = Box<dyn Error>;
+
+fn layers() -> Result<BTreeSet<String>, Failure> {
     let listed = Command::new(env!("CARGO_BIN_EXE_console-keyboard"))
         .arg("--list-layers")
-        .output()
-        .expect("the keyboard answers --list-layers");
+        .output()?;
+
     assert!(listed.status.success(), "--list-layers did not answer: {listed:?}");
-    String::from_utf8_lossy(&listed.stdout).split_whitespace().map(str::to_string).collect()
+
+    Ok(String::from_utf8_lossy(&listed.stdout).split_whitespace().map(str::to_string).collect())
 }
 
 #[test]
-fn the_keyboard_knows_thai() {
-    let layers = layers();
+fn the_keyboard_knows_thai() -> Result<(), Failure> {
+    let layers = layers()?;
     assert!(
         layers.iter().any(|layer| layer == "thai"),
         "the keyboard has no thai layer, only {layers:?}. It is the only keyboard on this device \
          and she writes Thai."
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_latin_layers_are_still_there() {
-    let layers = layers();
+fn the_latin_layers_are_still_there() -> Result<(), Failure> {
+    let layers = layers()?;
+
     for wanted in ["full", "landscape", "landscapespecial", "special"] {
         assert!(
-            layers.iter().any(|layer| layer == wanted),
+            layers.contains(wanted),
             "the keyboard lost its {wanted} layer, and has {layers:?}"
         );
     }
+
+    Ok(())
 }
 
 #[test]
-fn every_alphabet_someone_can_choose_is_one_the_keyboard_has() {
-    let layers = layers();
+fn every_alphabet_someone_can_choose_is_one_the_keyboard_has() -> Result<(), Failure> {
+    let layers = layers()?;
 
     for alphabet in &console_input_alphabets::EVERY {
         for wanted in [alphabet.upright, alphabet.across] {
             assert!(
-                layers.iter().any(|layer| layer == wanted),
+                layers.contains(wanted),
                 "the settings panel offers {}, which walks the {wanted} arrangement, and the \
                  keyboard has {layers:?}. A layer no one can find is dropped without a word, so \
                  choosing that alphabet would do nothing and say nothing.",
@@ -81,11 +91,13 @@ fn every_alphabet_someone_can_choose_is_one_the_keyboard_has() {
             );
         }
     }
+
+    Ok(())
 }
 
 #[test]
-fn the_shelf_of_symbols_is_reachable_from_either_way_up() {
-    let layers = layers();
+fn the_shelf_of_symbols_is_reachable_from_either_way_up() -> Result<(), Failure> {
+    let layers = layers()?;
     let Ok(chosen) = console_input_alphabets::read(console_input_alphabets::UNLESS_TOLD);
 
     for holding in [console_input_alphabets::Orientation::Upright, console_input_alphabets::Orientation::Across] {
@@ -93,15 +105,17 @@ fn the_shelf_of_symbols_is_reachable_from_either_way_up() {
 
         for one in &walk {
             assert!(
-                layers.iter().any(|layer| layer == one),
+                layers.contains(one),
                 "the walk this machine types with asks for {one}, and the keyboard has {layers:?}"
             );
         }
     }
+
+    Ok(())
 }
 
 #[test]
-fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want_it() {
+fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want_it() -> Result<(), Failure> {
     let arrows = [
         (console_input_keyboard::layout::key::UP, "up"),
         (console_input_keyboard::layout::key::DOWN, "down"),
@@ -111,8 +125,8 @@ fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want
 
     for alphabet in &console_input_alphabets::EVERY {
         for wanted in [alphabet.upright, alphabet.across] {
-            let Ok(named) = console_input_keyboard::layout::named(wanted);
-            let which = named.unwrap_or_else(|| panic!("no arrangement called {wanted}"));
+            let Ok(named) = console_input_keyboard::layout::find_layout(wanted);
+            let which = named.ok_or(format!("no arrangement called {wanted}"))?;
             let Ok(layout) = console_input_keyboard::layout::of(which);
 
             for (code, arrow) in arrows {
@@ -138,4 +152,6 @@ fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want
             }
         }
     }
+
+    Ok(())
 }

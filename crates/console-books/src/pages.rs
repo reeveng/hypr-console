@@ -144,26 +144,26 @@ pub fn paginate(blocks: &[Block], layout: Layout, wrap: Wrap<'_>) -> Result<Vec<
 mod tests {
     use super::*;
 
-    fn every_ten_letters(text: &str, _style: Style) -> Vec<String> {
+    const EVERY_TEN_LETTERS: fn(&str, Style) -> Vec<String> = |text, _style| {
         let letters: Vec<char> = text.chars().collect();
 
         letters.chunks(10).map(|line| line.iter().collect()).collect()
-    }
+    };
 
     const LAYOUT: Layout = Layout { height: 100, line_height: 20, heading_height: 30 };
 
-    fn lines(page: &Page) -> Vec<(String, u32)> {
+    fn lines(page: &Page) -> Result<Vec<(String, u32)>, Never> {
         match page {
-            Page::Text(lines) => lines.iter().map(|line| (line.text.clone(), line.top)).collect(),
-            Page::Picture(named) => vec![(named.clone(), 0)],
+            Page::Text(lines) => Ok(lines.iter().map(|line| (line.text.clone(), line.top)).collect()),
+            Page::Picture(named) => Ok(vec![(named.clone(), 0)]),
         }
     }
 
     #[test]
     fn lines_stack_until_the_page_is_full_and_the_rest_starts_the_next() {
         let blocks = vec![Block::Paragraph("a".repeat(70))];
-        let Ok(pages) = paginate(&blocks, LAYOUT, &every_ten_letters);
-        let drawn: Vec<Vec<(String, u32)>> = pages.iter().map(lines).collect();
+        let Ok(pages) = paginate(&blocks, LAYOUT, &EVERY_TEN_LETTERS);
+        let Ok(drawn) = pages.iter().map(lines).collect::<Result<Vec<Vec<(String, u32)>>, Never>>();
         let line = "a".repeat(10);
 
         assert_eq!(drawn.len(), 2, "five lines of twenty fit in a hundred and seven do not");
@@ -174,8 +174,8 @@ mod tests {
     #[test]
     fn a_paragraph_after_another_is_half_a_line_further_down() {
         let blocks = vec![Block::Paragraph("one".to_string()), Block::Paragraph("two".to_string())];
-        let Ok(pages) = paginate(&blocks, LAYOUT, &every_ten_letters);
-        let drawn: Vec<Vec<(String, u32)>> = pages.iter().map(lines).collect();
+        let Ok(pages) = paginate(&blocks, LAYOUT, &EVERY_TEN_LETTERS);
+        let Ok(drawn) = pages.iter().map(lines).collect::<Result<Vec<Vec<(String, u32)>>, Never>>();
 
         assert_eq!(drawn, vec![vec![("one".to_string(), 0), ("two".to_string(), 30)]]);
     }
@@ -187,7 +187,7 @@ mod tests {
             Block::Picture("map.png".to_string()),
             Block::Paragraph("after".to_string()),
         ];
-        let Ok(pages) = paginate(&blocks, LAYOUT, &every_ten_letters);
+        let Ok(pages) = paginate(&blocks, LAYOUT, &EVERY_TEN_LETTERS);
 
         assert_eq!(pages.get(1), Some(&Page::Picture("map.png".to_string())));
         assert_eq!(pages.len(), 3);
@@ -195,6 +195,6 @@ mod tests {
 
     #[test]
     fn a_chapter_with_nothing_in_it_is_still_one_page() {
-        assert_eq!(paginate(&[], LAYOUT, &every_ten_letters), Ok(vec![Page::Text(Vec::new())]));
+        assert_eq!(paginate(&[], LAYOUT, &EVERY_TEN_LETTERS), Ok(vec![Page::Text(Vec::new())]));
     }
 }

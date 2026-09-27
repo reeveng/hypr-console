@@ -64,21 +64,33 @@ pub fn turn(spot: PagePosition, turn: Turn) -> Result<Destination, Never> {
 mod tests {
     use super::*;
 
-    fn at(section: u32, page: u32) -> PagePosition {
-        PagePosition { section: Position { index: section, count: 3 }, page: Position { index: page, count: 4 } }
-    }
-
     #[test]
     fn forward_is_the_next_page_and_then_the_next_chapter() {
-        assert_eq!(turn(at(0, 1), Turn::Forward), Ok(Destination::Page(2)));
-        assert_eq!(turn(at(0, 3), Turn::Forward), Ok(Destination::Section { section: 1, end: End::First }));
-        assert_eq!(turn(at(2, 3), Turn::Forward), Ok(Destination::AtEnd), "the last page of the book goes nowhere");
+        let turns = [
+            (0, 1, Destination::Page(2)),
+            (0, 3, Destination::Section { section: 1, end: End::First }),
+            (2, 3, Destination::AtEnd),
+        ];
+
+        for (section, page, destination) in turns {
+            let here = PagePosition { section: Position { index: section, count: 3 }, page: Position { index: page, count: 4 } };
+
+            assert_eq!(turn(here, Turn::Forward), Ok(destination), "forward from page {page} of chapter {section}");
+        }
     }
 
     #[test]
     fn back_from_the_start_of_a_chapter_is_the_end_of_the_one_before() {
-        assert_eq!(turn(at(1, 2), Turn::Back), Ok(Destination::Page(1)));
-        assert_eq!(turn(at(1, 0), Turn::Back), Ok(Destination::Section { section: 0, end: End::Last }));
-        assert_eq!(turn(at(0, 0), Turn::Back), Ok(Destination::AtEnd));
+        let turns = [
+            (1, 2, Destination::Page(1)),
+            (1, 0, Destination::Section { section: 0, end: End::Last }),
+            (0, 0, Destination::AtEnd),
+        ];
+
+        for (section, page, destination) in turns {
+            let here = PagePosition { section: Position { index: section, count: 3 }, page: Position { index: page, count: 4 } };
+
+            assert_eq!(turn(here, Turn::Back), Ok(destination), "back from page {page} of chapter {section}");
+        }
     }
 }

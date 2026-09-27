@@ -37,7 +37,7 @@
 //! `--place` is the home screen opening this on one of its empty squares, and
 //! then the whole card is that one question: A puts what it is standing on
 //! there, on the square that asked, and there is no Y and no browser. Subject
-//! square it was travels as `console_home_screen::Spot::said` and comes back through
+//! square it was travels as `console_home_screen::Spot::serialize` and comes back through
 //! `Spot::read`, so only the home screen's own model says how a square is
 //! spelled.
 //!
@@ -166,48 +166,53 @@ enum For {
     Placing(Spot),
 }
 
-fn file() -> Result<Option<PathBuf>, Never> {
-    let hers = console_core_places::home()?;
+fn standing() -> Result<console_screen::Shape, Never> {
+    Ok(match console_home_screen::standing() {
+        Ok(standing) => standing,
+        Err(fault) => {
+            eprintln!("launcher: which way up the screen stands: {fault}");
 
-    match hers {
-        Some(hers) => {
-            let at = console_home_screen::file(&hers)?;
-
-            Ok(Some(at))
+            console_screen::Shape::Wider
         }
-        None => Ok(None),
-    }
+    })
 }
 
 fn shape() -> Result<Shape, Never> {
     let hers = console_core_places::home()?;
+    let Ok(standing) = standing();
+    let usual = Shape::usual(standing)?;
 
-    let at = match hers {
-        Some(hers) => console_home_screen::shape::at(&hers)?,
-        None => return Ok(Shape::USUAL),
+    let hers = match hers {
+        Some(hers) => hers,
+        None => return Ok(usual),
     };
 
-    match std::fs::read_to_string(at) {
-        Ok(said) => Shape::read(&said),
-        Err(_unreadable) => Ok(Shape::USUAL),
+    match console_home_screen::grid(&hers, standing) {
+        Ok(grid) => Ok(grid),
+        Err(fault) => {
+            eprintln!("launcher: {fault}");
+
+            Ok(usual)
+        }
     }
 }
 
 fn home() -> Result<HomeScreen, Never> {
-    let Ok(kept) = file();
+    let Ok(found) = console_core_places::home();
 
-    let at = match kept {
-        Some(at) => at,
+    let hers = match found {
+        Some(hers) => hers,
         None => return Ok(HomeScreen::default()),
     };
 
-    let Ok(held) = console_core_atomic_writes::read(&at);
+    let Ok(standing) = standing();
+    let Ok(held) = console_home_screen::kept(&hers, standing);
 
     match held {
         console_core_atomic_writes::Stored::Text(said) => HomeScreen::read(&said),
         console_core_atomic_writes::Stored::Absent => Ok(HomeScreen::default()),
         console_core_atomic_writes::Stored::Failed(fault) => {
-            eprintln!("launcher: {}: {fault}", at.display());
+            eprintln!("launcher: the home screen: {fault}");
 
             Ok(HomeScreen::default())
         },
@@ -215,10 +220,10 @@ fn home() -> Result<HomeScreen, Never> {
 }
 
 fn keep(home: &HomeScreen) -> Result<(), Never> {
-    let Ok(kept) = file();
+    let Ok(found) = console_core_places::home();
 
-    let at = match kept {
-        Some(at) => at,
+    let hers = match found {
+        Some(hers) => hers,
         None => {
             eprintln!("launcher: no home to keep the home screen in; leaving it as it is");
 
@@ -226,33 +231,26 @@ fn keep(home: &HomeScreen) -> Result<(), Never> {
         }
     };
 
-    match at.parent() {
-        Some(above) => {
-            let _ = std::fs::create_dir_all(above);
-        }
-        None => {},
-    }
+    let Ok(standing) = standing();
 
-    let said = home.written()?;
-
-    match console_core_atomic_writes::whole(&at, said.as_bytes()) {
+    match console_home_screen::keep(&hers, standing, home) {
         Ok(()) => {},
-        Err(fault) => eprintln!("launcher: {}: {fault}", at.display()),
+        Err(fault) => eprintln!("launcher: {fault}"),
     }
 
     Ok(())
 }
 
-fn turned(name: &str) -> Result<(), Never> {
+fn toggle_on_home(name: &str) -> Result<(), Never> {
     let Ok(home) = home();
     let Ok(shape) = shape();
-    let Ok(turned) = turning(home, shape, name);
+    let Ok(turned) = toggle_in(home, shape, name);
     let Ok(()) = keep(&turned);
 
     Ok(())
 }
 
-fn turning(mut home: HomeScreen, shape: Shape, name: &str) -> Result<HomeScreen, Never> {
+fn toggle_in(mut home: HomeScreen, shape: Shape, name: &str) -> Result<HomeScreen, Never> {
     let placed = home.where_(name)?;
 
     match placed {
@@ -267,15 +265,15 @@ fn turning(mut home: HomeScreen, shape: Shape, name: &str) -> Result<HomeScreen,
     Ok(home)
 }
 
-fn placed(spot: Spot, name: &str) -> Result<(), Never> {
+fn place_on_home(spot: Spot, name: &str) -> Result<(), Never> {
     let Ok(home) = home();
-    let Ok(placed) = placing(home, spot, name);
+    let Ok(placed) = place_in(home, spot, name);
     let Ok(()) = keep(&placed);
 
     Ok(())
 }
 
-fn placing(mut home: HomeScreen, spot: Spot, name: &str) -> Result<HomeScreen, Never> {
+fn place_in(mut home: HomeScreen, spot: Spot, name: &str) -> Result<HomeScreen, Never> {
     home.forget(name)?;
 
     home.place(spot, name)?;
@@ -286,19 +284,19 @@ fn placing(mut home: HomeScreen, spot: Spot, name: &str) -> Result<HomeScreen, N
 fn everything() -> Result<Everything, Never> {
     let machine = found::machine()?;
 
-    counting(machine)
+    with_counts(machine)
 }
 
 fn everything_before() -> Result<Everything, Never> {
-    let remembered = found::remembered()?;
+    let remembered = found::load_cached()?;
 
-    counting(remembered)
+    with_counts(remembered)
 }
 
-fn counting(found: found::Found) -> Result<Everything, Never> {
+fn with_counts(found: found::Found) -> Result<Everything, Never> {
     let names: Vec<String> = found.applications.keys().cloned().collect();
 
-    let counted = found::counted()?;
+    let counted = found::load_counts()?;
 
     let order = counts::order(&names, &counted)?;
 
@@ -322,7 +320,7 @@ fn application_row(all: &Everything, name: &str, going: For, on: &HomeScreen) ->
     match going {
         For::Placing(spot) => {
             let Ok(places) = Handler::call(move |_| {
-                let Ok(()) = placed(spot, &named);
+                let Ok(()) = place_on_home(spot, &named);
                 true
             });
             let Ok(row) = Row::new(name, Aside(""), places);
@@ -347,7 +345,7 @@ fn application_row(all: &Everything, name: &str, going: For, on: &HomeScreen) ->
             let Ok(pictured) = row.picturing(picture);
 
             pictured.offering(move |showing| {
-                let Ok(()) = turned(&switching);
+                let Ok(()) = toggle_on_home(&switching);
                 showing.refresh();
 
                 false
@@ -413,7 +411,7 @@ fn kept_list(kept: &Shared) -> Result<&Everything, Never> {
     }))
 }
 
-fn heading(going: For) -> Result<&'static str, Never> {
+fn title(going: For) -> Result<&'static str, Never> {
     Ok(match going {
         For::Opening => "Menu",
         For::Placing(_) => "Put one on the home screen",
@@ -427,9 +425,9 @@ fn pages(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Page>, Never> {
     let reading = Arc::clone(kept);
     let remembered = Arc::clone(kept);
 
-    let Ok(heading) = heading(going);
+    let Ok(heading) = title(going);
 
-    let Ok(asked) = Rows::asked(move || {
+    let Ok(asked) = Rows::computed(move || {
         let Ok(all) = all(&reading);
         let Ok(rows) = rows(&listing, all, going);
 
@@ -493,7 +491,7 @@ fn start(application: Option<&entry::Application>, chosen: &str) -> Result<(), N
 }
 
 fn looked_up(said: &str) -> Result<(), Never> {
-    let chosen = engines::chosen()?;
+    let chosen = engines::current()?;
     let known = engines::one(&chosen)?;
 
     let engine = match known {
@@ -509,13 +507,13 @@ fn looked_up(said: &str) -> Result<(), Never> {
     };
 
     eprintln!("the menu was asked {said:?}: {address}");
-    let Ok(opening) = opening(&address);
+    let Ok(opening) = open_command(&address);
     let Ok(()) = console_panel::running::left_running(&opening);
 
     Ok(())
 }
 
-fn opening(address: &str) -> Result<Vec<String>, Never> {
+fn open_command(address: &str) -> Result<Vec<String>, Never> {
     Program::XdgOpen.arguments(&[address])
 }
 
@@ -524,54 +522,52 @@ fn opening(address: &str) -> Result<Vec<String>, Never> {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(answer) = answer;
-
-        answer
-    }
-
     const GRID: Shape = Shape::USUAL;
 
-    fn taken() -> HomeScreen {
+    fn occupied_home() -> Result<HomeScreen, Never> {
         let mut home = HomeScreen::default();
-        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
-        ok(home.place(Spot { pane: 0, row: 0, column: 1 }, "Music"));
-        home
+        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 0 }, "Files");
+        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 1 }, "Music");
+
+        Ok(home)
     }
 
     #[test]
     fn y_is_a_switch() {
-        let Ok(on) = turning(taken(), GRID, "Download");
+        let Ok(home) = occupied_home();
+        let Ok(on) = toggle_in(home.clone(), GRID, "Download");
         let first = Spot { pane: 0, row: 0, column: 0 };
 
         let free = Spot { pane: 0, row: 0, column: 2 };
 
-        assert_eq!(ok(on.where_("Download")), Some(free), "the first free square");
-        assert_eq!(ok(on.at(first)), Some("Files"), "and nothing else moved");
+        assert_eq!(on.where_("Download"), Ok(Some(free)), "the first free square");
+        assert_eq!(on.at(first), Ok(Some("Files")), "and nothing else moved");
 
-        let Ok(off) = turning(on, GRID, "Download");
-        assert_eq!(ok(off.where_("Download")), None, "pressed again, it is off");
-        assert_eq!(off, taken(), "and the home screen is where it was");
+        let Ok(off) = toggle_in(on, GRID, "Download");
+        assert_eq!(off.where_("Download"), Ok(None), "pressed again, it is off");
+        assert_eq!(off, home, "and the home screen is where it was");
     }
 
     #[test]
     fn a_square_that_was_asked_for_is_the_square_it_lands_on() {
         let asked = Spot { pane: 2, row: 1, column: 3 };
-        let Ok(placed) = placing(taken(), asked, "Download");
+        let Ok(home) = occupied_home();
+        let Ok(placed) = place_in(home.clone(), asked, "Download");
+        let Ok(free) = home.first_free(GRID);
 
-        assert_eq!(ok(placed.where_("Download")), Some(asked));
-        assert_ne!(asked, ok(taken().first_free(GRID)), "the point of asking");
+        assert_eq!(placed.where_("Download"), Ok(Some(asked)));
+        assert_ne!(asked, free, "the point of asking");
     }
 
     #[test]
     fn one_that_is_already_on_it_is_moved() {
         let asked = Spot { pane: 1, row: 0, column: 0 };
-        let Ok(placed) = placing(taken(), asked, "Files");
+        let Ok(home) = occupied_home();
+        let Ok(placed) = place_in(home, asked, "Files");
 
-        assert_eq!(ok(placed.where_("Files")), Some(asked));
         let first = Spot { pane: 0, row: 0, column: 0 };
 
-        assert_eq!(ok(placed.at(first)), None, "and it left the square it was on");
+        assert_eq!(placed.at(first), Ok(None), "and it left the square it was on");
     }
 
     #[test]

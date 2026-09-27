@@ -55,19 +55,6 @@ pub enum Step {
 pub const EVERY: [Step; 3] = [Step::Low, Step::Lower, Step::Protect];
 
 impl Step {
-    pub fn named(word: &str) -> Result<Option<Self>, Never> {
-        for step in EVERY {
-            let named = step.word()?;
-
-            match named == word {
-                true => return Ok(Some(step)),
-                false => {},
-            }
-        }
-
-        Ok(None)
-    }
-
     pub fn at(self) -> Result<i32, Never> {
         Ok(match self {
             Step::Low => 25,
@@ -211,7 +198,7 @@ impl Levels {
         Ok(moved)
     }
 
-    pub fn reached(self, charge: i32) -> Result<Option<Step>, Never> {
+    pub fn step_at(self, charge: i32) -> Result<Option<Step>, Never> {
         for step in EVERY.into_iter().rev() {
             let level = self.at(step)?;
 
@@ -247,7 +234,7 @@ pub enum Mains {
 }
 
 impl Mains {
-    pub fn named(word: &str) -> Result<Self, Never> {
+    pub fn parse(word: &str) -> Result<Self, Never> {
         Ok(match word {
             "plugged" => Mains::On,
             "unplugged" => Mains::Off,
@@ -353,7 +340,7 @@ impl Filling {
     }
 }
 
-pub fn filling(mains: Mains, status: &str) -> Result<Filling, Never> {
+pub fn charging_state(mains: Mains, status: &str) -> Result<Filling, Never> {
     Ok(match (mains, status) {
         (_whatever_the_cable_says, CHARGING) => Filling::Yes,
         (Mains::On, FULL) => Filling::Yes,
@@ -380,9 +367,9 @@ impl Charge {
             None => NOTHING_SAID,
         };
 
-        let Ok(mains) = Mains::named(cable);
+        let Ok(mains) = Mains::parse(cable);
         let status = words.collect::<Vec<&str>>().join(" ");
-        let Ok(filling) = filling(mains, &status);
+        let Ok(filling) = charging_state(mains, &status);
 
         Ok(Charge { percent, filling })
     }
@@ -396,7 +383,7 @@ pub struct Alert {
     pub told: Option<Step>,
 }
 
-pub fn asked(
+pub fn alert(
     levels: Levels,
     charge: i32,
     filling: Filling,
@@ -421,7 +408,7 @@ pub fn asked(
         None => None,
     };
 
-    let reached = levels.reached(charge)?;
+    let reached = levels.step_at(charge)?;
 
     Ok(match reached {
         Some(now) => match held.is_none_or(|before| now > before) {
@@ -439,36 +426,36 @@ mod tests {
     #[test]
     fn a_step_is_said_once_and_not_again_while_it_is_held() {
         let levels = Levels::default();
-        let Ok(first) = asked(levels, 19, Filling::No, None);
+        let Ok(first) = alert(levels, 19, Filling::No, None);
 
         assert_eq!(first, Alert { act: Some(Step::Low), told: Some(Step::Low) });
 
-        let Ok(again) = asked(levels, 19, Filling::No, first.told);
+        let Ok(again) = alert(levels, 19, Filling::No, first.told);
 
         assert_eq!(again, Alert { act: None, told: Some(Step::Low) });
 
-        let Ok(lower) = asked(levels, 18, Filling::No, again.told);
+        let Ok(lower) = alert(levels, 18, Filling::No, again.told);
 
         assert_eq!(lower.act, None, "still the same step");
     }
 
     #[test]
     fn a_reading_that_falls_through_two_steps_owes_the_deeper_one() {
-        let Ok(said) = asked(Levels::default(), 4, Filling::No, Some(Step::Low));
+        let Ok(said) = alert(Levels::default(), 4, Filling::No, Some(Step::Low));
 
         assert_eq!(said, Alert { act: Some(Step::Protect), told: Some(Step::Protect) });
     }
 
     #[test]
     fn nothing_happens_to_a_battery_that_is_filling() {
-        let Ok(said) = asked(Levels::default(), 3, Filling::Yes, Some(Step::Lower));
+        let Ok(said) = alert(Levels::default(), 3, Filling::Yes, Some(Step::Lower));
 
         assert_eq!(said, Alert { act: None, told: None });
     }
 
     #[test]
     fn nothing_happens_to_a_battery_on_the_cable_that_is_not_filling() {
-        let Ok(said) = asked(Levels::default(), 3, Filling::Charged, Some(Step::Lower));
+        let Ok(said) = alert(Levels::default(), 3, Filling::Charged, Some(Step::Lower));
 
         assert_eq!(
             said,
@@ -486,7 +473,7 @@ mod tests {
 
     #[test]
     fn a_charge_limit_reads_as_held_and_not_as_a_machine_running_flat() {
-        let Ok(said) = filling(Mains::On, "Not charging");
+        let Ok(said) = charging_state(Mains::On, "Not charging");
 
         assert_eq!(said, Filling::Charged);
         assert_eq!(Charge::of("78 plugged Not charging"), Ok(Charge { percent: Some(78), filling: Filling::Charged }));
@@ -494,15 +481,15 @@ mod tests {
 
     #[test]
     fn a_machine_with_no_mains_supply_is_read_the_way_it_always_was() {
-        assert_eq!(filling(Mains::NothingToAsk, "Charging"), Ok(Filling::Yes));
-        assert_eq!(filling(Mains::NothingToAsk, "Discharging"), Ok(Filling::No));
-        assert_eq!(filling(Mains::NothingToAsk, "Not charging"), Ok(Filling::No));
+        assert_eq!(charging_state(Mains::NothingToAsk, "Charging"), Ok(Filling::Yes));
+        assert_eq!(charging_state(Mains::NothingToAsk, "Discharging"), Ok(Filling::No));
+        assert_eq!(charging_state(Mains::NothingToAsk, "Not charging"), Ok(Filling::No));
     }
 
     #[test]
     fn a_cable_that_is_out_is_a_battery_on_its_own_whatever_it_is_full_of() {
-        assert_eq!(filling(Mains::Off, "Full"), Ok(Filling::No));
-        assert_eq!(filling(Mains::On, "Full"), Ok(Filling::Yes));
+        assert_eq!(charging_state(Mains::Off, "Full"), Ok(Filling::No));
+        assert_eq!(charging_state(Mains::On, "Full"), Ok(Filling::Yes));
     }
 
     #[test]
@@ -510,17 +497,17 @@ mod tests {
         for mains in [Mains::On, Mains::Off, Mains::NothingToAsk] {
             let Ok(word) = mains.word();
 
-            assert_eq!(Mains::named(word), Ok(mains));
+            assert_eq!(Mains::parse(word), Ok(mains));
         }
 
-        assert_eq!(Mains::named("something else"), Ok(Mains::NothingToAsk));
+        assert_eq!(Mains::parse("something else"), Ok(Mains::NothingToAsk));
     }
 
     #[test]
     fn a_charge_that_climbs_clear_of_a_step_can_meet_it_again() {
         let levels = Levels::default();
-        let Ok(climbed) = asked(levels, 40, Filling::No, Some(Step::Low));
-        let Ok(met) = asked(levels, 24, Filling::No, None);
+        let Ok(climbed) = alert(levels, 40, Filling::No, Some(Step::Low));
+        let Ok(met) = alert(levels, 24, Filling::No, None);
 
         assert_eq!(climbed.told, None);
         assert_eq!(met.act, Some(Step::Low));
@@ -529,12 +516,12 @@ mod tests {
     #[test]
     fn a_reading_wobbling_on_a_step_does_not_say_it_twice() {
         let levels = Levels::default();
-        let Ok(said) = asked(levels, 25, Filling::No, None);
+        let Ok(said) = alert(levels, 25, Filling::No, None);
 
         assert_eq!(said.act, Some(Step::Low));
 
-        let Ok(above) = asked(levels, 26, Filling::No, said.told);
-        let Ok(back) = asked(levels, 25, Filling::No, said.told);
+        let Ok(above) = alert(levels, 26, Filling::No, said.told);
+        let Ok(back) = alert(levels, 25, Filling::No, said.told);
 
         assert_eq!(above.told, Some(Step::Low));
         assert_eq!(back.act, None);
@@ -544,8 +531,8 @@ mod tests {
     fn a_step_set_to_never_is_never_reached() {
         let levels = Levels { low: 25, lower: 10, protect: NEVER };
 
-        assert_eq!(levels.reached(0), Ok(Some(Step::Lower)));
-        assert_eq!(Levels { low: NEVER, lower: NEVER, protect: NEVER }.reached(0), Ok(None));
+        assert_eq!(levels.step_at(0), Ok(Some(Step::Lower)));
+        assert_eq!(Levels { low: NEVER, lower: NEVER, protect: NEVER }.step_at(0), Ok(None));
     }
 
     #[test]
@@ -608,7 +595,7 @@ mod tests {
 
     #[test]
     fn a_step_is_asked_for_by_its_own_word() {
-        assert_eq!(Step::named("protect"), Ok(Some(Step::Protect)));
-        assert_eq!(Step::named("nothing"), Ok(None));
+        assert_eq!(Step::from_word("protect"), Ok(Some(Step::Protect)));
+        assert_eq!(Step::from_word("nothing"), Ok(None));
     }
 }

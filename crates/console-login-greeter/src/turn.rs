@@ -36,7 +36,7 @@ pub fn on_the_picture(panel: Size<u32>, share: Point<f64>) -> Result<Point<f64>,
     })
 }
 
-pub fn turned(picture: &[u8], panel: Size<u32>) -> Result<Vec<u8>, Never> {
+pub fn rotate(picture: &[u8], panel: Size<u32>) -> Result<Vec<u8>, Never> {
     let Ok(mounted) = Mounted::of(panel);
     let Ok(transform) = mounted.transform();
 
@@ -74,7 +74,7 @@ mod tests {
     fn a_wide_panel_is_drawn_on_as_it_is() {
         let panel = Size { width: 2, height: 1 };
         let picture = vec![1, 1, 1, 1, 2, 2, 2, 2];
-        let Ok(laid) = turned(&picture, panel);
+        let Ok(laid) = rotate(&picture, panel);
 
         assert_eq!(laid, picture);
     }
@@ -84,32 +84,36 @@ mod tests {
         let panel = Size { width: 1, height: 2 };
         let Ok(drawn) = drawn_at(panel);
         let left_then_right = vec![1, 1, 1, 1, 2, 2, 2, 2];
-        let Ok(laid) = turned(&left_then_right, panel);
+        let Ok(laid) = rotate(&left_then_right, panel);
 
         assert_eq!(drawn, Size { width: 2, height: 1 });
         assert_eq!(laid, vec![2, 2, 2, 2, 1, 1, 1, 1]);
     }
 
     #[test]
-    fn a_finger_on_a_turned_panel_lands_on_the_pixel_drawn_under_it() {
+    fn a_finger_on_a_turned_panel_lands_on_the_pixel_drawn_under_it() -> Result<(), &'static str> {
         let panel = Size { width: 3, height: 5 };
         let Ok(drawn) = drawn_at(panel);
-        let mut picture = vec![0_u8; 5 * 3 * 4];
+        let Ok(long) = console_core_number_conversion::index(5_u32.saturating_mul(3).saturating_mul(4));
+        let Ok(from) = console_core_number_conversion::index(2_u32.saturating_mul(5).saturating_add(1).saturating_mul(4));
+        let mut picture = vec![0_u8; long];
 
-        for byte in picture.iter_mut().skip((2 * 5 + 1) * 4).take(4) {
+        for byte in picture.iter_mut().skip(from).take(4) {
             *byte = 9;
         }
 
-        let Ok(laid) = turned(&picture, panel);
-        let lit = match (0_u32..).zip(laid.chunks_exact(4)).find(|(_, pixel)| pixel.first() == Some(&9)) {
-            Some((lit, _)) => lit,
-            None => panic!("the pixel went nowhere"),
-        };
-        let (column, row) = (lit % 3, lit / 3);
+        let Ok(laid) = rotate(&picture, panel);
+        let (lit, _) = (0_u32..)
+            .zip(laid.chunks_exact(4))
+            .find(|(_, pixel)| pixel.first() == Some(&9))
+            .ok_or("the pixel went nowhere")?;
+        let (column, row) = (lit.rem_euclid(3), lit.div_euclid(3));
         let share = Point { x: (f64::from(column) + 0.5) / 3.0, y: (f64::from(row) + 0.5) / 5.0 };
         let Ok(found) = on_the_picture(panel, share);
 
         assert_eq!(drawn, Size { width: 5, height: 3 });
         assert_eq!((found.x.floor(), found.y.floor()), (1.0, 2.0));
+
+        Ok(())
     }
 }

@@ -465,7 +465,7 @@ lands late moves every row under it.
 They are not unknowable, though. They were known last time. `console_panel::before`
 writes down what a command said as it answers, and the tab's `meanwhile` builds
 its rows out of what was written down. The menu keeps its own list the same way,
-under `console_applications::kept`.
+under `console_applications::cache`.
 
 Three things make it honest rather than a guess drawn as an answer:
 

@@ -17,142 +17,212 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use console_core_never::Never;
+
+type Failure = Box<dyn std::error::Error>;
 
 const OTHER: &str = env!("CARGO_BIN_EXE_second-picker");
 
 const PATIENCE: Duration = Duration::from_secs(5);
 
-fn runtime(what: &str) -> PathBuf {
-    console_core_temporary_directories::fresh(&format!("lock-{what}")).expect("somewhere to keep a lock")
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum How {
+    Hold,
+    Coming,
+    Stuck,
+    Going,
+    Ask,
+    Twice,
 }
 
-fn already_up(runtime: &Path, name: &str) -> Child {
-    holding(runtime, "hold", name)
+impl How {
+    fn word(self) -> Result<&'static str, Never> {
+        Ok(match self {
+            How::Hold => "hold",
+            How::Coming => "coming",
+            How::Stuck => "stuck",
+            How::Going => "going",
+            How::Ask => "ask",
+            How::Twice => "twice",
+        })
+    }
 }
 
-fn on_its_way(runtime: &Path, name: &str) -> Child {
-    holding(runtime, "coming", name)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    Yes,
+    No,
 }
 
-fn stuck(runtime: &Path, name: &str) -> Child {
-    holding(runtime, "stuck", name)
+fn runtime(what: &str) -> Result<PathBuf, Failure> {
+    let runtime = console_core_temporary_directories::fresh(&format!("lock-{what}"))?;
+
+    Ok(runtime)
 }
 
-fn going(runtime: &Path, name: &str) -> Child {
-    holding(runtime, "going", name)
-}
-
-fn holding(runtime: &Path, how: &str, name: &str) -> Child {
+fn spawn_other(runtime: &Path, how: How, name: &str) -> Result<Child, Failure> {
+    let Ok(word) = how.word();
     let mut child = Command::new(OTHER)
-        .args([how, name])
+        .args([word, name])
         .env("XDG_RUNTIME_DIR", runtime)
         .stdout(Stdio::piped())
-        .spawn()
-        .expect("a picker");
+        .spawn()?;
+    let voice = child.stdout.take().ok_or("the picker has no voice")?;
     let mut said = String::new();
-    BufReader::new(child.stdout.take().expect("its voice"))
-        .read_line(&mut said)
-        .expect("a word from it");
+
+    BufReader::new(voice).read_line(&mut said)?;
+
     assert_eq!(said.trim(), "held");
-    child
+
+    Ok(child)
 }
 
-fn asking(runtime: &Path, how: &str, name: &str) -> String {
+fn run_other(runtime: &Path, how: How, name: &str) -> Result<String, Failure> {
+    let Ok(word) = how.word();
     let done = Command::new(OTHER)
-        .args([how, name])
+        .args([word, name])
         .env("XDG_RUNTIME_DIR", runtime)
-        .output()
-        .expect("an answer");
-    String::from_utf8_lossy(&done.stdout).trim().to_string()
+        .output()?;
+
+    Ok(String::from_utf8_lossy(&done.stdout).trim().to_string())
 }
 
-fn ended(up: &mut Child) -> bool {
-    let by = Instant::now() + PATIENCE;
-    while Instant::now() < by {
-        if up.try_wait().is_ok_and(|ended| ended.is_some()) {
-            return true;
+fn ended(up: &mut Child) -> Result<Ended, Never> {
+    let Ok(patience) = console_waiting::Schedule::of(PATIENCE);
+    let ended = console_waiting::until_handed(patience, up, |up| {
+        Ok(match up.try_wait() {
+            Ok(Some(_ended)) => console_waiting::Ready::Yes,
+            Ok(None) => console_waiting::Ready::NotYet,
+            Err(_unasked) => console_waiting::Ready::NotYet,
+        })
+    });
+
+    Ok(match ended {
+        Ok(console_waiting::Outcome::Happened) => Ended::Yes,
+        Ok(console_waiting::Outcome::RanOut) => {
+            let _ = up.kill();
+
+            Ended::No
         }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let _ = up.kill();
-    false
+    })
 }
 
 #[test]
-fn the_door_that_opened_it_closes_it() {
-    let runtime = runtime("same-door");
-    let mut up = already_up(&runtime, "settings Sound");
-    assert_eq!(asking(&runtime, "ask", "settings Sound"), "no");
-    assert!(ended(&mut up), "the panel that was up is still up");
+fn the_door_that_opened_it_closes_it() -> Result<(), Failure> {
+    let runtime = runtime("same-door")?;
+    let mut up = spawn_other(&runtime, How::Hold, "settings Sound")?;
+    let answer = run_other(&runtime, How::Ask, "settings Sound")?;
+
+    assert_eq!(answer, "no");
+    assert_eq!(ended(&mut up), Ok(Ended::Yes), "the panel that was up is still up");
+
+    Ok(())
 }
 
 #[test]
-fn a_door_that_names_no_tab_is_still_the_door_it_came_out_of() {
-    let runtime = runtime("no-tab");
-    let mut up = already_up(&runtime, "notifications ");
-    assert_eq!(asking(&runtime, "ask", "notifications "), "no");
-    assert!(ended(&mut up), "the bell opened again the panel it had just put away");
+fn a_door_that_names_no_tab_is_still_the_door_it_came_out_of() -> Result<(), Failure> {
+    let runtime = runtime("no-tab")?;
+    let mut up = spawn_other(&runtime, How::Hold, "notifications ")?;
+    let answer = run_other(&runtime, How::Ask, "notifications ")?;
+
+    assert_eq!(answer, "no");
+    assert_eq!(ended(&mut up), Ok(Ended::Yes), "the bell opened again the panel it had just put away");
+
+    Ok(())
 }
 
 #[test]
-fn another_door_takes_its_place() {
-    let runtime = runtime("other-door");
-    let mut up = already_up(&runtime, "settings Sound");
-    assert_eq!(asking(&runtime, "ask", "settings Battery"), "yes");
-    assert!(ended(&mut up), "two panels are up at once");
+fn another_door_takes_its_place() -> Result<(), Failure> {
+    let runtime = runtime("other-door")?;
+    let mut up = spawn_other(&runtime, How::Hold, "settings Sound")?;
+    let answer = run_other(&runtime, How::Ask, "settings Battery")?;
+
+    assert_eq!(answer, "yes");
+    assert_eq!(ended(&mut up), Ok(Ended::Yes), "two panels are up at once");
+
+    Ok(())
 }
 
 #[test]
-fn the_screen_is_taken_before_it_is_drawn_on() {
-    let runtime = runtime("in-order");
-    let mut up = already_up(&runtime, "menu");
-    assert_eq!(asking(&runtime, "ask", "settings "), "yes");
+fn the_screen_is_taken_before_it_is_drawn_on() -> Result<(), Failure> {
+    let runtime = runtime("in-order")?;
+    let mut up = spawn_other(&runtime, How::Hold, "menu")?;
+    let answer = run_other(&runtime, How::Ask, "settings ")?;
+
+    assert_eq!(answer, "yes");
     assert!(
         up.try_wait().is_ok_and(|ended| ended.is_some()),
         "it drew before the last one had gone"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_one_that_holds_it_may_ask_twice() {
-    let runtime = runtime("twice");
-    assert_eq!(asking(&runtime, "twice", "menu"), "yes yes");
+fn the_one_that_holds_it_may_ask_twice() -> Result<(), Failure> {
+    let runtime = runtime("twice")?;
+    let answer = run_other(&runtime, How::Twice, "menu")?;
+
+    assert_eq!(answer, "yes yes");
+
+    Ok(())
 }
 
 #[test]
-fn a_picker_that_dies_does_not_keep_the_lock() {
-    let runtime = runtime("died");
-    assert_eq!(asking(&runtime, "ask", "menu"), "yes");
-    assert_eq!(asking(&runtime, "ask", "menu"), "yes");
+fn a_picker_that_dies_does_not_keep_the_lock() -> Result<(), Failure> {
+    let runtime = runtime("died")?;
+    let first = run_other(&runtime, How::Ask, "menu")?;
+    let second = run_other(&runtime, How::Ask, "menu")?;
+
+    assert_eq!(first, "yes");
+    assert_eq!(second, "yes");
+
+    Ok(())
 }
 
 #[test]
-fn a_picker_on_its_way_is_left_to_come() {
-    let runtime = runtime("coming");
-    let mut coming = on_its_way(&runtime, "menu");
-    assert_eq!(asking(&runtime, "ask", "menu"), "no");
+fn a_picker_on_its_way_is_left_to_come() -> Result<(), Failure> {
+    let runtime = runtime("coming")?;
+    let mut coming = spawn_other(&runtime, How::Coming, "menu")?;
+    let answer = run_other(&runtime, How::Ask, "menu")?;
+
+    assert_eq!(answer, "no");
     assert!(
         coming.try_wait().is_ok_and(|ended| ended.is_none()),
         "the menu that was coming was cancelled by the press that waited for it"
     );
+
     let _ = coming.kill();
+
+    Ok(())
 }
 
 #[test]
-fn a_picker_whose_window_has_gone_hands_the_screen_over() {
-    let runtime = runtime("going");
-    let mut last = going(&runtime, "menu");
-    assert_eq!(asking(&runtime, "ask", "menu"), "yes");
+fn a_picker_whose_window_has_gone_hands_the_screen_over() -> Result<(), Failure> {
+    let runtime = runtime("going")?;
+    let mut last = spawn_other(&runtime, How::Going, "menu")?;
+    let answer = run_other(&runtime, How::Ask, "menu")?;
+
+    assert_eq!(answer, "yes");
+
     let _ = last.kill();
     let _ = last.wait();
+
+    Ok(())
 }
 
 #[test]
-fn a_picker_that_never_draws_is_taken_over() {
-    let runtime = runtime("stuck");
-    let mut never = stuck(&runtime, "menu");
-    assert_eq!(asking(&runtime, "ask", "menu"), "yes");
+fn a_picker_that_never_draws_is_taken_over() -> Result<(), Failure> {
+    let runtime = runtime("stuck")?;
+    let mut never = spawn_other(&runtime, How::Stuck, "menu")?;
+    let answer = run_other(&runtime, How::Ask, "menu")?;
+
+    assert_eq!(answer, "yes");
+
     let _ = never.kill();
     let _ = never.wait();
+
+    Ok(())
 }

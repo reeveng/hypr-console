@@ -14,67 +14,23 @@
 //! with no tick underneath it, and that word is the whole of how it recovers
 //! from a gap.
 
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::mpsc::{Sender, channel};
-use std::time::{Duration, Instant};
+mod pool;
 
-use console_events::subscription::{Received, Desired, connect_at};
-use console_events::serving;
-use console_events::sources::Subscribed;
-use console_program_contract::{Change, Topic};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
 
-const BEFORE_LONG: Duration = Duration::from_secs(5);
-
-static SAYING: OnceLock<Sender<Sender<Change>>> = OnceLock::new();
-
-fn source(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, console_core_never::Never> {
-    console_events::sources::handed_to(SAYING.get(), &Topic::Sound, topic, say)
-}
-
-fn socket() -> PathBuf {
-    std::env::temp_dir().join(format!("console-events-stopped-listening-{}.sock", std::process::id()))
-}
-
-fn up(at: &Path) {
-    let began = Instant::now();
-
-    while began.elapsed() < BEFORE_LONG {
-        match at.exists() {
-            true => return,
-            false => std::thread::sleep(Duration::from_millis(5)),
-        }
-    }
-}
-
-fn change(text: &str) -> Change {
-    Change { topic: Topic::Sound, text: text.to_string() }
-}
-
-fn before_long(heard: &std::sync::mpsc::Receiver<Received>) -> Option<Change> {
-    loop {
-        match heard.recv_timeout(BEFORE_LONG) {
-            Ok(Received::Event(change)) => return Some(change),
-            Ok(Received::Connected) => {},
-            Err(_) => return None,
-        }
-    }
-}
+use console_events::subscription::{Desired, Received, connect_at};
+use console_program_contract::Topic;
+use pool::{Failure, BEFORE_LONG, before_long, change, serve_at, socket};
 
 #[test]
-fn a_program_that_asks_again_is_told_what_is_true_now_rather_than_waiting_for_a_change() {
-    let at = socket();
-    let (handing, handed) = channel();
-    let _ = SAYING.set(handing);
-
-    let serving = at.clone();
-    let _ = std::thread::spawn(move || serving::serve(&serving, source));
-
-    up(&at);
+fn a_program_that_asks_again_is_told_what_is_true_now_rather_than_waiting_for_a_change() -> Result<(), Failure> {
+    let at = socket("stopped-listening")?;
+    let handed = serve_at(&at)?;
 
     let Ok(subscriber) = connect_at(&at, &[Topic::Sound]);
     let Ok(heard) = subscriber.received();
-    let saying = handed.recv_timeout(BEFORE_LONG).expect("the source was never opened");
+    let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the source was never opened")?;
 
     assert_eq!(
         heard.recv_timeout(BEFORE_LONG),
@@ -83,9 +39,11 @@ fn a_program_that_asks_again_is_told_what_is_true_now_rather_than_waiting_for_a_
          it was away"
     );
 
-    saying.send(change("40%")).expect("the pool stopped listening to its own source");
+    let Ok(forty) = change("40%");
 
-    assert_eq!(before_long(heard), Some(change("40%")));
+    saying.send(forty.clone()).map_err(|_| "the pool stopped listening to its own source")?;
+
+    assert_eq!(before_long(heard), Ok(Some(forty.clone())));
 
     let Ok(()) = subscriber.unsubscribe(&Topic::Sound);
     let Ok(wanting) = subscriber.desired();
@@ -96,15 +54,19 @@ fn a_program_that_asks_again_is_told_what_is_true_now_rather_than_waiting_for_a_
 
     assert_eq!(
         before_long(heard),
-        Some(change("40%")),
+        Ok(Some(forty)),
         "a program that started listening again was told nothing until the next change, which \
          is a panel coming back with a reading it cannot have"
     );
 
+    let opened_again = handed.recv_timeout(Duration::from_millis(200));
+
     assert!(
-        handed.recv_timeout(Duration::from_millis(200)).is_err(),
+        matches!(opened_again, Err(RecvTimeoutError::Timeout)),
         "the pool opened the source a second time for a program that had never left it"
     );
 
     let _ = std::fs::remove_file(&at);
+
+    Ok(())
 }

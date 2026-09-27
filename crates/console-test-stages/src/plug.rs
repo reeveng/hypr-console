@@ -10,6 +10,7 @@ use console_input_event_devices::{AbsoluteAxisCode, InputEvent};
 use console_input_controller::finding::DeviceInfo;
 use console_input_controller::reading::Ranges;
 use console_input_controller::turning::{Closed, Plugged, Took};
+use console_input_gamepad::axis::Range;
 use console_input_gamepad::capture::Descriptor;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::world::World;
@@ -76,11 +77,7 @@ impl Plugged for Plug<'_> {
         let Ok(trigger) = descriptor.axis(AbsoluteAxisCode::ABS_Z.0);
 
         Ranges {
-            stick: stick.map_or(1, |axis| {
-                let Ok(span) = axis.span();
-
-                span
-            }),
+            stick: stick.map_or(Ranges::default().stick, |axis| Range { low: axis.minimum, high: axis.maximum }),
             trigger: trigger.map_or((0, 1), |axis| (axis.minimum, axis.maximum)),
         }
     }

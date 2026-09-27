@@ -31,23 +31,6 @@ pub fn store(cache: &Path) -> Result<PathBuf, Never> {
     Ok(cache.join("thumbnails").join("normal"))
 }
 
-pub const PLAIN: &str = "-_.!~*'()/&=:@+$,";
-
-pub fn escaped(path: &Path) -> Result<String, Never> {
-    let mut written = String::new();
-
-    for byte in path.as_os_str().as_encoded_bytes() {
-        let letter = char::from(*byte);
-
-        match letter.is_ascii_alphanumeric() || PLAIN.contains(letter) {
-            true => written.push(letter),
-            false => written.push_str(&format!("%{byte:02X}")),
-        }
-    }
-
-    Ok(written)
-}
-
 pub fn address(path: &Path) -> Result<Option<String>, Never> {
     let real = match path.canonicalize() {
         Ok(real) => real,
@@ -59,9 +42,9 @@ pub fn address(path: &Path) -> Result<Option<String>, Never> {
         false => return Ok(None),
     }
 
-    let escaped = escaped(&real)?;
+    let Ok(url) = console_core_file_urls::url(&real);
 
-    Ok(Some(format!("file://{escaped}")))
+    Ok(Some(url))
 }
 
 pub fn of(store: &Path, address: &str) -> Result<Option<PathBuf>, Never> {
@@ -108,7 +91,7 @@ struct Text<'a> {
     value: &'a str,
 }
 
-fn said(text: Text<'_>) -> Result<Vec<u8>, Never> {
+fn encode_text_chunk(text: Text<'_>) -> Result<Vec<u8>, Never> {
     let Text { key, value } = text;
     let mut out = key.as_bytes().to_vec();
 
@@ -148,8 +131,8 @@ pub fn stamped(png: &[u8], stamp: Stamp<'_>) -> Result<Option<Vec<u8>>, Never> {
     };
 
     let mut out = before.to_vec();
-    let Ok(uri) = said(Text { key: URI, value: address });
-    let Ok(when) = said(Text { key: CHANGED, value: changed });
+    let Ok(uri) = encode_text_chunk(Text { key: URI, value: address });
+    let Ok(when) = encode_text_chunk(Text { key: CHANGED, value: changed });
 
     out.extend_from_slice(&uri);
     out.extend_from_slice(&when);
@@ -171,7 +154,7 @@ pub enum Fresh {
     Stale,
 }
 
-pub fn found(store: &Path, path: &Path) -> Result<Option<PathBuf>, Never> {
+pub fn find_thumbnail(store: &Path, path: &Path) -> Result<Option<PathBuf>, Never> {
     let address = address(path)?;
 
     let address = match address {
@@ -207,11 +190,12 @@ pub fn found(store: &Path, path: &Path) -> Result<Option<PathBuf>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use std::time::Duration;
 
     const A_PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
-    fn a_picture() -> Vec<u8> {
+    fn a_picture() -> Result<Vec<u8>, Never> {
         let mut png = A_PNG.to_vec();
         let Ok(header) = chunk(IMAGE_HEADER, &[0; 13]);
         let Ok(end) = chunk(b"IEND", &[]);
@@ -219,35 +203,34 @@ mod tests {
         png.extend_from_slice(&header);
         png.extend_from_slice(&end);
 
-        png
+        Ok(png)
     }
 
     #[test]
-    fn what_the_picture_is_of_is_written_into_it_where_the_standard_looks() {
-        let png = a_picture();
-        let said = stamped(&png, Stamp { address: "file:///home/ada/beach.jpg", changed: "1700000000" });
-
-        let said = match said {
-            Ok(Some(said)) => said,
-            Ok(None) | Err(_) => panic!("a PNG this test just built"),
-        };
+    fn what_the_picture_is_of_is_written_into_it_where_the_standard_looks() -> Result<(), Box<dyn Error>> {
+        let Ok(png) = a_picture();
+        let Ok(said) = stamped(&png, Stamp { address: "file:///home/ada/beach.jpg", changed: "1700000000" });
+        let said = said.ok_or("a PNG this test just built")?;
 
         assert!(said.windows(URI.len()).any(|said| said == URI.as_bytes()));
         assert!(said.windows(CHANGED.len()).any(|said| said == CHANGED.as_bytes()));
         assert!(said.len() > png.len());
         assert_eq!(said.get(..8).map(<[u8]>::to_vec), Some(A_PNG.to_vec()));
+
+        Ok(())
     }
 
     #[test]
-    fn the_two_lines_go_after_the_header_and_before_everything_else() {
-        let png = a_picture();
+    fn the_two_lines_go_after_the_header_and_before_everything_else() -> Result<(), Box<dyn Error>> {
+        let Ok(png) = a_picture();
         let Ok(said) = stamped(&png, Stamp { address: "file:///x", changed: "1" });
-
-        let said = said.expect("a PNG this test just built");
+        let said = said.ok_or("a PNG this test just built")?;
         let before_the_end: Vec<&[u8]> = said.windows(4).take_while(|four| *four != b"IEND").collect();
 
         assert!(said.windows(4).any(|four| four == b"IEND"));
         assert!(before_the_end.contains(&b"tEXt".as_slice()));
+
+        Ok(())
     }
 
     #[test]
@@ -256,55 +239,55 @@ mod tests {
         assert_eq!(stamped(&[], Stamp { address: "file:///x", changed: "1" }), Ok(None));
     }
 
-    fn cache() -> PathBuf {
-        Path::new("/home/ada/.cache").to_path_buf()
-    }
+    const CACHE: &str = "/home/ada/.cache";
 
-    fn store_of(cache: &Path) -> PathBuf {
-        let Ok(store) = store(cache);
-
-        store
-    }
-
-    fn named(store: &Path, address: &str) -> PathBuf {
+    fn thumbnail_path(store: &Path, address: &str) -> Result<PathBuf, Box<dyn Error>> {
         let Ok(name) = of(store, address);
+        let name = name.ok_or("a name")?;
 
-        name.expect("a name")
+        Ok(name)
     }
 
     #[test]
     fn the_store_is_where_every_other_desktop_looks() {
-        assert_eq!(store_of(&cache()), Path::new("/home/ada/.cache/thumbnails/normal"));
+        assert_eq!(store(Path::new(CACHE)), Ok(PathBuf::from("/home/ada/.cache/thumbnails/normal")));
     }
 
     #[test]
-    fn a_picture_is_named_for_the_address_of_the_thing_it_is_of() {
-        let store = store_of(&cache());
-        let one = named(&store, "file:///home/ada/Pictures/beach.jpg");
-        let same = named(&store, "file:///home/ada/Pictures/beach.jpg");
-        let other = named(&store, "file:///home/ada/Pictures/boat.jpg");
+    fn a_picture_is_named_for_the_address_of_the_thing_it_is_of() -> Result<(), Box<dyn Error>> {
+        let Ok(store) = store(Path::new(CACHE));
+        let one = thumbnail_path(&store, "file:///home/ada/Pictures/beach.jpg")?;
+        let same = thumbnail_path(&store, "file:///home/ada/Pictures/beach.jpg")?;
+        let other = thumbnail_path(&store, "file:///home/ada/Pictures/boat.jpg")?;
 
         assert_eq!(one, same);
         assert_ne!(one, other);
         assert!(one.starts_with(&store));
         assert_eq!(one.extension().and_then(|end| end.to_str()), Some("png"));
+
+        Ok(())
     }
 
     #[test]
-    fn an_address_is_written_the_way_the_store_expects_it() {
+    fn an_address_is_written_the_way_the_store_expects_it() -> Result<(), Box<dyn Error>> {
         let Ok(said) = address(Path::new("/home/ada/Pictures/a day out.jpg"));
-
-        let said = said.expect("an address");
+        let said = said.ok_or("an address")?;
 
         assert!(said.starts_with("file:///"));
         assert!(!said.contains(' '), "{said}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_thing_reached_through_a_link_has_the_address_of_the_thing() {
+    fn a_thing_reached_through_a_link_has_the_address_of_the_thing() -> Result<(), Box<dyn Error>> {
         let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/thumbnails.rs");
-        let roundabout = real.parent().expect("a folder").join("../src/thumbnails.rs");
+        let folder = real.parent().ok_or("a folder")?;
+        let roundabout = folder.join("../src/thumbnails.rs");
+
         assert_eq!(address(&roundabout), address(&real));
+
+        Ok(())
     }
 
     #[test]
@@ -319,9 +302,9 @@ mod tests {
         ];
 
         for (path, digest) in held {
-            let Ok(said) = escaped(Path::new(path));
+            let Ok(said) = console_core_file_urls::url(Path::new(path));
 
-            let Ok(one) = of(Path::new("/store"), &format!("file://{said}"));
+            let Ok(one) = of(Path::new("/store"), &said);
 
             assert_eq!(
                 one,
@@ -332,11 +315,14 @@ mod tests {
     }
 
     #[test]
-    fn a_picture_made_before_the_thing_changed_is_out_of_date() {
+    fn a_picture_made_before_the_thing_changed_is_out_of_date() -> Result<(), Box<dyn Error>> {
         let then = SystemTime::UNIX_EPOCH;
-        let now = then + Duration::from_secs(60);
+        let now = then.checked_add(Duration::from_secs(60)).ok_or("a minute on from the epoch")?;
+
         assert_eq!(fresh(now, then), Ok(Fresh::Yes));
         assert_eq!(fresh(then, then), Ok(Fresh::Yes));
         assert_eq!(fresh(then, now), Ok(Fresh::Stale));
+
+        Ok(())
     }
 }

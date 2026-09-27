@@ -105,7 +105,7 @@ fn closing(id: u32) -> Result<Command, Never> {
 }
 
 fn clearing() -> Result<Command, Never> {
-    let Ok(arguments) = crate::serving::asking("ClearAll");
+    let Ok(arguments) = crate::serving::call_arguments("ClearAll");
     let said: Vec<&str> = arguments.iter().map(String::as_str).collect();
 
     Command::external(ExternalProgram::Busctl, &said)
@@ -124,10 +124,10 @@ mod tests {
 
     use super::*;
 
-    fn dismissing(id: u32) -> Effect<NotificationsEffect> {
+    fn dismissing(id: u32) -> Result<Effect<NotificationsEffect>, Never> {
         let Ok(runs) = closing(id);
 
-        Effect::Run(runs)
+        Ok(Effect::Run(runs))
     }
 
     #[test]
@@ -158,10 +158,12 @@ mod tests {
             &[Event::Custom(NotificationsEvent::Chosen(7)), Event::Custom(NotificationsEvent::Dismissed(7))],
         );
 
+        let Ok(dismissing) = dismissing(7);
+
         assert_eq!(said.state, Destination::List);
         assert_eq!(
             said.on(1),
-            Ok(Some([dismissing(7), Effect::Custom(NotificationsEffect::Replace(UP))].as_slice()))
+            Ok(Some([dismissing, Effect::Custom(NotificationsEffect::Replace(UP))].as_slice()))
         );
     }
 

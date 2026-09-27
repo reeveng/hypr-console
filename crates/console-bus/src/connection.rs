@@ -32,6 +32,7 @@ use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::{SocketAddr, UnixStream};
 use std::sync::{Arc, Mutex};
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use rustix::process::getuid;
@@ -142,7 +143,7 @@ impl Bus {
         bus.greet()?;
 
         let Ok(hello) = Message::call(&Whom { to: BUS, at: BUS_PATH, on: BUS, calling: "Hello" });
-        let answer = bus.asking(&hello)?;
+        let answer = bus.call(&hello)?;
 
         let Ok(saying) = match answer.values.first() {
             Some(value) => value.text(),
@@ -157,17 +158,17 @@ impl Bus {
         Ok(bus)
     }
 
-    pub fn named(&self) -> Result<&str, Never> {
+    pub fn unique_name(&self) -> Result<&str, Never> {
         Ok(&self.named)
     }
 
-    pub fn taking(&mut self, name: &str) -> Result<NameRequestResult, ConnectionError> {
+    pub fn request_name(&mut self, name: &str) -> Result<NameRequestResult, ConnectionError> {
         let Ok(asking) =
             Message::call(&Whom { to: BUS, at: BUS_PATH, on: BUS, calling: "RequestName" });
         let Ok(word) = Value::word(name);
         let Ok(asking) = asking.carrying("su", vec![word, Value::Unsigned32(TAKING)]);
 
-        let answer = self.asking(&asking)?;
+        let answer = self.call(&asking)?;
 
         let Ok(counted) = match answer.values.first() {
             Some(value) => value.counted(),
@@ -196,36 +197,36 @@ impl Bus {
         self.saying.say(message)
     }
 
-    pub fn heard(&mut self) -> Result<Message, ConnectionError> {
-        self.hearing.heard()
+    pub fn receive(&mut self) -> Result<Message, ConnectionError> {
+        self.hearing.receive()
     }
 
-    pub fn apart(self) -> Result<(Receiver, Sender), Never> {
+    pub fn split(self) -> Result<(Receiver, Sender), Never> {
         Ok((self.hearing, self.saying))
     }
 
-    fn asking(&mut self, message: &Message) -> Result<Message, ConnectionError> {
+    fn call(&mut self, message: &Message) -> Result<Message, ConnectionError> {
         let serial = self.say(message)?;
 
-        loop {
-            let heard = self.heard()?;
+        let answered = iterate(self, |this| {
+            Ok(match this.receive() {
+                Ok(heard) => match (heard.reply_to == Some(serial), heard.fault.clone()) {
+                    (true, Some(named)) => Step::Halt(Err(ConnectionError::Rejected(named))),
+                    (true, None) => Step::Halt(Ok(heard)),
+                    (false, _) => Step::Again(this),
+                },
+                Err(fault) => Step::Halt(Err(fault)),
+            })
+        });
 
-            match heard.reply_to == Some(serial) {
-                true => {
-                    let named = heard.fault.clone();
-
-                    match named {
-                        Some(named) => return Err(ConnectionError::Rejected(named)),
-                        None => return Ok(heard),
-                    }
-                }
-                false => {}
-            }
+        match answered {
+            Ok(answered) => answered,
+            Err(Endless) => Err(ConnectionError::Ended),
         }
     }
 
-    fn taken(&mut self, many: u32) -> Result<Vec<u8>, ConnectionError> {
-        self.hearing.taken(many)
+    fn read_bytes(&mut self, many: u32) -> Result<Vec<u8>, ConnectionError> {
+        self.hearing.read_bytes(many)
     }
 
     fn greet(&mut self) -> Result<(), ConnectionError> {
@@ -252,30 +253,36 @@ impl Bus {
     }
 
     fn line(&mut self) -> Result<String, ConnectionError> {
-        let mut value = String::new();
-
-        loop {
-            let byte = self.taken(1)?;
-
-            let byte = match byte.first() {
-                Some(byte) => *byte,
-                None => return Err(ConnectionError::Ended),
+        let read = iterate((self, String::new()), |(this, mut value)| {
+            let byte = match this.read_bytes(1) {
+                Ok(byte) => byte,
+                Err(fault) => return Ok(Step::Halt(Err(fault))),
             };
 
-            match byte {
-                b'\n' => return Ok(value.trim_end().to_string()),
-                _ => value.push(char::from(byte)),
-            }
+            Ok(match byte.first() {
+                Some(b'\n') => Step::Halt(Ok(value.trim_end().to_string())),
+                Some(byte) => {
+                    value.push(char::from(*byte));
+
+                    Step::Again((this, value))
+                }
+                None => Step::Halt(Err(ConnectionError::Ended)),
+            })
+        });
+
+        match read {
+            Ok(read) => read,
+            Err(Endless) => Err(ConnectionError::Ended),
         }
     }
 }
 
 impl Receiver {
-    pub fn heard(&mut self) -> Result<Message, ConnectionError> {
-        let mut bytes = self.taken(HEAD)?;
+    pub fn receive(&mut self) -> Result<Message, ConnectionError> {
+        let mut bytes = self.read_bytes(HEAD)?;
         let whole = messages::length(&bytes)?;
         let rest = whole.saturating_sub(HEAD);
-        let more = self.taken(rest)?;
+        let more = self.read_bytes(rest)?;
 
         bytes.extend_from_slice(&more);
 
@@ -284,7 +291,7 @@ impl Receiver {
         Ok(message)
     }
 
-    fn taken(&mut self, many: u32) -> Result<Vec<u8>, ConnectionError> {
+    fn read_bytes(&mut self, many: u32) -> Result<Vec<u8>, ConnectionError> {
         let Ok(many) = index(many);
         let mut held = vec![0u8; many];
 

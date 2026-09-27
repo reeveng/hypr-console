@@ -2,7 +2,7 @@
 
 use console_core_geometry::Point;
 use console_input_event_devices::{EventType, KeyCode, RelativeAxisCode};
-use console_test_stages::checking::{Body, Check, CheckResult, cannot, less_than, more_than, same, seen};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, less_than, more_than, same, expect_ready};
 use console_test_stages::device::Device;
 use console_test_stages::here::{Here, TURNS};
 
@@ -57,13 +57,13 @@ fn touch_here(stage: &mut Here) -> CheckResult {
 
     let Ok(()) = stage.tap(Point { x: 400, y: 400 });
     let Ok(()) = stage.settle(TURNS);
-    let Ok(pressed) = stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1);
+    let Ok(pressed) = stage.check_sent(EventType::KEY, KeyCode::BTN_LEFT.0, 1);
 
-    seen(pressed, || "a tap did not click".to_string())?;
+    expect_ready(pressed, || "a tap did not click".to_string())?;
 
-    let Ok(let_go) = stage.sent(EventType::KEY, KeyCode::BTN_LEFT.0, 0);
+    let Ok(let_go) = stage.check_sent(EventType::KEY, KeyCode::BTN_LEFT.0, 0);
 
-    seen(let_go, || "the click was never let go".to_string())
+    expect_ready(let_go, || "the click was never let go".to_string())
 }
 
 fn touch_there(stage: &mut Device) -> CheckResult {

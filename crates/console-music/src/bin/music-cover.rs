@@ -37,7 +37,7 @@ impl Hidden {
 }
 
 fn main() -> ExitCode {
-    match drawn() {
+    match draw_cover() {
         Ok(()) => ExitCode::SUCCESS,
         Err(why) => {
             eprintln!("{why}");
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn drawn() -> Result<(), Hidden> {
+fn draw_cover() -> Result<(), Hidden> {
     let said: Vec<String> = std::env::args().skip(1).collect();
 
     let path = match said.first().map(PathBuf::from) {

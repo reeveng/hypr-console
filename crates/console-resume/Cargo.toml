@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 console-core-external-programs.workspace = true
+console-core-iteration.workspace = true
 console-compositor.workspace = true
 console-core-never.workspace = true
 console-applications.workspace = true

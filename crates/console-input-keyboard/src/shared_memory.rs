@@ -31,7 +31,7 @@ use rustix::mm::{MapFlags, ProtFlags, mmap, munmap};
 pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
     let Ok(written) = fitted::<_, u64>(text.len());
     let long = written.saturating_add(1);
-    let held = made("console-keyboard-keymap", long)?;
+    let held = create("console-keyboard-keymap", long)?;
 
     {
         let mut mapped = Mapped::of(&held, long)?;
@@ -64,7 +64,7 @@ pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
 }
 
 pub fn drawing_buffer(length: u64) -> io::Result<OwnedFd> {
-    let held = made("console-keyboard-pixels", length)?;
+    let held = create("console-keyboard-pixels", length)?;
 
     match fcntl_add_seals(&held, SealFlags::SHRINK | SealFlags::GROW) {
         Ok(()) => {},
@@ -125,7 +125,7 @@ impl Drop for Mapped {
     }
 }
 
-fn made(called: &str, length: u64) -> io::Result<OwnedFd> {
+fn create(called: &str, length: u64) -> io::Result<OwnedFd> {
     let owned = memfd_create(called, MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)?;
 
     ftruncate(&owned, length)?;
@@ -137,43 +137,64 @@ fn made(called: &str, length: u64) -> io::Result<OwnedFd> {
 mod tests {
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn a_keymap_is_written_and_reads_back_with_its_terminator() {
+    fn a_keymap_is_written_and_reads_back_with_its_terminator() -> Result<(), Failure> {
         let text = "xkb_keymap { }";
-        let (held, long) = keymap_file(text).expect("a keymap file");
-        assert_eq!(long, text.len() as u64 + 1);
-        let mapped = Mapped::reading(&held, long).expect("map it back");
+        let (held, long) = keymap_file(text)?;
+
+        assert_eq!(long, 15);
+
+        let mapped = Mapped::reading(&held, long)?;
         let Ok(got) = mapped.bytes();
-        assert_eq!(&got[..text.len()], text.as_bytes());
-        assert_eq!(got[text.len()], 0, "the compositor reads to the length and wants a nul");
+
+        assert_eq!(got.strip_suffix(&[0]), Some(text.as_bytes()), "the compositor reads to the length and wants a nul");
+
+        Ok(())
     }
 
     #[test]
-    fn a_keymap_that_has_been_handed_over_cannot_be_rewritten() {
-        let (held, long) = keymap_file("xkb_keymap { }").expect("a keymap file");
-        let again = Mapped::of(&held, long);
-        assert!(
-            again.is_err(),
+    fn a_keymap_that_has_been_handed_over_cannot_be_rewritten() -> Result<(), Failure> {
+        let (held, long) = keymap_file("xkb_keymap { }")?;
+        let refused = match Mapped::of(&held, long) {
+            Ok(_) => None,
+            Err(fault) => Some(fault.kind()),
+        };
+
+        assert_eq!(
+            refused,
+            Some(io::ErrorKind::PermissionDenied),
             "a sealed keymap mapped writable again: the seal is not being applied"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_frame_can_be_drawn_into_more_than_once() {
-        let held = drawing_buffer(64).expect("a frame");
-        let mut mapped = Mapped::of(&held, 64).expect("map it");
+    fn a_frame_can_be_drawn_into_more_than_once() -> Result<(), Failure> {
+        let held = drawing_buffer(64)?;
+        let mut mapped = Mapped::of(&held, 64)?;
         let Ok(first) = mapped.pixels();
-        first[0] = 1;
+
+        first.fill(1);
         let Ok(again) = mapped.pixels();
-        again[0] = 2;
+
+        again.fill(2);
         let Ok(now) = mapped.pixels();
-        assert_eq!(now[0], 2);
+
+        assert_eq!(now.first(), Some(&2));
+
+        Ok(())
     }
 
     #[test]
-    fn a_frame_cannot_be_grown_or_shrunk() {
-        let held = drawing_buffer(64).expect("a frame");
+    fn a_frame_cannot_be_grown_or_shrunk() -> Result<(), Failure> {
+        let held = drawing_buffer(64)?;
         let shrunk = ftruncate(&held, 32);
+
         assert_eq!(shrunk, Err(Errno::PERM), "the frame shrank while the compositor was reading it");
+
+        Ok(())
     }
 }

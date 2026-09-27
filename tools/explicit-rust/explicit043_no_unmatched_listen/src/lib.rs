@@ -51,7 +51,7 @@ extern crate rustc_span;
 use clippy_utils::diagnostics::span_lint_hir_and_then;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, HirId};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_span::Span;
 
 dylint_linting::impl_late_lint! {
@@ -95,10 +95,6 @@ impl Default for Explicit043NoUnmatchedListen {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // What a call resolves to, whether it was written as a variant, a path or a
@@ -149,10 +145,6 @@ fn is_the_word(named: &str, word: &str) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit043NoUnmatchedListen {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }
@@ -178,10 +170,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit043NoUnmatchedListen {
     }
 
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         for (which, node, at) in self.listened.iter() {
             let Some(false) = self.stopped_listening.get(*which) else {
                 continue;

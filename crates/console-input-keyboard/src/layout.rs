@@ -169,7 +169,7 @@ pub struct Placed {
     pub height: f64,
 }
 
-pub fn placed(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
+pub fn layout_keys(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Never> {
     let Ok(rows) = rows(layout);
 
     match rows.is_empty() {
@@ -319,7 +319,7 @@ pub fn toward(
     Ok(None)
 }
 
-pub fn named(name: &str) -> Result<Option<LayoutKind>, Never> {
+pub fn find_layout(name: &str) -> Result<Option<LayoutKind>, Never> {
     Ok(LayoutKind::ALL.iter().copied().find(|which| {
         let Ok(of) = of(*which);
 
@@ -336,113 +336,115 @@ pub use tables::LayoutKind;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
-    fn of(which: LayoutKind) -> &'static Layout {
-        let Ok(of) = super::of(which);
+    type Failure = Box<dyn std::error::Error>;
 
-        of
+    const LANDSCAPE: Size<f64> = Size { width: 1892.0, height: 260.0 };
+
+    fn named(name: &str) -> Result<&'static Layout, Failure> {
+        let Ok(found) = find_layout(name);
+        let which = found.ok_or(format!("no layout called {name}"))?;
+        let Ok(layout) = of(which);
+
+        Ok(layout)
     }
 
-    fn named(name: &str) -> Option<LayoutKind> {
-        let Ok(named) = super::named(name);
-
-        named
-    }
-
-    fn placed(layout: &Layout, room: Size<f64>) -> Vec<Placed> {
-        let Ok(placed) = super::placed(layout, room);
-
-        placed
-    }
-
-    fn rows(layout: &Layout) -> Vec<Vec<(u32, &'static Key)>> {
-        let Ok(rows) = super::rows(layout);
-
-        rows
-    }
-
-    fn under(keys: &[Placed], at: Point<f64>) -> Option<Placed> {
-        let Ok(under) = super::under(keys, at);
-
-        under
-    }
-
-    fn gap(between: Between, point: f64) -> f64 {
-        let Ok(gap) = super::gap(between, point);
-
-        gap
-    }
-
-    fn toward(keys: &[Placed], from: Option<u32>, step: Point<i32>) -> Option<u32> {
-        let Ok(toward) = super::toward(keys, from, step);
-
-        toward
+    fn rows_by_key(keys: &[Placed]) -> Result<BTreeMap<u32, f64>, Never> {
+        Ok(keys.iter().map(|key| (key.at, key.y)).collect())
     }
 
     #[test]
-    fn a_direction_crosses_the_row_it_started_on() {
-        let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
-        let start = keys[0].at;
-        let row = keys[0].y;
-        let mut at = start;
+    fn a_direction_crosses_the_row_it_started_on() -> Result<(), Failure> {
+        let layout = named("landscape")?;
+        let Ok(keys) = layout_keys(layout, LANDSCAPE);
+        let Ok(row_of) = rows_by_key(&keys);
+        let first = keys.first().ok_or("the landscape layout placed no keys")?;
+        let row = first.y;
+        let mut at = first.at;
+
         for step in 0..8 {
-            at = toward(&keys, Some(at), Point { x: 1, y: 0 }).expect("somewhere to the right");
-            let now = keys.iter().find(|key| key.at == at).expect("placed");
-            assert_eq!(now.y, row, "step {step} left the row it started on");
+            let Ok(next) = toward(&keys, Some(at), Point { x: 1, y: 0 });
+
+            let next = next.ok_or(format!("nothing to the right at step {step}"))?;
+
+            at = next;
+
+            let now = row_of.get(&at).ok_or(format!("key {at} was stepped onto and never placed"))?;
+
+            assert_eq!(*now, row, "step {step} left the row it started on");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn up_is_the_row_above_and_not_a_diagonal() {
-        let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
-        let bottom = keys.iter().max_by(|one, other| one.y.total_cmp(&other.y)).expect("a bottom row").y;
+    fn up_is_the_row_above_and_not_a_diagonal() -> Result<(), Failure> {
+        let layout = named("landscape")?;
+        let Ok(keys) = layout_keys(layout, LANDSCAPE);
+        let Ok(row_of) = rows_by_key(&keys);
+        let lowest = keys.iter().max_by(|one, other| one.y.total_cmp(&other.y)).ok_or("a bottom row")?;
+        let bottom = lowest.y;
+        let mut heights: Vec<f64> = keys.iter().map(|key| key.y).collect();
+
+        heights.sort_by(f64::total_cmp);
+        heights.dedup_by(|one, other| one == other);
+
+        let above = heights.iter().rev().find(|y| **y < bottom).ok_or("a row above the bottom one")?;
+
         for key in keys.iter().filter(|key| key.y == bottom) {
-            let up = toward(&keys, Some(key.at), Point { x: 0, y: -1 }).expect("a key above");
-            let landed = keys.iter().find(|key| key.at == up).expect("placed");
-            assert!(landed.y < key.y, "up went sideways");
-            let rows: Vec<f64> = {
-                let mut rows: Vec<f64> = keys.iter().map(|key| key.y).collect();
-                rows.sort_by(f64::total_cmp);
-                rows.dedup_by(|one, other| one == other);
-                rows
-            };
-            let above = rows.iter().rev().find(|y| **y < key.y).expect("a row above");
-            assert_eq!(landed.y, *above, "up skipped a row");
+            let Ok(up) = toward(&keys, Some(key.at), Point { x: 0, y: -1 });
+            let up = up.ok_or("a key above")?;
+            let landed = row_of.get(&up).ok_or(format!("key {up} was stepped onto and never placed"))?;
+
+            assert!(*landed < key.y, "up went sideways");
+            assert_eq!(*landed, *above, "up skipped a row");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_direction_wraps_rather_than_stopping_at_the_edge() {
-        let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
-        let top = keys.iter().min_by(|one, other| one.y.total_cmp(&other.y)).expect("a top row").at;
-        let up = toward(&keys, Some(top), Point { x: 0, y: -1 }).expect("wrapped round");
-        let landed = keys.iter().find(|key| key.at == up).expect("placed");
-        assert!(landed.y > keys[0].y, "up from the top row came out at the bottom");
+    fn a_direction_wraps_rather_than_stopping_at_the_edge() -> Result<(), Failure> {
+        let layout = named("landscape")?;
+        let Ok(keys) = layout_keys(layout, LANDSCAPE);
+        let first = keys.first().ok_or("the landscape layout placed no keys")?;
+        let highest = keys.iter().min_by(|one, other| one.y.total_cmp(&other.y)).ok_or("a top row")?;
+        let Ok(up) = toward(&keys, Some(highest.at), Point { x: 0, y: -1 });
+        let up = up.ok_or("wrapped round")?;
+        let landed = keys.iter().find(|key| key.at == up).ok_or("placed")?;
+
+        assert!(landed.y > first.y, "up from the top row came out at the bottom");
+
+        Ok(())
     }
 
     #[test]
-    fn the_first_direction_lands_somewhere() {
-        let layout = of(named("landscape").expect("landscape"));
-        let keys = placed(layout, Size { width: 1892.0, height: 260.0 });
-        assert_eq!(toward(&keys, None, Point { x: 1, y: 0 }), Some(keys[0].at));
-        assert_eq!(toward(&[], None, Point { x: 1, y: 0 }), None, "and an empty layout is not a panic");
+    fn the_first_direction_lands_somewhere() -> Result<(), Failure> {
+        let layout = named("landscape")?;
+        let Ok(keys) = layout_keys(layout, LANDSCAPE);
+        let first = keys.first().ok_or("the landscape layout placed no keys")?;
+
+        assert_eq!(toward(&keys, None, Point { x: 1, y: 0 }), Ok(Some(first.at)));
+        assert_eq!(toward(&[], None, Point { x: 1, y: 0 }), Ok(None), "and an empty layout is not a panic");
+
+        Ok(())
     }
 
     #[test]
     fn a_wide_key_is_measured_to_its_edge() {
-        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 15.0), 0.0, "inside the span is no distance at all");
-        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 5.0), 5.0);
-        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 25.0), 5.0);
+        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 15.0), Ok(0.0), "inside the span is no distance at all");
+        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 5.0), Ok(5.0));
+        assert_eq!(gap(Between { low: 10.0, high: 20.0 }, 25.0), Ok(5.0));
     }
 
     #[test]
     fn every_arrangement_has_keys_and_an_alphabet() {
         for which in LayoutKind::ALL {
-            let layout = of(which);
+            let Ok(layout) = of(which);
+
             assert!(!layout.keys.is_empty(), "{} has no keys", layout.name);
             assert!(!layout.name.is_empty(), "a layout with no name");
         }
@@ -451,105 +453,136 @@ mod tests {
     #[test]
     fn the_layers_this_desktop_walks_are_all_there() {
         for name in ["full", "thai", "special", "landscape", "landscapespecial"] {
-            assert!(named(name).is_some(), "no layout called {name}");
+            assert!(find_layout(name).is_ok_and(|found| found.is_some()), "no layout called {name}");
         }
     }
 
     #[test]
-    fn the_keys_fill_the_surface_without_overlapping() {
-        let layout = of(named("full").expect("full"));
-        let keys = placed(layout, Size { width: 1000.0, height: 260.0 });
-        assert!(!keys.is_empty());
+    fn the_keys_fill_the_surface_without_overlapping() -> Result<(), Failure> {
+        let layout = named("full")?;
+        let Ok(keys) = layout_keys(layout, Size { width: 1000.0, height: 260.0 });
+        let first = keys.first().ok_or("the full layout placed no keys")?;
+
         for key in &keys {
             assert!(key.x >= -0.001, "a key off the left");
             assert!(key.x + key.width <= 1000.001, "a key off the right: {key:?}");
             assert!(key.y + key.height <= 260.001, "a key below the keyboard: {key:?}");
         }
-        let top = keys[0].height / 2.0;
-        for step in 0..100 {
-            let x = step as f64 * 10.0 + 0.5;
-            assert!(under(&keys, Point { x, y: top }).is_some(), "nothing under {x}");
+
+        let top = first.height / 2.0;
+
+        for step in 0..100_i32 {
+            let x = f64::from(step) * 10.0 + 0.5;
+            let Ok(found) = under(&keys, Point { x, y: top });
+
+            assert!(found.is_some(), "nothing under {x}");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_row_is_shared_out_against_its_own_width() {
-        let layout = of(named("full").expect("full"));
-        for row in rows(layout) {
+    fn a_row_is_shared_out_against_its_own_width() -> Result<(), Failure> {
+        let layout = named("full")?;
+        let Ok(every) = rows(layout);
+
+        for row in every {
             let across: f64 = row.iter().map(|(_, key)| key.width).sum();
+
             assert!(across > 0.0, "a row of nothing");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_space_bar_is_wider_than_a_letter() {
-        let layout = of(named("full").expect("full"));
+    fn the_space_bar_is_wider_than_a_letter() -> Result<(), Failure> {
+        let layout = named("full")?;
         let space = layout
             .keys
             .iter()
             .find(|key| matches!(key.kind, Kind::Code { code: key::SPACE, .. }))
-            .expect("a space bar");
+            .ok_or("a space bar")?;
+
         assert!(space.width > 1.0, "the space bar is one column wide");
+
+        Ok(())
     }
 
     #[test]
-    fn thai_holds_a_second_letter_where_latin_holds_a_capital() {
-        let thai = of(named("thai").expect("thai"));
+    fn thai_holds_a_second_letter_where_latin_holds_a_capital() -> Result<(), Failure> {
+        let thai = named("thai")?;
         let doubled: Vec<&Key> = thai
             .keys
             .iter()
             .filter(|key| matches!(key.kind, Kind::Code { .. }))
             .filter(|key| !key.shift.is_empty() && key.shift != key.label)
             .collect();
+
         assert!(doubled.len() > 20, "only {} Thai keys carry a second letter", doubled.len());
+
+        Ok(())
     }
 
     #[test]
-    fn thai_carries_no_digit_of_its_own() {
-        let thai = of(named("thai").expect("thai"));
+    fn thai_carries_no_digit_of_its_own() -> Result<(), Failure> {
+        let thai = named("thai")?;
+
         assert!(
             thai.keys.iter().all(|key| key.label.is_empty() || !key.label.chars().all(|one| one.is_ascii_digit())),
             "Thai draws a digit, so it does not need the rule below"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn the_language_key_always_has_the_numbers_beside_it() {
+    fn the_language_key_always_has_the_numbers_beside_it() -> Result<(), Failure> {
         for which in LayoutKind::ALL {
-            let layout = of(which);
-            let row = match rows(layout)
-                .into_iter()
-                .find(|row| row.iter().any(|(_, key)| key.kind == Kind::Language))
-            {
-                Some(row) => row,
+            let Ok(layout) = of(which);
+            let Ok(placed_rows) = rows(layout);
+            let found = placed_rows
+                .iter()
+                .zip(0_u32..)
+                .flat_map(|(row, line)| row.iter().map(move |(_, key)| (line, *key)))
+                .find(|(_, key)| key.kind == Kind::Language);
+            let (line, language) = match found {
+                Some(found) => found,
                 None => continue,
             };
-
+            let Ok(line) = console_core_number_conversion::index(line);
+            let row = placed_rows.get(line).ok_or("the language key's own row")?;
             let numbers: Vec<&Key> = row
                 .iter()
                 .map(|(_, key)| *key)
                 .filter(|key| match key.kind {
                     Kind::Symbols => true,
-                    Kind::Layout(shelf) => !of(shelf).primary,
-                    _ => false,
+                    Kind::Layout(shelf) => of(shelf).is_ok_and(|shelf| !shelf.primary),
+                    Kind::Pad
+                    | Kind::Code { .. }
+                    | Kind::Mod(_)
+                    | Kind::Copy { .. }
+                    | Kind::Back
+                    | Kind::Next
+                    | Kind::Language
+                    | Kind::Compose
+                    | Kind::EndRow => false,
                 })
                 .collect();
 
             assert!(!numbers.is_empty(), "{} can change language and cannot type a digit", layout.name);
 
-            let language = row
-                .iter()
-                .find(|(_, key)| key.kind == Kind::Language)
-                .map(|(_, key)| key.width)
-                .expect("the language key on its own row");
             for key in numbers {
                 assert!(
-                    (key.width - language).abs() < 0.001,
-                    "on {} the language key is {language} wide and the numbers key is {}",
+                    (key.width - language.width).abs() < 0.001,
+                    "on {} the language key is {} wide and the numbers key is {}",
                     layout.name,
+                    language.width,
                     key.width,
                 );
             }
         }
+
+        Ok(())
     }
 }

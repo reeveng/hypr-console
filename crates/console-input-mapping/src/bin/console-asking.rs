@@ -41,13 +41,13 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use console_input_event_devices::{AbsoluteAxisCode, EventType, KeyCode};
+use console_input_event_devices::{AbsoluteAxisCode, KeyCode};
 
 use console_core_color::palette::Wearing;
 use console_core_geometry::{Point, Size};
 use console_core_number_conversion::fitted;
 use console_core_shapes::{Edge, Font, Panel, Round, Shape, Text, Weight};
-use console_draw_painting::{self as painting, Frame, Run};
+use console_draw_painting::{self as painting, Rendered, Run, painter};
 use console_draw_surface::{
     Anchor, Keyboard, Margin, Room, Surface, Under as Beneath, Wanted,
 };
@@ -59,8 +59,9 @@ use console_input_mapping::table;
 use console_input_bindings::bound::{Binding, Input};
 use console_input_bindings::keys;
 use console_input_bindings::moved::Moved;
-use console_input_gamepad::vocabulary::{button_name, spoken_for};
+use console_input_gamepad::vocabulary::{button_name, spoken_for, trigger_spoken};
 use console_input_focus::{self as claim, CONTROLLER, Claim, InputEvent, Direction, DeviceKind};
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 const PATIENCE: Duration = Duration::from_secs(12);
@@ -101,7 +102,7 @@ impl Reading {
                 match *complained {
                     Silent::Yes => {}
                     Silent::No => {
-                        let Ok(said) = refused.said();
+                        let Ok(said) = refused.message();
 
                         eprintln!("console-asking: {said}");
                         *complained = Silent::Yes;
@@ -114,7 +115,7 @@ impl Reading {
         let told = match claim.spans(DeviceKind::Pad) {
             Ok(told) => told,
             Err(refused) => {
-                let Ok(said) = refused.said();
+                let Ok(said) = refused.message();
 
                 eprintln!("console-asking: {said}; a chord cannot be seen");
                 Vec::new()
@@ -129,12 +130,12 @@ impl Reading {
     }
 
     fn pressed(&mut self) -> Result<Option<Binding>, Never> {
-        let Ok(heard) = self.claim.arrived();
+        let Ok(heard) = self.claim.receive();
 
         let mut down: Option<String> = None;
 
         for (which, event) in heard.events {
-            let Ok(said) = claim::said(which, event.kind, event.code, event.value);
+            let Ok(said) = claim::translate(which, event.kind, event.code, event.value);
 
             match said {
                 InputEvent::Pressed { button, direction } => {
@@ -146,14 +147,16 @@ impl Reading {
                     }
                 }
                 InputEvent::Typed { code, direction } => {
-                    let Ok(typed) = self.typed(code, direction);
+                    let Ok(typed) = self.handle_key(code, direction);
 
                     down = down.or(typed);
                 }
-                InputEvent::Trigger { trigger: _, direction: _ } | InputEvent::Unnamed { code: _, direction: _ } => {}
-                InputEvent::None => {
-                    let Ok(()) = self.watched(event.kind, event.code, event.value);
-                },
+                InputEvent::Pulled { trigger, value } => {
+                    let Ok(()) = self.handle_pull(trigger, value);
+                }
+                InputEvent::Trigger { trigger: _, direction: _ }
+                | InputEvent::Unnamed { code: _, direction: _ }
+                | InputEvent::None => {}
             }
         }
 
@@ -162,14 +165,14 @@ impl Reading {
             None => return Ok(None),
         };
         let held: Vec<&str> = self.held.iter().map(String::as_str).collect();
-        let Ok(binding) = Binding::holding(self.on, &held, &pressed);
+        let Ok(binding) = Binding::chord(self.on, &held, &pressed);
 
         self.held.push(pressed);
 
         Ok(Some(binding))
     }
 
-    fn typed(&mut self, code: u16, direction: Direction) -> Result<Option<String>, Never> {
+    fn handle_key(&mut self, code: u16, direction: Direction) -> Result<Option<String>, Never> {
         let Ok(modifier) = keys::modifier_of(KeyCode(code));
 
         match (modifier, direction) {
@@ -186,28 +189,15 @@ impl Reading {
 
                 Ok(None)
             }
-            (None, Direction::Down) => keys::spoken(KeyCode(code)),
+            (None, Direction::Down) => keys::key_name(KeyCode(code)),
             (None, Direction::Up) => Ok(None),
         }
     }
 
-    fn watched(&mut self, kind: EventType, code: u16, value: i32) -> Result<(), Never> {
-        match kind {
-            EventType::ABSOLUTE => {}
-            _ => return Ok(()),
-        }
-
+    fn handle_pull(&mut self, named: &str, value: i32) -> Result<(), Never> {
         let Ok(pulled) = pulled(value, self.span);
         let held = pulled == Trigger::Pressed;
-
-        const LEFT: u16 = AbsoluteAxisCode::ABS_Z.0;
-        const RIGHT: u16 = AbsoluteAxisCode::ABS_RZ.0;
-
-        let trigger = match code {
-            LEFT => Some("l2"),
-            RIGHT => Some("r2"),
-            _ => None,
-        };
+        let Ok(trigger) = trigger_spoken(named);
 
         match (trigger, held) {
             (Some(word), true) => {
@@ -296,10 +286,10 @@ impl Card {
         match known {
             Known::Yes => {
                 let Ok((saying, under)) = self.moving(&binding);
-                let Ok(()) = self.said(&saying, Under(&under));
+                let Ok(()) = self.set_prompt(&saying, Under(&under));
             }
             Known::No => {
-                let Ok(()) = self.said(NO_WORD, Under(""));
+                let Ok(()) = self.set_prompt(NO_WORD, Under(""));
             }
         }
 
@@ -312,7 +302,7 @@ impl Card {
         let Ok(every) = every(&table);
         let Ok(said) = aloud(onto);
 
-        let Ok(moved) = jobs.adding(&every, &self.part.slug, onto);
+        let Ok(moved) = jobs.add(&every, &self.part.slug, onto);
         let on = format!("{} is {}", self.part.does, said);
 
         match moved {
@@ -377,7 +367,7 @@ impl Card {
             .map_or_else(|| slug.to_string(), |part| part.does.clone()))
     }
 
-    fn said(&mut self, saying: &str, under: Under<'_>) -> Result<(), Never> {
+    fn set_prompt(&mut self, saying: &str, under: Under<'_>) -> Result<(), Never> {
         let under = under.0;
 
         self.saying = saying.to_string();
@@ -466,16 +456,16 @@ fn font(tall: u32) -> Result<Font, Never> {
     Ok(Font { family: FONT.to_string(), height: tall })
 }
 
-fn drawn(card: &Card, room: Size<u32>, wearing: &Wearing) -> Result<Vec<Shape>, Never> {
+fn render(card: &Card, room: Size<u32>, wearing: &Wearing) -> Result<Vec<Shape>, Never> {
     let Ok(saying_font) = font(SAYING_TALL);
     let Ok(hint_font) = font(HINT_TALL);
     let wide = WIDEST.min(room.width);
 
-    let saying = painting::measured(
+    let saying = painting::measure_text(
         Run { said: &card.saying, weight: Weight::Bold, width: wide },
         &saying_font,
     )?;
-    let hint = painting::measured(
+    let hint = painting::measure_text(
         Run { said: &card.hint, weight: Weight::Plain, width: wide },
         &hint_font,
     )?;
@@ -573,7 +563,7 @@ fn raised(part: Part, parts: Vec<Part>) -> Result<(), Never> {
         }
     }
 
-    let mut card = Card {
+    let card = Card {
         effect: Action::Settling,
         since: Instant::now(),
         part,
@@ -583,44 +573,53 @@ fn raised(part: Part, parts: Vec<Part>) -> Result<(), Never> {
         hint: "\u{2026}".to_string(),
     };
 
-    let mut drew: Option<Vec<Shape>> = None;
-
-    loop {
-        let Ok(turned) = card.turn();
-
-        match turned {
-            Turned::Over => return Ok(()),
-            Turned::Again => {},
-        }
-
-        let logical = match surface.logical() {
-            Ok(Some(logical)) => logical,
-            Ok(None) => {
-                let _ = surface.wait(&[], Some(A_FRAME));
-
-                continue;
-            }
-            Err(_the_compositor_has_gone) => return Ok(()),
-        };
-
-        let Ok(shapes) = drawn(&card, logical, &wearing);
-
-        match drew.as_ref() == Some(&shapes) {
-            true => {},
-            false => {
-                let _ = surface.resize(logical);
-
-                let _ = surface.draw(|pixels, device, _scale| {
-                    let frame = Frame { device, points: logical };
-                    let _ = painting::onto(pixels, frame, &shapes);
-
-                    Ok(())
-                });
-
-                drew = Some(shapes);
-            }
-        }
-
-        let _ = surface.wait(&[], Some(A_FRAME));
+    match console_core_iteration::iterate((card, Rendered::default(), surface), |(card, drew, surface)| {
+        framed(card, drew, surface, &wearing)
+    }) {
+        Ok(()) => {},
+        Err(_endless) => {},
     }
+
+    Ok(())
+}
+
+fn framed(
+    mut card: Card,
+    mut drew: Rendered,
+    mut surface: Surface,
+    wearing: &Wearing,
+) -> Result<Step<(Card, Rendered, Surface), ()>, Never> {
+    let Ok(turned) = card.turn();
+
+    match turned {
+        Turned::Over => return Ok(Step::Halt(())),
+        Turned::Again => {},
+    }
+
+    let logical = match surface.logical() {
+        Ok(Some(logical)) => logical,
+        Ok(None) => {
+            let _ = surface.wait(&[], Some(A_FRAME));
+
+            return Ok(Step::Again((card, drew, surface)));
+        }
+        Err(_the_compositor_has_gone) => return Ok(Step::Halt(())),
+    };
+
+    let Ok(shapes) = render(&card, logical, wearing);
+
+    let Ok(wanted) = drew.wanted(shapes);
+
+    match wanted {
+        Some(shapes) => {
+            let _ = surface.resize(logical);
+            let Ok(painting) = painter(logical, shapes, "console-asking");
+            let _ = surface.draw(painting);
+        }
+        None => {},
+    }
+
+    let _ = surface.wait(&[], Some(A_FRAME));
+
+    Ok(Step::Again((card, drew, surface)))
 }

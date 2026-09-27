@@ -35,7 +35,7 @@
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_internal_programs::CONFIRM_DOES;
-use console_core_places::{Base, OURS};
+use console_core_places::{Base, APPLICATION};
 use console_program_contract::{
     Arguments, Choice, Effect, Exit, Initial, Program, Prompt, Command, Update, ExitStatus, Event,
 };
@@ -63,7 +63,7 @@ pub fn homes() -> Result<Vec<(String, String)>, Never> {
 
     Ok(under
         .chain([BESIDE.to_string()])
-        .map(|under| (format!("{under}/{THEN}"), format!("{under}/{OURS}")))
+        .map(|under| (format!("{under}/{THEN}"), format!("{under}/{APPLICATION}")))
         .collect())
 }
 
@@ -254,7 +254,7 @@ fn at(
         }
 
         (Step::Naming, Event::Replied(answer)) => {
-            let Ok(asked) = standing(&answer.output);
+            let Ok(asked) = parse_tree(&answer.output);
             let going = Going { tree: asked, ..going.clone() };
 
             let Ok(runs) = theirs(&going, "systemctl --user list-unit-files --no-legend");
@@ -269,8 +269,8 @@ fn at(
         }
 
         (Step::Listing, Event::Replied(answer)) => {
-            let Ok(old) = named(&answer.output, Like("legion"));
-            let Ok(new) = named(&answer.output, Like("console"));
+            let Ok(old) = names_like(&answer.output, Like("legion"));
+            let Ok(new) = names_like(&answer.output, Like("console"));
             let going = Going { old: old.clone(), ..going.clone() };
 
             let Ok(said) = looking_in_a_home();
@@ -553,7 +553,7 @@ fn the_old_units(going: &Going) -> Result<Vec<Piece>, Never> {
 fn the_directories(going: &Going) -> Result<Vec<Piece>, Never> {
     let mut every = Vec::new();
 
-    let Ok(next) = saying("\n== the tree and the directories");
+    let Ok(next) = message_piece("\n== the tree and the directories");
     every.push(next);
 
     match going.tree {
@@ -592,7 +592,7 @@ fn the_directories(going: &Going) -> Result<Vec<Piece>, Never> {
 fn the_old_names(going: &Going) -> Result<Vec<Piece>, Never> {
     let mut every = Vec::new();
 
-    let Ok(next) = saying("\n== the old names");
+    let Ok(next) = message_piece("\n== the old names");
     every.push(next);
 
     for (into, patterns) in SWEPT {
@@ -622,7 +622,7 @@ fn the_new_units(going: &Going) -> Result<Vec<Piece>, Never> {
 }
 
 fn under(going: &Going, heading: &str, asked: impl Iterator<Item = String>) -> Result<Vec<Piece>, Never> {
-    let Ok(said) = saying(heading);
+    let Ok(said) = message_piece(heading);
 
     Ok(std::iter::once(said)
         .chain(asked.map(|command| {
@@ -667,7 +667,7 @@ fn nothing_to_do(going: &Going) -> Result<Option<String>, Never> {
     })
 }
 
-fn standing(said: &str) -> Result<Tree, Never> {
+fn parse_tree(said: &str) -> Result<Tree, Never> {
     let Ok(words) = lines(said);
     let now = words.iter().any(|word| word == "now");
     let was = words.iter().any(|word| word == "was");
@@ -690,7 +690,7 @@ pub fn where_(tree: Tree) -> Result<&'static str, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Like<'a>(&'a str);
 
-fn named(said: &str, like: Like<'_>) -> Result<Vec<String>, Never> {
+fn names_like(said: &str, like: Like<'_>) -> Result<Vec<String>, Never> {
     Ok(said.lines()
         .filter_map(|line| line.split_whitespace().next())
         .filter(|name| name.starts_with(like.0))
@@ -778,8 +778,8 @@ const DOES: &str = "Rename";
 
 fn carding(going: &Going) -> Result<Command, Never> {
     let Ok(named) = card();
-    let Ok(quoted) = reaching::quoted(ASKS);
-    let Ok(does) = reaching::quoted(DOES);
+    let Ok(quoted) = reaching::shell_quote(ASKS);
+    let Ok(does) = reaching::shell_quote(DOES);
 
     let card = format!(
         "command -v {named} >/dev/null || exit {NO_CARD}; {CONFIRM_DOES}={does} exec {named} {quoted}"
@@ -819,7 +819,7 @@ fn letting(runs: Command) -> Result<Piece, Never> {
     Ok(Piece { says: None, runs, shown: Shown::Back, matters: Matters::No })
 }
 
-fn saying(says: &str) -> Result<Piece, Never> {
+fn message_piece(says: &str) -> Result<Piece, Never> {
     let runs = Command::external(ExternalProgram::True, &[])?;
 
     Ok(Piece {
@@ -842,12 +842,13 @@ fn stopped(step: &Step, going: &Going, why: &str) -> Result<Update<Migrating, co
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, Trace, run};
+    use console_program_contract::{Answer, run};
 
     use super::*;
+    use std::error::Error;
 
-    fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Option<u32> {
-        (0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at)
+    fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Result<Option<u32>, Never> {
+        Ok((0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at))
     }
 
     #[test]
@@ -871,18 +872,12 @@ mod tests {
         );
 
         for (was, now) in homes {
-            assert_eq!(now, was.replace(THEN, OURS), "a move that renames more than the name");
+            assert_eq!(now, was.replace(THEN, APPLICATION), "a move that renames more than the name");
         }
     }
 
-    fn effects(said: &Trace<Migrating, Never, Never>) -> Vec<Effect<Never>> {
-        let Ok(effects) = said.effects();
-
-        effects
-    }
-
-    fn going() -> Going {
-        Going {
+    fn going() -> Result<Going, Never> {
+        Ok(Going {
             host: "root@handheld".to_string(),
             how: How::Yes,
             whom: "someone".to_string(),
@@ -890,56 +885,64 @@ mod tests {
             tree: Tree::Was,
             old: vec!["legion-bar.service".to_string()],
             attic: "/var/tmp/console-migration-20260829-234115".to_string(),
+        })
+    }
+
+    #[derive(Clone, Copy)]
+    enum Reply {
+        Success(&'static str),
+        Failure(i32),
+    }
+
+    fn replies(given: &[Reply]) -> Result<Vec<Event<Never>>, Never> {
+        let Ok(runs) = Command::external(ExternalProgram::Ssh, &["root@handheld", "true"]);
+        let mut events = vec![Event::Opened];
+
+        for reply in given {
+            let (output, status) = match *reply {
+                Reply::Success(said) => (said.to_string(), ExitStatus::Success),
+                Reply::Failure(code) => (String::new(), ExitStatus::Failure(Some(code))),
+            };
+
+            events.push(Event::Replied(Answer { command: runs.clone(), output, status }));
         }
+
+        Ok(events)
     }
 
-    fn well(said: &str) -> Event<console_core_never::Never> {
-        let Ok(runs) = Command::external(ExternalProgram::Ssh, &["root@handheld", "true"]);
-        Event::Replied(Answer {
-            command: runs,
-            output: said.to_string(),
-            status: ExitStatus::Success,
-        })
+    const LOOKING: [Reply; 6] = [
+        Reply::Success("someone"),
+        Reply::Success("1000"),
+        Reply::Success("was"),
+        Reply::Success("legion-bar.service enabled\nconsole-bar.service enabled\n"),
+        Reply::Success(""),
+        Reply::Success("/usr/local/bin/legion-bar"),
+    ];
+
+    fn looking(then: &[Reply]) -> Result<Vec<Event<Never>>, Never> {
+        let every: Vec<Reply> = LOOKING.iter().chain(then).copied().collect();
+
+        replies(&every)
     }
 
-    fn badly(code: i32) -> Event<console_core_never::Never> {
-        let Ok(runs) = Command::external(ExternalProgram::Ssh, &["root@handheld", "true"]);
-        Event::Replied(Answer {
-            command: runs,
-            output: String::new(),
-            status: ExitStatus::Failure(Some(code)),
-        })
-    }
-
-    fn words(going: &Going) -> Vec<String> {
+    fn words(going: &Going) -> Result<Vec<String>, Never> {
         let Ok(plan) = plan(going);
 
-        plan.iter().map(|piece| piece.runs.arguments.join(" ")).collect()
+        Ok(plan.iter().map(|piece| piece.runs.arguments.join(" ")).collect())
     }
 
-    fn where_in(going: &Going, like: &str) -> Option<u32> {
-        position(&words(going), |word| word.contains(like))
-    }
+    fn where_in(going: &Going, like: &str) -> Result<Option<u32>, Never> {
+        let Ok(words) = words(going);
 
-    fn looking(how: &[&str]) -> Vec<Event<console_core_never::Never>> {
-        let _ = how;
-
-        vec![
-            Event::Opened,
-            well("someone"),
-            well("1000"),
-            well("was"),
-            well("legion-bar.service enabled\nconsole-bar.service enabled\n"),
-            well(""),
-            well("/usr/local/bin/legion-bar"),
-        ]
+        position(&words, |word| word.contains(like))
     }
 
     #[test]
     fn a_machine_that_names_no_device_reaches_for_nothing() {
         let Ok(said) = run::<Migrate>(&Arguments::default(), &[Event::Opened]);
+        let Ok(effects) = said.effects();
 
-        assert!(effects(&said).iter().all(|effect| !matches!(effect, Effect::Run(_))));
+        assert!(effects.iter().all(|effect| !matches!(effect, Effect::Run(_))));
     }
 
     #[test]
@@ -948,9 +951,10 @@ mod tests {
         given.dedup();
 
         let Ok(arguments) = Arguments::of(&given);
-        let Ok(said) = run::<Migrate>(&arguments, &looking(&[]));
-        let asked: Vec<String> = effects(&said)
-                
+        let Ok(events) = looking(&[]);
+        let Ok(said) = run::<Migrate>(&arguments, &events);
+        let Ok(effects) = said.effects();
+        let asked: Vec<String> = effects
             .iter()
             .filter_map(|effect| match effect {
                 Effect::Run(runs) | Effect::Stream(runs) => runs.arguments.last().cloned(),
@@ -968,116 +972,111 @@ mod tests {
 
         assert!(asked.iter().all(|word| !word.contains("mv ")), "a check moved something");
         assert!(asked.iter().all(|word| !word.contains("disable")), "a check stopped a unit");
-        assert!(matches!(effects(&said).last(), Some(Effect::Stop(Exit::Success))));
+        assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Success))));
     }
 
     #[test]
     fn a_machine_already_on_the_new_names_is_told_so_and_left_alone() {
         let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
-        let Ok(said) = run::<Migrate>(
-            &arguments,
-            &[
-                Event::Opened,
-                well("someone"),
-                well("1000"),
-                well("now"),
-                well("console-bar.service enabled\n"),
-                well(""),
-                well(""),
-            ],
-        );
+        let Ok(events) = replies(&[
+            Reply::Success("someone"),
+            Reply::Success("1000"),
+            Reply::Success("now"),
+            Reply::Success("console-bar.service enabled\n"),
+            Reply::Success(""),
+            Reply::Success(""),
+        ]);
+        let Ok(said) = run::<Migrate>(&arguments, &events);
+        let Ok(effects) = said.effects();
 
-        assert!(matches!(effects(&said).last(), Some(Effect::Stop(Exit::Success))));
+        assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Success))));
         assert!(
-            effects(&said).iter().any(|effect| matches!(effect, Effect::Print(line)
+            effects.iter().any(|effect| matches!(effect, Effect::Print(line)
                 if line.contains("already called console")))
         );
     }
 
     #[test]
     fn a_tree_with_uncommitted_work_is_refused_before_the_desktop_goes_down() {
-        let mut said = looking(&[]);
-        said.push(well(" M justfile\n"));
+        let Ok(said) = looking(&[Reply::Success(" M justfile\n")]);
 
         let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
         let Ok(said) = run::<Migrate>(&arguments, &said);
+        let Ok(effects) = said.effects();
 
-        assert!(matches!(effects(&said).last(), Some(Effect::Stop(Exit::Failure(_)))));
+        assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Failure(_)))));
     }
 
     #[test]
     fn a_browser_that_is_running_is_refused_because_its_profile_moves() {
-        let mut said = looking(&[]);
-        said.push(well(""));
-        said.push(well("4242"));
+        let Ok(said) = looking(&[Reply::Success(""), Reply::Success("4242")]);
 
         let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
         let Ok(said) = run::<Migrate>(&arguments, &said);
+        let Ok(effects) = said.effects();
 
         assert!(
-            matches!(effects(&said).last(), Some(Effect::Stop(Exit::Failure(why)))
+            matches!(effects.last(), Some(Effect::Stop(Exit::Failure(why)))
                 if why.contains("librewolf"))
         );
     }
 
     #[test]
     fn without_a_yes_the_question_goes_to_the_device_and_no_does_nothing() {
-        let mut said = looking(&[]);
-        said.push(well(""));
-        said.push(badly(1));
-        said.push(badly(SAID_NO));
+        let Ok(said) = looking(&[Reply::Success(""), Reply::Failure(1), Reply::Failure(SAID_NO)]);
 
         let Ok(arguments) = Arguments::of(&["root@handheld"]);
         let Ok(said) = run::<Migrate>(&arguments, &said);
+        let Ok(effects) = said.effects();
 
         assert!(
-            matches!(effects(&said).last(), Some(Effect::Stop(Exit::Failure(why)))
+            matches!(effects.last(), Some(Effect::Stop(Exit::Failure(why)))
                 if why == "nothing done")
         );
     }
 
     #[test]
     fn a_device_with_no_card_to_raise_asks_at_this_terminal_instead() {
-        let mut said = looking(&[]);
-        said.push(well(""));
-        said.push(badly(1));
-        said.push(badly(NO_CARD));
+        let Ok(said) = looking(&[Reply::Success(""), Reply::Failure(1), Reply::Failure(NO_CARD)]);
 
         let Ok(arguments) = Arguments::of(&["root@handheld"]);
         let Ok(said) = run::<Migrate>(&arguments, &said);
+        let Ok(effects) = said.effects();
 
-        assert!(effects(&said).iter().any(|effect| matches!(effect, Effect::Prompt(_))));
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Prompt(_))));
     }
 
     #[test]
     fn the_history_reaches_the_tree_where_it_still_stands_before_the_engine_is_built() {
-        let going = going();
-        let pushed = where_in(&going, "HEAD:master");
-        let built = where_in(&going, "cargo build");
+        let Ok(going) = going();
+        let Ok(pushed) = where_in(&going, "HEAD:master");
+        let Ok(built) = where_in(&going, "cargo build");
 
         assert!(pushed.is_some_and(|pushed| built.is_some_and(|built| pushed < built)));
+        let Ok(words) = words(&going);
+
         assert!(
-            words(&going).iter().any(|word| word.contains(&format!("ssh://root@handheld{WAS}"))),
+            words.iter().any(|word| word.contains(&format!("ssh://root@handheld{WAS}"))),
             "the history was pushed to a path the tree is not at yet"
         );
     }
 
     #[test]
     fn the_engine_is_built_at_the_old_path_and_installed_before_the_tree_moves() {
-        let going = going();
-        let put = where_in(&going, "install -m 755");
-        let moved = where_in(&going, &format!("mv {WAS} {TREE}"));
+        let Ok(going) = going();
+        let Ok(put) = where_in(&going, "install -m 755");
+        let Ok(moved) = where_in(&going, &format!("mv {WAS} {TREE}"));
 
         assert!(put.is_some_and(|put| moved.is_some_and(|moved| put < moved)));
     }
 
     #[test]
     fn every_old_unit_goes_down_before_the_tree_moves_under_it() {
-        let going = going();
-        let moved = where_in(&going, &format!("mv {WAS} {TREE}"));
+        let Ok(going) = going();
+        let Ok(moved) = where_in(&going, &format!("mv {WAS} {TREE}"));
 
         for unit in UNITS {
-            let down = where_in(&going, &format!("disable --now legion-{unit}.service"));
+            let Ok(down) = where_in(&going, &format!("disable --now legion-{unit}.service"));
 
             assert!(down.is_some(), "legion-{unit} was never stopped");
             assert!(down.is_some_and(|down| moved.is_some_and(|moved| down < moved)));
@@ -1086,20 +1085,21 @@ mod tests {
 
     #[test]
     fn the_apply_happens_after_the_directories_have_moved_and_before_the_sweep() {
-        let going = going();
-        let moved = where_in(&going, ".config/legion");
-        let applied = where_in(&going, "console apply");
-        let swept = where_in(&going, "/usr/local/bin/legion-*");
+        let Ok(going) = going();
+        let Ok(moved) = where_in(&going, ".config/legion");
+        let Ok(applied) = where_in(&going, "console apply");
+        let Ok(swept) = where_in(&going, "/usr/local/bin/legion-*");
 
         assert!(moved.is_some_and(|moved| applied.is_some_and(|applied| moved < applied)));
         assert!(applied.is_some_and(|applied| swept.is_some_and(|swept| applied < swept)));
     }
 
     #[test]
-    fn everything_swept_goes_into_the_attic_and_nothing_is_deleted() {
-        let going = going();
+    fn everything_swept_goes_into_the_attic_and_nothing_is_deleted() -> Result<(), Box<dyn Error>> {
+        let Ok(going) = going();
+        let Ok(words) = words(&going);
 
-        for word in words(&going) {
+        for word in &words {
             assert!(
                 !word.contains("rm -rf") && !word.split_whitespace().any(|part| part == "rm"),
                 "the migration deleted something: {word}"
@@ -1107,24 +1107,26 @@ mod tests {
         }
 
         for (_, patterns) in SWEPT {
-            let first = patterns.split_whitespace().next().unwrap_or_default();
+            let first = patterns.split_whitespace().next().ok_or("an empty pattern")?;
 
             assert!(
-                words(&going).iter().find(|word| word.contains(first)).is_some_and(|word| word.contains(&going.attic)),
+                words.iter().find(|word| word.contains(first)).is_some_and(|word| word.contains(&going.attic)),
                 "{first} was not swept into the attic"
             );
         }
+
+        Ok(())
     }
 
     #[test]
     fn the_new_units_are_enabled_last_and_the_target_last_of_all() {
-        let going = going();
-        let every = words(&going);
-        let swept = where_in(&going, "/etc/systemd/user/legion.target");
-        let target = position(&every, |word| word.contains("enable --now console.target"));
+        let Ok(going) = going();
+        let Ok(every) = words(&going);
+        let Ok(swept) = where_in(&going, "/etc/systemd/user/legion.target");
+        let Ok(target) = position(&every, |word| word.contains("enable --now console.target"));
 
         for unit in UNITS {
-            let up = where_in(&going, &format!("enable console-{unit}.service"));
+            let Ok(up) = where_in(&going, &format!("enable console-{unit}.service"));
 
             assert!(up.is_some_and(|up| swept.is_some_and(|swept| swept < up)));
             assert!(up.is_some_and(|up| target.is_some_and(|target| up < target)));
@@ -1136,32 +1138,30 @@ mod tests {
 
     #[test]
     fn syncthing_goes_down_with_the_target_that_pulled_it_and_comes_back_with_the_new_one() {
-        let going = going();
-        let down = where_in(&going, "disable --now syncthing.service");
-        let up = where_in(&going, "enable syncthing.service");
+        let Ok(going) = going();
+        let Ok(down) = where_in(&going, "disable --now syncthing.service");
+        let Ok(up) = where_in(&going, "enable syncthing.service");
 
         assert!(down.is_some_and(|down| up.is_some_and(|up| down < up)));
     }
 
     #[test]
     fn a_machine_already_at_the_new_path_is_not_asked_to_move_a_tree_that_is_not_there() {
-        let going = Going { tree: Tree::Now, ..going() };
+        let Ok(was) = going();
+        let going = Going { tree: Tree::Now, ..was };
 
-        assert!(where_in(&going, &format!("mv {WAS}")).is_none());
-        assert!(where_in(&going, "console apply").is_some());
+        assert_eq!(where_in(&going, &format!("mv {WAS}")), Ok(None));
+        assert!(matches!(where_in(&going, "console apply"), Ok(Some(_))));
     }
 
     #[test]
     fn a_step_that_matters_stops_the_migration_where_it_stands() {
-        let mut said = looking(&[]);
-        said.push(well(""));
-        said.push(badly(1));
-        said.push(well("/var/tmp/console-migration-20260829-234115"));
-        said.push(badly(1));
+        let Ok(said) = looking(&[Reply::Success(""), Reply::Failure(1), Reply::Success("/var/tmp/console-migration-20260829-234115"), Reply::Failure(1)]);
 
         let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
         let Ok(said) = run::<Migrate>(&arguments, &said);
+        let Ok(effects) = said.effects();
 
-        assert!(matches!(effects(&said).last(), Some(Effect::Stop(Exit::Failure(_)))));
+        assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Failure(_)))));
     }
 }

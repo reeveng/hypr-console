@@ -35,7 +35,7 @@ use console_program_contract::Topic;
 use console_program_lifetime::threads;
 
 use crate::bus;
-use crate::sources::{ADAPTER, BLUEZ, NOTIFICATIONS, OURS, SCANNED};
+use crate::sources::{ADAPTER, BLUEZ, NOTIFICATIONS, APPLICATION, SCANNED};
 use crate::subscription::{self, Received, Subscriber};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,20 +46,20 @@ pub enum Worth {
 
 pub type Worthwhile = fn(&str) -> Result<Worth, Never>;
 
-pub fn anything(_every_line_is_a_reason: &str) -> Result<Worth, Never> {
+pub fn always(_every_line_is_a_reason: &str) -> Result<Worth, Never> {
     Ok(Worth::Querying)
 }
 
 pub fn layers(say: Sender<()>) -> Result<(), Never> {
     let Ok(subscriber) = subscription::connect(&[Topic::Compositor]);
 
-    saying(subscriber, surfaces, say)
+    forward(subscriber, surfaces, say)
 }
 
 pub fn about(topic: &Topic, worth: Worthwhile, say: Sender<()>) -> Result<(), Never> {
     let Ok(subscriber) = subscription::connect(std::slice::from_ref(topic));
 
-    saying(subscriber, worth, say)
+    forward(subscriber, worth, say)
 }
 
 pub fn sound(line: &str) -> Result<Worth, Never> {
@@ -81,7 +81,7 @@ pub fn notifications(line: &str) -> Result<Worth, Never> {
     };
 
     Ok(match (said.interface, said.member) {
-        (OURS | NOTIFICATIONS, _something_happened) => Worth::Querying,
+        (APPLICATION | NOTIFICATIONS, _something_happened) => Worth::Querying,
         (_someone_elses_conversation, _member) => Worth::Ignoring,
     })
 }
@@ -129,7 +129,7 @@ fn surfaces(line: &str) -> Result<Worth, Never> {
     })
 }
 
-fn saying(subscriber: Subscriber, worth: Worthwhile, say: Sender<()>) -> Result<(), Never> {
+fn forward(subscriber: Subscriber, worth: Worthwhile, say: Sender<()>) -> Result<(), Never> {
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
         let Ok(received) = subscriber.received();
 

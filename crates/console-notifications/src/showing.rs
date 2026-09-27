@@ -324,30 +324,35 @@ mod tests {
         assert_eq!(filled(4000), x());
     }
 
-    const SPENT: &str = "panel=372c3a\ntext=f7e7f3\nedge=8a7d8e\nsoft=e5cde0\ncoral=ff8f8f\nground=231b26\nfill=723b5f\nnight=1a1320\npink=f9b8d8";
+    pub(super) fn wearing() -> Result<Wearing, PaletteError> {
+        let mut spent = BTreeMap::new();
 
-    pub(super) fn wearing() -> Wearing {
-        let Ok(spent) = console_core_color::palette::read(SPENT);
-
-        match Wearing::out_of(&spent) {
-            Ok(wearing) => wearing,
-            Err(why) => panic!("a whole palette should dress a card: {why}"),
+        for (named, six) in [
+            ("panel", "372c3a"),
+            ("text", "f7e7f3"),
+            ("edge", "8a7d8e"),
+            ("soft", "e5cde0"),
+            ("coral", "ff8f8f"),
+            ("ground", "231b26"),
+            ("fill", "723b5f"),
+            ("night", "1a1320"),
+            ("pink", "f9b8d8"),
+        ] {
+            spent.insert(named.to_string(), six.to_string());
         }
+
+        Wearing::out_of(&spent)
     }
 
-    pub(super) fn measured() -> Measured {
-        Measured { summary: Size { width: 280, height: 20 }, body: None }
-    }
+    pub(super) const MEASURED: Measured = Measured { summary: Size { width: 280, height: 20 }, body: None };
 
-    pub(super) fn saying() -> CardContent<'static> {
-        CardContent {
-            id: 1,
-            summary: "something happened",
-            body: "",
-            urgency: Urgency::Normal,
-            value: None,
-        }
-    }
+    pub(super) const SAYING: CardContent<'static> = CardContent {
+        id: 1,
+        summary: "something happened",
+        body: "",
+        urgency: Urgency::Normal,
+        value: None,
+    };
 
     #[test]
     fn a_palette_missing_a_color_names_it_rather_than_drawing_in_black() {
@@ -376,43 +381,50 @@ mod tests {
 
     #[test]
     fn a_card_is_its_edges_its_padding_and_what_it_says() {
-        let Ok(down) = height(&measured(), None);
+        let Ok(y) = height(&MEASURED, None);
 
         let Ok(padding) = twice(PAD);
         let Ok(edges) = twice(EDGE);
 
-        assert_eq!(down, 20 + padding + edges);
+        assert_eq!(y, padding.saturating_add(edges).saturating_add(20));
     }
 
     #[test]
     fn a_reading_makes_a_card_taller_by_the_bar_and_the_gap_over_it() {
-        let Ok(without) = height(&measured(), None);
-        let Ok(with) = height(&measured(), Some(50));
+        let Ok(without) = height(&MEASURED, None);
+        let Ok(with) = height(&MEASURED, Some(50));
 
         let Ok(gap) = gap();
         let Ok(deep) = deep();
 
-        assert_eq!(with - without, gap + deep);
+        assert_eq!(with.saturating_sub(without), gap.saturating_add(deep));
     }
 
     #[test]
-    fn a_card_with_nothing_but_a_summary_is_a_panel_and_a_run_of_words() {
-        let Ok(card) = card(&saying(), &measured(), &wearing(), Point { x: 0, y: 0 });
+    fn a_card_with_nothing_but_a_summary_is_a_panel_and_a_run_of_words() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let Ok(card) = card(&SAYING, &MEASURED, &wearing, Point { x: 0, y: 0 });
 
         assert_eq!(card.shapes.len(), 2, "{:?}", card.shapes);
+
+        Ok(())
     }
 
     #[test]
-    fn a_reading_adds_the_bar_and_the_fill_over_it() {
-        let saying = CardContent { value: Some(50), ..saying() };
-        let Ok(card) = card(&saying, &measured(), &wearing(), Point { x: 0, y: 0 });
+    fn a_reading_adds_the_bar_and_the_fill_over_it() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let saying = CardContent { value: Some(50), ..SAYING };
+        let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
 
         assert_eq!(card.shapes.len(), 4, "{:?}", card.shapes);
+
+        Ok(())
     }
 
     #[test]
-    fn what_a_card_says_starts_inside_its_edge_and_its_padding() {
-        let Ok(card) = card(&saying(), &measured(), &wearing(), Point { x: 0, y: 0 });
+    fn what_a_card_says_starts_inside_its_edge_and_its_padding() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let Ok(card) = card(&SAYING, &MEASURED, &wearing, Point { x: 0, y: 0 });
         let inset = EDGE.saturating_add(PAD);
         let words = card.shapes.iter().find_map(|shape| match shape {
             Shape::Text(words) => Some(words.at),
@@ -420,26 +432,32 @@ mod tests {
         });
 
         assert_eq!(words, Some(Point { x: inset, y: inset }));
+
+        Ok(())
     }
 
     #[test]
-    fn a_low_notification_wears_the_soft_color_on_both_its_edge_and_its_words() {
-        let saying = CardContent { urgency: Urgency::Low, ..saying() };
-        let Ok(card) = card(&saying, &measured(), &wearing(), Point { x: 0, y: 0 });
-        let worn = wearing();
+    fn a_low_notification_wears_the_soft_color_on_both_its_edge_and_its_words() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let saying = CardContent { urgency: Urgency::Low, ..SAYING };
+        let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
+        let worn = &wearing;
         let ink = card.shapes.iter().find_map(|shape| match shape {
             Shape::Text(words) => Some(words.ink),
             Shape::Panel(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
         });
 
         assert_eq!(ink, Some(worn.soft));
+
+        Ok(())
     }
 
     #[test]
-    fn a_critical_notification_wears_coral_on_its_edge_and_keeps_its_words_readable() {
-        let saying = CardContent { urgency: Urgency::Critical, ..saying() };
-        let Ok(card) = card(&saying, &measured(), &wearing(), Point { x: 0, y: 0 });
-        let worn = wearing();
+    fn a_critical_notification_wears_coral_on_its_edge_and_keeps_its_words_readable() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let saying = CardContent { urgency: Urgency::Critical, ..SAYING };
+        let Ok(card) = card(&saying, &MEASURED, &wearing, Point { x: 0, y: 0 });
+        let worn = &wearing;
         let edge = card.shapes.iter().find_map(|shape| match shape {
             Shape::Panel(panel) => Some(panel.edge),
             Shape::Text(_) | Shape::Picture(_) | Shape::Cropped(_) | Shape::Line(_) | Shape::Clip(_) => None,
@@ -451,78 +469,97 @@ mod tests {
 
         assert!(matches!(edge, Some(console_core_shapes::Edge::Of { color, .. }) if color == worn.coral));
         assert_eq!(ink, Some(worn.text));
+
+        Ok(())
     }
 
     #[test]
-    fn no_more_than_three_cards_are_ever_drawn() {
+    fn no_more_than_three_cards_are_ever_drawn() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
         let said: Vec<(CardContent<'_>, Measured)> =
-            (0..6).map(|_| (saying(), measured())).collect();
-        let Ok(stack) = cards(&said, &wearing());
+            (0..6).map(|_| (SAYING, MEASURED)).collect();
+        let Ok(stack) = cards(&said, &wearing);
 
-        assert_eq!(u32::try_from(stack.shapes.len()).unwrap(), MOST * 2);
-        assert_eq!(u32::try_from(stack.touching.len()).unwrap(), MOST);
+        let Ok(shapes) = fitted::<_, u32>(stack.shapes.len());
+        let Ok(touching) = fitted::<_, u32>(stack.touching.len());
+
+        assert_eq!(shapes, MOST.saturating_mul(2));
+        assert_eq!(touching, MOST);
+
+        Ok(())
     }
 
     #[test]
-    fn a_thumb_on_the_second_card_is_on_the_second_card_and_not_the_first() {
-        let first = CardContent { id: 7, ..saying() };
-        let second = CardContent { id: 9, ..saying() };
-        let said = vec![(first, measured()), (second, measured())];
-        let Ok(stack) = cards(&said, &wearing());
-        let Ok(one) = height(&measured(), None);
+    fn a_thumb_on_the_second_card_is_on_the_second_card_and_not_the_first() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let first = CardContent { id: 7, ..SAYING };
+        let second = CardContent { id: 9, ..SAYING };
+        let said = vec![(first, MEASURED), (second, MEASURED)];
+        let Ok(stack) = cards(&said, &wearing);
+        let Ok(one) = height(&MEASURED, None);
         let Ok(gap) = gap();
         let Ok(into) = fitted::<u32, i32>(one.saturating_add(gap).saturating_add(2));
         let Ok(found) = stack.on(Point { x: 10, y: into });
 
         assert_eq!(found, Some(9));
+
+        Ok(())
     }
 
     #[test]
-    fn a_thumb_in_the_gap_between_two_cards_is_on_neither() {
-        let said = vec![(saying(), measured()), (CardContent { id: 9, ..saying() }, measured())];
-        let Ok(stack) = cards(&said, &wearing());
-        let Ok(one) = height(&measured(), None);
+    fn a_thumb_in_the_gap_between_two_cards_is_on_neither() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let said = vec![(SAYING, MEASURED), (CardContent { id: 9, ..SAYING }, MEASURED)];
+        let Ok(stack) = cards(&said, &wearing);
+        let Ok(one) = height(&MEASURED, None);
         let Ok(into) = fitted::<u32, i32>(one.saturating_add(1));
         let Ok(found) = stack.on(Point { x: 10, y: into });
 
         assert_eq!(found, None);
+
+        Ok(())
     }
 
     #[test]
-    fn a_stack_of_cards_is_as_tall_as_the_cards_and_the_gaps_between_them() {
-        let said = vec![(saying(), measured()), (saying(), measured())];
-        let Ok(stack) = cards(&said, &wearing());
-        let Ok(one) = height(&measured(), None);
-        let Ok(wide) = fitted::<i32, u32>(WIDE);
+    fn a_stack_of_cards_is_as_tall_as_the_cards_and_the_gaps_between_them() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
+        let said = vec![(SAYING, MEASURED), (SAYING, MEASURED)];
+        let Ok(stack) = cards(&said, &wearing);
+        let Ok(one) = height(&MEASURED, None);
+        let Ok(width) = fitted::<i32, u32>(WIDE);
 
         let Ok(gap) = gap();
 
-        assert_eq!(stack.room.height, one * 2 + gap);
-        assert_eq!(stack.room.width, wide);
+        assert_eq!(stack.room.height, one.saturating_mul(2).saturating_add(gap));
+        assert_eq!(stack.room.width, width);
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod the_stack {
     use super::*;
-    use super::tests::{measured, saying, wearing};
+    use super::tests::{MEASURED, SAYING, wearing};
 
     #[test]
-    fn the_last_card_ends_exactly_where_the_stack_does() {
+    fn the_last_card_ends_exactly_where_the_stack_does() -> Result<(), PaletteError> {
+        let wearing = wearing()?;
         let said = vec![
-            (saying(), measured()),
-            (saying(), Measured { summary: Size { width: 280, height: 44 }, body: None }),
-            (saying(), measured()),
+            (SAYING, MEASURED),
+            (SAYING, Measured { summary: Size { width: 280, height: 44 }, body: None }),
+            (SAYING, MEASURED),
         ];
-        let Ok(stack) = cards(&said, &wearing());
+        let Ok(stack) = cards(&said, &wearing);
         let ended = stack.touching.iter().map(|touching| {
-            touching.panel.at.y.saturating_add(
-                console_core_number_conversion::fitted::<u32, i32>(touching.panel.size.height)
-                    .unwrap_or(0),
-            )
+            let Ok(height) = fitted::<u32, i32>(touching.panel.size.height);
+
+            touching.panel.at.y.saturating_add(height)
         }).max();
         let Ok(room) = fitted::<u32, i32>(stack.room.height);
 
         assert_eq!(ended, Some(room), "the stack is not as tall as what is in it");
+
+        Ok(())
     }
 }

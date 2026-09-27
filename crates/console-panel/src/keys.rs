@@ -150,6 +150,7 @@ mod tests {
     #[test]
     fn while_something_is_being_typed_only_back_is_the_panels() {
         assert_eq!(meaning(Keysym::Escape, Driving::Question), Ok(Meaning::Abandon));
+
         for key in [Keysym::BackSpace, Keysym::Down, Keysym::Left, Keysym::Page_Up, Keysym::Return, Keysym::space] {
             assert_eq!(meaning(key, Driving::Question), Ok(Meaning::None));
         }
@@ -175,6 +176,7 @@ mod tests {
         assert_eq!(meaning(Keysym::Page_Down, Driving::Search), Ok(Meaning::Tab(1)));
         assert_eq!(meaning(Keysym::Return, Driving::Search), Ok(Meaning::Choose));
         assert_eq!(meaning(Keysym::Escape, Driving::Search), Ok(Meaning::Close));
+
         for key in [Keysym::BackSpace, Keysym::Left, Keysym::Right, Keysym::space, Keysym::a] {
             assert_eq!(meaning(key, Driving::Search), Ok(Meaning::None));
         }

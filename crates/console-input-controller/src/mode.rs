@@ -45,7 +45,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn seen(screens: &[console_compositor::Layer], awake: Woken) -> Result<Self, Never> {
+    pub fn detect(screens: &[console_compositor::Layer], awake: Woken) -> Result<Self, Never> {
         let Ok(asking) = up(screens, ASKING);
 
         match asking {
@@ -93,14 +93,14 @@ pub enum InputHandling {
 mod tests {
     use super::*;
 
-    fn layers(said: &str) -> Vec<console_compositor::Layer> {
-        let value: serde_json::Value = serde_json::from_str(said).expect("layers");
+    type Failure = Box<dyn std::error::Error>;
 
-        match console_compositor::answer_of(console_compositor::Query::Layers, value) {
-            Ok(console_compositor::Answer::Layers(layers)) => layers,
-            Ok(_other) => Vec::new(),
-            Err(_unreadable) => Vec::new(),
-        }
+    fn seen(said: &str, awake: Woken) -> Result<Mode, Failure> {
+        let value: serde_json::Value = serde_json::from_str(said)?;
+        let layers = console_compositor::said_of(console_compositor::Layers, value)?;
+        let Ok(mode) = Mode::detect(&layers, awake);
+
+        Ok(mode)
     }
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
@@ -108,52 +108,86 @@ mod tests {
         "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
     #[test]
-    fn the_wallpaper_and_the_bar_are_not_somewhere_you_are() {
-        assert_eq!(Mode::seen(&layers(NOTHING_UP), Woken::No), Ok(Mode::Desktop));
+    fn the_wallpaper_and_the_bar_are_not_somewhere_you_are() -> Result<(), Failure> {
+        let mode = seen(NOTHING_UP, Woken::No)?;
+
+        assert_eq!(mode,Mode::Desktop);
+
+        Ok(())
     }
 
     #[test]
-    fn a_panel_over_the_desktop_is_tabs() {
+    fn a_panel_over_the_desktop_is_tabs() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600}],
             "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Tabs));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Tabs);
+
+        Ok(())
     }
 
     #[test]
-    fn a_panel_no_one_told_this_about_is_still_a_panel() {
+    fn a_panel_no_one_told_this_about_is_still_a_panel() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"whatever-panel","h":900}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Tabs));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Tabs);
+
+        Ok(())
     }
 
     #[test]
-    fn the_keyboard_being_up_is_the_keyboard() {
+    fn the_keyboard_being_up_is_the_keyboard() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"console-keyboard","h":520}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Keyboard));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Keyboard);
+
+        Ok(())
     }
 
     #[test]
-    fn the_keyboard_over_a_panel_is_still_the_keyboard() {
+    fn the_keyboard_over_a_panel_is_still_the_keyboard() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[
             {"namespace":"settings-panel","h":1562},
             {"namespace":"console-keyboard","h":520}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Keyboard));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Keyboard);
+
+        Ok(())
     }
 
     #[test]
-    fn a_keyboard_with_no_height_is_not_up() {
+    fn a_keyboard_with_no_height_is_not_up() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "2":[{"namespace":"console-bar","h":40}],
             "3":[{"namespace":"console-keyboard","h":0}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Desktop));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Desktop);
+
+        Ok(())
     }
 
     #[test]
-    fn a_notification_card_is_not_a_panel() {
+    fn a_notification_card_is_not_a_panel() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "2":[{"namespace":"console-bar","h":40}],
             "3":[{"namespace":"notifications","h":140}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Desktop));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Desktop);
+
+        Ok(())
     }
 
     #[test]
@@ -165,81 +199,123 @@ mod tests {
     }
 
     #[test]
-    fn a_compositor_that_says_nothing_leaves_you_on_the_desktop() {
-        assert_eq!(Mode::seen(&layers("{}"), Woken::No), Ok(Mode::Desktop));
+    fn a_compositor_that_says_nothing_leaves_you_on_the_desktop() -> Result<(), Failure> {
+        let mode = seen("{}", Woken::No)?;
+
+        assert_eq!(mode, Mode::Desktop);
         assert_eq!(Mode::default(), Mode::Desktop);
+
+        Ok(())
     }
 
     #[test]
-    fn a_card_asking_which_button_you_pressed_is_the_question() {
+    fn a_card_asking_which_button_you_pressed_is_the_question() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[
             {"namespace":"settings-panel","h":1562},
             {"namespace":"console-asking","h":300}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Prompt));
-        let Ok(asking) = Mode::seen(&layers(said), Woken::No);
+        let asking = seen(said, Woken::No)?;
 
+        assert_eq!(asking, Mode::Prompt);
         assert_eq!(asking.input_handling(), Ok(InputHandling::Disabled));
+
+        Ok(())
     }
 
     #[test]
-    fn the_panel_that_asks_is_a_panel_until_it_asks() {
+    fn the_panel_that_asks_is_a_panel_until_it_asks() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"setup-panel","h":1562}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Tabs));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Tabs);
+
+        Ok(())
     }
 
     #[test]
-    fn a_question_wins_over_a_keyboard_left_up() {
+    fn a_question_wins_over_a_keyboard_left_up() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[
             {"namespace":"console-keyboard","h":520},
             {"namespace":"console-asking","h":300}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Prompt));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Prompt);
+
+        Ok(())
     }
 
     #[test]
-    fn leaving_the_keyboard_over_a_panel_is_the_daemon_reading_again() {
+    fn leaving_the_keyboard_over_a_panel_is_the_daemon_reading_again() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"settings-panel","h":1562}]}}}"#;
-        let Ok(tabs) = Mode::seen(&layers(said), Woken::No);
+        let tabs = seen(said, Woken::No)?;
 
         assert_eq!(tabs, Mode::Tabs);
         assert_eq!(tabs.input_handling(), Ok(InputHandling::Enabled));
+
+        Ok(())
     }
 
     #[test]
-    fn the_home_screen_is_the_desktop_with_the_apps_on_it() {
+    fn the_home_screen_is_the_desktop_with_the_apps_on_it() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
             "2":[{"namespace":"console-bar","h":40}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::HomeScreen));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::HomeScreen);
         assert_eq!(Mode::HomeScreen.input_handling(), Ok(InputHandling::Enabled));
+
+        Ok(())
     }
 
     #[test]
-    fn the_home_screen_with_a_highlight_up_is_somewhere_else_to_be() {
+    fn the_home_screen_with_a_highlight_up_is_somewhere_else_to_be() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
             "2":[{"namespace":"console-bar","h":40}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::Yes), Ok(Mode::Standing));
+
+        let mode = seen(said, Woken::Yes)?;
+
+        assert_eq!(mode,Mode::Standing);
         assert_eq!(Mode::Standing.input_handling(), Ok(InputHandling::Enabled));
+
+        Ok(())
     }
 
     #[test]
-    fn a_panel_over_an_awake_home_screen_is_still_a_panel() {
+    fn a_panel_over_an_awake_home_screen_is_still_a_panel() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
             "2":[{"namespace":"console-bar","h":40},{"namespace":"launcher","h":1562}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::Yes), Ok(Mode::Tabs));
+
+        let mode = seen(said, Woken::Yes)?;
+
+        assert_eq!(mode,Mode::Tabs);
+
+        Ok(())
     }
 
     #[test]
-    fn a_panel_over_the_home_screen_is_still_a_panel() {
+    fn a_panel_over_the_home_screen_is_still_a_panel() -> Result<(), Failure> {
         let said = r#"{"eDP-1":{"levels":{
             "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
             "3":[{"namespace":"launcher","h":1562}]}}}"#;
-        assert_eq!(Mode::seen(&layers(said), Woken::No), Ok(Mode::Tabs));
+
+        let mode = seen(said, Woken::No)?;
+
+        assert_eq!(mode,Mode::Tabs);
+
+        Ok(())
     }
 
     #[test]
-    fn no_home_screen_on_the_screen_is_the_desktop_it_always_was() {
-        assert_eq!(Mode::seen(&layers(NOTHING_UP), Woken::No), Ok(Mode::Desktop));
+    fn no_home_screen_on_the_screen_is_the_desktop_it_always_was() -> Result<(), Failure> {
+        let mode = seen(NOTHING_UP, Woken::No)?;
+
+        assert_eq!(mode,Mode::Desktop);
+
+        Ok(())
     }
 }

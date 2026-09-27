@@ -35,12 +35,12 @@ fn pactl(arguments: &[String]) -> Result<String, Never> {
     Ok(String::from_utf8_lossy(&said.stdout).to_string())
 }
 
-fn said() -> Result<(), Never> {
+fn show_volume() -> Result<(), Never> {
     let level = pactl(&["get-sink-volume".to_string(), rocker::SINK.to_string()])?;
     let mute = pactl(&["get-sink-mute".to_string(), rocker::SINK.to_string()])?;
     let muted = rocker::muted(&mute)?;
     let level = rocker::level(&level)?;
-    let words = rocker::said(level, muted)?;
+    let words = rocker::volume_label(level, muted)?;
 
     let notification = Notification::new(Content { summary: &words, body: "" })?;
     let mut notification = notification.lasting(1500)?;
@@ -56,16 +56,16 @@ fn said() -> Result<(), Never> {
         None => {},
     }
 
-    let kept = StatePath::named("volume")?;
+    let kept = StatePath::new("volume")?;
     let Ok(()) = raise_kept(notification, &kept);
 
-    let Ok(()) = heard(muted, value);
+    let Ok(()) = play_feedback(muted, value);
 
     Ok(())
 }
 
-fn heard(muted: Muted, value: Option<i64>) -> Result<(), Never> {
-    let Ok(effects) = SoundEffects::chosen();
+fn play_feedback(muted: Muted, value: Option<i64>) -> Result<(), Never> {
+    let Ok(effects) = SoundEffects::current();
 
     let percent = match (effects, muted, value) {
         (SoundEffects::On, Muted::No, Some(value)) => value,
@@ -88,7 +88,7 @@ fn heard(muted: Muted, value: Option<i64>) -> Result<(), Never> {
 }
 
 fn main() -> std::process::ExitCode {
-    let Ok(named) = std::env::args().nth(1).as_deref().map(ButtonPress::named).transpose();
+    let Ok(named) = std::env::args().nth(1).as_deref().map(ButtonPress::parse).transpose();
 
     let press = match named.flatten() {
         Some(press) => press,
@@ -105,7 +105,7 @@ fn main() -> std::process::ExitCode {
         let Ok(_) = pactl(&arguments);
     }
 
-    let Ok(()) = said();
+    let Ok(()) = show_volume();
 
     std::process::ExitCode::SUCCESS
 }

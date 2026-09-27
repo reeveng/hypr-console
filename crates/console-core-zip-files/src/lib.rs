@@ -139,17 +139,17 @@ fn end_of_central_directory(bytes: &[u8]) -> Result<u32, ZipError> {
     };
 
     let furthest = last.saturating_sub(LONGEST_COMMENT);
-    let mut at = last;
 
-    loop {
+    for at in (furthest..=last).rev() {
         let signature = read_u32(bytes, at)?;
 
-        match (signature == END_OF_CENTRAL_DIRECTORY, at > furthest) {
-            (true, _) => return Ok(at),
-            (false, true) => at = at.saturating_sub(1),
-            (false, false) => return Err(ZipError::NotAZip),
+        match signature == END_OF_CENTRAL_DIRECTORY {
+            true => return Ok(at),
+            false => {},
         }
     }
+
+    Err(ZipError::NotAZip)
 }
 
 fn method_of(method: u16) -> Result<Method, ZipError> {
@@ -251,26 +251,23 @@ pub fn find<'a>(entries: &'a [Entry], name: &str) -> Result<Option<&'a Entry>, N
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const BOOK: &[u8] = include_bytes!("../tests/two-things.zip");
 
     #[test]
-    fn what_is_in_an_archive_is_listed_by_name_and_size() {
-        let found = entries(BOOK).map_err(|fault| fault.to_string());
+    fn what_is_in_an_archive_is_listed_by_name_and_size() -> Result<(), Box<dyn Error>> {
+        let found = entries(BOOK)?;
+        let names: Vec<(String, u32)> = found.into_iter().map(|entry| (entry.name, entry.size)).collect();
 
-        let names: Option<Vec<(String, u32)>> = found
-            .ok()
-            .map(|found| found.into_iter().map(|entry| (entry.name, entry.size)).collect());
+        assert_eq!(names, vec![("mimetype".to_string(), 20), ("chapter.xhtml".to_string(), 1638)]);
 
-        assert_eq!(
-            names,
-            Some(vec![("mimetype".to_string(), 20), ("chapter.xhtml".to_string(), 1638)])
-        );
+        Ok(())
     }
 
     #[test]
-    fn a_stored_thing_and_a_deflated_thing_both_come_back_whole() {
-        let found = entries(BOOK).ok().unwrap_or_default();
+    fn a_stored_thing_and_a_deflated_thing_both_come_back_whole() -> Result<(), Box<dyn Error>> {
+        let found = entries(BOOK)?;
         let Ok(stored) = find(&found, "mimetype");
         let Ok(deflated) = find(&found, "chapter.xhtml");
 
@@ -282,9 +279,11 @@ mod tests {
         let expected = "<p>It was a dark and stormy night.</p>\n".repeat(42);
 
         assert_eq!(deflated, Some(Ok(expected.into_bytes())));
+
+        Ok(())
     }
 
-    fn damaged(said: &[u8]) -> Vec<u8> {
+    fn damaged(said: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
         let flipped: Option<Vec<u8>> = BOOK.windows(said.len()).position(|held| held == said).map(|found| {
             BOOK.iter()
                 .enumerate()
@@ -295,25 +294,23 @@ mod tests {
                 .collect()
         });
 
-        flipped.expect("the fixture reads what is to be damaged")
-    }
-
-    fn extracted(bytes: &[u8], name: &str) -> Option<Result<Vec<u8>, ZipError>> {
-        let found = entries(bytes).ok()?;
-        let Ok(entry) = find(&found, name);
-
-        entry.map(|entry| extract(bytes, entry))
+        flipped.ok_or_else(|| Box::from("the fixture does not hold what is to be damaged"))
     }
 
     #[test]
-    fn a_stored_thing_with_a_byte_changed_is_refused_rather_than_read() {
-        let book = damaged(b"application/epub+zip");
+    fn a_stored_thing_with_a_byte_changed_is_refused_rather_than_read() -> Result<(), Box<dyn Error>> {
+        let book = damaged(b"application/epub+zip")?;
+        let found = entries(&book)?;
+        let Ok(entry) = find(&found, "mimetype");
+        let entry = entry.ok_or("the damaged book lost its mimetype")?;
 
-        assert_eq!(extracted(&book, "mimetype"), Some(Err(ZipError::Corrupt)));
+        assert_eq!(extract(&book, entry), Err(ZipError::Corrupt));
+
+        Ok(())
     }
 
     #[test]
     fn something_that_is_not_an_archive_says_so() {
-        assert_eq!(entries(b"PK but not really").err(), Some(ZipError::NotAZip));
+        assert_eq!(entries(b"PK but not really"), Err(ZipError::NotAZip));
     }
 }

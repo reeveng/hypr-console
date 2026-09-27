@@ -97,7 +97,7 @@ pub fn descriptors(json: &str) -> Result<BTreeMap<String, Descriptor>, GamepadEr
     Ok(found)
 }
 
-pub fn captured() -> Result<BTreeMap<String, Descriptor>, GamepadError> {
+pub fn load_capture() -> Result<BTreeMap<String, Descriptor>, GamepadError> {
     descriptors(CAPTURED)
 }
 
@@ -110,46 +110,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_capture_holds_the_four_devices_the_desktop_reads() {
-        let found = captured().expect("the capture carried in this program parses");
+    fn the_capture_holds_the_four_devices_the_desktop_reads() -> Result<(), GamepadError> {
+        let found = load_capture()?;
         let roles: Vec<&str> = found.keys().map(String::as_str).collect();
+
         assert_eq!(roles, ["keyboard", "mouse", "pad", "touchpad"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_device_made_through_uinput_has_no_physical_location() {
-        assert_eq!(captured().expect("the capture carried in this program parses")["pad"].phys, "");
+    fn a_device_made_through_uinput_has_no_physical_location() -> Result<(), GamepadError> {
+        let found = load_capture()?;
+
+        assert_eq!(found.get("pad").map(|pad| pad.phys.as_str()), Some(""));
+
+        Ok(())
     }
 
     #[test]
-    fn the_pad_reports_over_a_range_and_the_keyboard_does_not() {
-        let found = captured().expect("the capture carried in this program parses");
-        assert!(!found["pad"].capabilities.absolute.is_empty());
-        assert!(found["keyboard"].capabilities.absolute.is_empty());
-        assert!(!found["keyboard"].capabilities.key.is_empty());
+    fn the_pad_reports_over_a_range_and_the_keyboard_does_not() -> Result<(), GamepadError> {
+        let found = load_capture()?;
+        let pad = found.get("pad").ok_or(GamepadError::NotFound("pad"))?;
+        let keyboard = found.get("keyboard").ok_or(GamepadError::NotFound("keyboard"))?;
+
+        assert!(!pad.capabilities.absolute.is_empty());
+        assert!(keyboard.capabilities.absolute.is_empty());
+        assert!(!keyboard.capabilities.key.is_empty());
+
+        Ok(())
     }
 
     #[test]
     fn an_axis_with_no_range_is_still_a_span_of_one() {
         let flat = Axis { code: 0, flat: 0, fuzz: 0, maximum: 0, minimum: 0, resolution: 0 };
+
         assert_eq!(flat.span(), Ok(1));
     }
 
     #[test]
-    fn a_device_nothing_has_a_part_for_is_not_carried() {
+    fn a_device_nothing_has_a_part_for_is_not_carried() -> Result<(), GamepadError> {
         let said = r#"[{"name":"Some Other Pad","phys":"","uniq":"","vendor":1,
             "product":2,"version":3,"bustype":4,"properties":[],"capabilities":{}}]"#;
-        assert!(descriptors(said).expect("it parses").is_empty());
+        let carried = descriptors(said)?;
+
+        assert!(carried.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn the_captured_devices_name_no_ones_controller() {
-        for (part, device) in descriptors(CAPTURED).expect("the capture parses") {
+    fn the_captured_devices_name_no_ones_controller() -> Result<(), GamepadError> {
+        let carried = descriptors(CAPTURED)?;
+
+        for (part, device) in carried {
             assert!(
                 device.uniq.is_empty(),
                 "the {part} was captured with a serial on it: {}",
                 device.uniq
             );
         }
+
+        Ok(())
     }
 }

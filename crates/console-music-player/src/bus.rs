@@ -253,7 +253,7 @@ impl PlayerState {
 
         let Ok(Described { said, art }) = described(song, self.turn);
         let Ok(()) = waiting.mark("described");
-        let Ok(title) = named(song, &said.title);
+        let Ok(title) = title_or_filename(song, &said.title);
 
         self.playing = Song {
             title,
@@ -292,7 +292,7 @@ impl PlayerState {
     }
 
     pub fn play_pause(&mut self) -> Result<(), Never> {
-        let Ok(wanted) = self.sounding.wanted();
+        let Ok(wanted) = self.sounding.desired();
 
         match wanted {
             Wanted::Playing => self.sounding.wanting(Wanted::Paused),
@@ -302,7 +302,7 @@ impl PlayerState {
     }
 
     pub fn status(&self) -> Result<Status, Never> {
-        let Ok(wanted) = self.sounding.wanted();
+        let Ok(wanted) = self.sounding.desired();
 
         Ok(match wanted {
             Wanted::Playing => Status::Playing,
@@ -312,7 +312,7 @@ impl PlayerState {
     }
 }
 
-fn named(song: &Path, title: &str) -> Result<String, Never> {
+fn title_or_filename(song: &Path, title: &str) -> Result<String, Never> {
     match title.is_empty() {
         false => return Ok(title.to_string()),
         true => {},
@@ -356,16 +356,16 @@ pub fn locked(held: &Arc<Mutex<PlayerState>>) -> Result<MutexGuard<'_, PlayerSta
     })
 }
 
-fn told(said: &Reply) -> Result<Value, Never> {
+fn reply_value(said: &Reply) -> Result<Value, Never> {
     Ok(match said {
-        Reply::Track(path) => Value::held("o", Value::Path(path.clone()))?,
-        Reply::Word(word) => Value::held("s", Value::Word(word.clone()))?,
+        Reply::Track(path) => Value::variant("o", Value::Path(path.clone()))?,
+        Reply::Word(word) => Value::variant("s", Value::Word(word.clone()))?,
         Reply::Strings(words) => {
             let listed = words.iter().map(|word| Value::Word(word.clone())).collect();
 
-            Value::held("as", Value::List(listed))?
+            Value::variant("as", Value::List(listed))?
         }
-        Reply::Long(long) => Value::held("x", Value::Signed64(*long))?,
+        Reply::Long(long) => Value::variant("x", Value::Signed64(*long))?,
     })
 }
 
@@ -378,7 +378,7 @@ fn metadata(held: &PlayerState) -> Result<Value, Never> {
     let mut listed: Vec<Value> = Vec::new();
 
     for (name, value) in said {
-        let Ok(value) = told(&value);
+        let Ok(value) = reply_value(&value);
 
         listed.push(Value::Group(vec![Value::Word(name), value]));
     }
@@ -474,7 +474,7 @@ fn says(held: &Arc<Mutex<PlayerState>>, asked: &Property<'_>) -> Result<Option<V
 
     Ok(match value {
         Some(value) => {
-            let Ok(held) = Value::held(shape, value);
+            let Ok(held) = Value::variant(shape, value);
 
             Some(held)
         },
@@ -530,7 +530,7 @@ fn player_told(held: &Arc<Mutex<PlayerState>>, name: &str, value: &Value) -> Res
 }
 
 fn shuffling(value: &Value) -> Result<Order, Never> {
-    let Ok(wrapped) = Value::held("b", Value::Truth(Truth::Yes));
+    let Ok(wrapped) = Value::variant("b", Value::Truth(Truth::Yes));
     let asked = *value == wrapped || *value == Value::Truth(Truth::Yes);
 
     Ok(match asked {
@@ -553,7 +553,7 @@ fn seed() -> Result<u64, Never> {
     })
 }
 
-fn asked(held: &Arc<Mutex<PlayerState>>, method: &str, values: &[Value]) -> Result<(), Never> {
+fn handle_call(held: &Arc<Mutex<PlayerState>>, method: &str, values: &[Value]) -> Result<(), Never> {
     let Ok(mut held) = locked(held);
     let Ok(()) = doing(&mut held, method, values);
 
@@ -568,7 +568,7 @@ fn doing(held: &mut PlayerState, method: &str, values: &[Value]) -> Result<(), N
         "Pause" => held.sounding.wanting(Wanted::Paused),
         "Stop" => held.sounding.wanting(Wanted::Stopped),
         "Play" => {
-            let Ok(wanted) = held.sounding.wanted();
+            let Ok(wanted) = held.sounding.desired();
 
             match wanted {
                 Wanted::Paused => held.sounding.wanting(Wanted::Playing),
@@ -636,8 +636,10 @@ fn long(values: &[Value], at: u32) -> Result<i64, Never> {
 const NO_NUMBER_THERE: i64 = 0;
 
 fn local(said: &str) -> Result<PathBuf, Never> {
-    Ok(match said.strip_prefix("file://") {
-        Some(path) => PathBuf::from(path),
+    let Ok(read) = console_core_file_urls::path(said);
+
+    Ok(match read {
+        Some(path) => path,
         None => PathBuf::from(said),
     })
 }
@@ -655,7 +657,7 @@ pub struct Turn {
     pub changed: Modified,
 }
 
-pub fn heard(held: &Arc<Mutex<PlayerState>>, message: &Message) -> Result<Turn, Never> {
+pub fn handle_message(held: &Arc<Mutex<PlayerState>>, message: &Message) -> Result<Turn, Never> {
     let (on, member) = match (message.interface.as_deref(), message.member.as_deref()) {
         (Some(on), Some(member)) => (on, member),
         (None, Some(member)) => (LOOKING, member),
@@ -730,7 +732,7 @@ pub fn heard(held: &Arc<Mutex<PlayerState>>, message: &Message) -> Result<Turn, 
             Ok(Turn { say: Some(answer), changed: Modified::No })
         }
         (answers::PLAYER, method) => {
-            let Ok(()) = asked(held, method, &message.values);
+            let Ok(()) = handle_call(held, method, &message.values);
             let Ok(answer) = message.answering();
 
             Ok(Turn { say: Some(answer), changed: Modified::Yes })
@@ -779,7 +781,7 @@ pub fn changed(saying: &Sender, held: &Arc<Mutex<PlayerState>>) -> Result<(), Ne
 
 pub fn moved(saying: &Sender) -> Result<(), Never> {
     let Ok(signal) =
-        Message::signal(&Signal { at: answers::OBJECT, on: answers::OURS, name: answers::POSITION_CHANGED });
+        Message::signal(&Signal { at: answers::OBJECT, on: answers::APPLICATION, name: answers::POSITION_CHANGED });
 
     match saying.say(&signal) {
         Ok(_serial) => {},

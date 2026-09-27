@@ -41,13 +41,13 @@ pub struct Location {
 }
 
 pub fn path(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::State.ours_under(home);
+    let Ok(ours) = Base::State.application_under(home);
 
     Ok(ours.join(NAMED))
 }
 
 pub fn open_path(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = Base::State.ours_under(home);
+    let Ok(ours) = Base::State.application_under(home);
 
     Ok(ours.join(OPEN))
 }

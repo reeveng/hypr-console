@@ -54,7 +54,7 @@ pub enum Filter {
     ZoomInFirst,
 }
 
-pub fn kept(framed: &Framed, of: Size<u32>) -> Result<Option<Region>, Never> {
+pub fn crop_region(framed: &Framed, of: Size<u32>) -> Result<Option<Region>, Never> {
     let Ok(zoomed) = framed.zoom.zoomed();
 
     match zoomed {
@@ -62,7 +62,7 @@ pub fn kept(framed: &Framed, of: Size<u32>) -> Result<Option<Region>, Never> {
         Zoomed::ZoomedIn => {},
     }
 
-    let Ok(placed) = framed.zoom.placed(of, framed.room);
+    let Ok(placed) = framed.zoom.place(of, framed.room);
     let Ok(across) = whole_u32(placed.from.x);
     let Ok(down) = whole_u32(placed.from.y);
     let across = across.min(of.width.saturating_sub(1));
@@ -197,58 +197,63 @@ pub fn saved(at: &Path, filter: &str) -> Result<PathBuf, EditError> {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use super::*;
     use console_panel::zoom::Zoom;
 
-    fn named(at: &str, taken: &[&str]) -> Option<String> {
+    fn free_name(at: &str, taken: &[&str]) -> Result<Option<String>, Never> {
         let Ok(named) = beside(Path::new(at), |asked| taken.iter().any(|taken| Path::new(taken) == asked));
 
-        named.map(|named| named.to_string_lossy().to_string())
+        Ok(named.map(|named| named.to_string_lossy().into_owned()))
     }
 
     #[test]
     fn an_edit_is_named_after_the_picture_and_never_takes_a_name_that_is_there() {
-        assert_eq!(named("/p/beach.jpg", &[]), Some("/p/beach edited.jpg".to_string()));
+        assert_eq!(free_name("/p/beach.jpg", &[]), Ok(Some(String::from("/p/beach edited.jpg"))));
         assert_eq!(
-            named("/p/beach.jpg", &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
-            Some("/p/beach edited 3.jpg".to_string())
+            free_name("/p/beach.jpg", &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
+            Ok(Some(String::from("/p/beach edited 3.jpg")))
         );
     }
 
     #[test]
     fn an_edit_of_an_edit_counts_on_from_the_picture_it_came_from() {
         assert_eq!(
-            named("/p/beach edited.jpg", &["/p/beach edited.jpg"]),
-            Some("/p/beach edited 2.jpg".to_string())
+            free_name("/p/beach edited.jpg", &["/p/beach edited.jpg"]),
+            Ok(Some(String::from("/p/beach edited 2.jpg")))
         );
         assert_eq!(
-            named("/p/beach edited 2.jpg", &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
-            Some("/p/beach edited 3.jpg".to_string())
+            free_name("/p/beach edited 2.jpg", &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
+            Ok(Some(String::from("/p/beach edited 3.jpg")))
         );
-        assert_eq!(named("/p/room 2.jpg", &[]), Some("/p/room 2 edited.jpg".to_string()));
+        assert_eq!(free_name("/p/room 2.jpg", &[]), Ok(Some(String::from("/p/room 2 edited.jpg"))));
     }
 
     #[test]
     fn a_format_ffmpeg_cannot_write_comes_back_as_a_png() {
-        assert_eq!(named("/p/phone.HEIC", &[]), Some("/p/phone edited.png".to_string()));
-        assert_eq!(named("/p/wave.gif", &[]), Some("/p/wave edited.png".to_string()));
-        assert_eq!(named("/p/shot.PNG", &[]), Some("/p/shot edited.PNG".to_string()));
+        assert_eq!(free_name("/p/phone.HEIC", &[]), Ok(Some(String::from("/p/phone edited.png"))));
+        assert_eq!(free_name("/p/wave.gif", &[]), Ok(Some(String::from("/p/wave edited.png"))));
+        assert_eq!(free_name("/p/shot.PNG", &[]), Ok(Some(String::from("/p/shot edited.PNG"))));
     }
 
-    fn framed(zoom: Zoom) -> Framed {
-        Framed { of: PathBuf::from("/p/beach.jpg"), zoom, room: Size { width: 1280, height: 800 } }
+    fn framed(zoom: Zoom) -> Result<Framed, Never> {
+        Ok(Framed { of: PathBuf::from("/p/beach.jpg"), zoom, room: Size { width: 1280, height: 800 } })
     }
 
     #[test]
     fn nothing_is_cropped_from_a_picture_that_is_all_on_the_screen() {
-        assert_eq!(kept(&framed(Zoom::default()), Size { width: 4000, height: 3000 }), Ok(None));
+        let Ok(whole) = framed(Zoom::default());
+
+        assert_eq!(crop_region(&whole, Size { width: 4000, height: 3000 }), Ok(None));
         assert_eq!(filter(Edit::Crop, None), Ok(Filter::ZoomInFirst));
     }
 
     #[test]
     fn what_is_kept_is_what_the_screen_showed_and_not_a_square_of_the_zoom() {
         let Ok(twice) = Zoom::default().times(2.0);
-        let region = kept(&framed(twice), Size { width: 4000, height: 3000 });
+        let Ok(twice) = framed(twice);
+        let region = crop_region(&twice, Size { width: 4000, height: 3000 });
 
         assert_eq!(
             region,
@@ -257,47 +262,55 @@ mod tests {
     }
 
     #[test]
-    fn a_crop_never_reaches_past_an_edge_of_the_picture() {
+    fn a_crop_never_reaches_past_an_edge_of_the_picture() -> Result<(), &'static str> {
         let Ok(close) = Zoom::default().times(8.0);
         let Ok(far) = close.panned(Point { x: -99_999.0, y: -99_999.0 }, Size { width: 1280, height: 800 });
-        let Ok(region) = kept(&framed(far), Size { width: 4001, height: 2999 });
-        let Some(Region { from, size }) = region else { panic!("a zoomed picture keeps something") };
+        let Ok(far) = framed(far);
+        let Ok(region) = crop_region(&far, Size { width: 4001, height: 2999 });
+        let kept = region.as_ref().ok_or("a zoomed picture keeps something")?;
 
-        assert!(from.x.saturating_add(size.width) <= 4001, "{region:?}");
-        assert!(from.y.saturating_add(size.height) <= 2999, "{region:?}");
+        assert!(kept.from.x.saturating_add(kept.size.width) <= 4001, "{region:?}");
+        assert!(kept.from.y.saturating_add(kept.size.height) <= 2999, "{region:?}");
+
+        Ok(())
     }
 
-    fn made(at: &Path, said: &str) {
+    fn make_picture(at: &Path, said: &str) -> Result<(), Box<dyn Error>> {
         let Ok(mut asking) = Program::Ffmpeg.command();
-        let done = asking.args(["-v", "error", "-y", "-f", "lavfi", "-i", said, "-frames:v", "1"]).arg(at).status();
+        let done = asking.args(["-v", "error", "-y", "-f", "lavfi", "-i", said, "-frames:v", "1"]).arg(at).status()?;
 
-        assert!(done.is_ok_and(|how| how.success()), "ffmpeg made no picture to edit");
+        match done.success() {
+            true => Ok(()),
+            false => Err(Box::from("ffmpeg made no picture to edit")),
+        }
     }
 
     #[test]
-    fn an_edit_is_a_new_file_and_the_picture_it_came_from_is_untouched() {
-        let folder = std::env::temp_dir().join(format!("console-viewer-editing-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&folder);
+    fn an_edit_is_a_new_file_and_the_picture_it_came_from_is_untouched() -> Result<(), Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh("viewer-editing")?;
         let at = folder.join("wide.png");
 
-        made(&at, "color=c=red:s=40x20");
+        make_picture(&at, "color=c=red:s=40x20")?;
 
-        let before = std::fs::read(&at).ok();
-        let Ok(Filter::Is(turned)) = filter(Edit::RotateRight, None) else { panic!("a turn is a filter") };
-        let once = saved(&at, &turned);
-        let twice = saved(&at, &turned);
-        let after = std::fs::read(&at).ok();
-        let shape = once.as_ref().ok().map(|once| console_pictures::measured(once));
+        let before = std::fs::read(&at)?;
+        let Ok(turn) = filter(Edit::RotateRight, None);
+
+        let turned = match turn {
+            Filter::Is(turned) => turned,
+            Filter::ZoomInFirst => return Err(Box::from("a turn is a filter")),
+        };
+        let once = saved(&at, &turned)?;
+        let twice = saved(&at, &turned)?;
+        let after = std::fs::read(&at)?;
+        let shape = console_pictures::measure(&once)?;
 
         let _ = std::fs::remove_dir_all(&folder);
 
         assert_eq!(before, after, "the picture that was edited was written over");
-        assert_eq!(once.ok(), Some(folder.join("wide edited.png")));
-        assert_eq!(twice.ok(), Some(folder.join("wide edited 2.png")));
+        assert_eq!(once, folder.join("wide edited.png"));
+        assert_eq!(twice, folder.join("wide edited 2.png"));
+        assert_eq!(shape, Some(Size { width: 20, height: 40 }), "the turn was not written, or is not a picture");
 
-        match shape {
-            Some(Ok(Some(shape))) => assert_eq!(shape, Size { width: 20, height: 40 }, "the turn was not written"),
-            Some(Ok(None) | Err(_)) | None => panic!("the edit is not a picture: {shape:?}"),
-        }
+        Ok(())
     }
 }

@@ -41,7 +41,7 @@ pub struct Tall {
     pub ceiling: i32,
 }
 
-pub fn showing(card: i32, strip: TabBar, under: u32) -> Result<i32, Never> {
+pub fn visible_height(card: i32, strip: TabBar, under: u32) -> Result<i32, Never> {
     let band = match strip {
         TabBar::Shown => STRIP,
         TabBar::Hidden => 0,
@@ -84,30 +84,30 @@ mod tests {
 
     #[test]
     fn a_picture_on_the_ordinary_card_is_what_it_was_measured_at() {
-        assert_eq!(super::showing(461, TabBar::Shown, 2), Ok(272));
+        assert_eq!(super::visible_height(461, TabBar::Shown, 2), Ok(272));
     }
 
     #[test]
     fn what_the_rows_do_not_take_is_the_pictures() {
-        let Ok(two) = super::showing(461, TabBar::Shown, 2);
+        let Ok(two) = super::visible_height(461, TabBar::Shown, 2);
 
-        assert_eq!(super::showing(461, TabBar::Shown, 3), Ok(two - super::ROW));
-        assert_eq!(super::showing(461, TabBar::Shown, 0), Ok(two + 2 * super::ROW));
+        assert_eq!(super::visible_height(461, TabBar::Shown, 3), Ok(two.saturating_sub(super::ROW)));
+        assert_eq!(super::visible_height(461, TabBar::Shown, 0), Ok(two.saturating_add(super::ROW.saturating_mul(2))));
     }
 
     #[test]
     fn opening_the_card_out_gives_the_room_to_the_picture() {
-        let Ok(open) = super::showing(600, TabBar::Hidden, 2);
-        let Ok(shut) = super::showing(461, TabBar::Shown, 2);
+        let Ok(open) = super::visible_height(600, TabBar::Hidden, 2);
+        let Ok(shut) = super::visible_height(461, TabBar::Shown, 2);
 
-        assert_eq!(open - shut, 600 - 461 + super::STRIP);
+        assert_eq!(open.saturating_sub(shut), 600_i32.saturating_sub(461).saturating_add(super::STRIP));
     }
 
     #[test]
     fn a_card_with_nothing_to_spare_still_draws_something() {
-        let Ok(nothing) = super::showing(0, TabBar::Shown, 2);
-        let Ok(little) = super::showing(200, TabBar::Shown, 2);
-        let Ok(crowded) = super::showing(200, TabBar::Shown, 9);
+        let Ok(nothing) = super::visible_height(0, TabBar::Shown, 2);
+        let Ok(little) = super::visible_height(200, TabBar::Shown, 2);
+        let Ok(crowded) = super::visible_height(200, TabBar::Shown, 9);
 
         assert!(nothing > 0);
         assert!(little > 0);
@@ -130,7 +130,7 @@ mod tests {
     fn a_keyboard_taking_the_screen_takes_it_from_the_panel_too() {
         let Ok(share) = shape::tall_part_of(640);
 
-        assert_eq!(ceiling(Room { granted: 300, monitor: 640 }), Ok(300 - 2 * BREATH));
+        assert_eq!(ceiling(Room { granted: 300, monitor: 640 }), Ok(300_i32.saturating_sub(BREATH.saturating_mul(2))));
         assert_eq!(
             ceiling(Room { granted: 900, monitor: 640 }),
             Ok(share),

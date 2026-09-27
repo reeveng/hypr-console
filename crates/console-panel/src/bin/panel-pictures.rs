@@ -26,6 +26,7 @@
 
 
 use console_core_geometry::Size;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
@@ -37,7 +38,7 @@ use console_panel::strip::PICTURE;
 
 fn main() -> ExitCode {
     let said: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(asked) = asked(&said);
+    let Ok(asked) = parse_arguments(&said);
 
     let (side, wanted) = match asked {
         Some((side, wanted)) => (side, wanted),
@@ -48,9 +49,9 @@ fn main() -> ExitCode {
         }
     };
 
-    let Ok(mut made) = kept();
+    let Ok(mut made) = load_store();
 
-    let every = console_concurrency::map(&wanted, |of| drawn(of, side));
+    let every = console_concurrency::map(&wanted, |of| decode(of, side));
 
     let every = match every {
         Ok(every) => every,
@@ -62,7 +63,7 @@ fn main() -> ExitCode {
     };
 
     for (of, drawn) in wanted.iter().zip(every) {
-        let Ok(named) = pictures::keyed(of, side);
+        let Ok(named) = pictures::key(of, side);
         let Ok(drawn) = drawn;
 
         match drawn {
@@ -77,7 +78,7 @@ fn main() -> ExitCode {
 
     let pictures: Vec<Picture> = made.into_values().collect();
 
-    let Ok(written) = written(&pictures);
+    let Ok(written) = save_store(&pictures);
 
     match written {
         Written::Yes => ExitCode::SUCCESS,
@@ -85,34 +86,37 @@ fn main() -> ExitCode {
     }
 }
 
-fn asked(said: &[String]) -> Result<Option<(pictures::Side, Vec<String>)>, Never> {
+fn parse_arguments(said: &[String]) -> Result<Option<(pictures::Side, Vec<String>)>, Never> {
     let Ok(rows) = fitted::<i32, u32>(PICTURE);
-    let mut side = pictures::Side(rows);
-    let mut wanted: Vec<String> = Vec::new();
-    let mut words = said.iter();
+    let read = console_core_iteration::iterate((pictures::Side(rows), Vec::new(), said.iter()), |(side, mut wanted, mut words)| {
+        Ok(match words.next() {
+            Some(word) => match word.as_str() == pictures::SIDE {
+                true => match words.next().map(|said| said.parse()) {
+                    Some(Ok(said)) => Step::Again((pictures::Side(said), wanted, words)),
+                    Some(Err(_not_a_size)) => Step::Halt(None),
+                    None => Step::Halt(None),
+                },
+                false => {
+                    wanted.push(word.clone());
 
-    while let Some(word) = words.next() {
-        match word.as_str() == pictures::SIDE {
-            true => {
-                let said = match words.next().map(|said| said.parse()) {
-                    Some(Ok(said)) => said,
-                    Some(Err(_not_a_size)) => return Ok(None),
-                    None => return Ok(None),
-                };
+                    Step::Again((side, wanted, words))
+                }
+            },
+            None => Step::Halt(Some((side, wanted))),
+        })
+    });
 
-                side = pictures::Side(said);
-            }
-            false => wanted.push(word.clone()),
-        }
-    }
-
-    Ok(match wanted.is_empty() {
-        true => None,
-        false => Some((side, wanted)),
+    Ok(match read {
+        Ok(Some((side, wanted))) => match wanted.is_empty() {
+            true => None,
+            false => Some((side, wanted)),
+        },
+        Ok(None) => None,
+        Err(_endless) => None,
     })
 }
 
-fn kept() -> Result<BTreeMap<String, Picture>, Never> {
+fn load_store() -> Result<BTreeMap<String, Picture>, Never> {
     let Ok(store) = pictures::store();
 
     let store = match store {
@@ -132,7 +136,7 @@ fn kept() -> Result<BTreeMap<String, Picture>, Never> {
 
     Ok(index
         .into_iter()
-        .filter(|(named, _)| match pictures::unkeyed(named) {
+        .filter(|(named, _)| match pictures::parse_key(named) {
             Ok(Some((of, _))) => std::path::Path::new(of).exists(),
             Ok(None) | Err(_) => false,
         })
@@ -153,7 +157,7 @@ fn kept() -> Result<BTreeMap<String, Picture>, Never> {
         .collect())
 }
 
-fn drawn(of: &str, side: pictures::Side) -> Result<Option<Picture>, Never> {
+fn decode(of: &str, side: pictures::Side) -> Result<Option<Picture>, Never> {
     let read = console_pictures::decoded(Path::new(of), Size { width: side.0, height: side.0 });
 
     let held = match read {
@@ -181,7 +185,7 @@ enum Written {
     No,
 }
 
-fn written(pictures: &[Picture]) -> Result<Written, Never> {
+fn save_store(pictures: &[Picture]) -> Result<Written, Never> {
     let Ok(at) = pictures::store();
 
     let at = match at {
@@ -203,7 +207,7 @@ fn written(pictures: &[Picture]) -> Result<Written, Never> {
         }
     }
 
-    let Ok(said) = pictures::written(pictures);
+    let Ok(said) = pictures::serialize(pictures);
 
     Ok(match console_core_atomic_writes::whole(&at, &said) {
         Ok(()) => Written::Yes,

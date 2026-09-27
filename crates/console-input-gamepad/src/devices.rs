@@ -140,50 +140,65 @@ impl<S: Sink> Devices<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capture::captured;
+    use crate::capture::load_capture;
     use crate::world::World;
 
-    fn devices() -> Devices<World> {
-        let descriptors = captured().expect("the capture carried in this program parses");
-        let Ok(world) = World::of(captured().expect("the capture carried in this program parses"));
-
+    fn devices() -> Result<Devices<World>, GamepadError> {
+        let seen = load_capture()?;
+        let descriptors = load_capture()?;
+        let Ok(world) = World::of(seen);
         let Ok(devices) = Devices::new(descriptors, world);
 
-        devices
+        Ok(devices)
     }
 
     #[test]
-    fn a_stick_pushed_all_the_way_reads_the_edge_of_its_range() {
-        let devices = devices();
-        let axis = devices.axis("pad", 0).expect("ABS_X");
-
+    fn a_stick_pushed_all_the_way_reads_the_edge_of_its_range() -> Result<(), GamepadError> {
+        let devices = devices()?;
+        let axis = devices.axis("pad", 0)?;
         let Ok(span) = axis.span();
 
-        let span = f64::from(span);
-        assert_eq!(devices.absolute("pad", 0, 1.0).expect("the edge"), span as i32);
-        assert_eq!(devices.absolute("pad", 0, 0.0).expect("the middle"), 0);
-        assert_eq!(devices.absolute("pad", 0, -1.0).expect("the other edge"), -(span as i32));
+        let edge = devices.absolute("pad", 0, 1.0)?;
+        let middle = devices.absolute("pad", 0, 0.0)?;
+        let other_edge = devices.absolute("pad", 0, -1.0)?;
+
+        assert_eq!(edge, span);
+        assert_eq!(middle, 0);
+        assert_eq!(other_edge, span.saturating_neg());
+
+        Ok(())
     }
 
     #[test]
-    fn a_stick_pushed_further_than_all_the_way_is_still_all_the_way() {
-        let devices = devices();
-        assert_eq!(
-            devices.absolute("pad", 0, 4.0).expect("further"),
-            devices.absolute("pad", 0, 1.0).expect("all the way")
-        );
+    fn a_stick_pushed_further_than_all_the_way_is_still_all_the_way() -> Result<(), GamepadError> {
+        let devices = devices()?;
+        let further = devices.absolute("pad", 0, 4.0)?;
+        let all_the_way = devices.absolute("pad", 0, 1.0)?;
+
+        assert_eq!(further, all_the_way);
+
+        Ok(())
     }
 
     #[test]
-    fn a_trigger_runs_from_one_end_of_its_range_to_the_other() {
-        let devices = devices();
-        let axis = devices.axis("pad", 2).expect("ABS_Z");
-        assert_eq!(devices.along("pad", 2, 0.0).expect("let go"), axis.minimum);
-        assert_eq!(devices.along("pad", 2, 1.0).expect("pulled"), axis.maximum);
+    fn a_trigger_runs_from_one_end_of_its_range_to_the_other() -> Result<(), GamepadError> {
+        let devices = devices()?;
+        let axis = devices.axis("pad", 2)?;
+        let let_go = devices.along("pad", 2, 0.0)?;
+        let pulled = devices.along("pad", 2, 1.0)?;
+
+        assert_eq!(let_go, axis.minimum);
+        assert_eq!(pulled, axis.maximum);
+
+        Ok(())
     }
 
     #[test]
-    fn an_axis_a_device_does_not_have_says_so() {
-        assert!(devices().axis("keyboard", 0).is_err());
+    fn an_axis_a_device_does_not_have_says_so() -> Result<(), GamepadError> {
+        let devices = devices()?;
+
+        assert!(matches!(devices.axis("keyboard", 0), Err(GamepadError::NoAxis(..))));
+
+        Ok(())
     }
 }

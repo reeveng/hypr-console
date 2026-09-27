@@ -111,12 +111,12 @@ hl.config({{ input = {{ touchdevice = {{ output = \"{named}\", transform = {tran
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+    let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
     Ok(ours.join(UNDER).join(NAMED))
 }
 
-pub fn named(of: &Path) -> Result<Option<String>, Never> {
+pub fn connector_name(of: &Path) -> Result<Option<String>, Never> {
     let called = match of.file_name() {
         Some(called) => called.to_string_lossy().to_string(),
         None => return Ok(None),
@@ -159,7 +159,7 @@ pub fn mode(at: &Path) -> Result<Option<Size<u32>>, Never> {
     })
 }
 
-pub fn found(under: &Path) -> Result<Vec<Panel>, Never> {
+pub fn find_panels(under: &Path) -> Result<Vec<Panel>, Never> {
     let entries = match std::fs::read_dir(under) {
         Ok(entries) => entries,
         Err(_no_drm_here) => return Ok(Vec::new()),
@@ -175,7 +175,7 @@ pub fn found(under: &Path) -> Result<Vec<Panel>, Never> {
             Plugged::Into => {},
         }
 
-        let Ok(named) = named(&at);
+        let Ok(named) = connector_name(&at);
         let Ok(mode) = mode(&at);
 
         match (named, mode) {
@@ -190,7 +190,7 @@ pub fn found(under: &Path) -> Result<Vec<Panel>, Never> {
 }
 
 pub fn panel(under: &Path) -> Result<Option<Panel>, Never> {
-    let Ok(every) = found(under);
+    let Ok(every) = find_panels(under);
 
     let built_in = every.iter().find(|panel| panel.named.starts_with(INTERNAL));
 
@@ -204,19 +204,20 @@ pub fn here() -> Result<Option<Panel>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn drm(whose: &str, said: &[(&str, &str, &str)]) -> PathBuf {
-        let at = std::env::temp_dir().join(format!("console-drm-{}-{whose}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&at);
+    fn drm(whose: &str, said: &[(&str, &str, &str)]) -> Result<PathBuf, Box<dyn Error>> {
+        let at = console_core_temporary_directories::fresh(&format!("drm-{whose}"))?;
 
         for (connector, status, modes) in said {
             let under = at.join(connector);
-            let _ = std::fs::create_dir_all(&under);
-            let _ = std::fs::write(under.join(STATUS), format!("{status}\n"));
-            let _ = std::fs::write(under.join(MODES), modes);
+
+            std::fs::create_dir_all(&under)?;
+            console_core_atomic_writes::whole(&under.join(STATUS), format!("{status}\n").as_bytes())?;
+            console_core_atomic_writes::whole(&under.join(MODES), modes.as_bytes())?;
         }
 
-        at
+        Ok(at)
     }
 
     const HANDHELD: &str = "1600x2560\n1600x2560\n";
@@ -225,55 +226,65 @@ mod tests {
 
     #[test]
     fn a_connector_is_named_without_the_card_it_is_on() {
-        let Ok(named) = named(Path::new("/sys/class/drm/card1-eDP-1"));
+        let Ok(named) = connector_name(Path::new("/sys/class/drm/card1-eDP-1"));
 
         assert_eq!(named, Some("eDP-1".to_string()));
     }
 
     #[test]
-    fn the_mode_a_panel_prefers_is_the_first_one_it_lists() {
-        let at = drm("preferred", &[("card1-eDP-1", "connected", LAPTOP)]);
+    fn the_mode_a_panel_prefers_is_the_first_one_it_lists() -> Result<(), Box<dyn Error>> {
+        let at = drm("preferred", &[("card1-eDP-1", "connected", LAPTOP)])?;
         let Ok(mode) = mode(&at.join("card1-eDP-1"));
 
         assert_eq!(mode, Some(Size { width: 1920, height: 1200 }));
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_is_plugged_into_a_connector_that_says_disconnected() {
-        let at = drm("unplugged", &[("card1-DP-1", "disconnected", "")]);
+    fn nothing_is_plugged_into_a_connector_that_says_disconnected() -> Result<(), Box<dyn Error>> {
+        let at = drm("unplugged", &[("card1-DP-1", "disconnected", "")])?;
         let Ok(plugged) = plugged(&at.join("card1-DP-1"));
 
         assert_eq!(plugged, Plugged::None);
+
+        Ok(())
     }
 
     #[test]
-    fn the_panel_is_the_built_in_one_whatever_else_is_plugged_in() {
+    fn the_panel_is_the_built_in_one_whatever_else_is_plugged_in() -> Result<(), Box<dyn Error>> {
         let at = drm(
             "both",
             &[
                 ("card1-DP-1", "connected", "3840x2160\n"),
                 ("card1-eDP-1", "connected", HANDHELD),
             ],
-        );
+        )?;
         let Ok(panel) = panel(&at);
 
         assert_eq!(panel, Some(Panel { named: "eDP-1".to_string(), mode: Size { width: 1600, height: 2560 } }));
+
+        Ok(())
     }
 
     #[test]
-    fn with_no_panel_built_in_it_is_whatever_is_plugged_in() {
-        let at = drm("external", &[("card1-DP-2", "connected", "1920x1080\n")]);
+    fn with_no_panel_built_in_it_is_whatever_is_plugged_in() -> Result<(), Box<dyn Error>> {
+        let at = drm("external", &[("card1-DP-2", "connected", "1920x1080\n")])?;
         let Ok(panel) = panel(&at);
 
         assert_eq!(panel, Some(Panel { named: "DP-2".to_string(), mode: Size { width: 1920, height: 1080 } }));
+
+        Ok(())
     }
 
     #[test]
-    fn a_machine_with_nothing_connected_says_nothing() {
-        let at = drm("nothing", &[("card1-HDMI-A-1", "disconnected", "")]);
+    fn a_machine_with_nothing_connected_says_nothing() -> Result<(), Box<dyn Error>> {
+        let at = drm("nothing", &[("card1-HDMI-A-1", "disconnected", "")])?;
         let Ok(panel) = panel(&at);
 
         assert_eq!(panel, None);
+
+        Ok(())
     }
 
     #[test]
@@ -333,4 +344,3 @@ mod tests {
         assert_eq!(at, PathBuf::from("/home/ada/.config/console/hypr/monitor.lua"));
     }
 }
-

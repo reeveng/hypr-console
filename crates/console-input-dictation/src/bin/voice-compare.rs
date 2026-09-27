@@ -46,7 +46,7 @@ impl Interpreter for Machine {
                 let seen = every
                     .iter()
                     .map(|at| {
-                        let Ok(found) = found(at);
+                        let Ok(found) = probe(at);
 
                         Candidate { at: at.clone(), is: found }
                     })
@@ -56,7 +56,7 @@ impl Interpreter for Machine {
             }
 
             CompareEffect::Ran(arguments) => {
-                let Ok(said) = said(arguments);
+                let Ok(said) = run_stderr(arguments);
 
                 vec![Event::Custom(CompareEvent::Output(said))]
             }
@@ -96,7 +96,7 @@ impl Interpreter for Machine {
     }
 }
 
-fn found(at: &std::path::Path) -> Result<Found, Never> {
+fn probe(at: &std::path::Path) -> Result<Found, Never> {
     use std::os::unix::fs::PermissionsExt;
 
     Ok(match std::fs::metadata(at) {
@@ -121,7 +121,7 @@ fn starting(arguments: &[String]) -> Result<Option<Command>, Never> {
     Ok(Some(starting))
 }
 
-fn said(arguments: &[String]) -> Result<String, Never> {
+fn run_stderr(arguments: &[String]) -> Result<String, Never> {
     let Ok(starting) = starting(arguments);
 
     Ok(match starting {
@@ -191,14 +191,14 @@ fn here() -> Result<String, Never> {
 fn stamped() -> Result<String, Never> {
     let Ok(asking) = ExternalProgram::Date.arguments(&["+%Y-%m-%d-%H%M"]);
 
-    Ok(match console_core_external_programs::printed(&asking) {
+    Ok(match console_core_external_programs::capture_output(&asking) {
         Ok(said) => said.trim().to_string(),
         Err(_unprinted) => String::new(),
     })
 }
 
 fn main() -> ExitCode {
-    let Ok(kept) = console_input_dictation::kept();
+    let Ok(kept) = console_input_dictation::models_path();
 
     let kept = match kept {
         Some(kept) => kept,

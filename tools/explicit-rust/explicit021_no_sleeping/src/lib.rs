@@ -6,7 +6,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, QPath};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT021: a program waits for a thing, not for a number of seconds.
@@ -34,10 +34,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT021_NO_SLEEPING,
     Deny,
     "waiting on the clock instead of on the thing; poll for what is actually being waited for"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // Two families, read off the resolved path rather than off the spelling, so a
@@ -77,9 +73,6 @@ fn sleeps(path: &str) -> Option<&'static str> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit021NoSleeping {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         if expr.span.from_expansion() {
             return;
         }

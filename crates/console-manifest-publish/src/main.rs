@@ -21,11 +21,13 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use console_core_directory_listing::{Descend, Unlisted};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_manifest_publish::names::{self, Watched};
 use console_manifest_publish::papers;
 use console_manifest_publish::tree;
+use console_repository::tracked::{Untracked, tracked};
 
 fn main() -> ExitCode {
     match run() {
@@ -42,14 +44,12 @@ enum Unpublished {
     NotOnePath,
     Rootless(console_repository::NotFound),
     Read(PathBuf, std::io::Error),
-    Listing(std::io::Error),
     Uncleared(PathBuf, std::io::Error),
     Holding(PathBuf, std::io::Error),
     Unwritten(console_core_atomic_writes::Unwritten),
     Unset(PathBuf, std::io::Error),
     NotAName(PathBuf),
-    NoGit(std::io::Error),
-    GitRefused,
+    Untracked(Untracked),
 }
 
 impl std::fmt::Display for Unpublished {
@@ -63,7 +63,6 @@ impl std::fmt::Display for Unpublished {
             Unpublished::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
             }
-            Unpublished::Listing(fault) => write!(to, "{fault}"),
             Unpublished::Uncleared(at, fault) => {
                 write!(to, "{} could not be cleared: {fault}", at.display())
             }
@@ -77,10 +76,7 @@ impl std::fmt::Display for Unpublished {
             Unpublished::NotAName(at) => {
                 write!(to, "{} is not a name git can be given", at.display())
             }
-            Unpublished::NoGit(fault) => write!(to, "git would not run: {fault}"),
-            Unpublished::GitRefused => {
-                write!(to, "git ls-files failed; is this a repository?")
-            }
+            Unpublished::Untracked(fault) => write!(to, "{fault}"),
         }
     }
 }
@@ -105,12 +101,12 @@ fn run() -> Result<ExitCode, Unpublished> {
 
     publish(&repository, &where_)?;
     println!("built {}", where_.display());
-    checked(&repository, &where_)
+    check(&repository, &where_)
 }
 
 const KEPT: [&str; 2] = [".git", "target"];
 
-fn cleared(where_: &Path) -> Result<(), Unpublished> {
+fn clear_directory(where_: &Path) -> Result<(), Unpublished> {
     let held = match std::fs::read_dir(where_) {
         Ok(held) => held,
         Err(_nothing_there) => return Ok(()),
@@ -143,14 +139,14 @@ fn cleared(where_: &Path) -> Result<(), Unpublished> {
 }
 
 fn publish(repository: &Path, where_: &Path) -> Result<(), Unpublished> {
-    cleared(where_)?;
+    clear_directory(where_)?;
 
     std::fs::create_dir_all(where_)
         .map_err(|fault| Unpublished::Holding(where_.to_path_buf(), fault))?;
 
-    let tracked = tracked(repository)?;
+    let tracked = tracked_files(repository)?;
 
-    let Ok(carried) = tree::carried(tracked);
+    let Ok(carried) = tree::binary_forks(tracked);
 
     for name in carried {
         carry(&repository.join(&name), &where_.join(&name))?;
@@ -185,14 +181,14 @@ fn carry(source: &Path, target: &Path) -> Result<(), Unpublished> {
         .map_err(|fault| Unpublished::Unset(target.to_path_buf(), fault))
 }
 
-fn checked(repository: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
-    let Ok((names, missing)) = names::watched();
+fn check(repository: &Path, where_: &Path) -> Result<ExitCode, Unpublished> {
+    let Ok((names, missing)) = names::forbidden_names();
 
     for said in &missing {
         eprintln!("{said}");
     }
 
-    let said = talking(where_, &names)?;
+    let said = files_naming(where_, &names)?;
 
     match said.is_empty() {
         true => {}
@@ -264,52 +260,48 @@ fn ran(where_: &Path, program: Program, arguments: &[&str], told: &[(&str, Strin
     })
 }
 
-fn talking<'a>(
+fn files_naming<'a>(
     where_: &Path,
     names: &'a [Watched],
 ) -> Result<Vec<(PathBuf, &'a Watched)>, Unpublished> {
+    let Ok(listing) = console_core_directory_listing::recursive(where_, |holding| {
+        let kept = holding
+            .file_name()
+            .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
+
+        match kept {
+            true => Descend::Past,
+            false => Descend::Into,
+        }
+    });
     let mut said = Vec::new();
-    let mut asking = vec![where_.to_path_buf()];
 
-    while let Some(holding) = asking.pop() {
-        let inside = std::fs::read_dir(&holding)
-            .map_err(|fault| Unpublished::Read(holding.clone(), fault))?;
+    for entry in listing {
+        let path = entry.map_err(|Unlisted { directory, fault }| Unpublished::Read(directory, fault))?;
 
-        for found in inside {
-            let found = found.map_err(Unpublished::Listing)?;
-            let path = found.path();
+        let inside_the_copy = match path.strip_prefix(where_) {
+            Ok(inside_the_copy) => inside_the_copy,
+            Err(_outside_the_copy) => &path,
+        };
+        let Ok(named) = names::leaks(inside_the_copy.to_string_lossy().as_bytes(), names);
 
-            let kept = path
-                .file_name()
-                .is_some_and(|name| KEPT.iter().any(|keep| std::ffi::OsStr::new(keep) == name));
+        match named {
+            Some(watched) => said.push((path.clone(), watched)),
+            None => {}
+        }
 
-            let inside_the_copy = match path.strip_prefix(where_) {
-                Ok(inside_the_copy) => inside_the_copy,
-                Err(_outside_the_copy) => &path,
-            };
-            let Ok(named) = names::leaks(inside_the_copy.to_string_lossy().as_bytes(), names);
+        match path.is_dir() {
+            true => (),
+            false => {
+                let bytes = std::fs::read(&path)
+                    .map_err(|fault| Unpublished::Read(path.clone(), fault))?;
+                let Ok(leaks) = names::leaks(&bytes, names);
 
-            match named {
-                Some(watched) => said.push((path.clone(), watched)),
-                None => {}
-            }
-
-            match path.is_dir() {
-                true => match kept {
-                    true => (),
-                    false => asking.push(path),
-                },
-                false => {
-                    let bytes = std::fs::read(&path)
-                        .map_err(|fault| Unpublished::Read(path.clone(), fault))?;
-                    let Ok(leaks) = names::leaks(&bytes, names);
-
-                    match leaks {
-                        Some(watched) => said.push((path, watched)),
-                        None => {}
-                    }
-                },
-            }
+                match leaks {
+                    Some(watched) => said.push((path, watched)),
+                    None => {}
+                }
+            },
         }
     }
 
@@ -317,24 +309,16 @@ fn talking<'a>(
     Ok(said)
 }
 
-fn tracked(repository: &Path) -> Result<Vec<String>, Unpublished> {
-    let at = repository
-        .to_str()
-        .ok_or_else(|| Unpublished::NotAName(repository.to_path_buf()))?;
-    let Ok(mut git) = Program::Git.command();
-    let out = git
-        .args(["-C", at, "ls-files"])
-        .output()
-        .map_err(Unpublished::NoGit)?;
+fn tracked_files(repository: &Path) -> Result<Vec<String>, Unpublished> {
+    let names = tracked(repository).map_err(Unpublished::Untracked)?;
 
-    match out.status.success() {
-        false => Err(Unpublished::GitRefused),
-        true => Ok(String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(str::to_string)
-            .collect()),
-    }
+    names
+        .into_iter()
+        .map(|name| match name.to_str() {
+            Some(said) => Ok(said.to_string()),
+            None => Err(Unpublished::NotAName(name)),
+        })
+        .collect()
 }
 
 fn read(path: &Path) -> Result<String, Unpublished> {
@@ -350,32 +334,44 @@ fn write(path: &Path, body: &str) -> Result<(), Unpublished> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn somewhere(named: &str) -> PathBuf {
-        let at = console_core_temporary_directories::fresh(&format!("publish-{named}")).expect("somewhere to work").join("ada").join("copy");
-        std::fs::create_dir_all(&at).expect("somewhere to work");
-        at
+    fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
+        let fresh = console_core_temporary_directories::fresh(&format!("publish-{named}"))?;
+        let at = fresh.join("ada").join("copy");
+
+        std::fs::create_dir_all(&at)?;
+
+        Ok(at)
     }
 
     #[test]
-    fn every_file_and_every_path_in_the_copy_is_read_and_nothing_above_it() {
-        let copy = somewhere("walk");
+    fn every_file_and_every_path_in_the_copy_is_read_and_nothing_above_it() -> Result<(), Box<dyn Error>> {
+        let copy = somewhere("walk")?;
         let names = vec![Watched { name: "ada".to_string(), what: "someone" }];
 
-        std::fs::write(copy.join("clean.txt"), "nothing of anyone").expect("clean");
-        std::fs::write(copy.join("picture.png"), [0x89, b'P', 0xff, b'/', b'A', b'D', b'A', b'/', 0x00])
-            .expect("picture");
-        std::fs::create_dir_all(copy.join("Ada-things")).expect("folder");
-        std::fs::write(copy.join("Ada-things/empty"), "").expect("inside");
+        console_core_atomic_writes::whole(&copy.join("clean.txt"), b"nothing of anyone")?;
+        console_core_atomic_writes::whole(
+            &copy.join("picture.png"),
+            &[0x89, b'P', 0xff, b'/', b'A', b'D', b'A', b'/', 0x00],
+        )?;
+        std::fs::create_dir_all(copy.join("Ada-things"))?;
+        console_core_atomic_writes::whole(&copy.join("Ada-things/empty"), b"")?;
 
-        let found = talking(&copy, &names).expect("walked");
+        let found = files_naming(&copy, &names)?;
         let said: Vec<String> = found
             .iter()
-            .map(|(path, _)| path.strip_prefix(&copy).expect("inside").display().to_string())
+            .map(|(path, _)| match path.strip_prefix(&copy) {
+                Ok(inside) => inside.display().to_string(),
+                Err(_outside) => path.display().to_string(),
+            })
             .collect();
 
         assert_eq!(said, vec!["Ada-things", "Ada-things/empty", "picture.png"]);
 
-        let _ = std::fs::remove_dir_all(copy.parent().expect("above").parent().expect("above that"));
+        let above = copy.parent().and_then(Path::parent).ok_or("above the copy")?;
+        let _ = std::fs::remove_dir_all(above);
+
+        Ok(())
     }
 }

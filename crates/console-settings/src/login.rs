@@ -83,7 +83,7 @@ impl Program for LoginPattern {
     fn update(drawing: &Drawing, event: &Event<LoginPatternEvent>) -> Update<Drawing, LoginPatternEffect> {
         let Ok(update) = match event {
             Event::Custom(LoginPatternEvent::Pressed(press)) => pressed(drawing, *press),
-            Event::Custom(LoginPatternEvent::Touched(touch)) => touched(drawing, *touch),
+            Event::Custom(LoginPatternEvent::Touched(touch)) => on_touch(drawing, *touch),
             Event::Opened | Event::Changed(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping => {
                 Update::none(drawing.clone())
             }
@@ -93,7 +93,7 @@ impl Program for LoginPattern {
     }
 }
 
-fn drawn(drawing: &Drawing, pattern: Pattern) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn with_pattern(drawing: &Drawing, pattern: Pattern) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
     Update::none(Drawing { step: drawing.step.clone(), greeting: Greeting { pattern, status: drawing.greeting.status.clone() } })
 }
 
@@ -108,7 +108,7 @@ fn pressed(drawing: &Drawing, press: ButtonPress) -> Result<Update<Drawing, Logi
     let moved = |direction| {
         let Ok(pattern) = pattern.moved(direction);
 
-        drawn(drawing, pattern)
+        with_pattern(drawing, pattern)
     };
 
     match press {
@@ -121,39 +121,39 @@ fn pressed(drawing: &Drawing, press: ButtonPress) -> Result<Update<Drawing, Logi
             false => {
                 let Ok(undone) = pattern.undone();
 
-                drawn(drawing, undone)
+                with_pattern(drawing, undone)
             }
         },
         ButtonPress::Choose => {
-            let Ok(clicked) = pattern.clicked();
+            let Ok(clicked) = pattern.click();
 
-            chosen(drawing, clicked)
+            on_click(drawing, clicked)
         }
     }
 }
 
-fn touched(drawing: &Drawing, touch: Touch) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn on_touch(drawing: &Drawing, touch: Touch) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
     let pattern = &drawing.greeting.pattern;
 
     match (touch, pattern.finger, pattern.path.is_empty()) {
         (Touch::Up, Some(_), true) => Update::new(drawing.clone(), vec![Effect::Stop(Exit::Success)]),
         (Touch::Up, Some(_), false) | (Touch::Up, None, true | false) | (Touch::Down(_) | Touch::Moved(_), Some(_) | None, true | false) => {
-            let Ok(clicked) = pattern.touched(touch);
+            let Ok(clicked) = pattern.touch(touch);
 
-            chosen(drawing, clicked)
+            on_click(drawing, clicked)
         }
     }
 }
 
-fn chosen(drawing: &Drawing, clicked: Clicked) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn on_click(drawing: &Drawing, clicked: Clicked) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
     match clicked {
-        Clicked::Traced(next) => drawn(drawing, next),
+        Clicked::Traced(next) => with_pattern(drawing, next),
         Clicked::Submitted(secret) => submitted(drawing, secret),
     }
 }
 
 fn submitted(drawing: &Drawing, secret: Secret) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
-    let Ok(letters) = secret.spelled();
+    let Ok(letters) = secret.as_str();
     let Ok(fewest) = console_core_number_conversion::index(FEWEST);
 
     match (letters.chars().count() < fewest, &drawing.step) {
@@ -173,55 +173,78 @@ mod tests {
     use console_login_pattern::Target;
     use console_program_contract::{run, run_from};
 
-    fn presses(presses: &[ButtonPress]) -> Vec<Event<LoginPatternEvent>> {
-        presses.iter().map(|press| Event::Custom(LoginPatternEvent::Pressed(*press))).collect()
+    fn presses(presses: &[ButtonPress]) -> Result<Vec<Event<LoginPatternEvent>>, Never> {
+        Ok(presses.iter().map(|press| Event::Custom(LoginPatternEvent::Pressed(*press))).collect())
     }
 
+    const TWICE: [u32; 4] = [0, 1, 2, 3];
+
+    const NOT_A_SECRET: &str = "dots drawn and Login pressed are a secret";
+
     #[test]
-    fn one_drawing_asks_for_a_second() {
+    fn one_drawing_asks_for_a_second() -> Result<(), &'static str> {
         let drawn = Drawing {
             step: Step::Choosing,
             greeting: Greeting { pattern: Pattern { at: Target::Login, path: vec![0, 1, 2, 3], finger: None }, status: Status::Waiting },
         };
-        let Ok(trace) = run_from::<LoginPattern>(&drawn, &presses(&[ButtonPress::Choose]));
+        let Ok(chosen) = presses(&[ButtonPress::Choose]);
+        let Ok(trace) = run_from::<LoginPattern>(&drawn, &chosen);
         let Ok(effects) = trace.effects();
+        let Ok(kept) = secret(TWICE.to_vec());
+        let kept = kept.ok_or(NOT_A_SECRET)?;
 
-        assert_eq!(trace.state.step, Step::Confirming(secret(vec![0, 1, 2, 3])));
+        assert_eq!(trace.state.step, Step::Confirming(kept));
         assert_eq!(trace.state.greeting.status, Status::Message(AGAIN.to_string()));
         assert!(trace.state.greeting.pattern.path.is_empty());
         assert!(effects.is_empty());
+
+        Ok(())
     }
 
-    fn secret(path: Vec<u32>) -> Secret {
-        match (Pattern { at: Target::Login, path, finger: None }).clicked() {
-            Ok(Clicked::Submitted(secret)) => secret,
-            Ok(Clicked::Traced(_)) => panic!("dots drawn and Login pressed are a secret"),
-        }
+    fn secret(path: Vec<u32>) -> Result<Option<Secret>, Never> {
+        Ok(match (Pattern { at: Target::Login, path, finger: None }).click() {
+            Ok(Clicked::Submitted(secret)) => Some(secret),
+            Ok(Clicked::Traced(_)) => None,
+        })
     }
 
-    fn confirming(first: Vec<u32>, again: Vec<u32>) -> Drawing {
-        Drawing {
-            step: Step::Confirming(secret(first)),
+    fn confirming(first: Vec<u32>, again: Vec<u32>) -> Result<Option<Drawing>, Never> {
+        let Ok(first) = secret(first);
+
+        Ok(first.map(|first| Drawing {
+            step: Step::Confirming(first),
             greeting: Greeting { pattern: Pattern { at: Target::Login, path: again, finger: None }, status: Status::Waiting },
-        }
+        }))
     }
 
     #[test]
-    fn the_same_drawing_twice_is_kept() {
-        let Ok(trace) = run_from::<LoginPattern>(&confirming(vec![0, 1, 2, 3], vec![0, 1, 2, 3]), &presses(&[ButtonPress::Choose]));
+    fn the_same_drawing_twice_is_kept() -> Result<(), &'static str> {
+        let Ok(drawn) = confirming(TWICE.to_vec(), TWICE.to_vec());
+        let drawn = drawn.ok_or(NOT_A_SECRET)?;
+        let Ok(chosen) = presses(&[ButtonPress::Choose]);
+        let Ok(trace) = run_from::<LoginPattern>(&drawn, &chosen);
         let Ok(effects) = trace.effects();
+        let Ok(kept) = secret(TWICE.to_vec());
+        let kept = kept.ok_or(NOT_A_SECRET)?;
 
-        assert_eq!(effects, vec![Effect::Custom(LoginPatternEffect::Save(secret(vec![0, 1, 2, 3]))), Effect::Stop(Exit::Success)]);
+        assert_eq!(effects, vec![Effect::Custom(LoginPatternEffect::Save(kept)), Effect::Stop(Exit::Success)]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_second_drawing_that_differs_starts_again() {
-        let Ok(trace) = run_from::<LoginPattern>(&confirming(vec![0, 1, 2, 3], vec![3, 2, 1, 0]), &presses(&[ButtonPress::Choose]));
+    fn a_second_drawing_that_differs_starts_again() -> Result<(), &'static str> {
+        let Ok(drawn) = confirming(TWICE.to_vec(), vec![3, 2, 1, 0]);
+        let drawn = drawn.ok_or(NOT_A_SECRET)?;
+        let Ok(chosen) = presses(&[ButtonPress::Choose]);
+        let Ok(trace) = run_from::<LoginPattern>(&drawn, &chosen);
         let Ok(effects) = trace.effects();
 
         assert_eq!(trace.state.step, Step::Choosing);
         assert_eq!(trace.state.greeting.status, Status::Message(APART.to_string()));
         assert!(effects.is_empty());
+
+        Ok(())
     }
 
     #[test]
@@ -230,7 +253,8 @@ mod tests {
             step: Step::Choosing,
             greeting: Greeting { pattern: Pattern { at: Target::Login, path: vec![0, 1, 2], finger: None }, status: Status::Waiting },
         };
-        let Ok(trace) = run_from::<LoginPattern>(&short, &presses(&[ButtonPress::Choose]));
+        let Ok(chosen) = presses(&[ButtonPress::Choose]);
+        let Ok(trace) = run_from::<LoginPattern>(&short, &chosen);
 
         assert_eq!(trace.state.step, Step::Choosing);
         assert_eq!(trace.state.greeting.status, Status::Message(SHORT.to_string()));
@@ -238,19 +262,27 @@ mod tests {
     }
 
     #[test]
-    fn a_finger_drawn_twice_the_same_way_is_kept() {
+    fn a_finger_drawn_twice_the_same_way_is_kept() -> Result<(), &'static str> {
         let over = |at: u32| match console_login_pattern::dot(at) {
-            Ok(Some(dot)) => dot.centre,
-            Ok(None) => panic!("no dot {at}"),
+            Ok(Some(dot)) => Some(dot.centre),
+            Ok(None) => None,
         };
-        let stroke = [Touch::Down(over(0)), Touch::Moved(over(4)), Touch::Moved(over(2)), Touch::Moved(over(7)), Touch::Up];
+        let (first, second, third, fourth) = match (over(0), over(4), over(2), over(7)) {
+            (Some(first), Some(second), Some(third), Some(fourth)) => (first, second, third, fourth),
+            (None, _, _, _) | (_, None, _, _) | (_, _, None, _) | (_, _, _, None) => return Err("a dot the pattern does not have"),
+        };
+        let stroke = [Touch::Down(first), Touch::Moved(second), Touch::Moved(third), Touch::Moved(fourth), Touch::Up];
         let events: Vec<Event<LoginPatternEvent>> =
             stroke.iter().chain(stroke.iter()).map(|touch| Event::Custom(LoginPatternEvent::Touched(*touch))).collect();
         let Ok(arguments) = Arguments::of(&[]);
         let Ok(trace) = run::<LoginPattern>(&arguments, &events);
         let Ok(effects) = trace.effects();
+        let Ok(kept) = secret(vec![0, 4, 2, 7]);
+        let kept = kept.ok_or(NOT_A_SECRET)?;
 
-        assert_eq!(effects, vec![Effect::Custom(LoginPatternEffect::Save(secret(vec![0, 4, 2, 7]))), Effect::Stop(Exit::Success)]);
+        assert_eq!(effects, vec![Effect::Custom(LoginPatternEffect::Save(kept)), Effect::Stop(Exit::Success)]);
+
+        Ok(())
     }
 
     #[test]
@@ -265,17 +297,23 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_away_while_confirming_leaves_too() {
-        let Ok(trace) = run_from::<LoginPattern>(&confirming(vec![0, 1, 2, 3], vec![]), &[Touch::Down(Point { x: 220, y: 180 }), Touch::Up].map(|touch| Event::Custom(LoginPatternEvent::Touched(touch))));
+    fn a_tap_away_while_confirming_leaves_too() -> Result<(), &'static str> {
+        let Ok(drawn) = confirming(TWICE.to_vec(), vec![]);
+        let drawn = drawn.ok_or(NOT_A_SECRET)?;
+        let tap = [Touch::Down(Point { x: 220, y: 180 }), Touch::Up].map(|touch| Event::Custom(LoginPatternEvent::Touched(touch)));
+        let Ok(trace) = run_from::<LoginPattern>(&drawn, &tap);
         let Ok(effects) = trace.effects();
 
         assert_eq!(effects, vec![Effect::Stop(Exit::Success)]);
+
+        Ok(())
     }
 
     #[test]
     fn b_with_nothing_drawn_leaves_without_keeping() {
         let Ok(arguments) = Arguments::of(&[]);
-        let Ok(trace) = run::<LoginPattern>(&arguments, &presses(&[ButtonPress::Back]));
+        let Ok(back) = presses(&[ButtonPress::Back]);
+        let Ok(trace) = run::<LoginPattern>(&arguments, &back);
         let Ok(effects) = trace.effects();
 
         assert_eq!(effects, vec![Effect::Stop(Exit::Success)]);

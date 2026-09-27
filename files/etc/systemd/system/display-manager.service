@@ -12,6 +12,9 @@ Conflicts=getty@tty1.service
 # under it is the recovery menu: drawn as text, answering the same pad, with
 # no toolkit and no DRM for it to fall over on.
 OnFailure=console-recovery.service
+# A login window that started is a boot that came up, and the next one can
+# skip the boot menu. See console-boot-complete.service.
+Wants=console-boot-complete.service
 StartLimitIntervalSec=60
 StartLimitBurst=3
 

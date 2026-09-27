@@ -242,7 +242,7 @@ pub fn where_() -> Result<Option<PathBuf>, Never> {
     Ok(ours.map(|ours| ours.join(STORE)))
 }
 
-fn counted(text: &str) -> Result<Option<f64>, Never> {
+fn parse_number(text: &str) -> Result<Option<f64>, Never> {
     Ok(match text.trim().parse::<f64>() {
         Ok(number) => Some(number),
         Err(_not_a_number) => None,
@@ -254,7 +254,7 @@ fn number(at: &Path) -> Result<Option<f64>, Never> {
     let Ok(text) = held.text();
 
     match text {
-        Some(text) => counted(&text),
+        Some(text) => parse_number(&text),
         None => Ok(None),
     }
 }
@@ -266,7 +266,7 @@ fn up() -> Result<Option<f64>, Never> {
     let first = text.as_deref().map(str::split_whitespace).and_then(|mut words| words.next());
 
     match first {
-        Some(first) => counted(first),
+        Some(first) => parse_number(first),
         None => Ok(None),
     }
 }
@@ -306,7 +306,7 @@ fn gpu() -> Result<Option<f64>, Never> {
     Ok(None)
 }
 
-fn spending(text: &str) -> Result<Option<Spent>, Never> {
+fn parse_spent(text: &str) -> Result<Option<Spent>, Never> {
     let (through_name, rest) = match text.rsplit_once(')') {
         Some(split) => split,
         None => return Ok(None),
@@ -362,7 +362,7 @@ struct Running {
     held: Vec<(String, f64)>,
 }
 
-fn running() -> Result<Running, Never> {
+fn running_processes() -> Result<Running, Never> {
     let running = match std::fs::read_dir(RUNNING) {
         Ok(running) => running,
         Err(_nothing_to_ask) => return Ok(Running { busy: Vec::new(), held: Vec::new() }),
@@ -389,7 +389,7 @@ fn running() -> Result<Running, Never> {
             Some(text) => text,
             None => continue,
         };
-        let Ok(spending) = spending(&text);
+        let Ok(spending) = parse_spent(&text);
 
         let Spent { named, seconds, megabytes } = match spending {
             Some(spending) => spending,
@@ -457,7 +457,7 @@ fn restarts() -> Result<Vec<(String, f64)>, Never> {
     Ok(counted)
 }
 
-pub fn dumped(file: &str) -> Result<Option<String>, Never> {
+pub fn dump_program(file: &str) -> Result<Option<String>, Never> {
     let mut fields = file.split('.');
 
     match fields.next() {
@@ -486,7 +486,7 @@ fn crashes() -> Result<Vec<(String, f64)>, Never> {
 
     for dump in dumps.flatten() {
         let file = dump.file_name();
-        let Ok(named) = dumped(&file.to_string_lossy());
+        let Ok(named) = dump_program(&file.to_string_lossy());
 
         match named {
             Some(named) => *counted.entry(named).or_insert(NONE) += 1.0,
@@ -516,7 +516,7 @@ fn battery() -> Result<Option<PathBuf>, Never> {
     Ok(None)
 }
 
-pub fn taken(at: u64) -> Result<Moment, Never> {
+pub fn sample(at: u64) -> Result<Moment, Never> {
     let Ok(up) = up();
     let Ok(slept) = slept();
     let Ok(gpu) = gpu();
@@ -536,18 +536,18 @@ pub fn taken(at: u64) -> Result<Moment, Never> {
     };
     let Ok(text) = charge();
     let Ok(charged) = Charge::of(&text);
-    let Ok(Running { busy, held }) = running();
+    let Ok(Running { busy, held }) = running_processes();
     let Ok(restarts) = restarts();
     let Ok(crashes) = crashes();
 
     Ok(Moment { at, up, slept, energy, draw, gpu, percent: charged.percent, busy, held, restarts, crashes })
 }
 
-fn quoted(text: &str) -> Result<String, Never> {
+fn json_string(text: &str) -> Result<String, Never> {
     Ok(serde_json::Value::String(text.to_string()).to_string())
 }
 
-pub fn written(moment: &Moment) -> Result<String, Never> {
+pub fn serialize(moment: &Moment) -> Result<String, Never> {
     let mut text = format!("{{\"at\":{}", moment.at);
 
     match moment.up {
@@ -600,7 +600,7 @@ fn object(named: &[(String, f64)], places: u32) -> Result<String, Never> {
 
         first = false;
 
-        let Ok(named) = quoted(named);
+        let Ok(named) = json_string(named);
 
         text.push_str(&format!("{named}:{amount:.places$}"));
     }
@@ -610,7 +610,7 @@ fn object(named: &[(String, f64)], places: u32) -> Result<String, Never> {
     Ok(text)
 }
 
-fn named(object: &serde_json::Map<String, serde_json::Value>, key: &str) -> Result<Vec<(String, f64)>, Never> {
+fn amounts_under(object: &serde_json::Map<String, serde_json::Value>, key: &str) -> Result<Vec<(String, f64)>, Never> {
     Ok(match object.get(key).and_then(serde_json::Value::as_object) {
         Some(named) => named
             .iter()
@@ -635,10 +635,10 @@ pub fn of(text: &str) -> Result<Option<Moment>, Never> {
         Some(at) => at,
         None => return Ok(None),
     };
-    let Ok(busy) = named(object, "busy");
-    let Ok(held) = named(object, "held");
-    let Ok(restarts) = named(object, "restarts");
-    let Ok(crashes) = named(object, "crashes");
+    let Ok(busy) = amounts_under(object, "busy");
+    let Ok(held) = amounts_under(object, "held");
+    let Ok(restarts) = amounts_under(object, "restarts");
+    let Ok(crashes) = amounts_under(object, "crashes");
     let slept = match object.get("slept").and_then(serde_json::Value::as_f64) {
         Some(slept) => slept,
         None => NONE,
@@ -665,7 +665,7 @@ pub fn of(text: &str) -> Result<Option<Moment>, Never> {
     }))
 }
 
-pub fn kept(at: &Path, moment: &Moment) -> Result<(), Unsaid> {
+pub fn append(at: &Path, moment: &Moment) -> Result<(), Unsaid> {
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
             .map_err(|fault| Unsaid::Making(holding.to_path_buf(), fault))?,
@@ -685,13 +685,13 @@ pub fn kept(at: &Path, moment: &Moment) -> Result<(), Unsaid> {
         .open(at)
         .map_err(|fault| Unsaid::Opening(at.to_path_buf(), fault))?;
 
-    let Ok(text) = written(moment);
+    let Ok(text) = serialize(moment);
 
     file.write_all(format!("{text}\n").as_bytes())
         .map_err(|fault| Unsaid::Writing(at.to_path_buf(), fault))
 }
 
-pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
+pub fn usage_between(moments: &[Moment]) -> Result<Option<Used>, Never> {
     let mut used = Used {
         awake: NONE,
         asleep: NONE,
@@ -760,11 +760,11 @@ pub fn between(moments: &[Moment]) -> Result<Option<Used>, Never> {
             None => {}
         }
 
-        let Ok(()) = risen(Counted { before: &before.busy, after: &after.busy, unseen: Unseen::Unknown }, &mut busy);
+        let Ok(()) = add_growth(Counted { before: &before.busy, after: &after.busy, unseen: Unseen::Unknown }, &mut busy);
         let Ok(()) =
-            risen(Counted { before: &before.restarts, after: &after.restarts, unseen: Unseen::None }, &mut restarted);
+            add_growth(Counted { before: &before.restarts, after: &after.restarts, unseen: Unseen::None }, &mut restarted);
         let Ok(()) =
-            risen(Counted { before: &before.crashes, after: &after.crashes, unseen: Unseen::None }, &mut crashed);
+            add_growth(Counted { before: &before.crashes, after: &after.crashes, unseen: Unseen::None }, &mut crashed);
     }
 
     match used.awake > NONE {
@@ -816,7 +816,7 @@ struct Counted<'a> {
     unseen: Unseen,
 }
 
-fn risen(counted: Counted<'_>, into: &mut BTreeMap<String, f64>) -> Result<(), Never> {
+fn add_growth(counted: Counted<'_>, into: &mut BTreeMap<String, f64>) -> Result<(), Never> {
     let earlier: BTreeMap<&str, f64> =
         counted.before.iter().map(|(named, amount)| (named.as_str(), *amount)).collect();
 
@@ -894,7 +894,7 @@ fn counts(text: &mut String, heading: &str, counted: &[(String, f64)]) -> Result
     Ok(())
 }
 
-pub fn told(used: &Used) -> Result<String, Never> {
+pub fn summarize(used: &Used) -> Result<String, Never> {
     let Ok(awake) = stretch(used.awake);
     let Ok(asleep) = stretch(used.asleep);
     let mut text = format!("{awake} awake, {asleep} asleep\n");
@@ -965,7 +965,7 @@ mod tests {
     fn a_line_of_stat_says_the_time_spent_and_the_pages_held() {
         let said = "1212026 (a (b) c) R 1212024 1212024 1212024 0 -1 4194304 134 0 0 0 250 50 0 0 20 0 1 0 \
                     2147753 6438912 512 18446744073709551615 94194824380416";
-        let Ok(spent) = spending(said);
+        let Ok(spent) = parse_spent(said);
         let spent = spent.map(|Spent { named, seconds, megabytes }| (named, seconds, megabytes));
 
         assert_eq!(spent, Some(("a (b) c".to_string(), 3.0, Some(2.0))));

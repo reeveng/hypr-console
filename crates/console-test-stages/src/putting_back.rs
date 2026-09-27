@@ -73,7 +73,7 @@ pub enum Restore {
 }
 
 impl Restore {
-    pub fn said(&self) -> Result<String, Never> {
+    pub fn describe(&self) -> Result<String, Never> {
         Ok(match self {
             Restore::Close(which) => format!("the window it opened at {which}"),
             Restore::Keyboard(Show::Up) => "the keyboard (up)".to_string(),
@@ -120,7 +120,7 @@ fn back_on(then: Then<'_>) -> Result<Option<String>, Never> {
     })
 }
 
-pub fn wanted(found: &Found, now: &Found, opened: &[String]) -> Result<Vec<Restore>, Never> {
+pub fn restores_needed(found: &Found, now: &Found, opened: &[String]) -> Result<Vec<Restore>, Never> {
     let mut wanted: Vec<Restore> =
         opened.iter().map(|which| Restore::Close(which.clone())).collect();
 
@@ -161,12 +161,12 @@ pub fn wanted(found: &Found, now: &Found, opened: &[String]) -> Result<Vec<Resto
     Ok(wanted)
 }
 
-pub fn said(handed: &Provided) -> Result<String, Never> {
+pub fn summarize(handed: &Provided) -> Result<String, Never> {
     let sentence = |every: &[Restore]| {
         let said: Vec<String> = every
             .iter()
             .map(|putting| {
-                let Ok(said) = putting.said();
+                let Ok(said) = putting.describe();
 
                 said
             })
@@ -195,7 +195,7 @@ pub fn said(handed: &Provided) -> Result<String, Never> {
     Ok(lines.join("\n"))
 }
 
-pub fn found(stage: &mut Device) -> Result<Found, Never> {
+pub fn observe(stage: &mut Device) -> Result<Found, Never> {
     let Ok(workspace) = stage.workspace();
     let Ok(brightness) = stage.brightness();
     let Ok(volume) = stage.volume();
@@ -225,7 +225,7 @@ fn keyboard(stage: &mut Device, show: Show) -> Result<Outcome, Never> {
     )
 }
 
-fn leveled(
+fn set_level(
     stage: &mut Device,
     reading: fn(&mut Device) -> Result<Level, Never>,
     to: i64,
@@ -243,19 +243,19 @@ fn leveled(
     )
 }
 
-fn carried(stage: &mut Device, putting: &Restore) -> Result<Outcome, Never> {
+fn restore(stage: &mut Device, putting: &Restore) -> Result<Outcome, Never> {
     match putting {
         Restore::Close(which) => stage.close_window(which),
         Restore::Keyboard(show) => keyboard(stage, *show),
         Restore::Brightness(level) => {
             let Ok(()) = stage.brightness_to(*level);
 
-            leveled(stage, Device::brightness, *level)
+            set_level(stage, Device::brightness, *level)
         }
         Restore::Volume(level) => {
             let Ok(()) = stage.volume_to(*level);
 
-            leveled(stage, Device::volume, *level)
+            set_level(stage, Device::volume, *level)
         }
         Restore::Profile(name) => {
             let Ok(word) = worn_as(name);
@@ -280,12 +280,12 @@ fn carried(stage: &mut Device, putting: &Restore) -> Result<Outcome, Never> {
 
 pub fn back(stage: &mut Device, was: &Found) -> Result<Provided, Never> {
     let Ok(opened) = stage.opened();
-    let Ok(now) = found(stage);
-    let Ok(wanted) = wanted(was, &now, &opened);
+    let Ok(now) = observe(stage);
+    let Ok(wanted) = restores_needed(was, &now, &opened);
     let mut handed = Provided { back: Vec::new(), stuck: Vec::new() };
 
     for putting in wanted {
-        let Ok(went) = carried(stage, &putting);
+        let Ok(went) = restore(stage, &putting);
 
         match went {
             Outcome::Happened => handed.back.push(putting),
@@ -300,35 +300,27 @@ pub fn back(stage: &mut Device, was: &Found) -> Result<Provided, Never> {
 mod tests {
     use super::*;
 
-    fn found() -> Found {
-        Found {
+    fn sample_found() -> Result<Found, Never> {
+        Ok(Found {
             workspace: "3".to_string(),
             brightness: Level::At(24000),
             volume: Level::At(40),
             profile: "Router".to_string(),
             keyboard: Ready::NotYet,
-        }
-    }
-
-    fn wanted(found: &Found, now: &Found, opened: &[String]) -> Vec<Restore> {
-        let Ok(wanted) = super::wanted(found, now, opened);
-
-        wanted
-    }
-
-    fn said(handed: &Provided) -> String {
-        let Ok(said) = super::said(handed);
-
-        said
+        })
     }
 
     #[test]
     fn a_run_that_changed_nothing_puts_nothing_back() {
-        assert_eq!(wanted(&found(), &found(), &[]), []);
+        let Ok(found) = sample_found();
+
+        assert_eq!(restores_needed(&found, &found, &[]), Ok(Vec::new()));
     }
 
     #[test]
     fn what_the_run_moved_is_moved_back_to_what_it_was() {
+        let Ok(found) = sample_found();
+
         let now = Found {
             workspace: "5".to_string(),
             brightness: Level::At(30000),
@@ -338,55 +330,63 @@ mod tests {
         };
 
         assert_eq!(
-            wanted(&found(), &now, &[]),
-            [
+            restores_needed(&found, &now, &[]),
+            Ok(vec![
                 Restore::Keyboard(Show::Away),
                 Restore::Brightness(24000),
                 Restore::Volume(40),
                 Restore::Profile("Router".to_string()),
                 Restore::Workspace("3".to_string()),
-            ]
+            ])
         );
     }
 
     #[test]
     fn a_level_the_machine_would_not_say_is_left_alone() {
-        let unsaid = Found { brightness: Level::Unsaid, ..found() };
-        let moved = Found { brightness: Level::At(30000), ..found() };
+        let Ok(found) = sample_found();
 
-        assert_eq!(wanted(&unsaid, &moved, &[]), []);
-        assert_eq!(wanted(&moved, &unsaid, &[]), []);
+        let unsaid = Found { brightness: Level::Unsaid, ..found.clone() };
+        let moved = Found { brightness: Level::At(30000), ..found.clone() };
+
+        assert_eq!(restores_needed(&unsaid, &moved, &[]), Ok(Vec::new()));
+        assert_eq!(restores_needed(&moved, &unsaid, &[]), Ok(Vec::new()));
     }
 
     #[test]
     fn a_name_the_machine_would_not_say_is_left_alone() {
-        let unsaid = Found { workspace: String::new(), profile: String::new(), ..found() };
-        let moved = Found { workspace: "5".to_string(), profile: "Gamepad".to_string(), ..found() };
+        let Ok(found) = sample_found();
 
-        assert_eq!(wanted(&unsaid, &moved, &[]), []);
-        assert_eq!(wanted(&moved, &unsaid, &[]), []);
+        let unsaid = Found { workspace: String::new(), profile: String::new(), ..found.clone() };
+        let moved = Found { workspace: "5".to_string(), profile: "Gamepad".to_string(), ..found.clone() };
+
+        assert_eq!(restores_needed(&unsaid, &moved, &[]), Ok(Vec::new()));
+        assert_eq!(restores_needed(&moved, &unsaid, &[]), Ok(Vec::new()));
     }
 
     #[test]
     fn every_window_the_run_opened_is_closed_before_anything_else() {
-        let now = Found { workspace: "5".to_string(), ..found() };
+        let Ok(found) = sample_found();
+
+        let now = Found { workspace: "5".to_string(), ..found.clone() };
         let opened = ["0xa1".to_string(), "0xb2".to_string()];
 
         assert_eq!(
-            wanted(&found(), &now, &opened),
-            [
+            restores_needed(&found, &now, &opened),
+            Ok(vec![
                 Restore::Close("0xa1".to_string()),
                 Restore::Close("0xb2".to_string()),
                 Restore::Workspace("3".to_string()),
-            ]
+            ])
         );
     }
 
     #[test]
     fn a_keyboard_that_was_up_before_the_run_is_put_back_up() {
-        let was_up = Found { keyboard: Ready::Yes, ..found() };
+        let Ok(found) = sample_found();
 
-        assert_eq!(wanted(&was_up, &found(), &[]), [Restore::Keyboard(Show::Up)]);
+        let was_up = Found { keyboard: Ready::Yes, ..found.clone() };
+
+        assert_eq!(restores_needed(&was_up, &found, &[]), Ok(vec![Restore::Keyboard(Show::Up)]));
     }
 
     #[test]
@@ -406,8 +406,8 @@ mod tests {
         };
 
         assert_eq!(
-            said(&handed),
-            "handed back: the brightness (24000), the workspace (3)"
+            summarize(&handed),
+            Ok("handed back: the brightness (24000), the workspace (3)".to_string())
         );
 
         let stuck = Provided {
@@ -416,12 +416,12 @@ mod tests {
         };
 
         assert_eq!(
-            said(&stuck),
-            "could not put back: the window it opened at 0xa1"
+            summarize(&stuck),
+            Ok("could not put back: the window it opened at 0xa1".to_string())
         );
 
         let nothing = Provided { back: Vec::new(), stuck: Vec::new() };
 
-        assert_eq!(said(&nothing), "the device is as it was found");
+        assert_eq!(summarize(&nothing), Ok("the device is as it was found".to_string()));
     }
 }

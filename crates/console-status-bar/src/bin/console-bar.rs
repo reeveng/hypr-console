@@ -89,13 +89,14 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use console_compositor::{Query, Carrying, Request, Workspace};
+use console_compositor::{Carrying, Request, Workspace};
 use console_core_color::palette::{self, PaletteError, WearingError};
 use console_core_geometry::{Point, Size};
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i32};
 use console_core_internal_programs::InternalProgram;
-use console_draw_painting::{Frame, Run, measured, onto};
+use console_draw_painting::{Frame, Run, measure_text, onto};
 use console_draw_surface::standing::{
     Anchor, Closed, Keyboard, Margin, Room, Under, Wanted,
 };
@@ -222,104 +223,169 @@ fn drawing() -> Result<(), Cannot> {
     raised(&mut surface, fitting)?;
 
     let mut dwindling = Watching::default();
-    let Ok(mut readings) = first_readings(&mut dwindling);
-    let Ok(when) = clock::standing();
-    let Ok(mut held) = first_held(&readings);
-    let mut was = when;
-    let mut settling = Settling::No;
-    let mut last: Option<Rendered> = None;
-    let mut requested: Vec<BarAction> = Vec::new();
-    let mut promised: Option<Promised> = None;
-    let mut started: Vec<Detached> = Vec::new();
-    let woken = waking.waiting.as_fd();
+    let Ok(readings) = first_readings(&mut dwindling);
+    let Ok(when) = clock::current();
+    let Ok(held) = first_held(&readings);
+    let turning = Turning {
+        surface,
+        dwindling,
+        readings,
+        held,
+        was: when,
+        settling: Settling::No,
+        last: None,
+        requested: Vec::new(),
+        promised: None,
+        started: Vec::new(),
+    };
+    let around = Around {
+        wearing: &wearing,
+        whole,
+        fitting,
+        woken: &waking.waiting,
+        hearing: &hearing,
+        folders: &folders,
+        seen: &seen,
+    };
 
-    loop {
-        let Ok(progress) = updating::progress();
-        let filling = match &progress {
-            Some(progress) => Filling::At(progress.permille),
-            None => Filling::None,
-        };
-        let Ok(layout) = held.layout(filling);
-        let Ok(bar) = sized(&layout, fitting);
-        let logical = match surface.logical() {
-            Ok(Some(logical)) => logical,
-            Ok(None) | Err(_) => whole,
-        };
-        let Ok(drawn) =
-            showing::along(&bar, &wearing, Size { width: logical.width, height: whole.height });
-
-        match last.as_ref() == Some(&drawn) {
-            true => {}
-            false => {
-                let Ok(()) = painted(&mut surface, &drawn);
-
-                last = Some(drawn.clone());
-            }
-        }
-
-        let Ok(()) = begun(&mut requested, &mut promised, &mut started);
-
-        let Ok(closed) = surface.closed();
-
-        match closed {
-            Closed::Yes => return Ok(()),
-            Closed::No => {}
-        }
-
-        let Ok(until) = waiting(&readings, filling, settling);
-
-        let Ok(()) = watched(&hearing, &folders);
-        let Ok(ending) = endings(&started);
-        let mut also = vec![woken, hearing.as_fd()];
-
-        also.extend(ending.iter().map(AsFd::as_fd));
-
-        surface.wait(&also, Some(until))?;
-
-        let Ok(()) = tapped(&mut surface, &drawn, &mut requested);
-
-        for action in &requested {
-            let Ok(()) = held.pressed(*action);
-
-            promised = Some(Promised { action: *action, pressed: held.open.clone(), started: None });
-        }
-
-        let Ok(()) = woken::drained(&waking.waiting);
-        let Ok(()) = heard_again(&hearing);
-        let Ok(still) = console_program_lifetime::reaped(started);
-
-        started = still;
-
-        held.open.tab = match console_onscreen::tab() {
-            Ok(tab) => tab,
-            Err(_nothing_has_said_which_tab_is_in_front) => None,
-        };
-        let Ok(woke) = heard(&seen);
-
-        settling = match woke.is_empty() {
-            true => Settling::No,
-            false => Settling::Yes,
-        };
-
-        let Ok(looked) = again(&woke, &mut readings, &mut dwindling);
-        let Ok(()) = ticked(&mut readings, &mut dwindling);
-        let Ok(()) = refreshed(&woke, looked, &mut held);
-        let Ok(()) = kept(&mut promised, &mut held, &started);
-
-        let Ok(now) = clock::standing();
-
-        match now == was {
-            true => {}
-            false => {
-                let Ok(said) = clock::now();
-
-                held.clock = said;
-                was = now;
-            }
-        }
-
-        held.readings = readings.iter().map(|one| (one.item, one.reading.clone())).collect();
+    match console_core_iteration::iterate(turning, |turning| turned(turning, around)) {
+        Ok(drawn) => drawn,
+        Err(_endless) => Ok(()),
     }
+}
+
+struct Turning {
+    surface: Surface,
+    dwindling: Watching,
+    readings: Vec<Tracked>,
+    held: BarState,
+    was: clock::Standing,
+    settling: Settling,
+    last: Option<Rendered>,
+    requested: Vec<BarAction>,
+    promised: Option<Promised>,
+    started: Vec<Detached>,
+}
+
+#[derive(Clone, Copy)]
+struct Around<'a> {
+    wearing: &'a Wearing,
+    whole: Size<u32>,
+    fitting: Fitting,
+    woken: &'a OwnedFd,
+    hearing: &'a OwnedFd,
+    folders: &'a [PathBuf],
+    seen: &'a Arc<Mutex<BTreeSet<Woke>>>,
+}
+
+fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(), Cannot>>, Never> {
+    let Around { wearing, whole, fitting, woken, hearing, folders, seen } = around;
+    let waking_fd = woken;
+    let woken = woken.as_fd();
+    let Turning {
+        mut surface,
+        mut dwindling,
+        mut readings,
+        mut held,
+        mut was,
+        mut settling,
+        mut last,
+        mut requested,
+        mut promised,
+        mut started,
+    } = turning;
+
+    let Ok(progress) = updating::progress();
+    let filling = match &progress {
+        Some(progress) => Filling::At(progress.permille),
+        None => Filling::None,
+    };
+    let Ok(layout) = held.layout(filling);
+    let Ok(bar) = sized(&layout, fitting);
+    let logical = match surface.logical() {
+        Ok(Some(logical)) => logical,
+        Ok(None) | Err(_) => whole,
+    };
+    let Ok(drawn) =
+        showing::along(&bar, wearing, Size { width: logical.width, height: whole.height });
+
+    match last.as_ref() == Some(&drawn) {
+        true => {}
+        false => {
+            let Ok(()) = painted(&mut surface, &drawn);
+
+            last = Some(drawn.clone());
+        }
+    }
+
+    let Ok(()) = begun(&mut requested, &mut promised, &mut started);
+
+    let Ok(closed) = surface.closed();
+
+    match closed {
+        Closed::Yes => return Ok(Step::Halt(Ok(()))),
+        Closed::No => {}
+    }
+
+    let Ok(until) = waiting(&readings, filling, settling);
+
+    let Ok(()) = watch_folders(hearing, folders);
+    let Ok(ending) = endings(&started);
+    let mut also = vec![woken, hearing.as_fd()];
+
+    also.extend(ending.iter().map(AsFd::as_fd));
+
+    match surface.wait(&also, Some(until)) {
+        Ok(_woke) => {},
+        Err(fault) => return Ok(Step::Halt(Err(Cannot::from(fault)))),
+    }
+
+    let Ok(()) = tapped(&mut surface, &drawn, &mut requested);
+
+    for action in &requested {
+        let Ok(()) = held.pressed(*action);
+
+        promised = Some(Promised { action: *action, pressed: held.open.clone(), started: None });
+    }
+
+    let Ok(()) = woken::drain(waking_fd);
+    let Ok(()) = heard_again(hearing);
+    let Ok(still) = console_program_lifetime::reap(started);
+
+    started = still;
+
+    held.open.tab = match console_onscreen::tab() {
+        Ok(tab) => tab,
+        Err(_nothing_has_said_which_tab_is_in_front) => None,
+    };
+    let Ok(woke) = take_woken(seen);
+
+    settling = match woke.is_empty() {
+        true => Settling::No,
+        false => Settling::Yes,
+    };
+
+    let Ok(looked) = again(&woke, &mut readings, &mut dwindling);
+    let Ok(()) = ticked(&mut readings, &mut dwindling);
+    let Ok(()) = refreshed(&woke, looked, &mut held);
+    let Ok(()) = check_promise(&mut promised, &mut held, &started);
+
+    let Ok(now) = clock::current();
+
+    match now == was {
+        true => {}
+        false => {
+            let Ok(said) = clock::now();
+
+            held.clock = said;
+            was = now;
+        }
+    }
+
+    held.readings = readings.iter().map(|one| (one.item, one.reading.clone())).collect();
+    Ok(Step::Again(Turning {
+        surface, dwindling, readings, held, was, settling, last, requested, promised, started,
+    }))
 }
 
 fn raised(surface: &mut Surface, fitting: Fitting) -> Result<(), Cannot> {
@@ -343,7 +409,7 @@ fn first_readings(dwindling: &mut Watching) -> Result<Vec<Tracked>, Never> {
     let mut readings = Vec::new();
 
     for item in state::ALONG {
-        let Ok(reading) = taken(item, dwindling);
+        let Ok(reading) = read_item(item, dwindling);
         let Ok(due) = due(item);
 
         readings.push(Tracked { item, reading, due });
@@ -452,7 +518,7 @@ fn heard_in() -> Result<Vec<PathBuf>, Never> {
         .collect())
 }
 
-fn watched(hearing: &OwnedFd, folders: &[PathBuf]) -> Result<(), Never> {
+fn watch_folders(hearing: &OwnedFd, folders: &[PathBuf]) -> Result<(), Never> {
     let asked = WatchFlags::CLOSE_WRITE
         | WatchFlags::CREATE
         | WatchFlags::DELETE
@@ -475,14 +541,17 @@ fn watched(hearing: &OwnedFd, folders: &[PathBuf]) -> Result<(), Never> {
 }
 
 fn heard_again(hearing: &OwnedFd) -> Result<(), Never> {
-    let mut heard = [0_u8; 4096];
+    let _drained = std::iter::from_fn(|| {
+        let mut heard = [0_u8; 4096];
 
-    loop {
         match rustix::io::read(hearing, &mut heard) {
-            Ok(_more_was_said) => {}
-            Err(_nothing_more_was_said) => return Ok(()),
+            Ok(_more_was_said) => Some(()),
+            Err(_nothing_more_was_said) => None,
         }
-    }
+    })
+    .count();
+
+    Ok(())
 }
 
 fn endings(started: &[Detached]) -> Result<Vec<OwnedFd>, Never> {
@@ -546,7 +615,7 @@ fn again(
 
         match woke.contains(&mine) {
             true => {
-                let Ok(reading) = taken(one.item, dwindling);
+                let Ok(reading) = read_item(one.item, dwindling);
                 let Ok(due) = due(one.item);
 
                 one.reading = reading;
@@ -566,7 +635,7 @@ fn ticked(readings: &mut [Tracked], dwindling: &mut Watching) -> Result<(), Neve
     for one in readings.iter_mut() {
         match one.due.is_some_and(|due| due <= now) {
             true => {
-                let Ok(reading) = taken(one.item, dwindling);
+                let Ok(reading) = read_item(one.item, dwindling);
                 let Ok(due) = due(one.item);
 
                 one.reading = reading;
@@ -579,20 +648,20 @@ fn ticked(readings: &mut [Tracked], dwindling: &mut Watching) -> Result<(), Neve
     Ok(())
 }
 
-fn taken(item: StatusItem, dwindling: &mut Watching) -> Result<Reading, Never> {
+fn read_item(item: StatusItem, dwindling: &mut Watching) -> Result<Reading, Never> {
     match item {
         StatusItem::Battery => {}
         StatusItem::Bluetooth | StatusItem::Network | StatusItem::Sound => return item.reading(),
     }
 
     let Ok(said) = console_battery::charge();
-    let Ok(()) = dwindling.seen(&said);
+    let Ok(()) = dwindling.record(&said);
 
     console_status_bar::reading::battery(&said)
 }
 
 fn rung() -> Result<Reading, Never> {
-    let Ok(whole) = console_notifications::serving::held();
+    let Ok(whole) = console_notifications::serving::load_inbox();
     let Ok(waiting) = Waiting::of(&whole.waiting, whole.do_not_disturb);
 
     notifications(waiting)
@@ -619,9 +688,8 @@ fn playing() -> Result<Reading, Never> {
 }
 
 fn shown(before: Open) -> Result<Open, Never> {
-    let screens = match console_compositor::query(Query::Layers) {
-        Ok(console_compositor::Answer::Layers(screens)) => screens,
-        Ok(_not_what_was_asked) => return Ok(before),
+    let screens = match console_compositor::ask(console_compositor::Layers) {
+        Ok(screens) => screens,
         Err(why) => {
             eprintln!("console-bar: {why}");
 
@@ -656,20 +724,18 @@ fn shown(before: Open) -> Result<Open, Never> {
 }
 
 fn walked() -> Result<(Vec<Workspace>, Option<i64>), Never> {
-    let there = match console_compositor::query(Query::Workspaces) {
-        Ok(console_compositor::Answer::Workspaces(there)) => there,
-        Ok(_not_what_was_asked) => Vec::new(),
+    let there = match console_compositor::ask(console_compositor::Workspaces) {
+        Ok(there) => there,
         Err(why) => {
             eprintln!("console-bar: {why}");
 
             Vec::new()
         }
     };
-    let front = match console_compositor::query(Query::ActiveWorkspace) {
-        Ok(console_compositor::Answer::ActiveWorkspace(front)) => {
+    let front = match console_compositor::ask(console_compositor::ActiveWorkspace) {
+        Ok(front) => {
             front.map(|workspace| workspace.id)
         }
-        Ok(_not_what_was_asked) => None,
         Err(_the_compositor_would_not_say_which_one_is_in_front) => None,
     };
 
@@ -706,7 +772,7 @@ fn measure(text: &str, face: Face, fitting: Fitting) -> Result<Size<u32>, Never>
     let Ok(font) = fitting.font(face);
     let Ok(weight) = face.weight();
 
-    measured(Run { said: text, weight, width: u32::MAX }, &font)
+    measure_text(Run { said: text, weight, width: u32::MAX }, &font)
 }
 
 fn painted(surface: &mut Surface, drawn: &Rendered) -> Result<(), Never> {
@@ -782,7 +848,7 @@ fn begun(requested: &mut Vec<BarAction>, promised: &mut Option<Promised>, starte
     Ok(())
 }
 
-fn kept(promised: &mut Option<Promised>, held: &mut BarState, started: &[Detached]) -> Result<(), Never> {
+fn check_promise(promised: &mut Option<Promised>, held: &mut BarState, started: &[Detached]) -> Result<(), Never> {
     let promise = match promised.as_mut() {
         Some(promise) => promise,
         None => return Ok(()),
@@ -877,9 +943,8 @@ fn switched(id: i64) -> Result<Option<Detached>, Never> {
 }
 
 fn screen() -> Result<Size<u32>, Cannot> {
-    let monitors = match console_compositor::query(Query::Monitors) {
-        Ok(console_compositor::Answer::Monitors(monitors)) => monitors,
-        Ok(_not_what_was_asked) => return Err(Cannot::Screenless),
+    let monitors = match console_compositor::ask(console_compositor::Monitors) {
+        Ok(monitors) => monitors,
         Err(why) => {
             eprintln!("console-bar: {why}");
 
@@ -897,7 +962,7 @@ fn screen() -> Result<Size<u32>, Cannot> {
     }
 }
 
-fn heard(seen: &Arc<Mutex<BTreeSet<Woke>>>) -> Result<BTreeSet<Woke>, Never> {
+fn take_woken(seen: &Arc<Mutex<BTreeSet<Woke>>>) -> Result<BTreeSet<Woke>, Never> {
     Ok(match seen.lock() {
         Ok(mut seen) => std::mem::take(&mut seen),
         Err(_nothing_is_telling_this_bar_anything) => BTreeSet::new(),

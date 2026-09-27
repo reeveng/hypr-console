@@ -161,7 +161,7 @@ fn plainly(name: &str) -> Result<String, Never> {
     Ok(name.to_lowercase().replace('-', ""))
 }
 
-pub fn made(generated: &[String], locale: &Locale) -> Result<Made, Never> {
+pub fn generation_state(generated: &[String], locale: &Locale) -> Result<Made, Never> {
     let Ok(lang) = locale.lang();
     let Ok(wanted) = plainly(&lang);
 
@@ -177,7 +177,7 @@ pub fn made(generated: &[String], locale: &Locale) -> Result<Made, Never> {
     })
 }
 
-pub fn chosen(said: &str) -> Result<Option<String>, Never> {
+pub fn parse_lang(said: &str) -> Result<Option<String>, Never> {
     for line in said.lines() {
         for word in line.split_whitespace() {
             match word.strip_prefix("LANG=") {
@@ -387,7 +387,7 @@ pub fn languages(supported: &[Locale], names: &Names) -> Result<Vec<Language>, N
     Ok(spoken)
 }
 
-pub fn standing(languages: &[Language], lang: Option<&str>) -> Result<Option<Locale>, Never> {
+pub fn current_locale(languages: &[Language], lang: Option<&str>) -> Result<Option<Locale>, Never> {
     let said = match lang {
         Some(said) => said,
         None => return Ok(None),
@@ -441,24 +441,23 @@ eo UTF-8";
         {"alpha_2":"RS","name":"Serbia"},
         {"alpha_2":"TH","name":"Thailand"}]}"#;
 
-    fn names() -> Names {
-        let Ok(names) = Names::read(Tables { languages: NAMES, places: PLACED });
+    const NOT_LISTED: &str = "a language in the list";
 
-        names
+    fn names() -> Result<Names, Never> {
+        Names::read(Tables { languages: NAMES, places: PLACED })
     }
 
-    fn spoken() -> Vec<Language> {
+    fn sample_languages() -> Result<Vec<Language>, Never> {
         let Ok(supported) = supported(SAID);
-        let Ok(languages) = languages(&supported, &names());
+        let Ok(names) = names();
 
-        languages
+        languages(&supported, &names)
     }
 
-    fn of(language: &str) -> Language {
-        spoken()
-            .into_iter()
-            .find(|spoken| spoken.language == language)
-            .expect("a language in the list")
+    fn of(language: &str) -> Result<Option<Language>, Never> {
+        let Ok(languages) = sample_languages();
+
+        Ok(languages.into_iter().find(|spoken| spoken.language == language))
     }
 
     #[test]
@@ -471,43 +470,50 @@ eo UTF-8";
 
     #[test]
     fn the_one_that_is_not_a_language_is_not_in_the_list() {
-        assert!(!spoken().iter().any(|language| language.language == "C"));
+        let Ok(languages) = sample_languages();
+
+        assert!(!languages.iter().any(|language| language.language == "C"));
     }
 
     #[test]
-    fn a_language_gathers_the_places_it_is_spoken() {
-        let english = of("en");
+    fn a_language_gathers_the_places_it_is_spoken() -> Result<(), &'static str> {
+        let Ok(english) = of("en");
+        let english = english.ok_or(NOT_LISTED)?;
 
         assert_eq!(english.says, "English");
         assert_eq!(english.locales.len(), 2);
+
+        Ok(())
     }
 
     #[test]
-    fn a_language_with_nowhere_after_it_is_still_a_language() {
-        let esperanto = of("eo");
+    fn a_language_with_nowhere_after_it_is_still_a_language() -> Result<(), &'static str> {
+        let Ok(esperanto) = of("eo");
+        let esperanto = esperanto.ok_or(NOT_LISTED)?;
+        let only = esperanto.locales.first().ok_or("the one locale")?;
+        let Ok(names) = names();
 
-        let Ok(says) = names().says(esperanto.locales.first().expect("the one locale"));
+        assert_eq!(names.says(only), Ok("Esperanto".to_string()));
 
-        assert_eq!(says, "Esperanto");
+        Ok(())
     }
 
     #[test]
-    fn how_it_is_written_is_part_of_where_it_is_written() {
-        let serbian = of("sr");
-        let latin = serbian
-            .locales
-            .iter()
-            .find(|locale| locale.how == "latin")
-            .expect("the latin one");
+    fn how_it_is_written_is_part_of_where_it_is_written() -> Result<(), &'static str> {
+        let Ok(serbian) = of("sr");
+        let serbian = serbian.ok_or(NOT_LISTED)?;
+        let latin = serbian.locales.iter().find(|locale| locale.how == "latin").ok_or("the latin one")?;
+        let Ok(names) = names();
 
-        let Ok(says) = names().says(latin);
+        assert_eq!(names.says(latin), Ok("Serbian (Serbia, latin)".to_string()));
 
-        assert_eq!(says, "Serbian (Serbia, latin)");
+        Ok(())
     }
 
     #[test]
     fn the_languages_are_in_the_order_someone_would_look_for_them() {
-        let says: Vec<String> = spoken().into_iter().map(|language| language.says).collect();
+        let Ok(languages) = sample_languages();
+        let says: Vec<String> = languages.into_iter().map(|language| language.says).collect();
 
         assert_eq!(says, ["Dutch", "English", "Esperanto", "Serbian", "Thai"]);
     }
@@ -522,38 +528,42 @@ eo UTF-8";
     }
 
     #[test]
-    fn a_locale_glibc_spells_without_the_encoding_still_asks_for_it_by_name() {
-        let serbian = of("sr");
-        let plain = serbian.locales.iter().find(|locale| locale.how.is_empty()).expect("sr_RS");
+    fn a_locale_glibc_spells_without_the_encoding_still_asks_for_it_by_name() -> Result<(), &'static str> {
+        let Ok(serbian) = of("sr");
+        let serbian = serbian.ok_or(NOT_LISTED)?;
+        let plain = serbian.locales.iter().find(|locale| locale.how.is_empty()).ok_or("sr_RS")?;
 
         assert_eq!(plain.line(), Ok("sr_RS UTF-8".to_string()));
         assert_eq!(plain.lang(), Ok("sr_RS.UTF-8".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn the_ones_already_made_are_the_ones_locale_a_names_however_it_spells_them() {
+    fn the_ones_already_made_are_the_ones_locale_a_names_however_it_spells_them() -> Result<(), &'static str> {
         let Ok(generated) = generated("C\nC.utf8\nen_US.utf8\nPOSIX\n");
-        let english = of("en");
-        let american =
-            english.locales.iter().find(|locale| locale.place == "US").expect("en_US");
-        let british =
-            english.locales.iter().find(|locale| locale.place == "GB").expect("en_GB");
+        let Ok(english) = of("en");
+        let english = english.ok_or(NOT_LISTED)?;
+        let american = english.locales.iter().find(|locale| locale.place == "US").ok_or("en_US")?;
+        let british = english.locales.iter().find(|locale| locale.place == "GB").ok_or("en_GB")?;
 
-        assert_eq!(made(&generated, american), Ok(Made::Yes));
-        assert_eq!(made(&generated, british), Ok(Made::No));
+        assert_eq!(generation_state(&generated, american), Ok(Made::Yes));
+        assert_eq!(generation_state(&generated, british), Ok(Made::No));
+
+        Ok(())
     }
 
     #[test]
     fn a_language_that_is_already_named_and_commented_out_is_uncommented_where_it_stands() {
         let said = "#en_GB.UTF-8 UTF-8  \n#nl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n";
-        let Ok(written) = generating(said,Line("nl_NL.UTF-8 UTF-8"));
+        let Ok(written) = generating(said, Line("nl_NL.UTF-8 UTF-8"));
 
         assert_eq!(written, "#en_GB.UTF-8 UTF-8  \nnl_NL.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n");
     }
 
     #[test]
     fn a_language_the_file_has_never_heard_of_is_written_at_the_end() {
-        let Ok(written) = generating("en_US.UTF-8 UTF-8\n",Line("th_TH.UTF-8 UTF-8"));
+        let Ok(written) = generating("en_US.UTF-8 UTF-8\n", Line("th_TH.UTF-8 UTF-8"));
 
         assert_eq!(written, "en_US.UTF-8 UTF-8\nth_TH.UTF-8 UTF-8\n");
     }
@@ -561,7 +571,7 @@ eo UTF-8";
     #[test]
     fn one_already_made_is_left_exactly_as_it_was() {
         let said = "en_US.UTF-8 UTF-8\n";
-        let Ok(written) = generating(said,Line("en_US.UTF-8 UTF-8"));
+        let Ok(written) = generating(said, Line("en_US.UTF-8 UTF-8"));
 
         assert_eq!(written, said);
     }
@@ -570,18 +580,18 @@ eo UTF-8";
     fn what_the_machine_is_set_to_is_read_out_of_what_localectl_says() {
         let said = "   System Locale: LANG=en_US.UTF-8\n       VC Keymap: us\n";
 
-        assert_eq!(chosen(said), Ok(Some("en_US.UTF-8".to_string())));
-        assert_eq!(chosen("System Locale: n/a"), Ok(None));
+        assert_eq!(parse_lang(said), Ok(Some("en_US.UTF-8".to_string())));
+        assert_eq!(parse_lang("System Locale: n/a"), Ok(None));
     }
 
     #[test]
     fn the_row_at_the_top_says_which_of_the_five_hundred_this_machine_is_on() {
-        let languages = spoken();
-        let Ok(on) = standing(&languages, Some("en_US.UTF-8"));
+        let Ok(languages) = sample_languages();
+        let Ok(on) = current_locale(&languages, Some("en_US.UTF-8"));
 
         assert_eq!(on.map(|locale| locale.name), Some("en_US.UTF-8".to_string()));
 
-        let Ok(nothing) = standing(&languages, None);
+        let Ok(nothing) = current_locale(&languages, None);
 
         assert_eq!(nothing, None);
     }

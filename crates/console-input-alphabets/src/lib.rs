@@ -118,7 +118,7 @@ pub fn read(said: &str) -> Result<Vec<&'static Alphabet>, Never> {
     Ok(kept)
 }
 
-pub fn chosen() -> Result<Vec<&'static Alphabet>, Never> {
+pub fn current() -> Result<Vec<&'static Alphabet>, Never> {
     let told = console_defaults::setting(SETTING)?;
 
     let said = match told {
@@ -140,7 +140,7 @@ pub fn choose(keys: &[&str]) -> Result<(), Never> {
     })
 }
 
-pub fn turned(now: &[&'static Alphabet], key: &str) -> Result<Vec<&'static str>, Never> {
+pub fn toggle(now: &[&'static Alphabet], key: &str) -> Result<Vec<&'static str>, Never> {
     let held = now.iter().any(|alphabet| alphabet.key == key);
 
     let keys: Vec<&str> = match held {
@@ -178,7 +178,7 @@ pub fn walk(alphabets: &[&'static Alphabet], held: Orientation) -> Result<Vec<St
     Ok(walk)
 }
 
-pub fn said(alphabets: &[&'static Alphabet]) -> Result<String, Never> {
+pub fn describe(alphabets: &[&'static Alphabet]) -> Result<String, Never> {
     let says: Vec<&str> = alphabets.iter().map(|alphabet| alphabet.says).collect();
 
     Ok(says.join(", "))
@@ -189,15 +189,15 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    fn read(said: &str) -> Vec<&'static str> {
-        let Ok(kept) = super::read(said);
+    fn keys(said: &str) -> Result<Vec<&'static str>, Never> {
+        let Ok(kept) = read(said);
 
-        kept.iter().map(|alphabet| alphabet.key).collect()
+        Ok(kept.iter().map(|alphabet| alphabet.key).collect())
     }
 
     #[test]
     fn what_the_device_typed_before_this_was_a_setting_is_what_it_types_untold() {
-        assert_eq!(read(UNLESS_TOLD), vec![LATIN, "thai"]);
+        assert_eq!(keys(UNLESS_TOLD), Ok(vec![LATIN, "thai"]));
     }
 
     #[test]
@@ -223,15 +223,15 @@ mod tests {
 
     #[test]
     fn latin_is_there_whatever_it_was_handed() {
-        assert_eq!(read("thai"), vec![LATIN, "thai"]);
-        assert_eq!(read(""), vec![LATIN]);
-        assert_eq!(read("nothing anyone has written"), vec![LATIN]);
+        assert_eq!(keys("thai"), Ok(vec![LATIN, "thai"]));
+        assert_eq!(keys(""), Ok(vec![LATIN]));
+        assert_eq!(keys("nothing anyone has written"), Ok(vec![LATIN]));
     }
 
     #[test]
     fn the_row_that_would_take_latin_away_is_a_row_that_does_nothing() {
         let Ok(now) = super::read("latin,thai");
-        let Ok(turned) = turned(&now, LATIN);
+        let Ok(turned) = toggle(&now, LATIN);
 
         assert_eq!(turned, vec![LATIN, "thai"]);
     }
@@ -239,19 +239,19 @@ mod tests {
     #[test]
     fn pressing_one_that_is_not_there_adds_it_and_pressing_it_again_takes_it_off() {
         let Ok(now) = super::read(UNLESS_TOLD);
-        let Ok(with) = turned(&now, "greek");
+        let Ok(with) = toggle(&now, "greek");
 
         assert_eq!(with, vec![LATIN, "greek", "thai"]);
 
         let Ok(now) = super::read(&with.join(","));
-        let Ok(without) = turned(&now, "greek");
+        let Ok(without) = toggle(&now, "greek");
 
         assert_eq!(without, vec![LATIN, "thai"]);
     }
 
     #[test]
     fn an_alphabet_asked_for_twice_is_walked_once() {
-        assert_eq!(read("thai,thai,latin"), vec![LATIN, "thai"]);
+        assert_eq!(keys("thai,thai,latin"), Ok(vec![LATIN, "thai"]));
     }
 
     #[test]
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn what_is_drawn_beside_the_row_is_the_alphabets_in_the_order_they_are_walked() {
         let Ok(now) = super::read("thai,greek");
-        let Ok(said) = said(&now);
+        let Ok(said) = describe(&now);
 
         assert_eq!(said, "Latin, Greek, Thai");
     }

@@ -45,6 +45,7 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 use crate::kinds::{self, Kind};
@@ -68,7 +69,7 @@ pub struct Found {
     pub kind: Kind,
 }
 
-pub fn kept(folders: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
+pub fn outermost(folders: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
     let every: BTreeSet<&Path> = folders.iter().map(PathBuf::as_path).collect();
     let mut kept: Vec<PathBuf> = Vec::new();
     let mut already: BTreeSet<&Path> = BTreeSet::new();
@@ -89,19 +90,15 @@ pub fn under(
     folders: &[PathBuf],
     read: &dyn Fn(&Path) -> Result<Vec<Read>, Never>,
 ) -> Result<Vec<Found>, Never> {
-    let mut found: Vec<Found> = Vec::new();
-    let mut waiting: VecDeque<PathBuf> = folders.iter().cloned().collect();
-    let mut read_so_far: u32 = 0;
+    let waiting: VecDeque<PathBuf> = folders.iter().cloned().collect();
 
-    while let Some(at) = waiting.pop_front() {
+    let walked = console_core_iteration::iterate((Vec::new(), waiting, 0_u32), |(mut found, mut waiting, read_so_far)| {
         let Ok(many) = console_core_number_conversion::fitted::<_, u32>(found.len());
 
-        match many >= ENOUGH || read_so_far >= FAR {
-            true => break,
-            false => {},
-        }
-
-        read_so_far = read_so_far.saturating_add(1);
+        let at = match (many >= ENOUGH || read_so_far >= FAR, waiting.pop_front()) {
+            (false, Some(at)) => at,
+            (true, _) | (false, None) => return Ok(Step::Halt(found)),
+        };
 
         let here = read(&at)?;
 
@@ -125,15 +122,20 @@ pub fn under(
                 },
             }
         }
-    }
 
-    sorted(found)
+        Ok(Step::Again((found, waiting, read_so_far.saturating_add(1))))
+    });
+
+    match walked {
+        Ok(found) => sorted(found),
+        Err(_endless) => Ok(Vec::new()),
+    }
 }
 
 pub fn sorted(mut found: Vec<Found>) -> Result<Vec<Found>, Never> {
     found.sort_by(|one, other| {
-        let Ok(first) = console_panel::page::standing(&one.name);
-        let Ok(second) = console_panel::page::standing(&other.name);
+        let Ok(first) = console_panel::page::sort_rank(&one.name);
+        let Ok(second) = console_panel::page::sort_rank(&other.name);
 
         first
             .cmp(&second)
@@ -151,52 +153,67 @@ pub fn sorted(mut found: Vec<Found>) -> Result<Vec<Found>, Never> {
 mod tests {
     use std::collections::BTreeMap;
 
+    use console_core_number_conversion::index;
+
     use super::*;
 
-    fn at(name: &str, mime: &str) -> Read {
-        Read {
-            name: name.to_string(),
+    fn at((name, mime): (&str, &str)) -> Result<Read, Never> {
+        Ok(Read {
+            name: String::from(name),
             path: PathBuf::from("/home/someone/Pictures").join(name),
             folder: false,
-            mime: mime.to_string(),
-        }
+            mime: String::from(mime),
+        })
     }
 
-    fn found(name: &str, kind: Kind) -> Found {
-        Found {
-            name: name.to_string(),
+    fn sample_found(name: &str, kind: Kind) -> Result<Found, Never> {
+        Ok(Found {
+            name: String::from(name),
             path: PathBuf::from("/home/someone/Pictures").join(name),
             kind,
-        }
+        })
     }
 
-    fn reader(tree: BTreeMap<PathBuf, Vec<Read>>) -> impl Fn(&Path) -> Result<Vec<Read>, Never> {
-        move |at: &Path| Ok(tree.get(at).cloned().unwrap_or_default())
+    fn reader(tree: BTreeMap<PathBuf, Vec<Read>>) -> Result<impl Fn(&Path) -> Result<Vec<Read>, Never>, Never> {
+        Ok(move |at: &Path| {
+            Ok(match tree.get(at) {
+                Some(read) => read.clone(),
+                None => Vec::new(),
+            })
+        })
     }
 
-    fn one_folder(things: Vec<Read>) -> BTreeMap<PathBuf, Vec<Read>> {
-        BTreeMap::from([(PathBuf::from("/home/someone/Pictures"), things)])
+    fn one_folder(names: &[(&str, &str)]) -> Result<BTreeMap<PathBuf, Vec<Read>>, Never> {
+        let things = names
+            .iter()
+            .map(|(name, mime)| {
+                let Ok(read) = at((name, mime));
+
+                read
+            })
+            .collect();
+
+        Ok(BTreeMap::from([(PathBuf::from("/home/someone/Pictures"), things)]))
     }
 
-    fn pictures() -> Vec<PathBuf> {
-        vec![PathBuf::from("/home/someone/Pictures")]
-    }
+    fn under(tree: BTreeMap<PathBuf, Vec<Read>>) -> Result<Vec<Found>, Never> {
+        let Ok(read) = reader(tree);
 
-    fn under(tree: BTreeMap<PathBuf, Vec<Read>>) -> Vec<Found> {
-        let Ok(under) = super::under(&pictures(), &reader(tree));
-
-        under
+        super::under(&[PathBuf::from("/home/someone/Pictures")], &read)
     }
 
     #[test]
     fn a_picture_and_a_film_are_both_in_the_list_and_a_document_is_not() {
-        let walked = under(one_folder(vec![
-            at("beach.jpg", "image/jpeg"),
-            at("notes.txt", "text/plain"),
-            at("holiday.mkv", "video/matroska"),
-        ]));
+        let Ok(tree) = one_folder(&[
+            ("beach.jpg", "image/jpeg"),
+            ("notes.txt", "text/plain"),
+            ("holiday.mkv", "video/matroska"),
+        ]);
+        let Ok(walked) = under(tree);
+        let Ok(beach) = sample_found("beach.jpg", Kind::Picture);
+        let Ok(holiday) = sample_found("holiday.mkv", Kind::Film);
 
-        assert_eq!(walked, vec![found("beach.jpg", Kind::Picture), found("holiday.mkv", Kind::Film)]);
+        assert_eq!(walked, vec![beach, holiday]);
     }
 
     #[test]
@@ -205,24 +222,24 @@ mod tests {
             (
                 PathBuf::from("/home/someone/Pictures"),
                 vec![Read {
-                    name: "2019".to_string(),
+                    name: String::from("2019"),
                     path: PathBuf::from("/home/someone/Pictures/2019"),
                     folder: true,
-                    mime: "inode/directory".to_string(),
+                    mime: String::from("inode/directory"),
                 }],
             ),
             (
                 PathBuf::from("/home/someone/Pictures/2019"),
                 vec![Read {
-                    name: "boat.png".to_string(),
+                    name: String::from("boat.png"),
                     path: PathBuf::from("/home/someone/Pictures/2019/boat.png"),
                     folder: false,
-                    mime: "image/png".to_string(),
+                    mime: String::from("image/png"),
                 }],
             ),
         ]);
 
-        let walked = under(tree);
+        let Ok(walked) = under(tree);
 
         assert_eq!(walked.len(), 1);
         assert_eq!(walked.first().map(|found| found.name.as_str()), Some("boat.png"));
@@ -230,35 +247,38 @@ mod tests {
 
     #[test]
     fn a_hidden_thing_is_not_someones_media_and_neither_is_what_is_under_it() {
+        let Ok(thumbnail) = at((".thumbnail.jpg", "image/jpeg"));
+        let Ok(kept) = at(("kept.jpg", "image/jpeg"));
         let tree = BTreeMap::from([
             (
                 PathBuf::from("/home/someone/Pictures"),
                 vec![
-                    at(".thumbnail.jpg", "image/jpeg"),
+                    thumbnail,
                     Read {
-                        name: ".cache".to_string(),
+                        name: String::from(".cache"),
                         path: PathBuf::from("/home/someone/Pictures/.cache"),
                         folder: true,
-                        mime: "inode/directory".to_string(),
+                        mime: String::from("inode/directory"),
                     },
                 ],
             ),
             (
                 PathBuf::from("/home/someone/Pictures/.cache"),
-                vec![at("kept.jpg", "image/jpeg")],
+                vec![kept],
             ),
         ]);
 
-        assert_eq!(under(tree), Vec::new());
+        assert_eq!(under(tree), Ok(Vec::new()));
     }
 
     #[test]
     fn the_list_is_in_the_order_someone_reads_it_and_case_is_not_a_sort() {
-        let walked = under(one_folder(vec![
-            at("zebra.jpg", "image/jpeg"),
-            at("Apple.jpg", "image/jpeg"),
-            at("apricot.jpg", "image/jpeg"),
-        ]));
+        let Ok(tree) = one_folder(&[
+            ("zebra.jpg", "image/jpeg"),
+            ("Apple.jpg", "image/jpeg"),
+            ("apricot.jpg", "image/jpeg"),
+        ]);
+        let Ok(walked) = under(tree);
         let names: Vec<&str> = walked.iter().map(|found| found.name.as_str()).collect();
 
         assert_eq!(names, ["Apple.jpg", "apricot.jpg", "zebra.jpg"]);
@@ -266,11 +286,12 @@ mod tests {
 
     #[test]
     fn the_numbers_come_first_and_what_begins_with_neither_comes_last() {
-        let walked = under(one_folder(vec![
-            at("_draft.png", "image/png"),
-            at("boat.png", "image/png"),
-            at("2019.png", "image/png"),
-        ]));
+        let Ok(tree) = one_folder(&[
+            ("_draft.png", "image/png"),
+            ("boat.png", "image/png"),
+            ("2019.png", "image/png"),
+        ]);
+        let Ok(walked) = under(tree);
         let names: Vec<&str> = walked.iter().map(|found| found.name.as_str()).collect();
 
         assert_eq!(names, ["2019.png", "boat.png", "_draft.png"], "Other is a heading, not a letter");
@@ -278,7 +299,7 @@ mod tests {
 
     #[test]
     fn a_folder_inside_another_is_walked_once_rather_than_twice() {
-        let Ok(kept) = kept(&[
+        let Ok(kept) = outermost(&[
             PathBuf::from("/home/someone/Pictures"),
             PathBuf::from("/home/someone/Pictures/2019"),
             PathBuf::from("/home/someone/Videos"),
@@ -297,20 +318,25 @@ mod tests {
         let mut tree: BTreeMap<PathBuf, Vec<Read>> = BTreeMap::new();
 
         for step in 0..deep {
-            let here = PathBuf::from("/home/someone/Pictures").join("down".repeat(step.try_into().unwrap()));
-            let below = PathBuf::from("/home/someone/Pictures").join("down".repeat((step + 1).try_into().unwrap()));
+            let Ok(depth) = index(step);
+            let Ok(deeper) = index(step.saturating_add(1));
+            let here = PathBuf::from("/home/someone/Pictures").join("down".repeat(depth));
+            let below = PathBuf::from("/home/someone/Pictures").join("down".repeat(deeper));
+            let Ok(picture) = at((&format!("{step:05}.jpg"), "image/jpeg"));
 
             tree.insert(here, vec![
                 Read {
-                    name: "down".to_string(),
+                    name: String::from("down"),
                     path: below,
                     folder: true,
-                    mime: "inode/directory".to_string(),
+                    mime: String::from("inode/directory"),
                 },
-                at(&format!("{step:05}.jpg"), "image/jpeg"),
+                picture,
             ]);
         }
 
-        assert_eq!(u32::try_from(under(tree).len()).unwrap(), FAR, "the walk read {FAR} folders and stopped");
+        let Ok(walked) = under(tree);
+
+        assert_eq!(Ok(walked.len()), index(FAR), "the walk read {FAR} folders and stopped");
     }
 }

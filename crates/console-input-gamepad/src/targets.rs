@@ -38,7 +38,7 @@ pub enum Target {
 pub const ASKED: [Target; 3] = [Target::Mouse, Target::Keyboard, Target::Pad];
 
 impl Target {
-    pub fn asked(self) -> Result<&'static str, Never> {
+    pub fn as_str(self) -> Result<&'static str, Never> {
         Ok(match self {
             Target::Mouse => "mouse",
             Target::Keyboard => "keyboard",
@@ -82,7 +82,7 @@ mod tests {
         let mut names: Vec<&str> = Vec::new();
 
         for target in ASKED {
-            let Ok(asked) = target.asked();
+            let Ok(asked) = target.as_str();
 
             assert!(!names.contains(&asked), "{asked} is asked for twice");
             names.push(asked);

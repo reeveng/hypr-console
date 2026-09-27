@@ -16,3 +16,6 @@ path = "src/lib.rs"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

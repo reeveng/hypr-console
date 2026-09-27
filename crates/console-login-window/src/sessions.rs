@@ -17,13 +17,13 @@ pub const CHOSEN: &str = "/etc/plasmalogin.conf.d/zz-steamos-autologin.conf";
 
 pub const SESSIONS: &str = "/usr/share/wayland-sessions";
 
-pub const OURS: &str = "console.desktop";
+pub const APPLICATION: &str = "console.desktop";
 
 const AUTOLOGIN: Under<'static> = Under("Autologin");
 
 const SESSION: Key<'static> = Key("Session");
 
-pub fn chosen(said: Option<&str>) -> Result<String, Never> {
+pub fn parse_session(said: Option<&str>) -> Result<String, Never> {
     let named = match said {
         Some(said) => {
             let Ok(named) = field(said, AUTOLOGIN, SESSION);
@@ -34,7 +34,7 @@ pub fn chosen(said: Option<&str>) -> Result<String, Never> {
     };
 
     Ok(match named.map(str::trim) {
-        Some("") | None => OURS.to_string(),
+        Some("") | None => APPLICATION.to_string(),
         Some(named) => match named.ends_with(".desktop") {
             true => named.to_string(),
             false => format!("{named}.desktop"),
@@ -57,16 +57,16 @@ mod tests {
 
     #[test]
     fn a_machine_that_never_chose_starts_this_desktop() {
-        let Ok(none) = chosen(None);
-        let Ok(empty) = chosen(Some("[Autologin]\nSession=\n"));
+        let Ok(none) = parse_session(None);
+        let Ok(empty) = parse_session(Some("[Autologin]\nSession=\n"));
 
-        assert_eq!(none, OURS);
-        assert_eq!(empty, OURS);
+        assert_eq!(none, APPLICATION);
+        assert_eq!(empty, APPLICATION);
     }
 
     #[test]
     fn game_mode_is_the_session_the_switch_wrote() {
-        let Ok(named) = chosen(Some("[Autologin]\nSession=gamescope-session-steam\n"));
+        let Ok(named) = parse_session(Some("[Autologin]\nSession=gamescope-session-steam\n"));
 
         assert_eq!(named, "gamescope-session-steam.desktop");
     }

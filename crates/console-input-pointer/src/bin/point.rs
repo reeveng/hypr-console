@@ -9,7 +9,9 @@
 //! against the size the screen used to be lands somewhere else entirely.
 //! `--in` says the place is inside a surface instead, measured from its corner:
 //! `--in settings-panel 40 60` is forty across and sixty down from wherever the
-//! compositor has put that panel. The corner is asked for here, in the session
+//! compositor has put that panel, once it has put it anywhere: a surface that
+//! is not up yet is waited for rather than guessed at, which is what the
+//! seconds of sleep in front of every press in the nested desktop used to be. The corner is asked for here, in the session
 //! being pointed at, at the moment of the press -- which is the whole reason it
 //! is a word on this command line rather than arithmetic in a check. A check
 //! that measured the corner first would be pointing at where the panel was, and
@@ -36,8 +38,9 @@ use std::time::{Duration, Instant};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+use console_waiting::{Schedule, until_some};
 use console_input_pointer::{
-    PointerAction, Measured, Unsaid, Where, approach, asked, from_the_corner, on_the_screen,
+    PointerAction, Measured, Unsaid, Where, approach, parse_request, from_the_corner, on_the_screen,
 };
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
@@ -60,8 +63,10 @@ const PRESSED: Duration = Duration::from_millis(80);
 
 const HELD: Duration = Duration::from_millis(400);
 
+const APPEARING: Duration = Duration::from_secs(10);
+
 fn main() -> ExitCode {
-    match pointed() {
+    match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("console-point: {fault}");
@@ -141,10 +146,10 @@ impl From<console_onscreen::Error> for Unpointed {
     }
 }
 
-fn pointed() -> Result<(), Unpointed> {
+fn run() -> Result<(), Unpointed> {
     let words: Vec<String> = std::env::args().skip(1).collect();
-    let asked = asked(&words)?;
-    let at = placed(asked.at, &asked.measured)?;
+    let asked = parse_request(&words)?;
+    let at = to_screen_point(asked.at, &asked.measured)?;
 
     let pointer = Pointer::new()?;
     let room = pointer.room;
@@ -178,7 +183,7 @@ fn pointed() -> Result<(), Unpointed> {
             let mut places = Vec::new();
 
             for place in through {
-                let place = placed(place, &asked.measured)?;
+                let place = to_screen_point(place, &asked.measured)?;
 
                 places.push(place);
             }
@@ -199,7 +204,7 @@ fn pointed() -> Result<(), Unpointed> {
     Ok(())
 }
 
-fn placed(at: Point<u32>, measured: &Measured) -> Result<Point<u32>, Unpointed> {
+fn to_screen_point(at: Point<u32>, measured: &Measured) -> Result<Point<u32>, Unpointed> {
     match measured {
         Measured::FromTheScreen => Ok(at),
         Measured::FromTheCorner(namespace) => in_the_surface(at, namespace),
@@ -207,8 +212,20 @@ fn placed(at: Point<u32>, measured: &Measured) -> Result<Point<u32>, Unpointed> 
 }
 
 fn in_the_surface(at: Point<u32>, namespace: &str) -> Result<Point<u32>, Unpointed> {
+    let Ok(patience) = Schedule::of(APPEARING);
+    let Ok(_up) = until_some(patience, || {
+        Ok(match console_onscreen::screens() {
+            Ok(screens) => {
+                let Ok(drawn) = console_onscreen::layer_state(&screens, namespace);
+
+                drawn
+            },
+            Err(_not_answering_yet) => None,
+        })
+    });
+
     let screens = console_onscreen::screens()?;
-    let Ok(drawn) = console_onscreen::standing(&screens, namespace);
+    let Ok(drawn) = console_onscreen::layer_state(&screens, namespace);
 
     let standing = drawn.ok_or_else(|| Unpointed::NotUp(namespace.to_string()))?;
 
@@ -274,7 +291,7 @@ impl Pointer {
         let room = match found.room {
             Some(room) => room,
             None => {
-                let screen = console_screen::declared()?;
+                let screen = console_screen::from_hyprland_config()?;
                 let Ok(logical) = screen.logical();
 
                 logical

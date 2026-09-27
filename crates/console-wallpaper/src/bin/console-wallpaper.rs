@@ -38,6 +38,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use console_events::subscription::{self, Received};
 use console_core_external_programs::Program;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_program_contract::{Arguments, Effect, Program as _, Topic, Update, Event};
 use console_program_lifetime::threads;
@@ -96,13 +97,13 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
     let mut sky = Sun::init(arguments).state;
     let Ok(mut kept) = here::CachedLocation::none();
     let mut told = weather::Notified::default();
-    let mut answering = covered::Notified::default();
+    let answering = covered::Notified::default();
 
     let (say, woken) = channel();
 
     match sky.going {
         Going::Once => {
-            let Ok(asked) = Wanted::asked();
+            let Ok(asked) = Wanted::load();
 
             let Ok(pinned) = choose::pinned(&table.pictures, &asked);
 
@@ -124,7 +125,7 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
         }
     }
 
-    loop {
+    let looked_again = console_core_iteration::iterate(Looking { sky, kept, told, answering }, |Looking { mut sky, mut kept, told, mut answering }| {
         let seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(since) => since.as_secs_f64(),
             Err(before) => {
@@ -140,11 +141,11 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
 
         let Ok(here) = Outside::at(&at, seconds, sky.weather);
 
-        let Ok(asked) = Wanted::asked();
+        let Ok(asked) = Wanted::load();
 
         let Ok(turn) = Turn::at(seconds);
 
-        let Ok(wanted) = choose::wanted(&table.pictures, &asked, &here, turn);
+        let Ok(wanted) = choose::pick(&table.pictures, &asked, &here, turn);
 
         let chosen = match wanted {
             Some(picture) => {
@@ -171,7 +172,7 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
             let Ok(carried) = carry(&mut sky, effect);
 
             match carried {
-                Carried::Stopped => return Ok(()),
+                Carried::Stopped => return Ok(Step::Halt(())),
                 Carried::Again(sooner) => waiting = Some(sooner),
                 Carried::Went => {},
             }
@@ -179,7 +180,7 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
 
         let waiting = match waiting {
             Some(waiting) => waiting,
-            None => return Ok(()),
+            None => return Ok(Step::Halt(())),
         };
 
         match woken.recv_timeout(waiting) {
@@ -206,7 +207,27 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
             )]
             Err(RecvTimeoutError::Disconnected) => std::thread::sleep(keeping::LOOK_AGAIN),
         }
+
+        Ok(Step::Again(Looking { sky, kept, told, answering }))
+    });
+
+    match looked_again {
+        Ok(()) => Ok(()),
+        Err(_endless) => Ok(()),
     }
+}
+
+struct Query {
+    kept: here::CachedLocation,
+    told: weather::Notified,
+    sooner: Duration,
+}
+
+struct Looking {
+    sky: Sky,
+    kept: here::CachedLocation,
+    told: weather::Notified,
+    answering: covered::Notified,
 }
 
 enum Carried {
@@ -266,33 +287,22 @@ fn told_the_weather(sky: &mut Sky, said: Option<Weather>) -> Result<(), Never> {
 
 fn ask_the_weather(say: Sender<Woke>) -> Result<(), Never> {
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
-        let Ok(mut kept) = here::CachedLocation::none();
-        let mut told = weather::Notified::default();
-        let mut sooner = ASK_SOONER;
+        let Ok(kept) = here::CachedLocation::none();
+        let asking = Query { kept, told: weather::Notified::default(), sooner: ASK_SOONER };
 
-        loop {
+        let _no_one_is_listening = console_core_iteration::iterate(asking, |Query { mut kept, mut told, sooner }| {
             let Ok(at) = kept.here(Instant::now());
 
             let Ok(said) = weather::now(&at, &mut told);
 
-            let again = match said {
-                Some(_) => {
-                    sooner = ASK_SOONER;
-
-                    ASK_AGAIN
-                }
-                None => {
-                    let waiting = sooner;
-
-                    sooner = sooner.saturating_mul(2).min(ASK_AGAIN);
-
-                    waiting
-                }
+            let (again, sooner) = match said {
+                Some(_) => (ASK_AGAIN, ASK_SOONER),
+                None => (sooner, sooner.saturating_mul(2).min(ASK_AGAIN)),
             };
 
             match say.send(Woke::Weather(said)) {
                 Ok(()) => {},
-                Err(_no_one_is_listening) => return,
+                Err(_no_one_is_listening) => return Ok(Step::Halt(())),
             }
 
             #[cfg_attr(
@@ -303,7 +313,9 @@ fn ask_the_weather(say: Sender<Woke>) -> Result<(), Never> {
                 )
             )]
             std::thread::sleep(again);
-        }
+
+            Ok(Step::Again(Query { kept, told, sooner }))
+        });
     }));
 
     Ok(())

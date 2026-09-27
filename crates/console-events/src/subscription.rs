@@ -121,7 +121,7 @@ impl Subscriber {
 
 impl Subscriptions {
     pub fn desired(&self) -> Result<Desired, Never> {
-        let Ok(wanted) = held(&self.desired);
+        let Ok(wanted) = lock(&self.desired);
 
         Ok(match wanted.topics.is_empty() {
             true => Desired::None,
@@ -130,7 +130,7 @@ impl Subscriptions {
     }
 
     pub fn subscribe(&self, topic: &Topic) -> Result<(), Never> {
-        let Ok(mut wanted) = held(&self.desired);
+        let Ok(mut wanted) = lock(&self.desired);
 
         match wanted.topics.insert(topic.clone()) {
             true => {},
@@ -153,11 +153,11 @@ impl Subscriptions {
             None => return Ok(()),
         };
 
-        keeping(at.clone(), Arc::clone(&self.desired), self.sender.clone())
+        keep_connected(at.clone(), Arc::clone(&self.desired), self.sender.clone())
     }
 
     pub fn unsubscribe(&self, topic: &Topic) -> Result<(), Never> {
-        let Ok(mut wanted) = held(&self.desired);
+        let Ok(mut wanted) = lock(&self.desired);
 
         match wanted.topics.remove(topic) {
             true => {},
@@ -204,7 +204,7 @@ fn started(at: Option<PathBuf>, topics: &[Topic]) -> Result<Subscriber, Never> {
     Ok(subscriber)
 }
 
-fn keeping(
+fn keep_connected(
     at: PathBuf,
     desired: Arc<Mutex<Wanted>>,
     sender: Sender<Received>,
@@ -259,7 +259,7 @@ fn round(
         }
     }
 
-    let Ok(mut wanted) = held(desired);
+    let Ok(mut wanted) = lock(desired);
 
     wanted.connection = None;
 
@@ -272,7 +272,7 @@ enum SubscribeResult {
 }
 
 fn subscribed(wanted: &Arc<Mutex<Wanted>>, mut stream: UnixStream) -> Result<SubscribeResult, Never> {
-    let Ok(mut wanted) = held(wanted);
+    let Ok(mut wanted) = lock(wanted);
 
     for topic in &wanted.topics {
         let Ok(spelled) = wire::encoded(&Message::Subscribe(topic.clone()));
@@ -304,7 +304,7 @@ fn send(wanted: &mut Wanted, message: &Message) -> Result<(), Never> {
     Ok(())
 }
 
-fn held(wanted: &Arc<Mutex<Wanted>>) -> Result<MutexGuard<'_, Wanted>, Never> {
+fn lock(wanted: &Arc<Mutex<Wanted>>) -> Result<MutexGuard<'_, Wanted>, Never> {
     Ok(match wanted.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),

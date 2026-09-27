@@ -87,7 +87,7 @@ impl std::fmt::Display for PictureError {
 
 impl std::error::Error for PictureError {}
 
-pub fn measured(at: &Path) -> Result<Option<Size<u32>>, PictureError> {
+pub fn measure(at: &Path) -> Result<Option<Size<u32>>, PictureError> {
     let Ok(mut asking) = Program::Ffprobe.command();
 
     let said = asking
@@ -115,7 +115,7 @@ pub fn measured(at: &Path) -> Result<Option<Size<u32>>, PictureError> {
     }
 }
 
-pub fn fitted(had: Size<u32>, within: Size<u32>) -> Result<Size<u32>, Never> {
+pub fn fit_within(had: Size<u32>, within: Size<u32>) -> Result<Size<u32>, Never> {
     let (wide, tall) = (f64::from(had.width), f64::from(had.height));
 
     match wide > 0.0 && tall > 0.0 {
@@ -132,7 +132,7 @@ pub fn fitted(had: Size<u32>, within: Size<u32>) -> Result<Size<u32>, Never> {
     Ok(Size { width: made_wide.max(1), height: made_tall.max(1) })
 }
 
-fn drawn(at: &Path, filter: &str) -> Result<Option<Vec<u8>>, PictureError> {
+fn extract_frame(at: &Path, filter: &str) -> Result<Option<Vec<u8>>, PictureError> {
     let Ok(mut asking) = Program::Ffmpeg.command();
 
     let said = asking
@@ -197,6 +197,13 @@ fn rasterized(at: &Path, within: Size<u32>) -> Result<Option<PathBuf>, PictureEr
 )]
 static ONE_AFTER_ANOTHER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+#[cfg_attr(
+    dylint_lib = "explicit044_no_ambient_value",
+    allow(
+        explicit044_no_ambient_value,
+        reason = "a file this process makes, reads once and deletes, on the device and not in a test, where a directory from `fresh` would be left behind after every picture"
+    )
+)]
 fn beside(at: &Path) -> Result<PathBuf, Never> {
     let mine = ONE_AFTER_ANOTHER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let named = match at.file_stem().map(|named| named.to_string_lossy().to_string()) {
@@ -240,27 +247,27 @@ pub fn decoded(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureEr
 }
 
 fn read(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
-    let measured = measured(at)?;
+    let measured = measure(at)?;
 
     let had = match measured {
         Some(had) => had,
         None => return Ok(None),
     };
 
-    let Ok(made) = fitted(had, within);
+    let Ok(made) = fit_within(had, within);
     let Size { width: wide, height: tall } = made;
 
-    let drawn = drawn(at, &format!("scale={wide}:{tall}"))?;
+    let drawn = extract_frame(at, &format!("scale={wide}:{tall}"))?;
 
     let bytes = match drawn {
         Some(bytes) => bytes,
         None => return Ok(None),
     };
 
-    held(at, made, bytes)
+    to_pixels(at, made, bytes)
 }
 
-fn held(at: &Path, made: Size<u32>, bytes: Vec<u8>) -> Result<Option<Pixels>, PictureError> {
+fn to_pixels(at: &Path, made: Size<u32>, bytes: Vec<u8>) -> Result<Option<Pixels>, PictureError> {
     let wanted = u64::from(made.width)
         .saturating_mul(u64::from(BYTES_A_PIXEL))
         .saturating_mul(u64::from(made.height));
@@ -284,14 +291,8 @@ struct ImageHeader<'a> {
 }
 
 fn portable_pixmap_header(bytes: &[u8]) -> Result<Option<ImageHeader<'_>>, Never> {
-    let mut remaining = bytes;
-    let mut numbers: Vec<u32> = Vec::new();
-
-    let magic = match remaining.split_first_chunk::<2>() {
-        Some((magic, after)) => {
-            remaining = after;
-            magic
-        },
+    let (magic, remaining) = match bytes.split_first_chunk::<2>() {
+        Some(split) => split,
         None => return Ok(None),
     };
 
@@ -300,27 +301,31 @@ fn portable_pixmap_header(bytes: &[u8]) -> Result<Option<ImageHeader<'_>>, Never
         false => return Ok(None),
     }
 
-    while numbers.len() < 3 {
+    let read = (0..3).try_fold((Vec::new(), remaining), |(mut numbers, remaining), _each| {
         let mut parts = remaining.trim_ascii_start().splitn(2, u8::is_ascii_whitespace);
 
         let (word, after) = match (parts.next(), parts.next()) {
             (Some(word), Some(after)) => (word, after),
-            (None, _) | (_, None) => return Ok(None),
+            (None, _) | (_, None) => return None,
         };
 
         let number = match std::str::from_utf8(word).map(str::parse::<u32>) {
             Ok(Ok(number)) => number,
-            Ok(Err(_not_a_number)) => return Ok(None),
-            Err(_not_text) => return Ok(None),
+            Ok(Err(_not_a_number)) => return None,
+            Err(_not_text) => return None,
         };
 
         numbers.push(number);
-        remaining = after;
-    }
 
-    Ok(match numbers.as_slice() {
-        [wide, tall, 255] => Some(ImageHeader { size: Size { width: *wide, height: *tall }, pixels: remaining }),
-        _ => None,
+        Some((numbers, after))
+    });
+
+    Ok(match read {
+        Some((numbers, remaining)) => match numbers.as_slice() {
+            [wide, tall, 255] => Some(ImageHeader { size: Size { width: *wide, height: *tall }, pixels: remaining }),
+            _ => None,
+        },
+        None => None,
     })
 }
 
@@ -361,7 +366,7 @@ pub fn from_portable_pixmap(bytes: &[u8]) -> Result<Option<Pixels>, Never> {
 }
 
 pub fn square(at: &Path, size: Size<u32>) -> Result<Option<Pixels>, PictureError> {
-    let measured = measured(at)?;
+    let measured = measure(at)?;
 
     let had = match measured {
         Some(had) => had,
@@ -373,19 +378,20 @@ pub fn square(at: &Path, size: Size<u32>) -> Result<Option<Pixels>, PictureError
     let top = had.height.saturating_sub(side).saturating_div(2);
     let Size { width: wide, height: tall } = size;
 
-    let drawn = drawn(at, &format!("crop={side}:{side}:{left}:{top},scale={wide}:{tall}"))?;
+    let drawn = extract_frame(at, &format!("crop={side}:{side}:{left}:{top},scale={wide}:{tall}"))?;
 
     let bytes = match drawn {
         Some(bytes) => bytes,
         None => return Ok(None),
     };
 
-    held(at, size, bytes)
+    to_pixels(at, size, bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn a_page_poppler_drew_is_read_as_what_its_header_says() {
@@ -417,11 +423,11 @@ mod tests {
     #[test]
     fn a_picture_fits_inside_the_box_it_was_given_without_stretching() {
         assert_eq!(
-            fitted(Size { width: 100, height: 50 }, Size { width: 64, height: 64 }),
+            fit_within(Size { width: 100, height: 50 }, Size { width: 64, height: 64 }),
             Ok(Size { width: 64, height: 32 })
         );
         assert_eq!(
-            fitted(Size { width: 50, height: 100 }, Size { width: 64, height: 64 }),
+            fit_within(Size { width: 50, height: 100 }, Size { width: 64, height: 64 }),
             Ok(Size { width: 32, height: 64 })
         );
     }
@@ -429,7 +435,7 @@ mod tests {
     #[test]
     fn a_picture_smaller_than_the_box_is_drawn_up_to_it() {
         assert_eq!(
-            fitted(Size { width: 16, height: 16 }, Size { width: 64, height: 64 }),
+            fit_within(Size { width: 16, height: 16 }, Size { width: 64, height: 64 }),
             Ok(Size { width: 64, height: 64 })
         );
     }
@@ -437,11 +443,11 @@ mod tests {
     #[test]
     fn nothing_is_ever_fitted_to_nothing() {
         assert_eq!(
-            fitted(Size { width: 4000, height: 1 }, Size { width: 64, height: 64 }),
+            fit_within(Size { width: 4000, height: 1 }, Size { width: 64, height: 64 }),
             Ok(Size { width: 64, height: 1 })
         );
         assert_eq!(
-            fitted(Size { width: 0, height: 0 }, Size { width: 64, height: 64 }),
+            fit_within(Size { width: 0, height: 0 }, Size { width: 64, height: 64 }),
             Ok(Size { width: 1, height: 1 })
         );
     }
@@ -454,19 +460,20 @@ mod tests {
         assert_eq!(is_a_drawing(Path::new("/x/beach")), Ok(Rendering::AsPixels));
     }
 
-    fn made(at: &Path, said: &str) -> Result<(), Never> {
-        made_for(at, said, "1")
+    fn make_picture(at: &Path, said: &str) -> Result<(), Never> {
+        made_for(at, said, 1)
     }
 
     #[test]
-    fn what_comes_back_is_the_size_this_crate_said_and_the_colour_that_was_written() {
+    fn what_comes_back_is_the_size_this_crate_said_and_the_colour_that_was_written() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("red"));
-        let Ok(()) = made(&at, "color=c=red:s=100x50");
+        let Ok(()) = make_picture(&at, "color=c=red:s=100x50");
 
-        let read = decoded(&at, Size { width: 20, height: 20 }).expect("a picture ffmpeg just wrote");
+        let read = decoded(&at, Size { width: 20, height: 20 });
         let _ = std::fs::remove_file(&at);
 
-        let held = read.expect("ffmpeg reads what ffmpeg wrote");
+        let read = read?;
+        let held = read.ok_or("ffmpeg did not read what ffmpeg wrote")?;
 
         assert_eq!((held.width, held.height, held.stride), (20, 10, 80));
         assert_eq!(held.bytes.len(), 800);
@@ -479,33 +486,39 @@ mod tests {
                     assert!(*red > 200, "red came back as {said:?}");
                     assert!(*green < 40 && *blue < 40, "red came back as {said:?}");
                     assert_eq!(*opaque, 255, "red came back as {said:?}");
+
+                    Ok(())
                 }
-                _shorter => panic!("four bytes of red: {said:?}"),
+                _shorter => Err(Box::from(format!("four bytes of red: {said:?}"))),
             },
-            None => panic!("no first pixel at all"),
+            None => Err(Box::from("no first pixel at all")),
         }
     }
 
     #[test]
-    fn a_film_comes_back_as_its_first_frame_and_not_as_every_frame_in_it() {
+    fn a_film_comes_back_as_its_first_frame_and_not_as_every_frame_in_it() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("film"));
         let at = at.with_extension("mkv");
-        let Ok(()) = made_for(&at, "testsrc=s=64x48:d=2", "50");
+        let Ok(()) = made_for(&at, "testsrc=s=64x48:d=2", 50);
 
         let read = decoded(&at, Size { width: 32, height: 32 });
         let _ = std::fs::remove_file(&at);
 
-        let held = read.expect("a film is one picture long").expect("ffmpeg reads the film it wrote");
+        let read = read?;
+        let held = read.ok_or("ffmpeg did not read the film it wrote")?;
 
         assert_eq!((held.width, held.height), (32, 24));
-        assert_eq!(held.bytes.len(), 32 * 24 * 4);
+        assert_eq!(held.bytes.len(), 32_usize.saturating_mul(24).saturating_mul(4));
+
+        Ok(())
     }
 
-    fn made_for(at: &Path, said: &str, frames: &str) -> Result<(), Never> {
+    fn made_for(at: &Path, said: &str, frames: u32) -> Result<(), Never> {
         let Ok(mut asking) = Program::Ffmpeg.command();
 
         let done = asking
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", said, "-frames:v", frames])
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", said, "-frames:v"])
+            .arg(frames.to_string())
             .arg(at)
             .status();
 
@@ -515,49 +528,53 @@ mod tests {
     }
 
     #[test]
-    fn a_drawing_comes_back_at_the_size_it_was_drawn_for() {
+    fn a_drawing_comes_back_at_the_size_it_was_drawn_for() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("square"));
         let at = at.with_extension("svg");
-        let said = std::fs::write(
+        console_core_atomic_writes::whole(
             &at,
             br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#00ff00"/></svg>"##,
-        );
-
-        assert!(said.is_ok(), "nowhere to write a drawing");
+        )?;
 
         let read = decoded(&at, Size { width: 32, height: 32 });
         let _ = std::fs::remove_file(&at);
 
-        let held = read.expect("rsvg-convert draws it").expect("a drawing is a picture");
+        let read = read?;
+        let held = read.ok_or("rsvg-convert drew no picture")?;
 
         assert_eq!((held.width, held.height), (32, 32));
         assert_eq!(held.bytes.get(1), Some(&255), "green: {:?}", held.bytes.get(0..4));
+
+        Ok(())
     }
 
     #[test]
-    fn the_square_middle_is_the_middle_and_not_a_squashed_whole() {
+    fn the_square_middle_is_the_middle_and_not_a_squashed_whole() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("halves"));
-        let Ok(()) = made(&at, "color=c=blue:s=40x20");
+        let Ok(()) = make_picture(&at, "color=c=blue:s=40x20");
 
         let read = square(&at, Size { width: 10, height: 4 });
         let _ = std::fs::remove_file(&at);
 
-        let held = read.expect("a picture ffmpeg just wrote").expect("a square of it");
+        let read = read?;
+        let held = read.ok_or("no square of a picture ffmpeg just wrote")?;
 
         assert_eq!((held.width, held.height, held.stride), (10, 4, 40));
         assert_eq!(held.bytes.len(), 160);
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_that_is_not_a_picture_is_no_picture_rather_than_a_fault() {
+    fn a_file_that_is_not_a_picture_is_no_picture_rather_than_a_fault() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("words"));
-        let said = std::fs::write(&at, b"this is not a picture");
-
-        assert!(said.is_ok(), "nowhere to write a file that is not a picture");
+        console_core_atomic_writes::whole(&at, b"this is not a picture")?;
 
         let read = decoded(&at, Size { width: 64, height: 64 });
         let _ = std::fs::remove_file(&at);
 
         assert!(matches!(read, Ok(None)), "a file that is not a picture: {read:?}");
+
+        Ok(())
     }
 }

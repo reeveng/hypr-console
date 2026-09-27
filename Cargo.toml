@@ -22,6 +22,7 @@ console-core-color = { path = "crates/console-core-color" }
 console-compositor = { path = "crates/console-compositor" }
 console-concurrency = { path = "crates/console-concurrency" }
 console-control-center = { path = "crates/console-control-center" }
+console-overview = { path = "crates/console-overview" }
 console-input-controller = { path = "crates/console-input-controller" }
 console-cpu-boost = { path = "crates/console-cpu-boost" }
 console-battery = { path = "crates/console-battery" }
@@ -65,7 +66,13 @@ console-content-types = { path = "crates/console-content-types" }
 console-core-checksums = { path = "crates/console-core-checksums" }
 console-core-temporary-directories = { path = "crates/console-core-temporary-directories" }
 console-core-walking = { path = "crates/console-core-walking" }
+console-core-directory-listing = { path = "crates/console-core-directory-listing" }
+console-core-iteration = { path = "crates/console-core-iteration" }
+console-core-file-names = { path = "crates/console-core-file-names" }
+console-core-file-urls = { path = "crates/console-core-file-urls" }
 console-recovery = { path = "crates/console-recovery" }
+console-readiness = { path = "crates/console-readiness" }
+console-lock-screen = { path = "crates/console-lock-screen" }
 console-core-never = { path = "crates/console-core-never" }
 console-core-internal-programs = { path = "crates/console-core-internal-programs" }
 console-notifications = { path = "crates/console-notifications" }

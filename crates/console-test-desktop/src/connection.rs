@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use console_compositor::{Query, Request};
+use console_compositor::{ActiveWorkspace, Clients, Layers, Monitors, Question, Request};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_screen::Screen;
@@ -90,11 +90,11 @@ impl Inside {
         })
     }
 
-    fn asking(&self, question: Query) -> Result<Option<console_compositor::Answer>, Never> {
+    fn query<Q: Question>(&self, question: Q) -> Result<Option<Q::Reply>, Never> {
         let Ok(name) = Program::Hyprctl.name();
         let Ok(asking) = self.command(name);
 
-        Ok(match console_compositor::query_with(asking, question) {
+        Ok(match console_compositor::ask_with(asking, question) {
             Ok(said) => Some(said),
             Err(why) => {
                 eprintln!("console-desktop: {why}");
@@ -104,7 +104,7 @@ impl Inside {
         })
     }
 
-    fn told(&self, what: Request, lua: &str) -> Result<console_compositor::DispatchResult, Never> {
+    fn request(&self, what: Request, lua: &str) -> Result<console_compositor::DispatchResult, Never> {
         let Ok(name) = Program::Hyprctl.name();
         let Ok(telling) = self.command(name);
 
@@ -126,16 +126,15 @@ impl Inside {
     }
 
     fn monitors(&self) -> Result<Vec<console_compositor::Monitor>, Never> {
-        let Ok(said) = self.asking(Query::Monitors);
+        let Ok(said) = self.query(Monitors);
 
         Ok(match said {
-            Some(console_compositor::Answer::Monitors(monitors)) => monitors,
-            Some(_not_what_was_asked) => Vec::new(),
+            Some(monitors) => monitors,
             None => Vec::new(),
         })
     }
 
-    fn named(&self) -> Result<BTreeSet<String>, Never> {
+    fn monitor_names(&self) -> Result<BTreeSet<String>, Never> {
         let Ok(monitors) = self.monitors();
 
         Ok(monitors.into_iter().map(|monitor| monitor.named).collect())
@@ -145,7 +144,7 @@ impl Inside {
         let Ok(patience) = Schedule::asking_every(A_MONITOR, Duration::from_millis(50));
 
         until(patience, || {
-            let Ok(monitors) = self.named();
+            let Ok(monitors) = self.monitor_names();
 
             Ok(match monitors.contains(named) == (want == Ready::Yes) {
                 true => Ready::Yes,
@@ -164,7 +163,7 @@ impl Inside {
         }
 
         let Ok(made) = nested::made_headless(screen);
-        let Ok(_said) = self.told(Request::Eval, &made);
+        let Ok(_said) = self.request(Request::Eval, &made);
         let Ok(sized) = self.wait_for_mode(screen);
 
         match sized {
@@ -175,7 +174,7 @@ impl Inside {
         }
 
         let Ok(_disabled) =
-            self.told(Request::Eval, r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#);
+            self.request(Request::Eval, r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#);
         let Ok(alone) = self.wait_for_monitors(WINDOWED, Ready::NotYet);
 
         match alone {
@@ -248,23 +247,21 @@ impl Inside {
 
     pub fn surfaces(&self) -> Result<BTreeSet<String>, Never> {
         let mut on = BTreeSet::new();
-        let Ok(windows) = self.asking(Query::Clients);
+        let Ok(windows) = self.query(Clients);
 
         match windows {
-            Some(console_compositor::Answer::Clients(clients)) => {
+            Some(clients) => {
                 on.extend(clients.into_iter().map(|client| client.address));
             }
-            Some(_not_what_was_asked) => {},
             None => {},
         }
 
-        let Ok(screens) = self.asking(Query::Layers);
+        let Ok(screens) = self.query(Layers);
 
         match screens {
-            Some(console_compositor::Answer::Layers(surfaces)) => {
+            Some(surfaces) => {
                 on.extend(surfaces.into_iter().filter_map(|surface| surface.address));
             }
-            Some(_not_what_was_asked) => {},
             None => {},
         }
 
@@ -289,9 +286,8 @@ impl Inside {
     }
 
     pub fn show_a_window(&self) -> Result<(), Never> {
-        let clients = match self.asking(Query::Clients) {
-            Ok(Some(console_compositor::Answer::Clients(clients))) => clients,
-            Ok(Some(_not_what_was_asked)) => return Ok(()),
+        let clients = match self.query(Clients) {
+            Ok(Some(clients)) => clients,
             Ok(None) => return Ok(()),
         };
 
@@ -303,16 +299,15 @@ impl Inside {
         let where_ = where_.as_str();
 
         let Ok(lua) = console_compositor::onto(where_, console_compositor::Carrying::None);
-        let Ok(_focused) = self.told(Request::Dispatch, &lua);
+        let Ok(_focused) = self.request(Request::Dispatch, &lua);
         let Ok(patience) = Schedule::asking_every(A_GOODBYE, Duration::from_millis(50));
         let Ok(there) = until(patience, || {
-            let Ok(now) = self.asking(Query::ActiveWorkspace);
+            let Ok(now) = self.query(ActiveWorkspace);
 
             let named = match now {
-                Some(console_compositor::Answer::ActiveWorkspace(front)) => {
+                Some(front) => {
                     front.map(|workspace| workspace.named)
                 }
-                Some(_not_what_was_asked) => return Ok(Ready::NotYet),
                 None => return Ok(Ready::NotYet),
             };
 

@@ -27,26 +27,27 @@
 
 mod reading;
 
-use reading::{naming, root};
+use reading::{Failure, missing, naming, read};
 
 const EXCUSED: [&str; 2] = ["console-program-lifetime", "console-test-desktop"];
 
 #[test]
-fn nothing_holds_a_child_without_saying_how_long_for() {
+fn nothing_holds_a_child_without_saying_how_long_for() -> Result<(), Failure> {
     let word = format!("{}{}", "Chi", "ld");
-    let holding = naming(&word, &EXCUSED);
+    let holding = naming(&word, &EXCUSED)?;
 
     assert!(
         holding.is_empty(),
         "these hold a process without saying whether it outlives them; ask \
          console_program_lifetime for an BoundToParent or a Detached: {holding:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_crate_that_declares_them_still_does() {
-    let declaring = root().join("crates/console-program-lifetime/src/lib.rs");
-    let said = std::fs::read_to_string(declaring).expect("the crate that holds the two answers");
+fn the_crate_that_declares_them_still_does() -> Result<(), Failure> {
+    let said = read("crates/console-program-lifetime/src/lib.rs")?;
 
     assert!(said.contains("pub struct BoundToParent"), "the one that dies with us is gone");
     assert!(said.contains("pub struct Detached"), "the one that is meant not to is gone");
@@ -54,15 +55,13 @@ fn the_crate_that_declares_them_still_does() {
         said.contains("PR_SET_PDEATHSIG"),
         "the kernel's half is gone, and the drop is alone again"
     );
+
+    Ok(())
 }
 
 #[test]
 fn every_excused_crate_is_a_crate() {
-    let missing: Vec<&str> = EXCUSED
-        .iter()
-        .filter(|named| !root().join("crates").join(named).is_dir())
-        .copied()
-        .collect();
+    let Ok(missing) = missing(&EXCUSED);
 
     assert!(missing.is_empty(), "excused from a rule but not in the tree: {missing:?}");
 }

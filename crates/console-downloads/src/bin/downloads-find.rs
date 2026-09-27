@@ -17,6 +17,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use console_downloads::covers::{self, Fetched};
 use console_downloads::gutenberg;
 use console_downloads::standard_ebooks;
 use console_downloads::looking::{self, Found, Looked};
@@ -112,7 +113,7 @@ struct Search<'a> {
 
 fn ran(search: Search<'_>) -> Result<Looked, Never> {
     let Search { kind, asked, arguments, read } = search;
-    let Ok(missing) = looking::missing(kind);
+    let Ok(missing) = looking::missing_tool_message(kind);
     let asked = asked.to_string();
 
     let (program, rest) = match arguments.split_first() {
@@ -153,19 +154,13 @@ fn picture(cache: &Path, found: &Found) -> Result<(), Never> {
     }
 
     let part = at.with_extension("part");
-    let Ok(mut curl) = Program::Curl.command();
+    let Ok(fetched) = covers::fetched(&found.picture, &part);
 
-    let fetched = curl
-        .args(["--silent", "--location", "--max-time", "20", "--output"])
-        .arg(&part)
-        .arg(&found.picture)
-        .status();
-
-    match fetched.is_ok_and(|how| how.success()) {
-        true => {
+    match fetched {
+        Fetched::Arrived => {
             let Ok(()) = drawn_out(&part, &at);
         },
-        false => {},
+        Fetched::Failed => {},
     }
 
     let _ = std::fs::remove_file(&part);
@@ -201,7 +196,7 @@ fn wrote(cache: &Path, kind: Kind, looked: &Looked) -> Result<(), Never> {
     let _ = std::fs::create_dir_all(folder);
     let Ok(at) = store::found_at(cache, kind);
 
-    let said = match looking::written(looked) {
+    let said = match looking::serialize(looked) {
         Ok(said) => said,
         Err(why) => {
             eprintln!("{why}");

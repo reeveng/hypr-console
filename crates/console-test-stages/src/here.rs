@@ -18,7 +18,7 @@ pub use console_input_controller::mode::InputHandling;
 use console_input_controller::clock::Instant;
 use console_input_controller::reading::{POLL, Wake};
 use console_input_controller::turning::Turning;
-use console_input_gamepad::capture::captured;
+use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::go::{RecordingClock, LegionGo};
 use console_input_gamepad::router::every_profile;
@@ -48,8 +48,8 @@ pub struct Here {
 
 impl Here {
     pub fn new() -> Result<Self, Error> {
-        let seen = captured()?;
-        let world = captured()?;
+        let seen = load_capture()?;
+        let world = load_capture()?;
         let Ok(world) = World::of(world);
         let Ok(devices) = Devices::new(seen, world);
         let Ok(root) = crate::root();
@@ -110,14 +110,13 @@ impl Here {
         Ok(())
     }
 
-    pub fn showing(&mut self, layers: &str) -> Result<(), Error> {
+    pub fn set_layers(&mut self, layers: &str) -> Result<(), Error> {
         let said = serde_json::from_str(layers).map_err(Error::Layers)?;
 
-        let read = console_compositor::answer_of(console_compositor::Query::Layers, said);
+        let read = console_compositor::said_of(console_compositor::Layers, said);
 
         self.layers = match read {
-            Ok(console_compositor::Answer::Layers(layers)) => Some(layers),
-            Ok(_not_what_was_asked) => None,
+            Ok(layers) => Some(layers),
             Err(_unreadable) => None,
         };
 
@@ -132,7 +131,7 @@ impl Here {
             None => return Ok(()),
         };
 
-        let Ok(seen) = Mode::seen(&layers, self.awake);
+        let Ok(seen) = Mode::detect(&layers, self.awake);
 
         self.in_front(seen)
     }
@@ -221,7 +220,7 @@ impl Here {
     }
 
     pub fn dispatches(&self) -> Result<Vec<String>, Never> {
-        console_compositor::dispatched(&self.commands)
+        console_compositor::batch_arguments(&self.commands)
     }
 
     pub fn names(&self) -> Result<Vec<String>, Never> {
@@ -249,7 +248,7 @@ impl Here {
             .sum())
     }
 
-    pub fn sent(&self, kind: EventType, code: u16, value: i32) -> Result<Ready, Never> {
+    pub fn check_sent(&self, kind: EventType, code: u16, value: i32) -> Result<Ready, Never> {
         let found = self
             .written
             .iter()
@@ -269,7 +268,7 @@ impl Here {
         Ok(())
     }
 
-    pub fn told(&self) -> Result<&[console_onscreen::PadInput], Never> {
+    pub fn pad_inputs(&self) -> Result<&[console_onscreen::PadInput], Never> {
         Ok(&self.told)
     }
 }
@@ -277,49 +276,62 @@ impl Here {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use console_input_event_devices::RelativeAxisCode;
 
-    fn names(here: &Here) -> Vec<String> {
+    fn names(here: &Here) -> Result<Vec<String>, Never> {
         let Ok(names) = here.names();
 
-        names
+        Ok(names)
     }
 
-    fn wrote(here: &Here, kind: EventType, code: u16) -> i32 {
+    fn wrote(here: &Here, kind: EventType, code: u16) -> Result<i32, Never> {
         let Ok(wrote) = here.wrote(kind, code);
 
-        wrote
+        Ok(wrote)
     }
 
-    fn commands(here: &Here) -> Vec<Vec<String>> {
+    fn commands(here: &Here) -> Result<Vec<Vec<String>>, Never> {
         let Ok(commands) = here.commands();
 
-        commands.to_vec()
+        Ok(commands.to_vec())
     }
 
     #[test]
-    fn a_press_reaches_the_daemon_and_comes_out_as_what_it_runs() {
-        let mut here = Here::new().expect("a stage");
-        here.press("left-paddle-top").expect("a paddle");
-        here.settle(TURNS);
-        assert_eq!(names(&here), ["launcher"]);
+    fn a_press_reaches_the_daemon_and_comes_out_as_what_it_runs() -> Result<(), Box<dyn Error>> {
+        let mut here = Here::new()?;
+        here.press("left-paddle-top")?;
+        let Ok(()) = here.settle(TURNS);
+        let Ok(names) = names(&here);
+
+        assert_eq!(names, ["launcher"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_stick_held_over_turns_of_the_loop_turns_the_wheel() {
-        let mut here = Here::new().expect("a stage");
-        here.stick("right-stick", Point { x: 0.0, y: -1.0 }).expect("a stick");
-        here.settle(12);
-        assert!(wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0) > 0);
+    fn a_stick_held_over_turns_of_the_loop_turns_the_wheel() -> Result<(), Box<dyn Error>> {
+        let mut here = Here::new()?;
+        here.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+        let Ok(()) = here.settle(12);
+        let Ok(turned) = wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
+
+        assert!(turned > 0);
+
+        Ok(())
     }
 
     #[test]
-    fn a_fresh_stage_remembers_nothing() {
-        let mut here = Here::new().expect("a stage");
-        here.press("left-paddle-top").expect("a paddle");
-        here.settle(TURNS);
-        here.fresh();
-        assert!(commands(&here).is_empty());
-        assert_eq!(wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0), 0);
+    fn a_fresh_stage_remembers_nothing() -> Result<(), Box<dyn Error>> {
+        let mut here = Here::new()?;
+        here.press("left-paddle-top")?;
+        let Ok(()) = here.settle(TURNS);
+        let Ok(()) = here.fresh();
+        let Ok(commands) = commands(&here);
+
+        assert!(commands.is_empty());
+        assert_eq!(wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0), Ok(0));
+
+        Ok(())
     }
 }

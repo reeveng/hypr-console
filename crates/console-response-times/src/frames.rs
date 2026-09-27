@@ -156,7 +156,7 @@ impl Frames {
         }
     }
 
-    pub fn done(self) -> Result<(), Never> {
+    pub fn finish(self) -> Result<(), Never> {
         let Ok(now) = monotonic_now();
 
         let up = match (self.since, now) {
@@ -224,37 +224,47 @@ mod tests {
     const AT_144: Duration = Duration::from_nanos(6_944_444);
 
     #[test]
+    #[cfg_attr(dylint_lib = "explicit011_no_as_cast", allow(explicit011_no_as_cast, reason = "the kernel's number for the clock is the enum's discriminant, and `as` is the only way rustix lets it be read"))]
     fn the_monotonic_clock_is_the_number_the_kernel_gives_it() {
         assert_eq!(i64::from(MONOTONIC), rustix::time::ClockId::Monotonic as i64);
     }
 
-    fn timed(painted: u64, composited: u64) -> Timed {
-        Timed { painted: Duration::from_micros(painted), composited: Duration::from_micros(composited), refresh: AT_144 }
+    fn timed((painted, composited): (u64, u64)) -> Result<Timed, Never> {
+        Ok(Timed { painted: Duration::from_micros(painted), composited: Duration::from_micros(composited), refresh: AT_144 })
     }
 
     #[test]
     fn a_frame_shown_at_the_next_refresh_missed_nothing() {
-        assert_eq!(missed(timed(2_000, 6_000)), Ok(0));
+        let Ok(frame) = timed((2_000, 6_000));
+
+        assert_eq!(missed(frame), Ok(0));
     }
 
     #[test]
     fn a_frame_that_waited_a_whole_refresh_for_its_slot_still_missed_nothing() {
-        assert_eq!(missed(timed(1_000, 12_000)), Ok(0));
+        let Ok(frame) = timed((1_000, 12_000));
+
+        assert_eq!(missed(frame), Ok(0));
     }
 
     #[test]
     fn a_paint_longer_than_a_refresh_is_a_refresh_missed() {
-        assert_eq!(missed(timed(12_000, 3_000)), Ok(1));
+        let Ok(frame) = timed((12_000, 3_000));
+
+        assert_eq!(missed(frame), Ok(1));
     }
 
     #[test]
     fn a_frame_three_refreshes_late_says_so() {
-        assert_eq!(missed(timed(25_000, 3_000)), Ok(3));
+        let Ok(frame) = timed((25_000, 3_000));
+
+        assert_eq!(missed(frame), Ok(3));
     }
 
     #[test]
     fn a_screen_that_will_not_say_its_refresh_is_measured_against_what_a_person_feels() {
-        let unsaid = Timed { refresh: Duration::ZERO, ..timed(20_000, 14_000) };
+        let Ok(frame) = timed((20_000, 14_000));
+        let unsaid = Timed { refresh: Duration::ZERO, ..frame };
 
         assert_eq!(missed(unsaid), Ok(1));
     }

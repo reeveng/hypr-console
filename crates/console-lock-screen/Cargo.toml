@@ -1,0 +1,32 @@
+[package]
+name = "console-lock-screen"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_lock_screen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lock-screen"
+path = "src/bin/lock-screen.rs"
+
+[dependencies]
+console-core-color.workspace = true
+console-core-never.workspace = true
+console-core-iteration.workspace = true
+console-core-places.workspace = true
+console-core-shapes.workspace = true
+console-core-words.workspace = true
+console-defaults.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-login-greeter.workspace = true
+console-login-window.workspace = true
+console-program-contract.workspace = true
+console-readiness.workspace = true
+
+[lints]
+workspace = true

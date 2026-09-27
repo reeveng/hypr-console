@@ -198,7 +198,7 @@ is a picture. So:
   the same arithmetic it always was, now spelled in the words xkb uses. The
   panel still on GTK converts at its own edge, which is one line.
 - **What a press means is decided once and away from the screen.**
-  `surface::told` takes the state, the meaning and the rows and says what
+  `surface::apply_meaning` takes the state, the meaning and the rows and says what
   happened: the highlight moved, a tab turned, a row was chosen, the panel is
   going away. It never touches a surface, so the d-pad is asserted against with
   no compositor in the room, which is the thing the panels could not do at all.

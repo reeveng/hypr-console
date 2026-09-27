@@ -15,19 +15,26 @@
 //! grabbed it and to nothing else.
 
 use std::collections::BTreeSet;
-use std::io::{BufRead, BufReader};
+use std::error::Error;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use console_core_never::Never;
 use console_input_event_devices::{Device, EventType, InputEvent};
-use console_input_gamepad::capture::captured;
+use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::go::{RecordingClock, LegionGo};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::uinput::Uinput;
+use console_program_lifetime::{BoundToParent, alongside};
+use console_waiting::{Outcome, Ready, Schedule, until, until_handed, until_some};
+
+pub type Failure = Box<dyn Error>;
 
 pub const READS: [&str; 3] = ["keyboard", "pad", "touchpad"];
 
@@ -53,214 +60,300 @@ const RECORDER: &str = "#!/bin/sh\n\
     \x20   printf '\\n'\n\
     } >> \"$CONSOLE_RAN\"\n";
 
-fn root() -> PathBuf {
-    {
+const PATIENCE: Duration = Duration::from_secs(5);
+
+type Received = Arc<Mutex<Vec<String>>>;
+
+fn root() -> Result<PathBuf, Never> {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
+
+    match from.canonicalize() {
+        Ok(found) => Ok(found),
+        Err(_not_there) => Ok(from),
+    }
 }
 
-pub fn uinput_is_open() -> bool {
-    std::fs::OpenOptions::new().write(true).open("/dev/uinput").is_ok()
+fn every_device() -> Result<BTreeSet<PathBuf>, Never> {
+    let Ok(every) = Device::every();
+
+    Ok(every.into_iter().map(|device| device.path).collect())
 }
 
-fn every_device() -> BTreeSet<PathBuf> {
-    Device::every().expect("the devices").into_iter().map(|device| device.path).collect()
-}
+fn wait_for(name: &str, since: &BTreeSet<PathBuf>) -> Result<Option<Device>, Never> {
+    let Ok(patience) = Schedule::of(PATIENCE);
 
-fn wait_for(name: &str, since: &BTreeSet<PathBuf>) -> Option<Device> {
-    let by = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < by {
-        let found = Device::every()
-            .expect("the devices")
+    until_some(patience, || {
+        let Ok(every) = Device::every();
+
+        Ok(every
             .into_iter()
             .filter(|device| !since.contains(&device.path))
-            .find(|device| device.name.as_deref() == Some(name));
-        if let Some(device) = found {
-            return Some(device);
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    None
+            .find(|device| device.name.as_deref() == Some(name)))
+    })
 }
 
-fn instead_of_the_desktop(here: &Path) -> PathBuf {
+fn instead_of_the_desktop(here: &Path) -> Result<PathBuf, Failure> {
     let bin = here.join("bin");
-    std::fs::create_dir_all(&bin).expect("somewhere to put them");
+
+    std::fs::create_dir_all(&bin)?;
     let recorder = bin.join("recorder");
-    std::fs::write(&recorder, RECORDER).expect("the recorder");
-    std::fs::set_permissions(&recorder, std::fs::Permissions::from_mode(0o755))
-        .expect("something runnable");
+
+    console_core_atomic_writes::whole(&recorder, RECORDER.as_bytes())?;
+    std::fs::set_permissions(&recorder, std::fs::Permissions::from_mode(0o755))?;
+
     for name in INSTEAD {
-        let _ = std::os::unix::fs::symlink(&recorder, bin.join(name));
+        std::os::unix::fs::symlink(&recorder, bin.join(name))?;
     }
-    bin
+
+    Ok(bin)
 }
 
-fn a_compositor_that_writes_down(here: &Path, ran_at: &Path) -> std::io::Result<()> {
-    use std::io::{BufRead, Write};
-    use std::os::unix::net::UnixListener;
+fn path_for(paths: &std::collections::BTreeMap<String, String>, role: &str) -> Result<String, Failure> {
+    let path = paths.get(role).ok_or_else(|| format!("the emulator made no {role}"))?;
 
+    Ok(path.clone())
+}
+
+fn held(heard: &Received) -> Result<Vec<String>, Never> {
+    Ok(match heard.lock() {
+        Ok(heard) => heard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    })
+}
+
+fn a_compositor_that_writes_down(here: &Path) -> Result<Received, Failure> {
     let instance = here.join("hypr").join(INSTANCE);
+
     std::fs::create_dir_all(&instance)?;
     let listener = UnixListener::bind(instance.join(".socket.sock"))?;
-    let ran_at = ran_at.to_path_buf();
-    std::thread::spawn(move || {
-        for asking in listener.incoming() {
-            let Ok(mut asking) = asking else { return };
-            let line = {
-                let mut reading = std::io::BufReader::new(&asking);
+    let heard: Received = Arc::new(Mutex::new(Vec::new()));
+    let writing = Arc::clone(&heard);
 
-                String::from_utf8_lossy(reading.fill_buf().unwrap_or_default()).to_string()
+    let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+        for asking in listener.incoming() {
+            let mut asking = match asking {
+                Ok(asking) => asking,
+                Err(_gone) => return,
             };
-            let told = line.strip_prefix('/').unwrap_or(&line).replacen(' ', "\t", 1);
-            if let Ok(mut ran) = std::fs::OpenOptions::new().append(true).open(&ran_at) {
-                let _ = writeln!(ran, "hyprctl\t{told}");
+
+            let line = {
+                let mut reading = BufReader::new(&asking);
+
+                match reading.fill_buf() {
+                    Ok(said) => String::from_utf8_lossy(said).to_string(),
+                    Err(_unread) => String::new(),
+                }
+            };
+
+            let told = match line.strip_prefix('/') {
+                Some(rest) => rest.replacen(' ', "\t", 1),
+                None => line.replacen(' ', "\t", 1),
+            };
+
+            match writing.lock() {
+                Ok(mut heard) => heard.push(format!("hyprctl\t{told}")),
+                Err(poisoned) => poisoned.into_inner().push(format!("hyprctl\t{told}")),
             }
+
             let _ = asking.write_all(b"ok");
         }
-    });
-    Ok(())
+    }));
+
+    Ok(heard)
 }
 
 pub struct Running {
     pub go: LegionGo<Uinput, RecordingClock>,
     pub out: Option<Device>,
     said: Arc<Mutex<String>>,
-    process: Child,
+    process: Option<BoundToParent>,
     ran_at: PathBuf,
+    asked: Received,
     here: PathBuf,
 }
 
 impl Running {
-    pub fn new() -> Result<Self, String> {
-        let root = root();
-        let here = std::env::temp_dir().join(format!("console-live-{}", std::process::id()));
-        std::fs::create_dir_all(&here).map_err(|fault| fault.to_string())?;
+    pub fn new() -> Result<Self, Failure> {
+        let Ok(root) = root();
+        let here = console_core_temporary_directories::fresh("live")?;
         let ran_at = here.join("ran");
-        std::fs::File::create(&ran_at).map_err(|fault| fault.to_string())?;
 
-        let uinput = Uinput::of(&captured().expect("the capture carried in this program parses"))
-            .map_err(|fault| fault.to_string())?;
-
-        let Ok(devices) =
-            Devices::new(captured().expect("the capture carried in this program parses"), uinput);
-
+        console_core_atomic_writes::whole(&ran_at, b"")?;
+        let seen = load_capture()?;
+        let world = load_capture()?;
+        let uinput = Uinput::of(&seen)?;
+        let Ok(devices) = Devices::new(world, uinput);
         let Ok(paths) = devices.paths();
-        let profiles = every_profile(&root).map_err(|fault| fault.to_string())?;
-        let go = LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)
-            .map_err(|fault| fault.to_string())?;
-
-        a_compositor_that_writes_down(&here, &ran_at).map_err(|fault| fault.to_string())?;
-
-        let was = every_device();
-        let path = std::env::var("PATH").unwrap_or_default();
-        let mut process = Command::new(env!("CARGO_BIN_EXE_controller-desktop"))
-            .env("PATH", format!("{}:{path}", instead_of_the_desktop(&here).display()))
-            .env("CONSOLE_RAN", &ran_at)
-            .env("XDG_RUNTIME_DIR", &here)
-            .env("HYPRLAND_INSTANCE_SIGNATURE", INSTANCE)
-            .env("CONSOLE_PAD", paths.get("pad").cloned().unwrap_or_default())
-            .env("CONSOLE_KEYS", paths.get("keyboard").cloned().unwrap_or_default())
-            .env("CONSOLE_TOUCHPAD", paths.get("touchpad").cloned().unwrap_or_default())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|fault| fault.to_string())?;
-
+        let profiles = every_profile(&root)?;
+        let go = LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)?;
+        let asked = a_compositor_that_writes_down(&here)?;
+        let Ok(was) = every_device();
+        #[cfg_attr(
+            dylint_lib = "explicit026_env_read_once",
+            allow(
+                explicit026_env_read_once,
+                reason = "the daemon under test is handed the PATH this test was run with, with the recorder in front of it"
+            )
+        )]
+        let path = std::env::var("PATH")?;
+        let instead = instead_of_the_desktop(&here)?;
+        let pad = path_for(&paths, "pad")?;
+        let keys = path_for(&paths, "keyboard")?;
+        let touchpad = path_for(&paths, "touchpad")?;
+        let mut process = alongside(
+            Command::new(env!("CARGO_BIN_EXE_controller-desktop"))
+                .env("PATH", format!("{}:{path}", instead.display()))
+                .env("CONSOLE_RAN", &ran_at)
+                .env("XDG_RUNTIME_DIR", &here)
+                .env("HYPRLAND_INSTANCE_SIGNATURE", INSTANCE)
+                .env("CONSOLE_PAD", pad)
+                .env("CONSOLE_KEYS", keys)
+                .env("CONSOLE_TOUCHPAD", touchpad)
+                .stderr(Stdio::piped()),
+        )?;
         let said = Arc::new(Mutex::new(String::new()));
         let heard = Arc::clone(&said);
-        let voice = process.stderr.take().expect("its voice");
-        std::thread::spawn(move || {
+        let Ok(voice) = process.take_stderr();
+        let voice = voice.ok_or("the daemon's stderr")?;
+        let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
             for line in BufReader::new(voice).lines().map_while(Result::ok) {
-                heard.lock().expect("what it said").push_str(&format!("{line}\n"));
+                match heard.lock() {
+                    Ok(mut said) => said.push_str(&format!("{line}\n")),
+                    Err(poisoned) => poisoned.into_inner().push_str(&format!("{line}\n")),
+                }
             }
-        });
+        }));
+        let Ok(out) = wait_for(PUBLISHED, &was);
 
-        let mut out = wait_for(PUBLISHED, &was);
-        if let Some(published) = out.as_mut() {
-            let _ = published.grab();
+        match &out {
+            Some(published) => published.grab()?,
+            None => {},
         }
-        let mut running = Running { go, out, said, process, ran_at, here };
-        running.reading();
+
+        let running = Running { go, out, said, process: Some(process), ran_at, asked, here };
+        let Ok(_) = running.reading();
+
         Ok(running)
     }
 
-    fn reading(&mut self) -> bool {
-        let by = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < by {
-            if READS.iter().all(|name| self.said().contains(&format!("reading the {name}"))) {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        false
+    fn reading(&self) -> Result<Outcome, Never> {
+        let Ok(patience) = Schedule::of(PATIENCE);
+
+        until(patience, || {
+            let Ok(said) = self.said();
+
+            Ok(match READS.iter().all(|name| said.contains(&format!("reading the {name}"))) {
+                true => Ready::Yes,
+                false => Ready::NotYet,
+            })
+        })
     }
 
-    pub fn settle(&self) {
-        std::thread::sleep(Duration::from_millis(250));
+    pub fn ran(&self) -> Result<Vec<Vec<String>>, Failure> {
+        let Ok(patience) = Schedule::of(PATIENCE);
+        let Ok(_) = until(patience, || {
+            let Ok(asked) = held(&self.asked);
+
+            let recorded = match std::fs::metadata(&self.ran_at) {
+                Ok(file) => file.len(),
+                Err(_not_written_yet) => 0,
+            };
+
+            Ok(match (recorded, asked.is_empty()) {
+                (0, true) => Ready::NotYet,
+                (_, _) => Ready::Yes,
+            })
+        });
+
+        self.commands()
     }
 
-    pub fn events(&mut self, seconds: f64) -> Vec<InputEvent> {
+    pub fn events(&mut self, seconds: f64) -> Result<Vec<InputEvent>, Failure> {
         let out = match self.out.as_mut() {
             Some(out) => out,
-            None => return Vec::new(),
+            None => return Ok(Vec::new()),
         };
-        let by = Instant::now() + Duration::from_secs_f64(seconds);
-        let mut every = Vec::new();
-        let _ = out.nonblocking();
-        while Instant::now() < by {
-            if let Ok(arrived) = out.read_events() {
-                every.extend(arrived.into_iter().filter(|event| event.kind != EventType::SYNCHRONIZATION));
+
+        out.nonblocking()?;
+        let mut every: Vec<InputEvent> = Vec::new();
+        let Ok(window) = Schedule::asking_every(Duration::from_secs_f64(seconds), Duration::from_millis(10));
+        let Ok(_) = until_handed(window, &mut (out, &mut every), |(out, every)| {
+            match out.read_events() {
+                Ok(arrived) => every.extend(arrived.into_iter().filter(|event| event.kind != EventType::SYNCHRONIZATION)),
+                Err(_nothing_yet) => {},
             }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        every
+
+            Ok(Ready::NotYet)
+        });
+
+        Ok(every)
     }
 
-    pub fn total(&mut self, kind: EventType, code: u16, seconds: f64) -> i32 {
-        self.events(seconds)
+    pub fn total(&mut self, (kind, code): (EventType, u16), seconds: f64) -> Result<i32, Failure> {
+        let events = self.events(seconds)?;
+
+        Ok(events
             .iter()
             .filter(|event| event.kind == kind && event.code == code)
-            .map(|event| event.value)
-            .sum()
+            .fold(0, |sum, event| sum.saturating_add(event.value)))
     }
 
-    pub fn commands(&self) -> Vec<Vec<String>> {
-        std::fs::read_to_string(&self.ran_at)
-            .unwrap_or_default()
+    pub fn commands(&self) -> Result<Vec<Vec<String>>, Failure> {
+        let recorded = std::fs::read_to_string(&self.ran_at)?;
+        let Ok(asked) = held(&self.asked);
+
+        Ok(recorded
             .lines()
+            .map(str::to_string)
+            .chain(asked)
             .filter(|line| !line.is_empty())
             .map(|line| line.split('\t').map(str::to_string).collect())
-            .collect()
+            .collect())
     }
 
-    pub fn names(&self) -> Vec<String> {
-        self.commands().into_iter().filter_map(|arguments| arguments.into_iter().next()).collect()
+    pub fn names(&self) -> Result<Vec<String>, Failure> {
+        let ran = self.ran()?;
+
+        Ok(ran.into_iter().filter_map(|arguments| arguments.into_iter().next()).collect())
     }
 
-    pub fn said(&self) -> String {
-        self.said.lock().expect("what it said").clone()
+    pub fn said(&self) -> Result<String, Never> {
+        Ok(match self.said.lock() {
+            Ok(said) => said.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        })
     }
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        if let Some(out) = self.out.as_mut() {
-            let _ = out.ungrab();
+        match self.out.as_mut() {
+            Some(out) => {
+                let _ = out.ungrab();
+            },
+            None => {},
         }
-        let _ = self.process.kill();
-        let _ = self.process.wait();
-        self.go.close();
+
+        drop(self.process.take());
+        let Ok(()) = self.go.close();
         let _ = std::fs::remove_dir_all(&self.here);
     }
 }
 
-pub fn or_skip() -> Option<Running> {
-    if !uinput_is_open() {
-        eprintln!("skipped: no way in to /dev/uinput; see docs/emulator.md");
-        return None;
+pub fn or_skip() -> Result<Option<Running>, Failure> {
+    match std::fs::File::open("/dev/uinput") {
+        Ok(_) => {},
+        Err(_no_way_in) => {
+            eprintln!("skipped: no way in to /dev/uinput; see docs/emulator.md");
+
+            return Ok(None);
+        },
     }
-    let running = Running::new().expect("a daemon");
-    assert!(running.out.is_some(), "the daemon never published a device: {}", running.said());
-    Some(running)
+
+    let running = Running::new()?;
+    let Ok(said) = running.said();
+
+    assert!(running.out.is_some(), "the daemon never published a device: {said}");
+
+    Ok(Some(running))
 }

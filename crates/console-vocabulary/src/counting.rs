@@ -23,6 +23,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use console_core_directory_listing::Descend;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
 
@@ -94,7 +95,7 @@ const UNDER: char = '_';
 
 const SHORTEST: u32 = 3;
 
-pub fn counted(root: &Path) -> Result<Counted, Unread> {
+pub fn count(root: &Path) -> Result<Counted, Unread> {
     let code = under(&root.join(CRATES), Ending::Rust)?;
     let prose = under(&root.join(DOCS), Ending::Prose)?;
     let mut held = Counted::default();
@@ -102,17 +103,17 @@ pub fn counted(root: &Path) -> Result<Counted, Unread> {
     for at in code {
         let said = read(&at)?;
         let Ok(words) = words_of_code(&said);
-        let Ok(named) = naming(Top(root), &at);
+        let Ok(named) = relative_name(Top(root), &at);
 
-        let Ok(()) = counting(&mut held, &words, &named);
+        let Ok(()) = add_words(&mut held, &words, &named);
     }
 
     for at in prose.into_iter().chain(std::iter::once(root.join(README))) {
         let said = read(&at)?;
         let Ok(words) = words_of_prose(&said);
-        let Ok(named) = naming(Top(root), &at);
+        let Ok(named) = relative_name(Top(root), &at);
 
-        let Ok(()) = counting(&mut held, &words, &named);
+        let Ok(()) = add_words(&mut held, &words, &named);
     }
 
     Ok(held)
@@ -121,7 +122,7 @@ pub fn counted(root: &Path) -> Result<Counted, Unread> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Top<'a>(pub &'a Path);
 
-fn naming(top: Top<'_>, at: &Path) -> Result<String, Never> {
+fn relative_name(top: Top<'_>, at: &Path) -> Result<String, Never> {
     Ok(match at.strip_prefix(top.0) {
         Ok(under) => under.display().to_string(),
         Err(_a_path_from_outside_the_tree) => at.display().to_string(),
@@ -132,7 +133,7 @@ fn read(at: &Path) -> Result<String, Unread> {
     std::fs::read_to_string(at).map_err(|fault| Unread::Reading(at.to_path_buf(), fault))
 }
 
-fn counting(into: &mut Counted, words: &[String], at: &str) -> Result<(), Never> {
+fn add_words(into: &mut Counted, words: &[String], at: &str) -> Result<(), Never> {
     for word in words {
         let held = into.words.entry(word.clone()).or_default();
 
@@ -153,7 +154,7 @@ pub enum Ending {
 }
 
 impl Ending {
-    pub fn spelled(self) -> Result<&'static str, Never> {
+    pub fn as_str(self) -> Result<&'static str, Never> {
         Ok(match self {
             Ending::Rust => RUST,
             Ending::Prose => PROSE,
@@ -167,7 +168,7 @@ enum Walk {
     Past,
 }
 
-fn walking(at: &Path) -> Result<Walk, Never> {
+fn walk_decision(at: &Path) -> Result<Walk, Never> {
     Ok(match at.file_name().and_then(OsStr::to_str) {
         Some(named) => match named == TARGET || named.starts_with('.') {
             true => Walk::Past,
@@ -178,31 +179,23 @@ fn walking(at: &Path) -> Result<Walk, Never> {
 }
 
 pub fn under(root: &Path, ending: Ending) -> Result<Vec<PathBuf>, Unread> {
-    let Ok(wanted) = ending.spelled();
+    let Ok(wanted) = ending.as_str();
+    let Ok(listing) = console_core_directory_listing::recursive(root, |at| {
+        let Ok(walk) = walk_decision(at);
+
+        match walk {
+            Walk::Into => Descend::Into,
+            Walk::Past => Descend::Past,
+        }
+    });
     let mut found = Vec::new();
-    let mut waiting = vec![root.to_path_buf()];
 
-    while let Some(folder) = waiting.pop() {
-        let held = std::fs::read_dir(&folder).map_err(|fault| Unread::Listing(folder.clone(), fault))?;
+    for entry in listing {
+        let at = entry.map_err(|unlisted| Unread::Listing(unlisted.directory, unlisted.fault))?;
 
-        for entry in held.flatten() {
-            let at = entry.path();
-
-            match at.is_dir() {
-                true => {
-                    let Ok(walk) = walking(&at);
-
-                    match walk {
-                        Walk::Into => waiting.push(at),
-                        Walk::Past => {},
-                    }
-                },
-
-                false => match at.extension().and_then(OsStr::to_str) == Some(wanted) {
-                    true => found.push(at),
-                    false => {},
-                },
-            }
+        match (at.is_dir(), at.extension().and_then(OsStr::to_str) == Some(wanted)) {
+            (false, true) => found.push(at),
+            (true, _) | (false, false) => {},
         }
     }
 
@@ -275,7 +268,7 @@ pub fn words_of_a_sentence(line: &str) -> Result<Vec<String>, Never> {
         let said = part.split(|letter: char| !letter.is_alphabetic());
 
         found.extend(said.filter_map(|word| {
-            let Ok(kept) = keeping(&word.to_lowercase());
+            let Ok(kept) = countable_word(&word.to_lowercase());
 
             kept
         }));
@@ -302,7 +295,7 @@ pub fn split(said: &str) -> Result<Vec<String>, Never> {
     let mut held = String::new();
 
     for letter in said.chars() {
-        let Ok(starting) = starting(&held, letter);
+        let Ok(starting) = word_start(&held, letter);
 
         match starting {
             Starting::Yes => {
@@ -324,14 +317,14 @@ pub fn split(said: &str) -> Result<Vec<String>, Never> {
     Ok(found
         .into_iter()
         .filter_map(|word| {
-            let Ok(kept) = keeping(&word);
+            let Ok(kept) = countable_word(&word);
 
             kept
         })
         .collect())
 }
 
-fn keeping(word: &str) -> Result<Option<String>, Never> {
+fn countable_word(word: &str) -> Result<Option<String>, Never> {
     let Ok(long) = fitted::<_, u32>(word.len());
 
     Ok(
@@ -348,7 +341,7 @@ enum Starting {
     No,
 }
 
-fn starting(held: &str, letter: char) -> Result<Starting, Never> {
+fn word_start(held: &str, letter: char) -> Result<Starting, Never> {
     Ok(match letter.is_ascii_uppercase() {
         true => match held.chars().last() {
             Some(last) => match last.is_ascii_uppercase() {

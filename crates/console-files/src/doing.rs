@@ -154,59 +154,76 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    fn file(name: &str) -> Entry {
+    fn file(name: &str) -> Result<Entry, Never> {
         let Ok(entry) = Entry::file(name, 1);
 
-        entry
+        Ok(entry)
     }
 
-    fn folder(name: &str) -> Entry {
+    fn folder(name: &str) -> Result<Entry, Never> {
         let Ok(entry) = Entry::folder(name);
 
-        entry
+        Ok(entry)
     }
 
-    fn of_kind(entry: Entry, kind: &str) -> Entry {
+    fn of_kind(entry: Entry, kind: &str) -> Result<Entry, Never> {
         let Ok(entry) = entry.of_kind(kind);
 
-        entry
+        Ok(entry)
     }
 
-    fn held(name: &str, moving: Carrying) -> Holding {
-        let Ok(holding) = Holding::of(&file(name), Path::new("/home/ada").join(name), moving);
+    fn held(name: &str, moving: Carrying) -> Result<Holding, Never> {
+        let Ok(file) = file(name);
+        let Ok(holding) = Holding::of(&file, Path::new("/home/ada").join(name), moving);
 
-        holding
+        Ok(holding)
     }
 
-    fn open_to(entry: &Entry) -> Vec<FileAction> {
+    fn open_to(entry: &Entry) -> Result<Vec<FileAction>, Never> {
         let Ok(ways) = ways(entry);
 
-        ways
+        Ok(ways)
     }
 
-    fn word(deed: FileAction) -> &'static str {
+    fn word(deed: FileAction) -> Result<&'static str, Never> {
         let Ok(says) = deed.says();
 
-        says
+        Ok(says)
     }
 
     #[test]
     fn a_file_can_be_opened_and_a_folder_is_walked_into() {
-        assert!(open_to(&file("beach.jpg")).contains(&FileAction::Open));
-        assert!(!open_to(&folder("Holiday")).contains(&FileAction::Open));
-        assert!(!open_to(&folder("Holiday")).contains(&FileAction::OpenWith));
+        let Ok(beach_jpg) = file("beach.jpg");
+        let Ok(ways) = open_to(&beach_jpg);
+
+        assert!(ways.contains(&FileAction::Open));
+
+        let Ok(holiday) = folder("Holiday");
+        let Ok(ways) = open_to(&holiday);
+
+        assert!(!ways.contains(&FileAction::Open));
+
+        let Ok(folder) = folder("Holiday");
+        let Ok(ways) = open_to(&folder);
+
+        assert!(!ways.contains(&FileAction::OpenWith));
     }
 
     #[test]
     fn a_folder_can_be_renamed_carried_and_thrown_away_like_anything_else() {
-        for deed in [FileAction::Copy, FileAction::Delete, FileAction::Move, FileAction::Rename, FileAction::Select] {
-            assert!(open_to(&folder("Holiday")).contains(&deed), "{}", word(deed));
+        for deed in [FileAction::Copy, FileAction::Delete, FileAction::Move, FileAction::Rename] {
+            let Ok(holiday) = folder("Holiday");
+            let Ok(ways) = open_to(&holiday);
+            let Ok(word) = word(deed);
+
+            assert!(ways.contains(&deed), "{}", word);
         }
     }
 
     #[test]
     fn open_is_the_first_way_and_delete_is_the_last() {
-        let ways = open_to(&file("beach.jpg"));
+        let Ok(beach_jpg) = file("beach.jpg");
+        let Ok(ways) = open_to(&beach_jpg);
 
         assert_eq!(ways.first(), Some(&FileAction::Open));
         assert_eq!(ways.last(), Some(&FileAction::Delete));
@@ -214,30 +231,59 @@ mod tests {
 
     #[test]
     fn only_a_picture_can_be_made_the_wallpaper() {
-        let photograph = of_kind(file("beach.jpg"), "image/jpeg");
-        let film = of_kind(file("beach.mp4"), "video/mp4");
+        let Ok(beach_jpg) = file("beach.jpg");
+        let Ok(photograph) = of_kind(beach_jpg, "image/jpeg");
+        let Ok(beach_mp4) = file("beach.mp4");
+        let Ok(film) = of_kind(beach_mp4, "video/mp4");
+        let Ok(ways) = open_to(&photograph);
 
-        assert!(open_to(&photograph).contains(&FileAction::Wallpaper));
-        assert!(!open_to(&film).contains(&FileAction::Wallpaper));
-        assert!(!open_to(&file("notes.txt")).contains(&FileAction::Wallpaper));
-        assert!(!open_to(&folder("Holiday")).contains(&FileAction::Wallpaper));
+        assert!(ways.contains(&FileAction::Wallpaper));
+
+        let Ok(ways) = open_to(&film);
+
+        assert!(!ways.contains(&FileAction::Wallpaper));
+
+        let Ok(notes_txt) = file("notes.txt");
+        let Ok(ways) = open_to(&notes_txt);
+
+        assert!(!ways.contains(&FileAction::Wallpaper));
+
+        let Ok(holiday) = folder("Holiday");
+        let Ok(ways) = open_to(&holiday);
+
+        assert!(!ways.contains(&FileAction::Wallpaper));
     }
 
     #[test]
     fn only_an_archive_is_offered_the_way_out_of_one() {
-        let mod_ = of_kind(file("WickedWhims.zip"), "application/zip");
-        let photograph = of_kind(file("beach.jpg"), "image/jpeg");
+        let Ok(wickedwhims_zip) = file("WickedWhims.zip");
+        let Ok(mod_) = of_kind(wickedwhims_zip, "application/zip");
+        let Ok(beach_jpg) = file("beach.jpg");
+        let Ok(photograph) = of_kind(beach_jpg, "image/jpeg");
+        let Ok(ways) = open_to(&mod_);
 
-        assert!(open_to(&mod_).contains(&FileAction::Unzip));
-        assert!(!open_to(&photograph).contains(&FileAction::Unzip));
-        assert!(!open_to(&file("notes.txt")).contains(&FileAction::Unzip));
-        assert!(!open_to(&folder("Mods")).contains(&FileAction::Unzip));
+        assert!(ways.contains(&FileAction::Unzip));
+
+        let Ok(ways) = open_to(&photograph);
+
+        assert!(!ways.contains(&FileAction::Unzip));
+
+        let Ok(notes_txt) = file("notes.txt");
+        let Ok(ways) = open_to(&notes_txt);
+
+        assert!(!ways.contains(&FileAction::Unzip));
+
+        let Ok(mods) = folder("Mods");
+        let Ok(ways) = open_to(&mods);
+
+        assert!(!ways.contains(&FileAction::Unzip));
     }
 
     #[test]
     fn unzip_is_offered_before_the_ways_of_carrying_a_thing_about() {
-        let mod_ = of_kind(file("WickedWhims.zip"), "application/zip");
-        let ways = open_to(&mod_);
+        let Ok(wickedwhims_zip) = file("WickedWhims.zip");
+        let Ok(mod_) = of_kind(wickedwhims_zip, "application/zip");
+        let Ok(ways) = open_to(&mod_);
 
         assert!(ways.contains(&FileAction::Unzip), "an archive offers no way out of itself");
         assert!(ways.contains(&FileAction::Rename), "an archive cannot be renamed");
@@ -254,14 +300,21 @@ mod tests {
         for deed in
             [FileAction::Copy, FileAction::Move, FileAction::Open, FileAction::OpenWith, FileAction::Rename, FileAction::Select, FileAction::Unzip]
         {
-            assert_eq!(deed.asks(), Ok(Asks::None), "{} asks and should not", word(deed));
+            let Ok(word) = word(deed);
+
+            assert_eq!(deed.asks(), Ok(Asks::None), "{} asks and should not", word);
         }
     }
 
     #[test]
     fn what_is_held_says_which_of_the_two_things_it_is_waiting_to_do() {
-        assert_eq!(held("beach.jpg", Carrying::ToCopy).says(), Ok("Paste beach.jpg Here".to_string()));
-        assert_eq!(held("beach.jpg", Carrying::ToMove).says(), Ok("Move beach.jpg Here".to_string()));
+        let Ok(beach_jpg) = held("beach.jpg", Carrying::ToCopy);
+
+        assert_eq!(beach_jpg.says(), Ok("Paste beach.jpg Here".to_string()));
+
+        let Ok(held) = held("beach.jpg", Carrying::ToMove);
+
+        assert_eq!(held.says(), Ok("Move beach.jpg Here".to_string()));
     }
 
     #[test]

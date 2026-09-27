@@ -48,7 +48,7 @@
 //! refuses is a panel that draws in its own process, exactly as it did before
 //! any of this, and says so on the journal rather than on the screen.
 //!
-//! **What the lock file says is said by the one holding it.** `picker::drawn`
+//! **What the lock file says is said by the one holding it.** `picker::mark_drawn`
 //! and `picker::gone` write into the lock this process opened, and the host
 //! has no such lock -- called there they would be two no-ops, and the door name
 //! they write is what `alone` reads to decide that a door which only opens has
@@ -70,6 +70,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 pub const SOCKET: &str = "panels.sock";
@@ -101,12 +102,12 @@ pub enum DrawnBy {
 }
 
 pub fn where_() -> Result<Option<PathBuf>, Never> {
-    let ours = console_core_places::runtime_ours()?;
+    let ours = console_core_places::application_runtime()?;
 
     Ok(ours.map(|ours| ours.join(SOCKET)))
 }
 
-pub fn spelled(asked: &Request) -> Result<String, Never> {
+pub fn serialize(asked: &Request) -> Result<String, Never> {
     let mut said = String::from(OPEN);
 
     for word in [&asked.who, &asked.from] {
@@ -245,23 +246,32 @@ fn plain(said: &str) -> Result<String, Never> {
         false => {},
     }
 
-    let mut written = String::with_capacity(said.len());
-    let mut letters = said.chars();
+    let written = console_core_iteration::iterate((String::with_capacity(said.len()), said.chars()), |(mut written, mut letters)| {
+        Ok(match letters.next() {
+            Some('\\') => {
+                match letters.next() {
+                    Some('\\') => written.push('\\'),
+                    Some('s') => written.push(' '),
+                    Some('n') => written.push('\n'),
+                    Some(other) => written.push(other),
+                    None => {},
+                }
 
-    while let Some(letter) = letters.next() {
-        match letter {
-            '\\' => match letters.next() {
-                Some('\\') => written.push('\\'),
-                Some('s') => written.push(' '),
-                Some('n') => written.push('\n'),
-                Some(other) => written.push(other),
-                None => {},
-            },
-            other => written.push(other),
-        }
-    }
+                Step::Again((written, letters))
+            }
+            Some(other) => {
+                written.push(other);
 
-    Ok(written)
+                Step::Again((written, letters))
+            }
+            None => Step::Halt(written),
+        })
+    });
+
+    Ok(match written {
+        Ok(written) => written,
+        Err(_endless) => String::new(),
+    })
 }
 
 #[cfg_attr(
@@ -306,7 +316,7 @@ pub fn stood_in_at(at: &Path, who: &str, arguments: &[String]) -> Result<DrawnBy
     };
 
     let Ok(asked) = asking_for(who, arguments);
-    let Ok(said) = spelled(&asked);
+    let Ok(said) = serialize(&asked);
 
     let mut writing = match asking.try_clone() {
         Ok(writing) => writing,
@@ -331,11 +341,19 @@ pub fn stood_in_at(at: &Path, who: &str, arguments: &[String]) -> Result<DrawnBy
     TELLING.store(writing.as_raw_fd(), Ordering::SeqCst);
 
     let Ok(()) = answers_being_asked_to_stop();
+    let Ok(drawn) = read_reply(who, asking);
 
-    waited(who, asking)
+    match drawn {
+        DrawnBy::ByTheHost => {},
+        DrawnBy::Here => {
+            let Ok(()) = no_longer_answering();
+        },
+    }
+
+    Ok(drawn)
 }
 
-fn waited(who: &str, asking: UnixStream) -> Result<DrawnBy, Never> {
+fn read_reply(who: &str, asking: UnixStream) -> Result<DrawnBy, Never> {
     let reading = BufReader::new(asking);
     let mut drawn = DrawnBy::Here;
 
@@ -347,7 +365,7 @@ fn waited(who: &str, asking: UnixStream) -> Result<DrawnBy, Never> {
 
         match line.trim() {
             DRAWN => {
-                let Ok(()) = crate::picker::drawn();
+                let Ok(()) = crate::picker::mark_drawn();
 
                 drawn = DrawnBy::ByTheHost;
             }
@@ -391,7 +409,7 @@ fn asking_for(who: &str, arguments: &[String]) -> Result<Request, Never> {
 
 fn answers_being_asked_to_stop() -> Result<(), Never> {
     // SAFETY: the handler writes one line to a socket and nothing else.
-    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, telling) };
+    let answering = unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) };
 
     match answering {
         Ok(()) => {},
@@ -401,7 +419,20 @@ fn answers_being_asked_to_stop() -> Result<(), Never> {
     Ok(())
 }
 
-extern "C" fn telling(_number: core::ffi::c_int) {
+fn no_longer_answering() -> Result<(), Never> {
+    TELLING.store(-1, Ordering::SeqCst);
+
+    for which in console_signals::STOPPING {
+        match console_signals::restore_default(which) {
+            Ok(()) => {},
+            Err(fault) => eprintln!("console-panel: {fault}"),
+        }
+    }
+
+    Ok(())
+}
+
+extern "C" fn on_signal(_number: core::ffi::c_int) {
     let fd = TELLING.load(Ordering::SeqCst);
 
     match fd < 0 {
@@ -421,37 +452,38 @@ extern "C" fn telling(_number: core::ffi::c_int) {
 mod tests {
     use super::*;
 
-    fn asked(arguments: &[&str]) -> Request {
-        Request {
+    fn sample_request(arguments: &[&str]) -> Result<Request, Never> {
+        Ok(Request {
             who: "launcher".to_string(),
             from: "bar".to_string(),
             pressed: Some("12345".to_string()),
             exec: Duration::from_millis(3),
             tells: None,
             arguments: arguments.iter().map(|word| (*word).to_string()).collect(),
-        }
+        })
     }
 
     #[test]
     fn what_was_asked_for_is_what_arrives() {
-        let asking = asked(&["--place", "2.1.3"]);
-        let Ok(said) = spelled(&asking);
+        let Ok(asking) = sample_request(&["--place", "2.1.3"]);
+        let Ok(said) = serialize(&asking);
 
         assert_eq!(read(&said), Ok(Some(asking)));
     }
 
     #[test]
     fn where_the_asker_wants_the_panel_to_say_what_it_drew_reaches_the_host() {
-        let asking = Request { tells: Some("/run/user/1000/told here.jsonl".to_string()), ..asked(&["General"]) };
-        let Ok(said) = spelled(&asking);
+        let Ok(general) = sample_request(&["General"]);
+        let asking = Request { tells: Some("/run/user/1000/told here.jsonl".to_string()), ..general };
+        let Ok(said) = serialize(&asking);
 
         assert_eq!(read(&said), Ok(Some(asking)));
     }
 
     #[test]
     fn an_argument_with_a_space_in_it_is_still_one_argument() {
-        let asking = asked(&["Game Mode"]);
-        let Ok(said) = spelled(&asking);
+        let Ok(asking) = sample_request(&["Game Mode"]);
+        let Ok(said) = serialize(&asking);
         let Ok(back) = read(&said);
 
         assert_eq!(back.map(|back| back.arguments), Some(vec!["Game Mode".to_string()]));
@@ -460,8 +492,8 @@ mod tests {
     #[test]
     fn a_path_holding_the_marks_that_spell_the_line_survives_it() {
         let awkward = "/home/someone/a folder\\with a mark/and a\nline";
-        let asking = asked(&[awkward]);
-        let Ok(said) = spelled(&asking);
+        let Ok(asking) = sample_request(&[awkward]);
+        let Ok(said) = serialize(&asking);
 
         assert!(!said.contains('\n'), "a request is one line or it is two requests");
         let Ok(back) = read(&said);
@@ -471,8 +503,8 @@ mod tests {
 
     #[test]
     fn an_argument_that_says_nothing_is_still_an_argument() {
-        let asking = asked(&["", "Sound"]);
-        let Ok(said) = spelled(&asking);
+        let Ok(asking) = sample_request(&["", "Sound"]);
+        let Ok(said) = serialize(&asking);
         let Ok(back) = read(&said);
 
         assert_eq!(
@@ -484,8 +516,9 @@ mod tests {
 
     #[test]
     fn a_panel_no_one_pressed_says_so_rather_than_saying_nought() {
-        let asking = Request { pressed: None, from: String::new(), ..asked(&[]) };
-        let Ok(said) = spelled(&asking);
+        let Ok(bare) = sample_request(&[]);
+        let asking = Request { pressed: None, from: String::new(), ..bare };
+        let Ok(said) = serialize(&asking);
 
         assert_eq!(read(&said), Ok(Some(asking)), "a stamp of zero is a wait that ended long ago");
     }

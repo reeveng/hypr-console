@@ -11,24 +11,25 @@
 //! one worth reading: run `just words` and the words at the top are the tree's
 //! own accent, in order.
 
+use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use console_vocabulary::counting::counted;
+use console_core_never::Never;
+use console_core_number_conversion::index;
+use console_vocabulary::counting::count;
 use console_vocabulary::declared::{Declared, WORDS};
 use console_vocabulary::elsewhere::Elsewhere;
 use console_vocabulary::norm::{Norm, beside};
 use console_vocabulary::{
-    Further, Known, LEANING_ON, Measured, TOO_FAR, Vocabulary, known, measured, outside, undeclared,
+    Further, Known, LEANING_ON, Measured, TOO_FAR, Vocabulary, known, measure, outside, undeclared,
 };
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-
-    from.canonicalize().unwrap_or(from)
+fn root() -> Result<PathBuf, std::io::Error> {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
 }
 
-fn table(every: &[&Measured], vocabulary: &Vocabulary<'_>) -> String {
-    every
+fn table(every: &[&Measured], vocabulary: &Vocabulary<'_>) -> Result<String, Never> {
+    Ok(every
         .iter()
         .map(|word| {
             let Ok(times) = word.how_far();
@@ -40,7 +41,7 @@ fn table(every: &[&Measured], vocabulary: &Vocabulary<'_>) -> String {
             let under = match known {
                 Known::Under(heading) => format!("[{heading}]"),
                 Known::Named(name) => {
-                    let Ok(spelled) = name.spelled();
+                    let Ok(spelled) = name.description();
 
                     spelled.to_string()
                 },
@@ -53,22 +54,23 @@ fn table(every: &[&Measured], vocabulary: &Vocabulary<'_>) -> String {
                 word.word, word.uses.0, word.here.0, english,
             )
         })
-        .collect()
+        .collect())
 }
 
 #[test]
-fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() {
-    let root = root();
+fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() -> Result<(), Box<dyn Error>> {
+    let root = root()?;
     let Ok(english) = beside();
-    let norm = Norm::read(&english).expect("the English rates beside this crate");
-    let counted = counted(&root).expect("the words in the tree");
-    let declared = Declared::read(&root.join(WORDS)).expect(WORDS);
-    let elsewhere = Elsewhere::read(&root).expect("the crates and the programs");
+    let norm = Norm::read(&english)?;
+    let counted = count(&root)?;
+    let declared = Declared::read(&root.join(WORDS))?;
+    let elsewhere = Elsewhere::read(&root)?;
     let vocabulary = Vocabulary { declared: &declared, elsewhere: &elsewhere, norm: &norm };
-    let Ok(measured) = measured(&counted, &norm);
+    let Ok(measured) = measure(&counted, &norm);
     let Ok(undeclared) = undeclared(&measured, &vocabulary);
+    let Ok(top) = index(TOP);
     let unheard: Vec<&Measured> =
-        measured.iter().filter(|word| word.times.is_none()).take(TOP.try_into().unwrap()).collect();
+        measured.iter().filter(|word| word.times.is_none()).take(top).collect();
     let mut leant_on: Vec<&Measured> = measured
         .iter()
         .filter(|word| match word.times {
@@ -83,16 +85,16 @@ fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() {
 
     leant_on.sort_by_key(|word| std::cmp::Reverse(word.uses));
 
-    let leant_on: Vec<&Measured> = leant_on.into_iter().take(TOP.try_into().unwrap()).collect();
+    let leant_on: Vec<&Measured> = leant_on.into_iter().take(top).collect();
 
+    let Ok(unheard_table) = table(&unheard, &vocabulary);
+    let Ok(leant_on_table) = table(&leant_on, &vocabulary);
+    let Ok(undeclared_table) = table(&undeclared, &vocabulary);
+
+    println!("words English has no rate for, by how often this tree writes them:\n{unheard_table}");
     println!(
-        "words English has no rate for, by how often this tree writes them:\n{}",
-        table(&unheard, &vocabulary)
-    );
-    println!(
-        "ordinary words this tree leans on more than {}x as hard as English does:\n{}",
+        "ordinary words this tree leans on more than {}x as hard as English does:\n{leant_on_table}",
         LEANING_ON.0,
-        table(&leant_on, &vocabulary)
     );
 
     assert!(
@@ -101,17 +103,18 @@ fn a_word_written_far_out_of_proportion_is_a_word_this_tree_declared() {
          under no heading in {WORDS}:\n{}",
         undeclared.len(),
         TOO_FAR.0,
-        table(&undeclared, &vocabulary)
+        undeclared_table
     );
+    Ok(())
 }
 
 const TOP: u32 = 40;
 
 #[test]
-fn a_word_a_heading_gave_one_place_is_not_written_in_another() {
-    let root = root();
-    let counted = counted(&root).expect("the words in the tree");
-    let declared = Declared::read(&root.join(WORDS)).expect(WORDS);
+fn a_word_a_heading_gave_one_place_is_not_written_in_another() -> Result<(), Box<dyn Error>> {
+    let root = root()?;
+    let counted = count(&root)?;
+    let declared = Declared::read(&root.join(WORDS))?;
     let Ok(outside) = outside(&counted, &declared);
     let said: String = outside
         .iter()
@@ -130,13 +133,14 @@ fn a_word_a_heading_gave_one_place_is_not_written_in_another() {
         "{} word(s) are declared in {WORDS} for one place and written outside it:\n{said}",
         outside.len()
     );
+    Ok(())
 }
 
 #[test]
-fn nothing_is_declared_that_this_tree_never_writes() {
-    let root = root();
-    let counted = counted(&root).expect("the words in the tree");
-    let declared = Declared::read(&root.join(WORDS)).expect(WORDS);
+fn nothing_is_declared_that_this_tree_never_writes() -> Result<(), Box<dyn Error>> {
+    let root = root()?;
+    let counted = count(&root)?;
+    let declared = Declared::read(&root.join(WORDS))?;
     let Ok(every) = declared.every();
 
     let unwritten: Vec<String> = every
@@ -151,4 +155,5 @@ fn nothing_is_declared_that_this_tree_never_writes() {
         unwritten.len(),
         unwritten.concat()
     );
+    Ok(())
 }

@@ -24,48 +24,49 @@
 //! the foreign ones had stopped being, made about a different list, and
 //! `console-core-internal-programs` is the list it should have been read off.
 //! So there are two crossings here now, one per list, and the scan allows
-//! nothing. What it is still worth running for is the targets EXPLICIT036
-//! cannot see: every rule in that suite exempts a test build, and a test that
-//! starts a program by writing its name is a test that passes on the machine
-//! it was written on.
+//! nothing. EXPLICIT036 reads a test build as well now, so
+//! the scan is the second thing holding that line rather than the only one; it
+//! is kept because it reads the source whether or not the lint has been run
+//! over it, and a test that starts a program by writing its name is a test that
+//! passes on the machine it was written on.
 
 mod reading;
 
-use reading::section;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use console_core_external_programs::{EVERY, Origin};
-use console_repository::sources::{Spelled, Word, of_every_crate, spells};
 use console_core_internal_programs::EVERY as EVERY_INTERNAL;
+use console_repository::sources::{Spelled, Word, of_every_crate, spells};
+use reading::{Failure, read, root, Section, section};
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
+fn sources() -> Result<Vec<(PathBuf, String)>, Failure> {
+    let Ok(root) = root();
+    let ourself = root.join(file!());
+    let declaring = root.join("crates/console-core-external-programs");
+    let Ok(found) = of_every_crate(&root, &[&ourself, &declaring]);
+    let mut read = Vec::new();
+
+    for at in found {
+        let said = std::fs::read_to_string(&at)?;
+
+        read.push((at, said));
+    }
+
+    Ok(read)
 }
 
-fn manifest() -> String {
-    std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
-}
+fn all_said() -> Result<String, Failure> {
+    let sources = sources()?;
 
-fn sources() -> Vec<PathBuf> {
-    let (ourself, declaring) = (root().join(file!()), root().join("crates/console-core-external-programs"));
-    let Ok(every) = of_every_crate(&root(), &[&ourself, &declaring]);
-
-    every
-}
-
-fn read() -> Vec<(PathBuf, String)> {
-    sources()
-        .into_iter()
-        .filter_map(|at| std::fs::read_to_string(&at).ok().map(|said| (at, said)))
-        .collect()
+    Ok(sources.into_iter().map(|(_, said)| said).collect::<Vec<_>>().join("\n"))
 }
 
 #[test]
-fn every_package_a_program_comes_from_is_in_the_manifest() {
-    let held = manifest();
-    let packages: BTreeSet<String> = section(&held, "packages").into_iter().collect();
+fn every_package_a_program_comes_from_is_in_the_manifest() -> Result<(), Failure> {
+    let held = read("desktop.conf")?;
+    let named = section(&held, Section::Packages)?;
+    let packages: BTreeSet<String> = named.into_iter().collect();
     let missing: Vec<&str> = EVERY
         .iter()
         .filter_map(|program| {
@@ -80,11 +81,15 @@ fn every_package_a_program_comes_from_is_in_the_manifest() {
         .collect();
 
     assert!(missing.is_empty(), "[packages] does not name: {missing:?}");
+
+    Ok(())
 }
 
 #[test]
-fn every_program_of_ours_that_is_run_is_in_the_manifest() {
-    let built: BTreeSet<String> = section(&manifest(), "build").into_iter().collect();
+fn every_program_of_ours_that_is_run_is_in_the_manifest() -> Result<(), Failure> {
+    let held = read("desktop.conf")?;
+    let named = section(&held, Section::Build)?;
+    let built: BTreeSet<String> = named.into_iter().collect();
     let missing: Vec<&str> = EVERY_INTERNAL
         .iter()
         .map(|ours| {
@@ -96,19 +101,20 @@ fn every_program_of_ours_that_is_run_is_in_the_manifest() {
         .collect();
 
     assert!(missing.is_empty(), "[build] does not name: {missing:?}");
+
+    Ok(())
 }
 
 #[test]
-fn nothing_starts_a_program_by_writing_its_name() {
+fn nothing_starts_a_program_by_writing_its_name() -> Result<(), Failure> {
     let door = format!("{}::new(\"", "Command");
     let mut strange: Vec<String> = Vec::new();
 
-    for (at, said) in read() {
+    let sources = sources()?;
+
+    for (at, said) in sources {
         for after in said.split(&door).skip(1) {
-            let name = match after.split('"').next() {
-                Some(name) => name,
-                None => continue,
-            };
+            let name = after.split_once('"').map_or(after, |(name, _)| name);
 
             strange.push(format!("{}: {name}", at.display()));
         }
@@ -120,13 +126,15 @@ fn nothing_starts_a_program_by_writing_its_name() {
          console_core_external_programs::Program and one it did write is a console_core_internal_programs::InternalProgram \
          -- {strange:?}"
     );
+
+    Ok(())
 }
 
 const SPELLED: [&str; 2] = ["Program", "ExternalProgram"];
 
 #[test]
-fn nothing_of_ours_named_here_has_stopped_being_run() {
-    let said: String = read().into_iter().map(|(_, said)| said).collect::<Vec<_>>().join("\n");
+fn nothing_of_ours_named_here_has_stopped_being_run() -> Result<(), Failure> {
+    let said = all_said()?;
     let gone: Vec<&str> = EVERY_INTERNAL
         .iter()
         .filter(|ours| spells(&said, Word(&format!("{}::{ours:?}", "InternalProgram"))) == Ok(Spelled::No))
@@ -138,11 +146,13 @@ fn nothing_of_ours_named_here_has_stopped_being_run() {
         .collect();
 
     assert!(gone.is_empty(), "the enum names what nothing runs: {gone:?}");
+
+    Ok(())
 }
 
 #[test]
-fn nothing_named_here_has_stopped_being_run() {
-    let said: String = read().into_iter().map(|(_, said)| said).collect::<Vec<_>>().join("\n");
+fn nothing_named_here_has_stopped_being_run() -> Result<(), Failure> {
+    let said = all_said()?;
     let gone: Vec<&str> = EVERY
         .iter()
         .filter(|program| {
@@ -156,4 +166,6 @@ fn nothing_named_here_has_stopped_being_run() {
         .collect();
 
     assert!(gone.is_empty(), "the enum names what nothing runs: {gone:?}");
+
+    Ok(())
 }

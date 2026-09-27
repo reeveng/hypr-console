@@ -11,85 +11,98 @@
 //! test says so and stops. That is a machine without a desktop rather than a
 //! fault: the wire is still held by everything above.
 
+use std::error::Error;
 use std::process::Command;
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 use console_bus::messages::{Kind, Value};
-use console_bus::connection::{Bus, NameRequestResult};
+use console_core_iteration::{Step, iterate};
+use console_bus::connection::{Bus, ConnectionError, NameRequestResult};
 use console_core_external_programs::Program;
 
 const PATH: &str = "/console/Bus";
 
 const HEARD: &str = "heard: hello";
 
-fn bus() -> Option<Bus> {
-    let _address = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
-
+fn bus() -> Result<Option<Bus>, ConnectionError> {
     match Bus::session() {
-        Ok(bus) => Some(bus),
-        Err(why) => panic!("there is a session bus and this could not open it: {why}"),
+        Ok(bus) => Ok(Some(bus)),
+        Err(ConnectionError::Nowhere) => Ok(None),
+        Err(why) => Err(why),
     }
 }
 
 #[test]
-fn a_name_taken_here_is_a_name_the_bus_says_we_have() {
-    let mut bus = match bus() {
+fn a_name_taken_here_is_a_name_the_bus_says_we_have() -> Result<(), Box<dyn Error>> {
+    let bus = bus()?;
+
+    let mut bus = match bus {
         Some(bus) => bus,
-        None => return,
+        None => return Ok(()),
     };
 
-    let named = bus.named().unwrap().to_string();
+    let Ok(named) = bus.unique_name();
+    let named = named.to_string();
 
     assert!(named.starts_with(':'), "the bus named this connection {named:?}");
-    assert_eq!(bus.taking("console.Bus.Asked"), Ok(NameRequestResult::PrimaryOwner));
+    assert_eq!(bus.request_name("console.Bus.Asked"), Ok(NameRequestResult::PrimaryOwner));
 
-    let listed = Command::new(Program::Busctl.name().unwrap()).args(["--user", "list"]).output().unwrap();
+    let Ok(busctl) = Program::Busctl.name();
+    let listed = Command::new(busctl).args(["--user", "list"]).output()?;
     let listed = String::from_utf8_lossy(&listed.stdout).to_string();
 
     assert!(listed.contains("console.Bus.Asked"), "the bus does not list the name we took");
+
+    Ok(())
 }
 
 #[test]
-fn a_call_from_someone_else_is_read_and_the_answer_is_read_back() {
-    let mut bus = match bus() {
+fn a_call_from_someone_else_is_read_and_the_answer_is_read_back() -> Result<(), Box<dyn Error>> {
+    let bus = bus()?;
+
+    let mut bus = match bus {
         Some(bus) => bus,
-        None => return,
+        None => return Ok(()),
     };
 
-    assert_eq!(bus.taking("console.Bus.Answering"), Ok(NameRequestResult::PrimaryOwner));
+    assert_eq!(bus.request_name("console.Bus.Answering"), Ok(NameRequestResult::PrimaryOwner));
 
     let (say, heard) = channel();
 
     let _answering = std::thread::spawn(move || {
-        loop {
-            let message = match bus.heard() {
+        let _ = iterate(bus, |mut bus| {
+            let message = match bus.receive() {
                 Ok(message) => message,
                 Err(why) => {
                     let _ = say.send(Err(why.to_string()));
 
-                    return;
+                    return Ok(Step::Halt(()));
                 }
             };
 
-            match (message.kind, message.member.as_deref()) {
+            Ok(match (message.kind, message.member.as_deref()) {
                 (Kind::Call, Some("Asked")) => {
-                    let value = message.values.first().and_then(|value| value.text().unwrap());
-                    let answer = message.answering().unwrap();
-                    let answer = answer
-                        .carrying("s", vec![Value::Word(format!("heard: {}", value.unwrap_or("")))])
-                        .unwrap();
+                    let value = match message.values.first().map(Value::text) {
+                        Some(Ok(Some(value))) => value,
+                        Some(Ok(None)) | None => "",
+                    };
+                    let Ok(answer) = message.answering();
+                    let Ok(answer) = answer.carrying("s", vec![Value::Word(format!("heard: {value}"))]);
 
                     let _ = say.send(bus.say(&answer).map(|_| ()).map_err(|why| why.to_string()));
 
-                    return;
+                    Step::Halt(())
                 }
-                _ => {}
-            }
-        }
+                (Kind::Call, Some(_)) | (Kind::Call, None) => Step::Again(bus),
+                (Kind::Answer | Kind::ErrorReply | Kind::Signal, _) => Step::Again(bus),
+            })
+        });
     });
 
-    let called = Command::new(Program::Busctl.name().unwrap())
+    let Ok(busctl) = Program::Busctl.name();
+
+    let called = Command::new(busctl)
         .args([
             "--user",
             "call",
@@ -100,8 +113,7 @@ fn a_call_from_someone_else_is_read_and_the_answer_is_read_back() {
             "s",
             "hello",
         ])
-        .output()
-        .unwrap();
+        .output()?;
 
     let printed = String::from_utf8_lossy(&called.stdout).to_string();
     let complained = String::from_utf8_lossy(&called.stderr).to_string();
@@ -110,45 +122,51 @@ fn a_call_from_someone_else_is_read_and_the_answer_is_read_back() {
     assert!(printed.contains(HEARD), "busctl read back {printed:?}");
 
     match heard.recv_timeout(Duration::from_secs(10)) {
-        Ok(Ok(())) => {}
-        Ok(Err(why)) => panic!("answering the call went wrong: {why}"),
-        Err(RecvTimeoutError::Timeout) => panic!("the call was never heard"),
-        Err(RecvTimeoutError::Disconnected) => panic!("the thread holding the bus is gone"),
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(why)) => Err(Box::from(format!("answering the call went wrong: {why}"))),
+        Err(RecvTimeoutError::Timeout) => Err(Box::from("the call was never heard")),
+        Err(RecvTimeoutError::Disconnected) => Err(Box::from("the thread holding the bus is gone")),
     }
 }
 
 #[test]
-fn a_call_with_a_dictionary_in_it_arrives_whole() {
-    let mut bus = match bus() {
+fn a_call_with_a_dictionary_in_it_arrives_whole() -> Result<(), Box<dyn Error>> {
+    let bus = bus()?;
+
+    let mut bus = match bus {
         Some(bus) => bus,
-        None => return,
+        None => return Ok(()),
     };
 
-    assert_eq!(bus.taking("console.Bus.Hinted"), Ok(NameRequestResult::PrimaryOwner));
+    assert_eq!(bus.request_name("console.Bus.Hinted"), Ok(NameRequestResult::PrimaryOwner));
 
     let (say, heard) = channel();
 
     let _answering = std::thread::spawn(move || {
-        loop {
-            let message = match bus.heard() {
+        let _ = iterate(bus, |mut bus| {
+            let message = match bus.receive() {
                 Ok(message) => message,
-                Err(_why) => return,
+                Err(_the_bus_hung_up) => return Ok(Step::Halt(())),
             };
 
-            match (message.kind, message.member.as_deref()) {
+            Ok(match (message.kind, message.member.as_deref()) {
                 (Kind::Call, Some("Hinted")) => {
-                    let answer = message.answering().unwrap();
-                    let _ = bus.say(&answer.carrying("", Vec::new()).unwrap());
+                    let Ok(answer) = message.answering();
+                    let Ok(answer) = answer.carrying("", Vec::new());
+                    let _ = bus.say(&answer);
                     let _ = say.send(message.values.clone());
 
-                    return;
+                    Step::Halt(())
                 }
-                _ => {}
-            }
-        }
+                (Kind::Call, Some(_)) | (Kind::Call, None) => Step::Again(bus),
+                (Kind::Answer | Kind::ErrorReply | Kind::Signal, _) => Step::Again(bus),
+            })
+        });
     });
 
-    let called = Command::new(Program::Busctl.name().unwrap())
+    let Ok(busctl) = Program::Busctl.name();
+
+    let called = Command::new(busctl)
         .args([
             "--user",
             "call",
@@ -167,39 +185,45 @@ fn a_call_with_a_dictionary_in_it_arrives_whole() {
             "40",
             "7",
         ])
-        .output()
-        .unwrap();
+        .output()?;
 
     assert!(called.status.success(), "busctl value: {}", String::from_utf8_lossy(&called.stderr));
 
-    let value = match heard.recv_timeout(Duration::from_secs(10)) {
-        Ok(value) => value,
-        Err(why) => panic!("the call was never heard: {why}"),
+    let value = heard.recv_timeout(Duration::from_secs(10))?;
+
+    let (console, hints, seven) = match value.as_slice() {
+        [console, hints, seven] => (console, hints, seven),
+        other => return Err(Box::from(format!("the call came back as {other:?}"))),
     };
 
-    assert_eq!(value.first().unwrap().text().unwrap(), Some("Console"));
-    assert_eq!(value.get(2).unwrap(), &Value::Signed32(7));
+    let Ok(listed) = hints.listed();
+    let hints = listed.ok_or(format!("the hints came back as {hints:?}"))?;
 
-    let hints = match value.get(1).unwrap() {
-        Value::List(hints) => hints.clone(),
-        other => panic!("the hints came back as {other:?}"),
-    };
-
+    assert_eq!(console.text(), Ok(Some("Console")));
+    assert_eq!(seven, &Value::Signed32(7));
     assert_eq!(hints.len(), 2);
 
-    let urgency = hints
-        .iter()
-        .filter_map(|hint| match hint {
-            Value::Group(pair) => match (pair.first(), pair.get(1)) {
-                (Some(name), Some(value)) => match name.text().unwrap() {
-                    Some("urgency") => value.counted().unwrap(),
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        })
-        .next();
+    let mut urgency = None;
+
+    for hint in hints {
+        let Ok(pair) = hint.pair();
+
+        let (name, value) = match pair {
+            Some(pair) => pair,
+            None => continue,
+        };
+
+        match name.text() {
+            Ok(Some("urgency")) => {
+                let Ok(counted) = value.counted();
+
+                urgency = counted;
+            }
+            Ok(Some(_)) | Ok(None) => {}
+        }
+    }
 
     assert_eq!(urgency, Some(2));
+
+    Ok(())
 }

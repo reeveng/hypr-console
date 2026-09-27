@@ -53,7 +53,7 @@ use std::process::Stdio;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
-use console_session::reaching::quoted;
+use console_session::reaching::shell_quote;
 use console_program_lifetime::{BoundToParent, alongside};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Words)]
@@ -99,7 +99,7 @@ impl PartialEq for Staying {
 
 impl Eq for Staying {}
 
-pub fn taking(kept: InhibitReason) -> Result<InhibitResult, Never> {
+pub fn inhibit(kept: InhibitReason) -> Result<InhibitResult, Never> {
     let Ok(mut asking) = Program::SystemdInhibit.command();
     let Ok(cat) = Program::Cat.name();
     let Ok(what) = kept.what();
@@ -136,8 +136,8 @@ pub fn taking_on(host: &str, kept: InhibitReason) -> Result<InhibitResult, Never
     let Ok(what) = kept.what();
     let Ok(who) = kept.who();
     let Ok(why) = kept.why();
-    let Ok(who_quoted) = quoted(who);
-    let Ok(why_quoted) = quoted(why);
+    let Ok(who_quoted) = shell_quote(who);
+    let Ok(why_quoted) = shell_quote(why);
     let there = format!(
         "{inhibit} --what={what} --who={who_quoted} --why={why_quoted} --mode=block {cat}"
     );
@@ -165,7 +165,7 @@ impl Drop for Staying {
             None => return,
         };
 
-        let Ok(writing) = holding.writing();
+        let Ok(writing) = holding.take_stdin();
 
         drop(writing);
     }
@@ -173,6 +173,7 @@ impl Drop for Staying {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::process::Command;
 
     use super::*;
@@ -203,38 +204,39 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_that_cannot_be_asked_says_so_rather_than_failing() {
-        let said = match taking_with("this-is-not-a-program-on-any-machine") {
+    fn a_machine_that_cannot_be_asked_says_so_rather_than_failing() -> Result<(), Box<dyn Error>> {
+        let Ok(taken) = taking_with("this-is-not-a-program-on-any-machine");
+
+        let said = match taken {
             InhibitResult::Failed(said) => said,
-            InhibitResult::Acquired(_) => panic!("a program that does not exist held a lock"),
+            InhibitResult::Acquired(_) => return Err(Box::from("a program that does not exist held a lock")),
         };
 
         assert!(said.contains("stay up"), "{said}");
+
+        Ok(())
     }
 
-fn taking_with(program: &str) -> InhibitResult {
+    fn taking_with(program: &str) -> Result<InhibitResult, Never> {
         let mut asking = Command::new(program);
         asking.stdin(Stdio::piped());
 
-        match alongside(&mut asking) {
+        Ok(match alongside(&mut asking) {
             Ok(holding) => InhibitResult::Acquired(Staying { holding: Some(holding) }),
             Err(fault) => InhibitResult::Failed(format!(
                 "the machine could not be asked to stay up ({fault}), so a song is playing will \
                  be interrupted by a machine that stops underneath it"
             )),
-        }
+        })
     }
 
     #[test]
-    fn letting_go_ends_the_child_that_was_holding_it() {
+    fn letting_go_ends_the_child_that_was_holding_it() -> Result<(), std::io::Error> {
         let Ok(mut asking) = Program::Cat.command();
 
         asking.stdin(Stdio::piped()).stdout(Stdio::null());
 
-        let holding = match alongside(&mut asking) {
-            Ok(holding) => holding,
-            Err(_fault) => return,
-        };
+        let holding = alongside(&mut asking)?;
 
         let Ok(id) = holding.id();
         let staying = Staying { holding: Some(holding) };
@@ -243,5 +245,7 @@ fn taking_with(program: &str) -> InhibitResult {
         let still = std::path::Path::new(&format!("/proc/{id}/stat")).exists();
 
         assert!(!still, "the child holding the lock outlived the lock");
+
+        Ok(())
     }
 }

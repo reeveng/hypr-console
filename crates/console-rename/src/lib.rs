@@ -37,7 +37,7 @@
 //! does the part that is mechanical and refuses to pretend it did the part that
 //! is not.
 
-use console_core_external_programs::Program;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_manifest_migrations::history::{CRATE, DIRECTORY, PREFIX};
 use std::path::{Path, PathBuf};
@@ -74,25 +74,32 @@ pub struct Renaming<'a> {
 
 pub fn swept(said: &str, renaming: Renaming<'_>) -> Result<String, Never> {
     let Renaming { old, new } = renaming;
-    let mut out = String::new();
-    let mut rest = said;
+    let written = console_core_iteration::iterate((String::new(), said), |(mut out, rest)| {
+        Ok(match rest.split_once(old) {
+            Some((before, after)) => {
+                let Ok(continues) = continues(after.chars().next());
 
-    while let Some((before, after)) = rest.split_once(old) {
-        let Ok(continues) = continues(after.chars().next());
+                out.push_str(before);
 
-        out.push_str(before);
+                match continues {
+                    Continues::Yes => out.push_str(old),
+                    Continues::No => out.push_str(new),
+                }
 
-        match continues {
-            Continues::Yes => out.push_str(old),
-            Continues::No => out.push_str(new),
-        }
+                Step::Again((out, after))
+            }
+            None => {
+                out.push_str(rest);
 
-        rest = after;
-    }
+                Step::Halt(out)
+            }
+        })
+    });
 
-    out.push_str(rest);
-
-    Ok(out)
+    Ok(match written {
+        Ok(out) => out,
+        Err(_endless) => said.to_string(),
+    })
 }
 
 pub fn spellings(renaming: Renaming<'_>) -> Result<Vec<(String, String)>, Never> {
@@ -121,30 +128,7 @@ pub fn through(said: &str, renaming: Renaming<'_>) -> Result<String, Never> {
     Ok(held)
 }
 
-pub fn tracked(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let Ok(mut asking) = Program::Git.command();
-
-    asking.arg("-C").arg(root).args(["ls-files", "-z"]);
-
-    let done = match asking.output() {
-        Ok(done) => done,
-        Err(fault) => {
-            eprintln!("console-rename: asking git what is tracked: {fault}");
-
-            return Ok(Vec::new());
-        },
-    };
-
-    let said = String::from_utf8_lossy(&done.stdout).to_string();
-
-    Ok(said
-        .split('\0')
-        .filter(|name| !name.is_empty())
-        .map(|name| root.join(name))
-        .collect())
-}
-
-pub fn renamed(at: &Path, renaming: Renaming<'_>) -> Result<Option<PathBuf>, Never> {
+pub fn renamed_path(at: &Path, renaming: Renaming<'_>) -> Result<Option<PathBuf>, Never> {
     let name = match at.file_name().and_then(|name| name.to_str()) {
         Some(name) => name,
         None => return Ok(None),

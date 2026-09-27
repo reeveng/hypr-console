@@ -203,33 +203,31 @@ fn across(many: u32) -> Result<i32, Never> {
 mod tests {
     use super::*;
 
-    fn panel() -> Panel {
-        Panel {
-            at: Point { x: 10, y: 20 },
-            size: Size { width: 100, height: 40 },
-            round: Round(4),
-            fill: Oklch { lightness: 0.0, chroma: 0.0, hue: 0.0 },
-            edge: Edge::None,
-        }
-    }
+    const PANEL: Panel = Panel {
+        at: Point { x: 10, y: 20 },
+        size: Size { width: 100, height: 40 },
+        round: Round(4),
+        fill: Oklch { lightness: 0.0, chroma: 0.0, hue: 0.0 },
+        edge: Edge::None,
+    };
 
     #[test]
     fn a_press_on_a_panel_is_on_it_and_a_press_past_its_far_edge_is_not() {
-        assert_eq!(panel().covers(Point { x: 10, y: 20 }), Ok(Covers::Yes));
-        assert_eq!(panel().covers(Point { x: 109, y: 59 }), Ok(Covers::Yes));
-        assert_eq!(panel().covers(Point { x: 110, y: 40 }), Ok(Covers::No));
-        assert_eq!(panel().covers(Point { x: 50, y: 60 }), Ok(Covers::No));
+        assert_eq!(PANEL.covers(Point { x: 10, y: 20 }), Ok(Covers::Yes));
+        assert_eq!(PANEL.covers(Point { x: 109, y: 59 }), Ok(Covers::Yes));
+        assert_eq!(PANEL.covers(Point { x: 110, y: 40 }), Ok(Covers::No));
+        assert_eq!(PANEL.covers(Point { x: 50, y: 60 }), Ok(Covers::No));
     }
 
     #[test]
     fn a_press_before_a_panel_is_not_on_it_either_way_round() {
-        assert_eq!(panel().covers(Point { x: 9, y: 20 }), Ok(Covers::No));
-        assert_eq!(panel().covers(Point { x: 10, y: 19 }), Ok(Covers::No));
+        assert_eq!(PANEL.covers(Point { x: 9, y: 20 }), Ok(Covers::No));
+        assert_eq!(PANEL.covers(Point { x: 10, y: 19 }), Ok(Covers::No));
     }
 
     #[test]
     fn a_panel_of_nothing_covers_nothing_rather_than_its_own_corner() {
-        let none = Panel { size: Size { width: 0, height: 0 }, ..panel() };
+        let none = Panel { size: Size { width: 0, height: 0 }, ..PANEL };
 
         assert_eq!(none.covers(Point { x: 10, y: 20 }), Ok(Covers::No));
     }

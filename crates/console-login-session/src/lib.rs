@@ -109,7 +109,7 @@ pub struct Session {
     transaction: Transaction,
 }
 
-pub fn authenticated(request: Request<'_>, secret: &str) -> Result<Transaction, LoginError> {
+pub fn authenticate(request: Request<'_>, secret: &str) -> Result<Transaction, LoginError> {
     let begun = begun(request, secret);
     let mut transaction = begun?;
 
@@ -148,7 +148,7 @@ fn begun(request: Request<'_>, secret: &str) -> Result<Transaction, LoginError> 
         messages: RefCell::new(Vec::new()),
     });
     let conversation = pam::Conversation {
-        answer: Some(answered),
+        answer: Some(conversation),
         data: std::ptr::from_ref::<ConversationState>(&state).cast_mut().cast::<c_void>(),
     };
     let mut handle: *mut pam::Handle = std::ptr::null_mut();
@@ -200,7 +200,7 @@ impl Transaction {
         Ok(self.state.messages.borrow().clone())
     }
 
-    pub fn opened(mut self, terminal: &str, environment: &[(&str, &str)]) -> Result<Session, LoginError> {
+    pub fn open_session(mut self, terminal: &str, environment: &[(&str, &str)]) -> Result<Session, LoginError> {
         let Ok(terminal) = c_string(terminal, Stage::SettingEnvironment);
         let terminal = terminal?;
 
@@ -253,35 +253,33 @@ impl Session {
         // strings libpam allocated for the caller, each freed here and then
         // the array, which is what `pam_getenvlist(3)` asks.
         let list = unsafe { pam::pam_getenvlist(self.transaction.handle) };
-        let mut every = Vec::new();
 
         match list.is_null() {
-            true => return Ok(every),
+            true => return Ok(Vec::new()),
             false => {}
         }
 
-        let mut standing = list;
+        let entries = std::iter::successors(Some(list), |standing| {
+            // SAFETY: `standing` is at most the NULL that ends the array, and one past the last element of an array is still a pointer into it; it is never read past the NULL.
+            Some(unsafe { standing.add(1) })
+        })
+        .map(|standing| {
+            // SAFETY: `standing` never passes the NULL that ends the array, because the walk stops at it.
+            unsafe { *standing }
+        })
+        .take_while(|entry| !entry.is_null());
 
-        loop {
-            // SAFETY: `standing` never passes the NULL that ends the array.
-            let entry = unsafe { *standing };
+        let every = entries
+            .map(|entry| {
+                // SAFETY: a NUL-ended string libpam made, read and then freed once.
+                let pair = unsafe { CStr::from_ptr(entry) }.to_string_lossy().into_owned();
 
-            match entry.is_null() {
-                true => break,
-                false => {}
-            }
+                // SAFETY: as above.
+                unsafe { pam::free(entry.cast::<c_void>()) };
 
-            // SAFETY: a NUL-ended string libpam made, read and then freed once.
-            let pair = unsafe { CStr::from_ptr(entry) }.to_string_lossy().into_owned();
-
-            // SAFETY: as above.
-            unsafe { pam::free(entry.cast::<c_void>()) };
-
-            every.push(pair);
-
-            // SAFETY: the entry just read was not the NULL, so the one after it is still in the array.
-            standing = unsafe { standing.add(1) };
-        }
+                pair
+            })
+            .collect();
 
         // SAFETY: the array itself, freed once after every entry in it.
         unsafe { pam::free(list.cast::<c_void>()) };
@@ -319,7 +317,7 @@ fn login_error(stage: Stage, code: c_int) -> Result<LoginError, Never> {
     })
 }
 
-unsafe extern "C" fn answered(
+unsafe extern "C" fn conversation(
     count: c_int,
     messages: *mut *const pam::Message,
     responses: *mut *mut pam::Response,
@@ -353,12 +351,12 @@ unsafe extern "C" fn answered(
                 unsafe { pam::strdup(conversation.person.as_ptr()) }
             }
             pam::ERROR_MSG | pam::TEXT_INFO => {
-                let Ok(()) = recorded(conversation, message.text);
+                let Ok(()) = record_message(conversation, message.text);
 
                 std::ptr::null_mut()
             }
             _ => {
-                let Ok(()) = forgotten(block, count);
+                let Ok(()) = free_responses(block, count);
 
                 return pam::CONV_ERR;
             }
@@ -374,7 +372,7 @@ unsafe extern "C" fn answered(
     pam::SUCCESS
 }
 
-fn recorded(conversation: &ConversationState, text: *const c_char) -> Result<(), Never> {
+fn record_message(conversation: &ConversationState, text: *const c_char) -> Result<(), Never> {
     match text.is_null() {
         true => {}
         false => {
@@ -388,7 +386,7 @@ fn recorded(conversation: &ConversationState, text: *const c_char) -> Result<(),
     Ok(())
 }
 
-fn forgotten(block: *mut pam::Response, count: u32) -> Result<(), Never> {
+fn free_responses(block: *mut pam::Response, count: u32) -> Result<(), Never> {
     let Ok(many) = index(count);
 
     for at in 0..many {

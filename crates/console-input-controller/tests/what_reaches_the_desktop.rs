@@ -16,65 +16,55 @@
 //! that the table can find it again, and `the_binds_the_compositor_is_given`
 //! is where the other end is held to it.
 
+use console_core_never::Never;
 use console_input_bindings::bound::Input;
+use console_input_gamepad::vocabulary::{Names, is_trigger};
 use console_input_bindings::moved::Tasks;
 use console_input_controller::actions::{JOBS, Table, Context};
 use console_input_controller::mode::Mode;
 use console_input_gamepad::routing::arrives;
 use console_input_gamepad::vocabulary::button_name;
 
-fn ok<T>(answer: Result<T, console_core_never::Never>) -> T {
-    let Ok(value) = answer;
+type Failure = Box<dyn std::error::Error>;
 
-    value
+fn unmoved() -> Result<Table, Never> {
+    let Ok(none) = Tasks::none();
+
+    Table::of(&none)
 }
 
-fn table() -> Table {
-    ok(Table::of(&ok(Tasks::none())))
-}
-
-fn mode_of(when: Context) -> Mode {
-    match when {
+fn mode_of(when: Context) -> Result<Mode, Never> {
+    Ok(match when {
         Context::WithAPickerUp => Mode::Tabs,
         Context::OnTheHomeScreen => Mode::HomeScreen,
         Context::StandingOnASquare => Mode::Standing,
         Context::Anywhere | Context::OnTheDesktop => Mode::Desktop,
-    }
+    })
 }
 
 #[test]
-fn every_job_is_on_a_button_that_reaches_the_daemon() {
+fn every_job_is_on_a_button_that_reaches_the_daemon() -> Result<(), Failure> {
     for job in JOBS {
-        for (on, held, pressed) in job.bound {
-            match on {
-                Input::Keyboard => continue,
-                Input::Pad => {},
-            }
+        for (_, held, pressed) in job.bound.iter().filter(|(on, _, _)| *on == Input::Pad) {
+            let buttons = held.iter().chain([pressed]).filter(|button| is_trigger(button) == Ok(Names::AButton));
 
-            for button in held.iter().chain([pressed]) {
-                match ok(console_input_gamepad::vocabulary::is_trigger(button)) {
-                    console_input_gamepad::vocabulary::Names::ATrigger => continue,
-                    console_input_gamepad::vocabulary::Names::AButton => {},
-                }
+            for button in buttons {
+                let named = button_name(button)?;
 
-                let named = button_name(button).expect("a button this desktop has a word for");
-
-                assert!(
-                    ok(arrives(named)).is_some(),
-                    "{} is on {button}, which arrives nowhere",
-                    job.slug
-                );
+                assert_ne!(arrives(named), Ok(None), "{} is on {button}, which arrives nowhere", job.slug);
             }
         }
     }
+
+    Ok(())
 }
 
 #[test]
 fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
-    let table = table();
+    let Ok(table) = unmoved();
 
     for job in JOBS {
-        let mode = mode_of(job.context);
+        let Ok(mode) = mode_of(job.context);
 
         for (on, held, pressed) in job.bound {
             let Ok(found) = table.what(*on, held, pressed, mode);
@@ -91,23 +81,13 @@ fn every_job_can_be_reached_by_pressing_what_it_is_bound_to() {
 
 #[test]
 fn the_keyboard_keeps_the_pad_while_it_is_up() {
-    let table = table();
+    let Ok(table) = unmoved();
 
     for job in JOBS {
-        for (on, held, pressed) in job.bound {
-            match on {
-                Input::Keyboard => continue,
-                Input::Pad => {},
-            }
-
-            assert!(
-                ok(console_input_controller::buttons::job_for(
-                    &table,
-                    Mode::Keyboard,
-                    held,
-                    pressed
-                ))
-                .is_none(),
+        for (_, held, pressed) in job.bound.iter().filter(|(on, _, _)| *on == Input::Pad) {
+            assert_eq!(
+                console_input_controller::buttons::job_for(&table, Mode::Keyboard, held, pressed),
+                Ok(None),
                 "{} acts while the keyboard is up",
                 job.slug
             );
@@ -117,7 +97,7 @@ fn the_keyboard_keeps_the_pad_while_it_is_up() {
 
 #[test]
 fn the_right_stick_pressed_is_the_same_answer_as_a() {
-    let table = table();
+    let Ok(table) = unmoved();
 
     for mode in [
         Mode::Desktop,

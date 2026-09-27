@@ -63,7 +63,7 @@ use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{Body, FnDecl, ImplicitSelfKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::{self, Ty};
 use rustc_span::Span;
 
@@ -77,13 +77,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT024_NO_SWAPPABLE_PARAMS,
     Deny,
     "two parameters of one bare representation can be passed in either order; give each quantity its own type"
-}
-
-// Tests are exempt, as they are for every rule here. `opts.test` is true only
-// for the harness build of a target, so the ordinary build of the same library
-// is linted as production.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // A method that implements a trait did not choose its own signature. The place
@@ -119,10 +112,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit024NoSwappableParams {
         span: Span,
         def_id: LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if matches!(kind, FnKind::Closure) {
             return;
         }
@@ -131,14 +120,8 @@ impl<'tcx> LateLintPass<'tcx> for Explicit024NoSwappableParams {
             return;
         }
 
-        let hir_id = cx.tcx.local_def_id_to_hir_id(def_id);
 
-        if cx
-            .tcx
-            .hir_attrs(hir_id)
-            .iter()
-            .any(|a| a.has_name(rustc_span::sym::test))
-        {
+        if clippy_utils::is_test_function(cx.tcx, def_id) {
             return;
         }
 

@@ -47,7 +47,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let Ok(dressed) = source::hosted(&palette);
+    let Ok(dressed) = source::with_host_selector(&palette);
 
     let palette = match dressed {
         Some(palette) => palette,
@@ -92,7 +92,7 @@ fn main() -> ExitCode {
         }
     }
 
-    let Ok(note) = stamp::written(&stamp::Stamp { hash, version: version.clone() });
+    let Ok(note) = stamp::format_stamp(&stamp::Stamp { hash, version: version.clone() });
 
     match console_core_atomic_writes::whole_with_folders(&stamped, note.as_bytes()) {
         Ok(()) => {}
@@ -127,7 +127,7 @@ fn note_beside(at: &Path) -> Result<Option<stamp::Stamp>, Never> {
 fn packed_version(at: &Path) -> Result<Option<String>, Never> {
     Ok(match std::fs::read(at) {
         Ok(bytes) => {
-            let Ok(said) = stamp::packed(&bytes);
+            let Ok(said) = stamp::version_of(&bytes);
 
             said
         },

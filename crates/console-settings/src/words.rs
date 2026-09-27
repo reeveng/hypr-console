@@ -128,16 +128,21 @@ impl Localized for Word {
 mod tests {
     use super::*;
     use console_core_localization::text;
+    use console_core_never::Never;
 
     #[test]
     fn every_word_fits_a_row_and_names_no_program() {
-        for word in every() {
+        let Ok(every) = every();
+
+        for word in every {
             let Ok(said) = text(&word);
+
             assert!(!said.is_empty(), "something says nothing");
             assert!(
                 said.chars().count() <= 32,
                 "{said:?} is too long for a row held at arm's length"
             );
+
             for jargon in ["hyprsunset", "nmcli", "powerprofilesctl", "polkit", "systemd"] {
                 assert!(!said.to_lowercase().contains(jargon), "{said:?} names {jargon}");
             }
@@ -156,8 +161,8 @@ mod tests {
         );
     }
 
-    fn every() -> Vec<Word> {
-        vec![
+    fn every() -> Result<Vec<Word>, Never> {
+        Ok(vec![
             Word::Sound,
             Word::Bluetooth,
             Word::Wifi,
@@ -207,6 +212,6 @@ mod tests {
             Word::AlertAgainAt,
             Word::ShutDownAt,
             Word::Never,
-        ]
+        ])
     }
 }

@@ -45,7 +45,7 @@ use console_waiting::{Schedule, Ready, Outcome, until};
 use console_core_number_conversion::{Float, toward_zero_i64};
 use std::path::PathBuf;
 
-use console_panel::running::said;
+use console_panel::running::run_output;
 
 use serde_json::Value;
 
@@ -110,7 +110,7 @@ pub enum Order {
 }
 
 pub fn about() -> Result<About, Never> {
-    let Ok(listed) = said(Program::Busctl, &["--user", "--no-legend", "list"]);
+    let Ok(listed) = run_output(Program::Busctl, &["--user", "--no-legend", "list"]);
 
     Ok(match listed.contains(NAME) {
         true => About::Yes,
@@ -137,7 +137,7 @@ pub fn worth_moving_the_clock(line: &str) -> Result<Worth, Never> {
     let Ok(the_song_changed) = worth_asking_after(line);
 
     Ok(match said.map(|said| (said.interface, said.member)) {
-        Some((answers::OURS, answers::POSITION_CHANGED)) => Worth::Querying,
+        Some((answers::APPLICATION, answers::POSITION_CHANGED)) => Worth::Querying,
         Some((_, _)) | None => the_song_changed,
     })
 }
@@ -164,7 +164,7 @@ pub fn playing() -> Result<Option<Playing>, Never> {
 
 fn property(name: &str) -> Result<Option<Value>, Never> {
     let Ok(said) =
-        said(Program::Busctl, &["--user", "--json=short", "get-property", NAME, OBJECT, PLAYER, name]);
+        run_output(Program::Busctl, &["--user", "--json=short", "get-property", NAME, OBJECT, PLAYER, name]);
 
     let held = match serde_json::from_str::<Value>(&said) {
         Ok(held) => held,
@@ -205,53 +205,14 @@ pub fn read(status: &Value, metadata: &Value) -> Result<Playing, Never> {
 }
 
 pub fn local(url: &str) -> Result<Option<PathBuf>, Never> {
-    let path = match url.strip_prefix("file://") {
-        Some(path) => path,
-        None => return Ok(None),
-    };
+    let Ok(read) = console_core_file_urls::path(url);
 
-    let plain = unescaped(path)?;
-    let path = PathBuf::from(plain);
-
-    Ok(path.exists().then_some(path))
-}
-
-fn unescaped(said: &str) -> Result<String, Never> {
-    let mut out = String::with_capacity(said.len());
-    let mut letters = said.chars();
-
-    while let Some(letter) = letters.next() {
-        let escape = || {
-            let high = letters.clone().next()?;
-            let low = letters.clone().nth(1)?;
-
-            let byte = match u8::from_str_radix(&format!("{high}{low}"), 16) {
-                Ok(byte) => byte,
-                Err(_not_hex) => return None,
-            };
-
-            Some(char::from(byte))
-        };
-
-        match letter {
-            '%' => match escape() {
-                Some(byte) => {
-                    out.push(byte);
-                    letters.next();
-                    letters.next();
-                }
-                None => out.push(letter),
-            },
-            _ => out.push(letter),
-        }
-    }
-
-    Ok(out)
+    Ok(read.filter(|path| path.exists()))
 }
 
 fn call(method: &str) -> Result<(), Never> {
     let Ok(_the_player_answers_on_its_own_bus) =
-        said(Program::Busctl, &["--user", "call", NAME, OBJECT, PLAYER, method]);
+        run_output(Program::Busctl, &["--user", "call", NAME, OBJECT, PLAYER, method]);
 
     Ok(())
 }
@@ -323,7 +284,7 @@ struct Property<'a> {
 fn press(property: Property<'_>) -> Result<(), Never> {
     let Property { name, kind, value } = property;
 
-    let Ok(_the_player_answers_on_its_own_bus) = said(Program::Busctl, &[
+    let Ok(_the_player_answers_on_its_own_bus) = run_output(Program::Busctl, &[
         "--user", "set-property", NAME, OBJECT, PLAYER, name, kind, value,
     ]);
 
@@ -399,7 +360,7 @@ pub fn onward_only() -> Result<About, Never> {
 }
 
 pub fn open(song: &std::path::Path) -> Result<(), Never> {
-    let Ok(_the_player_answers_on_its_own_bus) = said(Program::Busctl, &[
+    let Ok(_the_player_answers_on_its_own_bus) = run_output(Program::Busctl, &[
         "--user", "call", NAME, OBJECT, PLAYER, "OpenUri",
         "s", &song.to_string_lossy(),
     ]);
@@ -430,6 +391,10 @@ fn waited_for() -> Result<About, Never> {
 
 pub fn play_pause() -> Result<(), Never> {
     call("PlayPause")
+}
+
+pub fn pause() -> Result<(), Never> {
+    call("Pause")
 }
 
 pub fn next() -> Result<(), Never> {
@@ -483,7 +448,7 @@ pub fn seek(fraction: f64) -> Result<(), Never> {
     let words = seeking(&id, at)?;
 
     let Ok(_the_player_answers_on_its_own_bus) =
-        said(Program::Busctl, &words.iter().map(String::as_str).collect::<Vec<&str>>());
+        run_output(Program::Busctl, &words.iter().map(String::as_str).collect::<Vec<&str>>());
 
     Ok(())
 }
@@ -612,8 +577,17 @@ mod tests {
         assert_eq!(words, vec!["music-onward".to_string(), awkward.display().to_string()]);
     }
 
+    fn shell_line(arguments: &[String]) -> Result<Option<&str>, Never> {
+        Ok(match arguments {
+            [_shell, _told, line] => Some(line.as_str()),
+            _other => None,
+        })
+    }
+
+    const NOT_A_SHELL_LINE: &str = "a player is opened as sh -c and a line";
+
     #[test]
-    fn what_is_handed_to_a_shell_is_something_a_shell_can_read() {
+    fn what_is_handed_to_a_shell_is_something_a_shell_can_read() -> Result<(), Box<dyn std::error::Error>> {
         let awkward = [
             "/home/x/Don't Stop.mp3",
             "/home/x/Sweetness (Official Music Video) [0zzv0vYECWQ].opus",
@@ -623,50 +597,61 @@ mod tests {
         for path in awkward {
             let under = std::path::Path::new("/home/x/My Music (all of it)");
             let Ok(arguments) = opening(std::path::Path::new(path), under);
+            let Ok(line) = shell_line(&arguments);
+            let line = line.ok_or(NOT_A_SHELL_LINE)?;
 
             let Ok(mut asking) = Program::Sh.command();
 
-            let checked = asking
-                .arg("-n")
-                .arg("-c")
-                .arg(&arguments[2])
-                .output()
-                .expect("a shell to ask");
+            let checked = asking.arg("-n").arg("-c").arg(line).output()?;
+
             assert!(
                 checked.status.success(),
-                "sh cannot read the line for {path:?}: {}\n{}",
+                "sh cannot read the line for {path:?}: {}\n{line}",
                 String::from_utf8_lossy(&checked.stderr),
-                arguments[2]
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_name_the_shell_would_read_as_words_stays_one_word() {
+    fn a_name_the_shell_would_read_as_words_stays_one_word() -> Result<(), &'static str> {
         let under = std::path::Path::new("/home/x/Music");
         let Ok(arguments) = opening(std::path::Path::new("/home/x/Don't Stop.mp3"), under);
+        let Ok(line) = shell_line(&arguments);
+        let line = line.ok_or(NOT_A_SHELL_LINE)?;
 
-        assert_eq!(arguments[0], "sh");
-        assert!(arguments[2].contains(r"'/home/x/Don'\''t Stop.mp3'"));
+        assert_eq!(arguments.first().map(String::as_str), Some("sh"));
+        assert!(line.contains(r"'/home/x/Don'\''t Stop.mp3'"));
+
+        Ok(())
     }
 
     #[test]
-    fn a_player_that_will_not_be_told_is_started_again() {
+    fn a_player_that_will_not_be_told_is_started_again() -> Result<(), &'static str> {
         let under = std::path::Path::new("/music");
         let Ok(arguments) = opening(std::path::Path::new("/music/Vol. 2"), under);
+        let Ok(line) = shell_line(&arguments);
+        let line = line.ok_or(NOT_A_SHELL_LINE)?;
 
-        assert!(arguments[2].contains("OpenUri"));
-        assert!(arguments[2].contains("pkill -x music-player"));
-        assert!(arguments[2].contains("exec music-player '/music'"));
+        assert!(line.contains("OpenUri"));
+        assert!(line.contains("pkill -x music-player"));
+        assert!(line.contains("exec music-player '/music'"));
+
+        Ok(())
     }
 
     #[test]
-    fn the_player_is_started_on_the_library_rather_than_on_the_song() {
+    fn the_player_is_started_on_the_library_rather_than_on_the_song() -> Result<(), &'static str> {
         let under = std::path::Path::new("/music");
         let Ok(arguments) = opening(std::path::Path::new("/music/b/505.opus"), under);
+        let Ok(line) = shell_line(&arguments);
+        let line = line.ok_or(NOT_A_SHELL_LINE)?;
 
-        assert!(arguments[2].contains("OpenUri s '/music/b/505.opus'"));
-        assert!(arguments[2].contains("exec music-player '/music'"));
+        assert!(line.contains("OpenUri s '/music/b/505.opus'"));
+        assert!(line.contains("exec music-player '/music'"));
+
+        Ok(())
     }
 
     #[test]
@@ -690,21 +675,23 @@ mod tests {
         assert_eq!(Over::read(""), Ok(Over::On));
     }
 
-    fn metadata() -> Value {
-        serde_json::json!({
+    fn metadata() -> Result<Value, Never> {
+        Ok(serde_json::json!({
             "xesam:title": {"type": "s", "data": "505"},
             "xesam:artist": {"type": "as", "data": ["Arctic Monkeys"]},
             "xesam:album": {"type": "s", "data": "Favourite Worst Nightmare"},
             "mpris:artUrl": {"type": "s", "data": "file:///tmp/kew/cover.jpg"},
             "mpris:length": {"type": "x", "data": 253_000_000_i64},
             "mpris:trackid": {"type": "o", "data": "/org/kew/track/7"}
-        })
+        }))
     }
 
     #[test]
     fn how_long_a_song_is_comes_out_of_the_map_the_rest_of_it_does() {
-        assert_eq!(how_long(&metadata()), Ok(253_000_000));
-        assert_eq!(track(&metadata()), Ok("/org/kew/track/7".to_string()));
+        let Ok(metadata) = metadata();
+
+        assert_eq!(how_long(&metadata), Ok(253_000_000));
+        assert_eq!(track(&metadata), Ok("/org/kew/track/7".to_string()));
     }
 
     #[test]
@@ -716,7 +703,8 @@ mod tests {
 
     #[test]
     fn one_artist_is_taken_out_of_the_list_it_arrives_in() {
-        let Ok(playing) = read(&Value::String("Playing".into()), &metadata());
+        let Ok(metadata) = metadata();
+        let Ok(playing) = read(&Value::String(String::from("Playing")), &metadata);
 
         assert_eq!(playing.artist, "Arctic Monkeys");
         assert_eq!(playing.title, "505");
@@ -729,11 +717,6 @@ mod tests {
 
         assert_eq!(playing.sound, Sound::Stopped);
         assert_eq!(playing.title, "");
-    }
-
-    #[test]
-    fn a_name_with_a_space_in_it_survives_the_uri() {
-        assert_eq!(unescaped("/home/a/505%20%5Bqu%5D.opus"), Ok("/home/a/505 [qu].opus".to_string()));
     }
 
     #[test]
@@ -764,7 +747,7 @@ mod tests {
 
         let checked = match checked {
             Ok(checked) => checked,
-            Err(_fault) => return,
+            Err(_busctl_could_not_be_run) => return,
         };
 
         let why = String::from_utf8_lossy(&checked.stderr);

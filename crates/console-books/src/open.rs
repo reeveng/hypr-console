@@ -156,7 +156,7 @@ pub fn comic(at: &Path) -> Result<Comic, BookError> {
     }
 }
 
-pub fn ending(name: &str) -> Result<String, Never> {
+pub fn extension(name: &str) -> Result<String, Never> {
     Ok(match name.rsplit_once('.') {
         Some((_, ending)) => ending.to_ascii_lowercase(),
         None => "picture".to_string(),

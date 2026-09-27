@@ -17,84 +17,72 @@
 //! skipping. A check that quietly passes because the thing it was checking
 //! never started is the fault this whole tier exists to stop.
 
+use console_test_stages::Error;
 use console_test_stages::panels::{
     Panel, a_way_out_is_drawn, every_mark_reachable, every_offer_answered,
     every_row_draws_what_it_carries,
 };
 
-fn held_to_the_contract(program: &str, arguments: &[&str]) {
+fn held_to_the_contract(program: &str, arguments: &[&str]) -> Result<(), Error> {
     let Ok(mut panel) = Panel::opening(program, arguments);
-
-    let every = match panel.drawn() {
-        Ok(every) => every,
-        Err(why) => panic!("{program} could not be asked what it drew: {why}"),
-    };
+    let every = panel.descriptions()?;
 
     for card in &every {
-        if let Err(why) = every_offer_answered(card) {
-            panic!("{why}");
-        }
-
-        if let Err(why) = every_mark_reachable(card) {
-            panic!("{why}");
-        }
-
-        if let Err(why) = a_way_out_is_drawn(card) {
-            panic!("{why}");
-        }
-
-        if let Err(why) = every_row_draws_what_it_carries(card) {
-            panic!("{why}");
-        }
+        every_offer_answered(card)?;
+        every_mark_reachable(card)?;
+        a_way_out_is_drawn(card)?;
+        every_row_draws_what_it_carries(card)?;
     }
+
+    Ok(())
 }
 
 #[test]
-fn the_files() {
-    held_to_the_contract("files", &[]);
+fn the_files() -> Result<(), Error> {
+    held_to_the_contract("files", &[])
 }
 
 #[test]
-fn the_settings() {
-    held_to_the_contract("settings-panel", &[]);
+fn the_settings() -> Result<(), Error> {
+    held_to_the_contract("settings-panel", &[])
 }
 
 #[test]
-fn the_menu() {
-    held_to_the_contract("launcher", &[]);
+fn the_menu() -> Result<(), Error> {
+    held_to_the_contract("launcher", &[])
 }
 
 #[test]
-fn the_music() {
-    held_to_the_contract("music-panel", &[]);
+fn the_music() -> Result<(), Error> {
+    held_to_the_contract("music-panel", &[])
 }
 
 #[test]
-fn the_music_library() {
-    held_to_the_contract("music", &[]);
+fn the_music_library() -> Result<(), Error> {
+    held_to_the_contract("music", &[])
 }
 
 #[test]
-fn the_notifications() {
-    held_to_the_contract("notifications-panel", &[]);
+fn the_notifications() -> Result<(), Error> {
+    held_to_the_contract("notifications-panel", &[])
 }
 
 #[test]
-fn the_downloads() {
-    held_to_the_contract("downloads", &[]);
+fn the_downloads() -> Result<(), Error> {
+    held_to_the_contract("downloads", &[])
 }
 
 #[test]
-fn the_calculator() {
-    held_to_the_contract("calculator", &[]);
+fn the_calculator() -> Result<(), Error> {
+    held_to_the_contract("calculator", &[])
 }
 
 #[test]
-fn the_calendar() {
-    held_to_the_contract("calendar-panel", &[]);
+fn the_calendar() -> Result<(), Error> {
+    held_to_the_contract("calendar-panel", &[])
 }
 
 #[test]
-fn the_guide() {
-    held_to_the_contract("mapping-panel", &[]);
+fn the_guide() -> Result<(), Error> {
+    held_to_the_contract("mapping-panel", &[])
 }

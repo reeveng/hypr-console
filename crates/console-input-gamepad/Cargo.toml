@@ -25,6 +25,7 @@ read = ["dep:serde_yaml_ng"]
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
 console-core-ini-files.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
 console-program-contract.workspace = true

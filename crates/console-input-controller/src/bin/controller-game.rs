@@ -49,7 +49,7 @@ impl Interpreter for Pad {
     fn tick(&mut self, _timer: &Timer, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
         let Ok(()) = self.find(since);
 
-        self.drained(since)
+        self.drain_events(since)
     }
 }
 
@@ -73,7 +73,7 @@ impl Pad {
 
         self.hunted = Some(since);
 
-        let Ok(found) = found();
+        let Ok(found) = find_pad();
 
         self.held = found;
 
@@ -85,7 +85,7 @@ impl Pad {
         Ok(())
     }
 
-    fn drained(&mut self, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
+    fn drain_events(&mut self, since: Elapsed) -> Result<Vec<Event<ReturningEvent>>, Never> {
         let (path, device) = match self.held.as_mut() {
             Some((path, device)) => (path, device),
             None => return Ok(Vec::new()),
@@ -115,8 +115,8 @@ impl Pad {
 
 struct Closed;
 
-fn found() -> Result<Option<(String, Device)>, Never> {
-    let Ok(told) = From::Pad.told();
+fn find_pad() -> Result<Option<(String, Device)>, Never> {
+    let Ok(told) = From::Pad.path_from_environment();
 
     let path = match told {
         Some(told) => told,

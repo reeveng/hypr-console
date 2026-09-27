@@ -55,7 +55,7 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
 
     Card::new(Arc::new(move || {
         let reading = Arc::clone(&held);
-        let Ok(rows) = Rows::asked(move || {
+        let Ok(rows) = Rows::computed(move || {
             let Ok(rows) = rows(&reading);
 
             rows
@@ -76,7 +76,7 @@ fn now(held: &Shared) -> Result<Sum, Never> {
 fn press(held: &Shared, key: Key, showing: &dyn Showing) -> Result<(), Never> {
     match held.lock() {
         Ok(mut sum) => {
-            let Ok(next) = sum.pressed(key);
+            let Ok(next) = sum.press(key);
 
             *sum = next;
         }
@@ -119,7 +119,7 @@ pub fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
                 let Ok(()) = press(&pressing, key, showing);
             };
             let Ok(button) = match label {
-                Written(says) => ButtonPress::written(says, now, does),
+                Written(says) => ButtonPress::labelled(says, now, does),
                 Symbol(icon) => ButtonPress::new(*icon, now, does),
             };
             let Ok(button) = button.styled(style);
@@ -140,37 +140,43 @@ mod tests {
     use super::*;
     use console_panel::page::Nowhere;
 
-    fn pressed_on_the_card(held: &Shared, row: u32, which: u32) {
+    #[derive(Debug, PartialEq, Eq)]
+    enum Pressed {
+        Yes,
+        NoKeyThere,
+    }
+
+    fn pressed_on_the_card(held: &Shared, (row, which): (u32, u32)) -> Result<Pressed, Never> {
         let Ok(rows) = rows(held);
         let Ok(at) = console_core_number_conversion::index(row);
         let Ok(along) = console_core_number_conversion::index(which);
-        let Some(press) = rows.get(at).and_then(|row| row.buttons.as_ref()).and_then(|across| across.presses.get(along))
-        else {
-            panic!("no key at row {row}, column {which}");
-        };
+        let press = rows.get(at).and_then(|row| row.buttons.as_ref()).and_then(|across| across.presses.get(along));
 
-        let _ = (press.does)(&Nowhere);
+        Ok(match press {
+            Some(press) => {
+                let _ = (press.does)(&Nowhere);
+
+                Pressed::Yes
+            }
+            None => Pressed::NoKeyThere,
+        })
     }
 
-    fn big(held: &Shared) -> String {
+    fn big(held: &Shared) -> Result<Option<String>, Never> {
         let Ok(rows) = rows(held);
 
-        match rows.first().and_then(|row| row.headline.as_ref()) {
-            Some(headline) => headline.big.clone(),
-            None => panic!("the card lost the number"),
-        }
+        Ok(rows.first().and_then(|row| row.headline.as_ref()).map(|headline| headline.big.clone()))
     }
 
     #[test]
     fn the_keys_on_the_card_do_the_sum_they_say() {
         let held: Shared = Arc::new(Mutex::new(Sum::default()));
 
-        pressed_on_the_card(&held, 3, 2);
-        pressed_on_the_card(&held, 3, 3);
-        pressed_on_the_card(&held, 2, 0);
-        pressed_on_the_card(&held, 5, 3);
+        for key in [(3, 2), (3, 3), (2, 0), (5, 3)] {
+            assert_eq!(pressed_on_the_card(&held, key), Ok(Pressed::Yes), "no key at {key:?}");
+        }
 
-        assert_eq!(big(&held), "-1", "6 \u{2212} 7 = came to something else");
+        assert_eq!(big(&held), Ok(Some(String::from("-1"))), "6 \u{2212} 7 = came to something else");
     }
 
     #[test]
@@ -184,18 +190,19 @@ mod tests {
     }
 
     #[test]
-    fn the_operator_waiting_is_lit_on_the_card() {
+    fn the_operator_waiting_is_lit_on_the_card() -> Result<(), &'static str> {
         let held: Shared = Arc::new(Mutex::new(Sum::default()));
 
-        pressed_on_the_card(&held, 4, 0);
-        pressed_on_the_card(&held, 2, 3);
+        for key in [(4, 0), (2, 3)] {
+            assert_eq!(pressed_on_the_card(&held, key), Ok(Pressed::Yes), "no key at {key:?}");
+        }
 
         let Ok(rows) = rows(&held);
-        let lit: Vec<Active> = match rows.get(2).and_then(|row| row.buttons.as_ref()) {
-            Some(across) => across.presses.iter().map(|press| press.now).collect(),
-            None => panic!("the card lost a row of keys"),
-        };
+        let across = rows.get(2).and_then(|row| row.buttons.as_ref()).ok_or("the card lost a row of keys")?;
+        let lit: Vec<Active> = across.presses.iter().map(|press| press.now).collect();
 
         assert_eq!(lit, vec![Active::No, Active::No, Active::No, Active::Yes]);
+
+        Ok(())
     }
 }

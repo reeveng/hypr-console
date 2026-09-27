@@ -136,12 +136,12 @@ pub fn aloud(binding: &Binding) -> Result<String, Never> {
     let mut words: Vec<String> = Vec::new();
 
     for word in &binding.held {
-        let Ok(said) = said(word);
+        let Ok(said) = button_label(word);
 
         words.push(said);
     }
 
-    let Ok(pressed) = said(&binding.pressed);
+    let Ok(pressed) = button_label(&binding.pressed);
 
     words.push(pressed);
 
@@ -234,7 +234,7 @@ pub fn every(table: &Table) -> Result<BTreeMap<String, Vec<Binding>>, Never> {
     Ok(every.map(|(job, bound)| (job.slug.to_string(), bound.to_vec())).collect())
 }
 
-pub fn said(button: &str) -> Result<String, Never> {
+pub fn button_label(button: &str) -> Result<String, Never> {
     let Ok(spoken) = spoken_for(button);
 
     match spoken.contains(|letter: char| letter.is_uppercase()) {
@@ -283,7 +283,7 @@ pub fn row(part: &Part) -> Result<Row, Never> {
 
     match runs {
         Some(arguments) => Row::new(&part.does, Aside(&aside), Handler::Run(arguments)),
-        None => Row::said(&part.does, Aside(&aside)),
+        None => Row::text(&part.does, Aside(&aside)),
     }
 }
 
@@ -371,7 +371,9 @@ mod tests {
     use console_input_bindings::moved::Tasks;
     use console_input_gamepad::vocabulary::capability_of;
 
-    fn ordinary() -> Front {
+    type Failure = Box<dyn std::error::Error>;
+
+    fn ordinary() -> Result<Front, Never> {
         let has: BTreeSet<String> = [
             "South", "East", "North", "West", "Start", "Select", "LeftBumper", "RightBumper",
             "DPadUp", "DPadDown", "DPadLeft", "DPadRight",
@@ -384,179 +386,189 @@ mod tests {
         })
         .collect();
 
-        Front { capabilities: Some(has), touchscreen: Some(false) }
+        Ok(Front { capabilities: Some(has), touchscreen: Some(false) })
     }
 
-    fn runs() -> Handler {
+    fn moved(said: &str) -> Result<Table, Failure> {
+        let tasks = Tasks::read(said)?;
+        let Ok(table) = Table::of(&tasks);
+
+        Ok(table)
+    }
+
+    fn on_the_pad(table: &Table, front: &Front) -> Result<Vec<Part>, Never> {
+        super::parts(table, front, Input::Pad)
+    }
+
+    fn on_a_keyboard(table: &Table, front: &Front) -> Result<Vec<Part>, Never> {
+        super::parts(table, front, Input::Keyboard)
+    }
+
+    fn laid_out(parts: &[Part]) -> Result<Vec<Row>, Never> {
         let Ok(name) = Program::True.name();
-        let Ok(does) = Handler::run(&[name]);
+        let Ok(runs) = Handler::run(&[name]);
 
-        does
+        super::rows(
+            parts,
+            |part| {
+                let Ok(row) = super::row(part);
+
+                row
+            },
+            runs,
+        )
     }
 
-    fn ours() -> Table {
-        let Ok(table) = Table::ours();
+    fn find_part<'a>(parts: &'a [Part], slug: &str) -> Result<&'a Part, Failure> {
+        let found = parts.iter().find(|part| part.slug == slug).ok_or(format!("no job named {slug}"))?;
 
-        table
-    }
-
-    fn moved(said: &str) -> Table {
-        let Ok(table) = Table::of(&Tasks::read(said).expect("a table"));
-
-        table
-    }
-
-    fn aside(part: &Part) -> String {
-        let Ok(said) = part.aside();
-
-        said
-    }
-
-    fn here(part: &Part) -> Has {
-        let Ok(has) = part.here();
-
-        has
-    }
-
-    fn played(part: &Part) -> Played {
-        let Ok(played) = part.played();
-
-        played
-    }
-
-    fn parts(table: &Table, front: &Front) -> Vec<Part> {
-        let Ok(parts) = super::parts(table, front, Input::Pad);
-
-        parts
-    }
-
-    fn typed(table: &Table, front: &Front) -> Vec<Part> {
-        let Ok(parts) = super::parts(table, front, Input::Keyboard);
-
-        parts
-    }
-
-    fn said(button: &str) -> String {
-        let Ok(said) = super::said(button);
-
-        said
-    }
-
-    fn question(part: &Part) -> String {
-        let Ok(asked) = super::question(part);
-
-        asked
-    }
-
-    fn made(part: &Part) -> Row {
-        let Ok(row) = super::row(part);
-
-        row
-    }
-
-    fn rows(parts: &[Part], putting_back: Handler) -> Vec<Row> {
-        let Ok(rows) = super::rows(parts, made, putting_back);
-
-        rows
-    }
-
-    fn every(table: &Table) -> BTreeMap<String, Vec<Binding>> {
-        let Ok(every) = super::every(table);
-
-        every
-    }
-
-    fn named<'a>(parts: &'a [Part], slug: &str) -> &'a Part {
-        parts.iter().find(|part| part.slug == slug).expect("a job")
+        Ok(found)
     }
 
     #[test]
-    fn a_job_says_what_it_does_and_what_plays_it() {
-        let parts = parts(&ours(), &Front::default());
-        let menu = named(&parts, "menu");
+    fn a_job_says_what_it_does_and_what_plays_it() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(parts) = on_the_pad(&table, &Front::default());
+        let menu = find_part(&parts, "menu")?;
 
         assert_eq!(menu.does, "Open the menu");
-        assert_eq!(aside(menu), "left paddle top");
+        assert_eq!(menu.aside(), Ok("left paddle top".to_string()));
         assert!(!menu.moved);
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_on_a_chord_says_what_is_held_with_it() {
-        let parts = parts(&ours(), &Front::default());
+    fn a_job_on_a_chord_says_what_is_held_with_it() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(parts) = on_the_pad(&table, &Front::default());
+        let screenshot = find_part(&parts, "screenshot")?;
 
-        assert_eq!(aside(named(&parts, "screenshot")), "l2 + right paddle bottom");
+        assert_eq!(screenshot.aside(), Ok("l2 + right paddle bottom".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn the_same_job_says_a_different_thing_on_the_keyboards_page() {
+    fn the_same_job_says_a_different_thing_on_the_keyboards_page() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
         let front = Front::default();
+        let Ok(pad) = on_the_pad(&table, &front);
+        let Ok(keyboard) = on_a_keyboard(&table, &front);
+        let pad_settings = find_part(&pad, "settings")?;
+        let keyboard_settings = find_part(&keyboard, "settings")?;
 
-        assert_eq!(aside(named(&parts(&ours(), &front), "settings")), "legion right");
-        assert_eq!(aside(named(&typed(&ours(), &front), "settings")), "super + i");
+        assert_eq!(pad_settings.aside(), Ok("legion right".to_string()));
+        assert_eq!(keyboard_settings.aside(), Ok("super + i".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_with_nothing_on_this_input_says_which_input_it_has_nothing_on() {
+    fn a_job_with_nothing_on_this_input_says_which_input_it_has_nothing_on() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
         let front = Front::default();
+        let Ok(pad) = on_the_pad(&table, &front);
+        let Ok(keyboard) = on_a_keyboard(&table, &front);
+        let pad_terminal = find_part(&pad, "terminal")?;
+        let keyboard_put_away = find_part(&keyboard, "put-away")?;
 
-        assert_eq!(aside(named(&parts(&ours(), &front), "terminal")), UNPLAYED_ON_THE_PAD);
-        assert_eq!(aside(named(&typed(&ours(), &front), "put-away")), UNPLAYED_ON_A_KEYBOARD);
+        assert_eq!(pad_terminal.aside(), Ok(UNPLAYED_ON_THE_PAD.to_string()));
+        assert_eq!(keyboard_put_away.aside(), Ok(UNPLAYED_ON_A_KEYBOARD.to_string()));
+
+        Ok(())
     }
 
     #[test]
     fn every_job_is_on_every_page_so_that_any_of_them_can_be_given_a_place() {
+        let Ok(table) = Table::ours();
         let front = Front::default();
+        let Ok(pad) = on_the_pad(&table, &front);
+        let Ok(keyboard) = on_a_keyboard(&table, &front);
 
-        assert_eq!(parts(&ours(), &front).len(), typed(&ours(), &front).len());
+        assert_eq!(pad.len(), keyboard.len());
     }
 
     #[test]
-    fn a_job_bound_to_a_button_this_device_has_not_got_says_so() {
-        let parts = parts(&ours(), &ordinary());
-        let menu = named(&parts, "menu");
+    fn a_job_bound_to_a_button_this_device_has_not_got_says_so() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let menu = find_part(&parts, "menu")?;
 
-        assert_eq!(here(menu), Has::No);
-        assert_eq!(aside(menu), NOWHERE);
+        assert_eq!(menu.here(), Ok(Has::No));
+        assert_eq!(menu.aside(), Ok(NOWHERE.to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_chord_over_a_button_this_device_has_not_got_is_not_here_either() {
-        let parts = parts(&moved("[jobs]\nmenu = \"left-paddle-top + a\"\n"), &ordinary());
+    fn a_chord_over_a_button_this_device_has_not_got_is_not_here_either() -> Result<(), Failure> {
+        let table = moved("[jobs]\nmenu = \"left-paddle-top + a\"\n")?;
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let menu = find_part(&parts, "menu")?;
 
-        assert_eq!(here(named(&parts, "menu")), Has::No);
+        assert_eq!(menu.here(), Ok(Has::No));
+
+        Ok(())
     }
 
     #[test]
-    fn a_key_is_here_whatever_the_front_of_the_machine_has_not_got() {
-        let typed = typed(&ours(), &ordinary());
+    fn a_key_is_here_whatever_the_front_of_the_machine_has_not_got() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(front) = ordinary();
+        let Ok(typed) = on_a_keyboard(&table, &front);
+        let settings = find_part(&typed, "settings")?;
 
-        assert_eq!(here(named(&typed, "settings")), Has::Yes);
+        assert_eq!(settings.here(), Ok(Has::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_moved_onto_a_button_this_device_has_is_no_longer_missing() {
-        let parts = parts(&moved("[jobs]\nmenu = \"r2 + a\"\n"), &ordinary());
-        let menu = named(&parts, "menu");
+    fn a_job_moved_onto_a_button_this_device_has_is_no_longer_missing() -> Result<(), Failure> {
+        let table = moved("[jobs]\nmenu = \"r2 + a\"\n")?;
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let menu = find_part(&parts, "menu")?;
 
-        assert_eq!(here(menu), Has::Yes);
+        assert_eq!(menu.here(), Ok(Has::Yes));
         assert!(menu.moved);
-        assert_eq!(aside(menu), "r2 + a");
+        assert_eq!(menu.aside(), Ok("r2 + a".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_on_two_buttons_names_the_one_this_device_has() {
-        let parts = parts(&ours(), &ordinary());
-        let keyboard = named(&parts, "keyboard");
+    fn a_job_on_two_buttons_names_the_one_this_device_has() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let keyboard = find_part(&parts, "keyboard")?;
 
         assert_eq!(keyboard.plays.len(), 2);
-        assert_eq!(here(keyboard), Has::Yes);
-        assert_eq!(aside(keyboard), "x");
+        assert_eq!(keyboard.here(), Ok(Has::Yes));
+        assert_eq!(keyboard.aside(), Ok("x".to_string()));
+
+        Ok(())
     }
 
     #[test]
     fn what_plays_something_comes_first_and_a_job_with_nothing_on_it_last() {
-        let parts = parts(&ours(), &ordinary());
-        let order: Vec<(Played, Has)> = parts.iter().map(|part| (played(part), here(part))).collect();
+        let Ok(table) = Table::ours();
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let order: Vec<(Played, Has)> = parts
+            .iter()
+            .map(|part| {
+                let Ok(played) = part.played();
+                let Ok(here) = part.here();
+
+                (played, here)
+            })
+            .collect();
+
         assert_eq!(order.first(), Some(&(Played::ByAPress, Has::Yes)), "{order:?}");
         assert!(
             order.iter().skip_while(|one| one.0 != Played::ByNothing).all(|one| *one != (Played::ByAPress, Has::No)),
@@ -567,71 +579,96 @@ mod tests {
 
     #[test]
     fn a_page_opens_on_what_is_bound_rather_than_on_a_screen_of_nothing() {
+        let Ok(table) = Table::ours();
         let front = Front::default();
+        let Ok(pad) = on_the_pad(&table, &front);
+        let Ok(keyboard) = on_a_keyboard(&table, &front);
 
-        for on in [parts(&ours(), &front), typed(&ours(), &front)] {
-            assert_eq!(on.first().map(played), Some(Played::ByAPress));
+        for on in [pad, keyboard] {
+            assert_eq!(on.first().map(Part::played), Some(Ok(Played::ByAPress)));
         }
     }
 
     #[test]
-    fn a_row_does_what_it_names_and_the_paddle_closes_the_window_behind_the_panel() {
-        let parts = parts(&ours(), &Front::default());
+    fn a_row_does_what_it_names_and_the_paddle_closes_the_window_behind_the_panel() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(parts) = on_the_pad(&table, &Front::default());
         let Ok(files) = super::runs(Action::Files);
         let Ok(put_away) = super::runs(Action::PutAway);
         let Ok(close) = super::runs(Action::CloseWindow);
+        let files_part = find_part(&parts, "files")?;
+        let Ok(files_row) = super::row(files_part);
+        let back_part = find_part(&parts, "back")?;
+        let Ok(back_row) = super::row(back_part);
 
         assert_eq!(files, Some(vec!["/usr/local/bin/files".to_string()]));
         assert_eq!(put_away, close);
         assert!(put_away.is_some());
-        assert!(made(named(&parts, "files")).does.is_some());
-        assert!(made(named(&parts, "back")).does.is_none(), "going back is only a press");
+        assert!(files_row.does.is_some());
+        assert!(back_row.does.is_none(), "going back is only a press");
+
+        Ok(())
     }
 
     #[test]
-    fn y_offers_to_add_and_to_remove_each_place_a_job_is_played() {
-        let parts = parts(&ours(), &Front::default());
-        let Ok(keyboard) = choices(named(&parts, "keyboard"));
-        let Ok(terminal) = choices(named(&parts, "terminal"));
+    fn y_offers_to_add_and_to_remove_each_place_a_job_is_played() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(parts) = on_the_pad(&table, &Front::default());
+        let keyboard_part = find_part(&parts, "keyboard")?;
+        let Ok(keyboard) = choices(keyboard_part);
+        let terminal_part = find_part(&parts, "terminal")?;
+        let Ok(terminal) = choices(terminal_part);
         let said: Vec<&str> = keyboard.iter().map(|(said, _)| said.as_str()).collect();
 
         assert_eq!(said, [ADD_ON_THE_PAD, "Remove x", "Remove keyboard"]);
         assert_eq!(terminal, [(ADD_ON_THE_PAD.to_string(), Choice::Add)], "nothing to remove");
 
-        let Ok(typed) = choices(named(&typed(&ours(), &Front::default()), "terminal"));
+        let Ok(typed_parts) = on_a_keyboard(&table, &Front::default());
+        let typed_terminal = find_part(&typed_parts, "terminal")?;
+        let Ok(typed) = choices(typed_terminal);
 
         assert_eq!(typed.first().map(|(said, _)| said.as_str()), Some(ADD_ON_A_KEYBOARD));
+
+        Ok(())
     }
 
     #[test]
     fn a_device_that_said_nothing_leaves_every_job_where_it_is() {
-        let parts = parts(&ours(), &Front::default());
+        let Ok(table) = Table::ours();
+        let Ok(parts) = on_the_pad(&table, &Front::default());
 
-        assert!(parts.iter().all(|part| here(part) == Has::Yes || played(part) == Played::ByNothing));
+        assert!(parts.iter().all(|part| part.here() == Ok(Has::Yes) || part.played() == Ok(Played::ByNothing)));
     }
 
     #[test]
     fn a_button_is_said_the_way_it_would_be_spoken() {
-        assert_eq!(said("left-paddle-top"), "left paddle top");
-        assert_eq!(said("LeftPaddle1"), "left paddle top");
-        assert_eq!(said("QuickAccess"), "legion right");
-        assert_eq!(said("RightPaddle3"), "right paddle 3");
-        assert_eq!(said("LeftPaddle9"), "left paddle 9");
-        assert_eq!(said("l1"), "l1");
+        assert_eq!(button_label("left-paddle-top"), Ok("left paddle top".to_string()));
+        assert_eq!(button_label("LeftPaddle1"), Ok("left paddle top".to_string()));
+        assert_eq!(button_label("QuickAccess"), Ok("legion right".to_string()));
+        assert_eq!(button_label("RightPaddle3"), Ok("right paddle 3".to_string()));
+        assert_eq!(button_label("LeftPaddle9"), Ok("left paddle 9".to_string()));
+        assert_eq!(button_label("l1"), Ok("l1".to_string()));
     }
 
     #[test]
-    fn the_card_asks_for_one_job_by_what_it_does_and_says_which_hand() {
+    fn the_card_asks_for_one_job_by_what_it_does_and_says_which_hand() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
         let front = Front::default();
+        let Ok(pad) = on_the_pad(&table, &front);
+        let Ok(keyboard) = on_a_keyboard(&table, &front);
+        let pad_menu = find_part(&pad, "menu")?;
+        let keyboard_menu = find_part(&keyboard, "menu")?;
 
         assert_eq!(
-            question(named(&parts(&ours(), &front), "menu")),
-            "Press a button for \u{201c}Open the menu\u{201d}"
+            question(pad_menu),
+            Ok("Press a button for \u{201c}Open the menu\u{201d}".to_string())
         );
         assert_eq!(
-            question(named(&typed(&ours(), &front), "menu")),
-            "Press keys for \u{201c}Open the menu\u{201d}"
+            question(keyboard_menu),
+            Ok("Press keys for \u{201c}Open the menu\u{201d}".to_string())
         );
+
+        Ok(())
     }
 
     #[test]
@@ -641,40 +678,56 @@ mod tests {
     }
 
     #[test]
-    fn putting_it_all_back_is_the_first_row_once_something_has_moved() {
-        let plain = rows(&parts(&ours(), &ordinary()), runs());
+    fn putting_it_all_back_is_the_first_row_once_something_has_moved() -> Result<(), Failure> {
+        let Ok(table) = Table::ours();
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let Ok(plain) = laid_out(&parts);
 
         assert_ne!(plain.first().map(|row| row.says.clone()), Some(PUT_BACK.to_string()));
 
-        let after = rows(&parts(&moved("[jobs]\nmenu = \"a\"\n"), &ordinary()), runs());
+        let table = moved("[jobs]\nmenu = \"a\"\n")?;
+        let Ok(parts) = on_the_pad(&table, &front);
+        let Ok(after) = laid_out(&parts);
 
         assert_eq!(after.len(), plain.len().saturating_add(1));
         assert_eq!(after.first().map(|row| row.says.clone()), Some(PUT_BACK.to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_left_with_no_button_says_that_rather_than_that_the_device_lacks_one() {
-        let parts = parts(&moved("[jobs]\nmenu = \"\"\n"), &ordinary());
-        let menu = named(&parts, "menu");
+    fn a_job_left_with_no_button_says_that_rather_than_that_the_device_lacks_one() -> Result<(), Failure> {
+        let table = moved("[jobs]\nmenu = \"\"\n")?;
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let menu = find_part(&parts, "menu")?;
 
-        assert_eq!(played(menu), Played::ByNothing);
+        assert_eq!(menu.played(), Ok(Played::ByNothing));
         assert!(menu.moved);
-        assert_eq!(aside(menu), UNPLAYED_ON_THE_PAD);
+        assert_eq!(menu.aside(), Ok(UNPLAYED_ON_THE_PAD.to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_left_with_no_button_is_something_to_put_back() {
-        let rows = rows(&parts(&moved("[jobs]\nmenu = \"\"\n"), &ordinary()), runs());
+    fn a_job_left_with_no_button_is_something_to_put_back() -> Result<(), Failure> {
+        let table = moved("[jobs]\nmenu = \"\"\n")?;
+        let Ok(front) = ordinary();
+        let Ok(parts) = on_the_pad(&table, &front);
+        let Ok(rows) = laid_out(&parts);
 
         assert_eq!(rows.first().map(|row| row.says.clone()), Some(PUT_BACK.to_string()));
+
+        Ok(())
     }
 
     #[test]
     fn a_move_is_worked_out_against_every_job_on_every_input() {
-        let table = ours();
-        let every = every(&table);
+        let Ok(table) = Table::ours();
+        let Ok(every) = every(&table);
         let Ok(on) = Binding::pad("left-paddle-top");
-        let Ok(key) = Binding::holding(Input::Keyboard, &["super"], "i");
+        let Ok(key) = Binding::chord(Input::Keyboard, &["super"], "i");
 
         assert!(every.get("menu").is_some_and(|bound| bound.contains(&on)));
         assert!(

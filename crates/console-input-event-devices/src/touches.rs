@@ -95,7 +95,7 @@ impl Touchscreen {
 
         Ok(match (span_of(AbsoluteAxisCode::ABS_X), span_of(AbsoluteAxisCode::ABS_Y)) {
             (Some(across), Some(down)) => {
-                let Ok(screen) = Touchscreen::spanning(across, down);
+                let Ok(screen) = Touchscreen::new(across, down);
 
                 Some(screen)
             }
@@ -103,7 +103,7 @@ impl Touchscreen {
         })
     }
 
-    fn spanning(across: Span, down: Span) -> Result<Touchscreen, Never> {
+    fn new(across: Span, down: Span) -> Result<Touchscreen, Never> {
         Ok(Touchscreen {
             x: across,
             y: down,
@@ -114,7 +114,7 @@ impl Touchscreen {
         })
     }
 
-    pub fn heard(&mut self, read: &[u8]) -> Result<Vec<ScreenTouch>, Never> {
+    pub fn decode(&mut self, read: &[u8]) -> Result<Vec<ScreenTouch>, Never> {
         let Ok(read) = events(read);
         let mut touches = Vec::new();
 
@@ -154,14 +154,14 @@ impl Touchscreen {
                 Ok(None)
             }
             (EventType::SYNCHRONIZATION, code) => match SynchronizationCode(code) {
-                SynchronizationCode::SYN_REPORT => self.reported(),
+                SynchronizationCode::SYN_REPORT => self.take_report(),
                 _ => Ok(None),
             },
             _ => Ok(None),
         }
     }
 
-    fn reported(&mut self) -> Result<Option<ScreenTouch>, Never> {
+    fn take_report(&mut self) -> Result<Option<ScreenTouch>, Never> {
         let Ok(share) = self.share();
         let touch = match (self.went, self.contact, self.moved) {
             (Went::Down, Contact::Lifted, _) => {
@@ -210,13 +210,11 @@ fn along(value: i32, span: Span) -> Result<f64, Never> {
 mod tests {
     use super::*;
 
-    fn screen() -> Touchscreen {
-        let Ok(screen) = Touchscreen::spanning(Span { least: 0, most: 1000 }, Span { least: 0, most: 2000 });
-
-        screen
+    fn screen() -> Result<Touchscreen, Never> {
+        Touchscreen::new(Span { least: 0, most: 1000 }, Span { least: 0, most: 2000 })
     }
 
-    fn frame(events: &[(EventType, u16, i32)]) -> Vec<u8> {
+    fn frame(events: &[(EventType, u16, i32)]) -> Result<Vec<u8>, Never> {
         let mut read: Vec<u8> = events
             .iter()
             .flat_map(|(kind, code, value)| {
@@ -229,30 +227,39 @@ mod tests {
 
         read.extend(report);
 
-        read
+        Ok(read)
     }
 
-    fn at(across: i32, down: i32) -> Vec<(EventType, u16, i32)> {
-        vec![(EventType::ABSOLUTE, AbsoluteAxisCode::ABS_X.0, across), (EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Y.0, down)]
+    fn at(on: Point<i32>) -> Result<Vec<(EventType, u16, i32)>, Never> {
+        Ok(vec![(EventType::ABSOLUTE, AbsoluteAxisCode::ABS_X.0, on.x), (EventType::ABSOLUTE, AbsoluteAxisCode::ABS_Y.0, on.y)])
     }
 
-    fn touching(value: i32) -> (EventType, u16, i32) {
-        (EventType::KEY, KeyCode::BTN_TOUCH.0, value)
+    fn touch_event(value: i32) -> Result<(EventType, u16, i32), Never> {
+        Ok((EventType::KEY, KeyCode::BTN_TOUCH.0, value))
+    }
+
+    fn finger_down(on: Point<i32>) -> Result<Vec<u8>, Never> {
+        let Ok(mut down) = at(on);
+        let Ok(touched) = touch_event(DOWN);
+
+        down.push(touched);
+
+        frame(&down)
     }
 
     #[test]
     fn a_finger_comes_down_moves_and_lifts() {
-        let mut screen = screen();
-        let mut down = at(500, 500);
+        let Ok(mut screen) = screen();
+        let Ok(mut read) = finger_down(Point { x: 500, y: 500 });
+        let Ok(moved) = at(Point { x: 1000, y: 2000 });
+        let Ok(moved) = frame(&moved);
+        let Ok(lifted) = touch_event(UP);
+        let Ok(lifted) = frame(&[lifted]);
 
-        down.push(touching(DOWN));
+        read.extend(moved);
+        read.extend(lifted);
 
-        let mut read = frame(&down);
-
-        read.extend(frame(&at(1000, 2000)));
-        read.extend(frame(&[touching(UP)]));
-
-        let Ok(touches) = screen.heard(&read);
+        let Ok(touches) = screen.decode(&read);
 
         assert_eq!(
             touches,
@@ -266,39 +273,34 @@ mod tests {
 
     #[test]
     fn a_frame_that_moved_nothing_is_not_a_move() {
-        let mut screen = screen();
-        let mut down = at(0, 0);
+        let Ok(mut screen) = screen();
+        let Ok(mut read) = finger_down(Point { x: 0, y: 0 });
+        let Ok(pressed) = frame(&[(EventType::ABSOLUTE, AbsoluteAxisCode::ABS_PRESSURE.0, 40)]);
 
-        down.push(touching(DOWN));
+        read.extend(pressed);
 
-        let mut read = frame(&down);
-
-        read.extend(frame(&[(EventType::ABSOLUTE, AbsoluteAxisCode::ABS_PRESSURE.0, 40)]));
-
-        let Ok(touches) = screen.heard(&read);
+        let Ok(touches) = screen.decode(&read);
 
         assert_eq!(touches, vec![ScreenTouch::Down(Point { x: 0.0, y: 0.0 })]);
     }
 
     #[test]
     fn a_position_with_no_finger_down_is_nothing() {
-        let mut screen = screen();
-        let Ok(touches) = screen.heard(&frame(&at(10, 10)));
+        let Ok(mut screen) = screen();
+        let Ok(there) = at(Point { x: 10, y: 10 });
+        let Ok(read) = frame(&there);
+        let Ok(touches) = screen.decode(&read);
 
         assert_eq!(touches, Vec::new());
     }
 
     #[test]
     fn a_frame_is_read_only_once_it_is_whole() {
-        let mut screen = screen();
-        let mut down = at(500, 500);
-
-        down.push(touching(DOWN));
-
-        let whole = frame(&down);
-        let (first, rest) = whole.split_at(whole.len() - 24);
-        let Ok(before) = screen.heard(first);
-        let Ok(after) = screen.heard(rest);
+        let Ok(mut screen) = screen();
+        let Ok(whole) = finger_down(Point { x: 500, y: 500 });
+        let (first, rest) = whole.split_at(whole.len().saturating_sub(24));
+        let Ok(before) = screen.decode(first);
+        let Ok(after) = screen.decode(rest);
 
         assert_eq!(before, Vec::new());
         assert_eq!(after, vec![ScreenTouch::Down(Point { x: 0.5, y: 0.25 })]);

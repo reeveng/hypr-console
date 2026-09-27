@@ -57,7 +57,7 @@ use console_test_stages::checking::{Body, Check, CheckResult, failed, happened};
 use console_test_stages::device::{Device, Ready, Outcome};
 
 use console_input_bindings::bound::{Binding, Input};
-use console_input_controller::binds::{self, KeyBinding, wanted};
+use console_input_controller::binds::{self, KeyBinding, desired_binds};
 use console_input_controller::actions::Table;
 
 const PATIENCE: f64 = 4.0;
@@ -91,19 +91,18 @@ pub const LAST_PRESS: Check = Check {
 fn ours() -> Result<Vec<KeyBinding>, Never> {
     let Ok(table) = Table::ours();
 
-    wanted(&table)
+    desired_binds(&table)
 }
 
 fn handed(stage: &mut Device) -> CheckResult {
     let Ok(said) = stage.hypr("binds -j");
 
-    let holding = match console_compositor::read(console_compositor::Query::Binds, &said) {
-        Ok(console_compositor::Answer::Binds(holding)) => holding,
-        Ok(_not_what_was_asked) => return failed("hyprctl answered something other than binds".to_string()),
+    let holding = match console_compositor::read(console_compositor::Binds, &said) {
+        Ok(holding) => holding,
         Err(fault) => return failed(fault.to_string()),
     };
     let Ok(wanted) = ours();
-    let Ok(standing) = binds::standing(&wanted, &binds::Holding::These(holding.clone()));
+    let Ok(standing) = binds::compare(&wanted, &binds::Holding::These(holding.clone()));
 
     match standing.missing {
         0 => {},
@@ -131,11 +130,11 @@ fn handed(stage: &mut Device) -> CheckResult {
     }
 }
 
-fn spelled(row: &Binding) -> Result<String, Never> {
+fn describe_binding(row: &Binding) -> Result<String, Never> {
     Ok(row.held.iter().map(String::as_str).chain([row.pressed.as_str()]).collect::<Vec<_>>().join(" and "))
 }
 
-fn standing(seen: &mut Device) -> Result<Ready, Never> {
+fn settings_open(seen: &mut Device) -> Result<Ready, Never> {
     let Ok(where_) = seen.layer(console_settings::WHO);
 
     Ok(match where_ {
@@ -145,7 +144,7 @@ fn standing(seen: &mut Device) -> Result<Ready, Never> {
 }
 
 fn away(seen: &mut Device) -> Result<Ready, Never> {
-    let Ok(up) = standing(seen);
+    let Ok(up) = settings_open(seen);
 
     up.flipped()
 }
@@ -157,7 +156,7 @@ fn console_put_away(stage: &mut Device) -> Result<Outcome, Never> {
 }
 
 fn a_key(stage: &mut Device) -> CheckResult {
-    let Ok(already) = standing(stage);
+    let Ok(already) = settings_open(stage);
 
     match already {
         Ready::Yes => {
@@ -180,14 +179,14 @@ fn a_key(stage: &mut Device) -> CheckResult {
 
     let held: Vec<&str> = row.held.iter().map(String::as_str).collect();
 
-    stage.keyed(&held, &row.pressed)?;
+    stage.press_chord(&held, &row.pressed)?;
 
-    let Ok(came) = stage.until(standing, PATIENCE);
+    let Ok(came) = stage.until(settings_open, PATIENCE);
 
     match came {
         Outcome::Happened => {},
         Outcome::RanOut => {
-            let Ok(said) = spelled(row);
+            let Ok(said) = describe_binding(row);
 
             return failed(format!(
                 "{said} opened nothing. The bind is the table's, so either it was never handed \

@@ -22,7 +22,7 @@ use console_music::tags;
 const NOW_AND_THEN: u32 = 50;
 
 fn main() {
-    let Ok(cache) = console_core_places::Base::Cache.hers();
+    let Ok(cache) = console_core_places::Base::Cache.user();
 
     let cache = match cache {
         Some(cache) => cache,
@@ -49,7 +49,7 @@ fn main() {
         }
     };
 
-    let Ok(known) = looking::kept(&said);
+    let Ok(known) = looking::parse(&said);
 
     let Ok(music) = folder();
 
@@ -106,7 +106,7 @@ fn wrote(at: &Path, songs: &[Song]) -> Result<(), Never> {
 
     let _ = std::fs::create_dir_all(folder);
 
-    let written = looking::written(songs)?;
+    let written = looking::serialize(songs)?;
 
     match console_core_atomic_writes::whole(at, written.as_bytes()) {
         Ok(()) => {},

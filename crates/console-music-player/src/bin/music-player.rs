@@ -22,8 +22,9 @@
 //! nothing.
 
 use console_bus::connection::{Bus, ConnectionError, NameRequestResult};
+use console_core_iteration::Step;
 use console_core_never::Never;
-use console_music_player::bus::{PlayerState, changed, heard, locked, moved};
+use console_music_player::bus::{PlayerState, changed, handle_message, locked, moved};
 use console_music_player::sounding::{Progress, Sounding};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -73,7 +74,7 @@ fn main() -> ExitCode {
 fn answering() -> Result<(), ConnectionError> {
     let folder = std::env::args().nth(1).map(PathBuf::from);
     let mut bus = Bus::session()?;
-    let got = bus.taking(answers::NAME)?;
+    let got = bus.request_name(answers::NAME)?;
 
     match got {
         NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
@@ -92,14 +93,17 @@ fn answering() -> Result<(), ConnectionError> {
     });
     let Ok(held) = PlayerState::new(sounding, folder);
     let held = Arc::new(Mutex::new(held));
-    let Ok((mut hearing, saying)) = bus.apart();
+    let Ok((hearing, saying)) = bus.split();
 
     let _the_song_ending_finds_the_player_and_the_bus_here =
         answering.set(Answering { held: Arc::clone(&held), saying: saying.clone() });
 
-    loop {
-        let message = hearing.heard()?;
-        let Ok(turn) = heard(&held, &message);
+    let heard = console_core_iteration::iterate(hearing, |mut hearing| {
+        let message = match hearing.receive() {
+            Ok(message) => message,
+            Err(fault) => return Ok(Step::Halt(Err(fault))),
+        };
+        let Ok(turn) = handle_message(&held, &message);
 
         match turn.say {
             Some(say) => {
@@ -113,6 +117,17 @@ fn answering() -> Result<(), ConnectionError> {
                 let Ok(()) = changed(&saying, &held);
             }
             console_music_player::bus::Modified::No => {},
+        }
+
+        Ok(Step::Again(hearing))
+    });
+
+    match heard {
+        Ok(heard) => heard,
+        Err(endless) => {
+            eprintln!("music-player: {endless}");
+
+            Ok(())
         }
     }
 }

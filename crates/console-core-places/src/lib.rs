@@ -107,7 +107,7 @@ pub const DATA: &str = "/usr/local/share:/usr/share";
 
 pub const APPLICATIONS: &str = "applications";
 
-pub const OURS: &str = "console";
+pub const APPLICATION: &str = "console";
 
 #[cfg_attr(
     dylint_lib = "explicit026_env_read_once",
@@ -116,7 +116,7 @@ pub const OURS: &str = "console";
         reason = "this crate is the one place HOME, the four XDG bases and the runtime directory are read, which is the whole of what the file above argues for"
     )
 )]
-fn said(name: &str) -> Result<Option<String>, Never> {
+fn env_var(name: &str) -> Result<Option<String>, Never> {
     Ok(match std::env::var(name) {
         Ok(said) => Some(said),
         Err(std::env::VarError::NotPresent) => None,
@@ -129,21 +129,21 @@ fn said(name: &str) -> Result<Option<String>, Never> {
 }
 
 pub fn home() -> Result<Option<PathBuf>, Never> {
-    let said = said("HOME")?;
+    let said = env_var("HOME")?;
 
     Ok(said.map(PathBuf::from))
 }
 
 pub fn runtime() -> Result<Option<PathBuf>, Never> {
-    let said = said("XDG_RUNTIME_DIR")?;
+    let said = env_var("XDG_RUNTIME_DIR")?;
 
     Ok(said.map(PathBuf::from).filter(|at| at.is_absolute()))
 }
 
-pub fn runtime_ours() -> Result<Option<PathBuf>, Never> {
+pub fn application_runtime() -> Result<Option<PathBuf>, Never> {
     let runtime = runtime()?;
 
-    Ok(runtime.map(|at| at.join(OURS)))
+    Ok(runtime.map(|at| at.join(APPLICATION)))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
@@ -161,7 +161,7 @@ pub enum Base {
 impl Base {
     pub const EVERY: [Base; 4] = [Base::Configuration, Base::State, Base::Share, Base::Cache];
 
-    pub fn told(self, home: Option<&Path>, said: Option<&str>) -> Result<Option<PathBuf>, Never> {
+    pub fn resolve(self, home: Option<&Path>, said: Option<&str>) -> Result<Option<PathBuf>, Never> {
         let told = said.map(Path::new).filter(|at| at.is_absolute());
 
         let Ok(usual) = self.usual();
@@ -172,20 +172,20 @@ impl Base {
         })
     }
 
-    pub fn hers(self) -> Result<Option<PathBuf>, Never> {
+    pub fn user(self) -> Result<Option<PathBuf>, Never> {
         let home = home()?;
 
         let Ok(called) = self.called();
 
-        let said = said(called)?;
+        let said = env_var(called)?;
 
-        self.told(home.as_deref(), said.as_deref())
+        self.resolve(home.as_deref(), said.as_deref())
     }
 
     pub fn ours(self) -> Result<Option<PathBuf>, Never> {
-        let hers = self.hers()?;
+        let hers = self.user()?;
 
-        Ok(hers.map(|at| at.join(OURS)))
+        Ok(hers.map(|at| at.join(APPLICATION)))
     }
 
     pub fn under(self, home: &Path) -> Result<PathBuf, Never> {
@@ -194,10 +194,10 @@ impl Base {
         Ok(home.join(usual))
     }
 
-    pub fn ours_under(self, home: &Path) -> Result<PathBuf, Never> {
+    pub fn application_under(self, home: &Path) -> Result<PathBuf, Never> {
         let under = self.under(home)?;
 
-        Ok(under.join(OURS))
+        Ok(under.join(APPLICATION))
     }
 }
 
@@ -235,7 +235,7 @@ impl Folder {
         Folder::Videos,
     ];
 
-    pub fn told(self, home: &Path, held: &str) -> Result<Option<PathBuf>, Never> {
+    pub fn from_user_dirs(self, home: &Path, held: &str) -> Result<Option<PathBuf>, Never> {
         let Ok(called) = self.called();
 
         let wanted = format!("{called}=");
@@ -284,7 +284,7 @@ impl Folder {
             }
         };
 
-        let told = self.told(home, &held)?;
+        let told = self.from_user_dirs(home, &held)?;
 
         let Ok(usual) = self.usual();
 
@@ -294,7 +294,7 @@ impl Folder {
         })
     }
 
-    pub fn hers(self) -> Result<Option<PathBuf>, Never> {
+    pub fn user(self) -> Result<Option<PathBuf>, Never> {
         let home = home()?;
 
         match home {
@@ -310,7 +310,7 @@ pub fn books_under(home: &Path) -> Result<PathBuf, Never> {
     Ok(home.join(BOOKS))
 }
 
-pub fn kept_under(home: &Path) -> Result<Vec<PathBuf>, Never> {
+pub fn user_folders_under(home: &Path) -> Result<Vec<PathBuf>, Never> {
     let mut kept: Vec<PathBuf> = Vec::new();
 
     for folder in Folder::EVERY {
@@ -329,11 +329,11 @@ pub fn kept_under(home: &Path) -> Result<Vec<PathBuf>, Never> {
     Ok(kept)
 }
 
-pub fn kept() -> Result<Vec<PathBuf>, Never> {
+pub fn user_folders() -> Result<Vec<PathBuf>, Never> {
     let home = home()?;
 
     Ok(match home {
-        Some(home) => kept_under(&home)?,
+        Some(home) => user_folders_under(&home)?,
         None => Vec::new(),
     })
 }
@@ -343,7 +343,7 @@ pub fn data_under(
     mine: Option<&str>,
     shared: Option<&str>,
 ) -> Result<Vec<PathBuf>, Never> {
-    let mine = Base::Share.told(home, mine)?;
+    let mine = Base::Share.resolve(home, mine)?;
 
     let mut every: Vec<PathBuf> = mine.into_iter().collect();
 
@@ -362,9 +362,9 @@ pub fn data() -> Result<Vec<PathBuf>, Never> {
 
     let Ok(called) = Base::Share.called();
 
-    let mine = said(called)?;
+    let mine = env_var(called)?;
 
-    let shared = said("XDG_DATA_DIRS")?;
+    let shared = env_var("XDG_DATA_DIRS")?;
 
     data_under(home.as_deref(), mine.as_deref(), shared.as_deref())
 }
@@ -383,44 +383,36 @@ pub fn applications() -> Result<Vec<PathBuf>, Never> {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn hers() -> PathBuf {
-        PathBuf::from("/home/someone")
-    }
+    const HOME: &str = "/home/someone";
 
     #[test]
     fn where_the_home_directory_says_its_pictures_are() {
         assert_eq!(
-            ok(Folder::Pictures.told(&hers(), "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n")),
-            Some(hers().join("Bilder"))
+            Folder::Pictures.from_user_dirs(Path::new(HOME), "XDG_PICTURES_DIR=\"$HOME/Bilder\"\n"),
+            Ok(Some(Path::new(HOME).join("Bilder")))
         );
     }
 
     #[test]
     fn a_folder_that_is_not_under_the_home_directory_is_taken_as_it_is() {
         assert_eq!(
-            ok(Folder::Pictures.told(&hers(), "XDG_PICTURES_DIR=\"/data/pictures\"\n")),
-            Some(PathBuf::from("/data/pictures"))
+            Folder::Pictures.from_user_dirs(Path::new(HOME), "XDG_PICTURES_DIR=\"/data/pictures\"\n"),
+            Ok(Some(PathBuf::from("/data/pictures")))
         );
     }
 
     #[test]
     fn a_folder_the_file_says_nothing_about_is_nothing_said() {
-        assert_eq!(ok(Folder::Pictures.told(&hers(), "XDG_MUSIC_DIR=\"$HOME/Music\"\n")), None);
-        assert_eq!(ok(Folder::Pictures.told(&hers(), "")), None);
-        assert_eq!(ok(Folder::Pictures.told(&hers(), "XDG_PICTURES_DIR=\"\"")), None);
+        assert_eq!(Folder::Pictures.from_user_dirs(Path::new(HOME), "XDG_MUSIC_DIR=\"$HOME/Music\"\n"), Ok(None));
+        assert_eq!(Folder::Pictures.from_user_dirs(Path::new(HOME), ""), Ok(None));
+        assert_eq!(Folder::Pictures.from_user_dirs(Path::new(HOME), "XDG_PICTURES_DIR=\"\""), Ok(None));
     }
 
     #[test]
     fn what_is_commented_out_is_not_read() {
         let held = "# XDG_PICTURES_DIR=\"$HOME/Error\"\nXDG_PICTURES_DIR=\"$HOME/Right\"\n";
 
-        assert_eq!(ok(Folder::Pictures.told(&hers(), held)), Some(hers().join("Right")));
+        assert_eq!(Folder::Pictures.from_user_dirs(Path::new(HOME), held), Ok(Some(Path::new(HOME).join("Right"))));
     }
 
     #[test]
@@ -439,24 +431,27 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_that_is_the_home_itself_is_not_one_she_keeps_things_in() {
-        let home = std::env::temp_dir().join(format!("console-places-kept-{}", std::process::id()));
-        let told = ok(Base::Configuration.under(&home));
-        std::fs::create_dir_all(&told).expect("a configuration folder");
-        std::fs::write(told.join(USER_DIRS), "XDG_DESKTOP_DIR=\"$HOME/\"\n").expect("user-dirs.dirs");
+    fn a_folder_that_is_the_home_itself_is_not_one_she_keeps_things_in() -> Result<(), Box<dyn std::error::Error>> {
+        let home = console_core_temporary_directories::fresh("places-kept")?;
+        let Ok(told) = Base::Configuration.under(&home);
 
-        let kept = ok(kept_under(&home));
+        std::fs::create_dir_all(&told)?;
+        console_core_atomic_writes::whole(&told.join(USER_DIRS), b"XDG_DESKTOP_DIR=\"$HOME/\"\n")?;
 
-        std::fs::remove_dir_all(&home).expect("the made-up home taken away");
+        let Ok(kept) = user_folders_under(&home);
+
+        std::fs::remove_dir_all(&home)?;
 
         assert!(kept.contains(&home.join("Books")), "{kept:?}");
         assert!(kept.contains(&home.join("Music")), "{kept:?}");
         assert!(!kept.iter().any(|at| home.starts_with(at)), "the home is watched whole: {kept:?}");
+
+        Ok(())
     }
 
     #[test]
     fn a_persons_own_share_comes_before_the_machines() {
-        let every = ok(data_under(Some(&hers()), None, Some("/usr/share")));
+        let Ok(every) = data_under(Some(Path::new(HOME)), None, Some("/usr/share"));
 
         assert_eq!(
             every,
@@ -467,7 +462,7 @@ mod tests {
 
     #[test]
     fn nothing_is_said_and_the_standards_answer_is_used() {
-        let every = ok(data_under(Some(&hers()), None, None));
+        let Ok(every) = data_under(Some(Path::new(HOME)), None, None);
 
         assert_eq!(
             every,
@@ -481,12 +476,12 @@ mod tests {
 
     #[test]
     fn an_empty_saying_is_nothing_said() {
-        assert_eq!(ok(data_under(None, None, Some(""))), ok(data_under(None, None, None)));
+        assert_eq!(data_under(None, None, Some("")), data_under(None, None, None));
     }
 
     #[test]
     fn no_home_takes_a_place_away_rather_than_inventing_one() {
-        let every = ok(data_under(None, None, Some("/usr/share")));
+        let Ok(every) = data_under(None, None, Some("/usr/share"));
 
         assert_eq!(every, vec![PathBuf::from("/usr/share")]);
         assert!(
@@ -497,7 +492,7 @@ mod tests {
 
     #[test]
     fn an_empty_directory_in_the_middle_is_not_a_directory() {
-        let every = ok(data_under(None, None, Some("/usr/local/share::/usr/share")));
+        let Ok(every) = data_under(None, None, Some("/usr/local/share::/usr/share"));
 
         assert_eq!(
             every,
@@ -507,7 +502,7 @@ mod tests {
 
     #[test]
     fn where_a_person_keeps_her_own_share_is_hers_to_say() {
-        let every = ok(data_under(Some(&hers()), Some("/elsewhere/share"), Some("/usr/share")));
+        let Ok(every) = data_under(Some(Path::new(HOME)), Some("/elsewhere/share"), Some("/usr/share"));
 
         assert_eq!(
             every,
@@ -517,8 +512,8 @@ mod tests {
 
     #[test]
     fn every_data_directory_holds_the_applications_in_it() {
-        let data = ok(data_under(Some(&hers()), None, Some("/usr/share")));
-        let every = ok(applications_under(&data));
+        let Ok(data) = data_under(Some(Path::new(HOME)), None, Some("/usr/share"));
+        let Ok(every) = applications_under(&data);
 
         assert_eq!(
             every,
@@ -533,7 +528,11 @@ mod tests {
     fn each_base_is_where_the_standard_says_it_is() {
         let every: Vec<PathBuf> = Base::EVERY
             .into_iter()
-            .filter_map(|base| ok(base.told(Some(&hers()), None)))
+            .filter_map(|base| {
+                let Ok(at) = base.resolve(Some(Path::new(HOME)), None);
+
+                at
+            })
             .collect();
 
         assert_eq!(
@@ -549,7 +548,7 @@ mod tests {
 
     #[test]
     fn a_base_that_is_said_is_taken_as_it_is() {
-        let at = ok(Base::Configuration.told(Some(&hers()), Some("/elsewhere/config")));
+        let Ok(at) = Base::Configuration.resolve(Some(Path::new(HOME)), Some("/elsewhere/config"));
 
         assert_eq!(at, Some(PathBuf::from("/elsewhere/config")));
     }
@@ -557,7 +556,7 @@ mod tests {
     #[test]
     fn a_saying_that_is_not_a_directory_is_not_a_saying() {
         for said in ["", "config", "./config", "~/config"] {
-            let at = ok(Base::Cache.told(Some(&hers()), Some(said)));
+            let Ok(at) = Base::Cache.resolve(Some(Path::new(HOME)), Some(said));
 
             assert_eq!(
                 at,
@@ -570,32 +569,36 @@ mod tests {
     #[test]
     fn no_home_and_nothing_said_is_no_base_rather_than_a_relative_one() {
         let every: Vec<Option<PathBuf>> =
-            Base::EVERY.into_iter().map(|base| ok(base.told(None, None))).collect();
+            Base::EVERY.into_iter().map(|base| {
+                let Ok(at) = base.resolve(None, None);
+
+                at
+            }).collect();
 
         assert_eq!(every, vec![None, None, None, None], "a base under nothing is nothing");
     }
 
     #[test]
     fn a_base_can_be_answered_for_a_home_that_is_not_ours() {
-        let at = ok(Base::State.ours_under(Path::new("/home/elsewhere")));
+        let Ok(at) = Base::State.application_under(Path::new("/home/elsewhere"));
 
         assert_eq!(at, PathBuf::from("/home/elsewhere/.local/state/console"));
     }
 
     #[test]
     fn what_this_desktop_keeps_is_one_word_under_each_base() {
-        let every: Vec<PathBuf> =
-            Base::EVERY.into_iter().map(|base| ok(base.ours_under(&hers()))).collect();
+        let Ok(every) =
+            Base::EVERY.into_iter().map(|base| base.application_under(Path::new(HOME))).collect::<Result<Vec<PathBuf>, Never>>();
 
         assert!(
-            every.iter().all(|at| at.ends_with(OURS)),
+            every.iter().all(|at| at.ends_with(APPLICATION)),
             "the desktop's own directory is the same word under every base: {every:?}"
         );
     }
 
     #[test]
     fn every_base_is_asked_of_the_environment_by_its_own_name() {
-        let every: Vec<&str> = Base::EVERY.into_iter().map(|base| ok(base.called())).collect();
+        let Ok(every) = Base::EVERY.into_iter().map(|base| base.called()).collect::<Result<Vec<&str>, Never>>();
 
         assert_eq!(
             every,

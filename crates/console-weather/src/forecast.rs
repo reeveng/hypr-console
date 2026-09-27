@@ -173,7 +173,7 @@ impl LocalTime {
 }
 
 impl Weekday {
-    pub fn named(self) -> Result<&'static str, Never> {
+    pub fn name(self) -> Result<&'static str, Never> {
         Ok(match self {
             Weekday::Sunday => "Sunday",
             Weekday::Monday => "Monday",
@@ -201,7 +201,7 @@ pub fn kept_at(cache: &Path) -> Result<PathBuf, Never> {
     Ok(cache.join(KEPT))
 }
 
-pub fn kept(at: &Path) -> Result<Option<Forecast>, Never> {
+pub fn read_cache(at: &Path) -> Result<Option<Forecast>, Never> {
     let Ok(held) = console_core_atomic_writes::read(at);
 
     match held {
@@ -215,15 +215,15 @@ pub fn kept(at: &Path) -> Result<Option<Forecast>, Never> {
     }
 }
 
-pub fn asking(at: &Where) -> Result<String, Never> {
+pub fn request_url(at: &Where) -> Result<String, Never> {
     Ok(format!(
         "{SERVICE}?latitude={:.4}&longitude={:.4}{ASKED}",
         at.latitude, at.longitude
     ))
 }
 
-pub fn fetched(at: &Where, keep: Option<&Path>) -> Result<Forecast, Unforecast> {
-    let Ok(asked) = asking(at);
+pub fn fetch(at: &Where, keep: Option<&Path>) -> Result<Forecast, Unforecast> {
+    let Ok(asked) = request_url(at);
 
     let said = conditions::answer(&asked)?;
 
@@ -231,7 +231,7 @@ pub fn fetched(at: &Where, keep: Option<&Path>) -> Result<Forecast, Unforecast> 
 
     match read {
         Some(forecast) => {
-            let Ok(()) = keeping(keep, &said);
+            let Ok(()) = store_cache(keep, &said);
 
             Ok(forecast)
         }
@@ -239,7 +239,7 @@ pub fn fetched(at: &Where, keep: Option<&Path>) -> Result<Forecast, Unforecast> 
     }
 }
 
-fn keeping(keep: Option<&Path>, said: &str) -> Result<(), Never> {
+fn store_cache(keep: Option<&Path>, said: &str) -> Result<(), Never> {
     let keep = match keep {
         Some(keep) => keep,
         None => return Ok(()),
@@ -437,6 +437,7 @@ fn code(said: Option<&Value>) -> Result<Option<u32>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const ANSWER: &str = r#"{
         "utc_offset_seconds": 7200,
@@ -453,44 +454,51 @@ mod tests {
                   "precipitation_probability_max": [10, 80]}
     }"#;
 
-    fn forecast() -> Forecast {
-        match read(ANSWER) {
-            Ok(Some(forecast)) => forecast,
-            Ok(None) => panic!("the answer should have been read"),
-        }
+    fn forecast() -> Result<Forecast, Box<dyn Error>> {
+        let Ok(read) = read(ANSWER);
+
+        let forecast = read.ok_or("the answer should have been read")?;
+
+        Ok(forecast)
     }
 
     #[test]
-    fn the_temperature_now_is_rounded_to_a_whole_degree() {
-        let now = forecast().now;
+    fn the_temperature_now_is_rounded_to_a_whole_degree() -> Result<(), Box<dyn Error>> {
+        let Forecast { now, .. } = forecast()?;
 
         assert_eq!(now.temperature, Degrees(18));
         assert_eq!(now.feels_like, Degrees(16));
         assert_eq!(now.humidity, Percent(71));
         assert_eq!(now.wind, KilometersPerHour(12));
         assert_eq!(now.code, 2);
+
+        Ok(())
     }
 
     #[test]
-    fn the_hours_start_at_midnight_and_skip_what_has_no_temperature() {
-        let hours = forecast().hours;
+    fn the_hours_start_at_midnight_and_skip_what_has_no_temperature() -> Result<(), Box<dyn Error>> {
+        let Forecast { hours, .. } = forecast()?;
         let temperatures: Vec<Degrees> = hours.iter().map(|hour| hour.temperature).collect();
 
         assert_eq!(temperatures, vec![Degrees(15), Degrees(16), Degrees(18)]);
         assert_eq!(hours.get(2).map(|hour| (hour.rain, hour.code)), Some((None, Some(2))));
+
+        Ok(())
     }
 
     #[test]
-    fn a_time_is_read_on_the_place_own_clock() {
-        let now = forecast().now;
+    fn a_time_is_read_on_the_place_own_clock() -> Result<(), Box<dyn Error>> {
+        let Forecast { now, .. } = forecast()?;
 
         assert_eq!(now.at.hour(), Ok(10));
         assert_eq!(now.at.weekday(), Ok(Weekday::Wednesday));
+
+        Ok(())
     }
 
     #[test]
-    fn the_days_keep_their_low_their_high_and_their_chance_of_rain() {
-        let days = forecast().days;
+    fn the_days_keep_their_low_their_high_and_their_chance_of_rain() -> Result<(), Box<dyn Error>> {
+        let Forecast { days, .. } = forecast()?;
 
         let second = days.get(1).cloned();
 
@@ -499,26 +507,33 @@ mod tests {
             Some((Degrees(10), Degrees(14), Some(Percent(80)), 61))
         );
         assert_eq!(days.first().map(|day| day.at.weekday()), Some(Ok(Weekday::Wednesday)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_forecast_is_fresh_for_half_an_hour_after_the_moment_it_describes() {
-        let forecast = forecast();
+    fn a_forecast_is_fresh_for_half_an_hour_after_the_moment_it_describes() -> Result<(), Box<dyn Error>> {
+        let forecast = forecast()?;
 
-        assert_eq!(forecast.freshness(Unix(1_790_151_300 + 29 * 60)), Ok(Freshness::Fresh));
-        assert_eq!(forecast.freshness(Unix(1_790_151_300 + 30 * 60)), Ok(Freshness::Stale));
+        assert_eq!(forecast.freshness(Unix(1_790_151_300_i64.saturating_add(1_740))), Ok(Freshness::Fresh));
+        assert_eq!(forecast.freshness(Unix(1_790_151_300_i64.saturating_add(1_800))), Ok(Freshness::Stale));
+
+        Ok(())
     }
 
     #[test]
-    fn a_kept_answer_is_read_back_as_the_same_forecast() {
-        let folder = std::env::temp_dir().join(format!("console-weather-{}", std::process::id()));
+    fn a_kept_answer_is_read_back_as_the_same_forecast() -> Result<(), Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh("weather")?;
         let Ok(at) = kept_at(&folder);
+        let expected = forecast()?;
 
-        let Ok(()) = keeping(Some(&at), ANSWER);
+        let Ok(()) = store_cache(Some(&at), ANSWER);
 
-        assert_eq!(kept(&at), Ok(Some(forecast())));
+        assert_eq!(read_cache(&at), Ok(Some(expected)));
         let _ = std::fs::remove_dir_all(&folder);
-        assert_eq!(kept(&at), Ok(None));
+        assert_eq!(read_cache(&at), Ok(None));
+
+        Ok(())
     }
 
     #[test]
@@ -531,7 +546,7 @@ mod tests {
 
     #[test]
     fn the_question_asks_for_times_the_place_can_read() {
-        let Ok(asked) = asking(&Where { latitude: 50.85, longitude: 4.35 });
+        let Ok(asked) = request_url(&Where { latitude: 50.85, longitude: 4.35 });
 
         assert!(asked.contains("latitude=50.8500"), "{asked}");
         assert!(asked.contains("timezone=auto"), "{asked}");

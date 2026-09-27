@@ -190,56 +190,53 @@ impl Surface {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
 
-    fn buffer(width: i32, height: i32) -> RefCell<Vec<u8>> {
-        RefCell::new(vec![0; (width * 4 * height).try_into().unwrap()])
+    type Failure = Box<dyn std::error::Error>;
+
+    const TEN_SQUARE: Size<f64> = Size { width: 10.0, height: 10.0 };
+
+    #[test]
+    fn fill_rectangle_writes_some_non_zero_pixel() -> Result<(), Failure> {
+        let mut bytes = vec![0_u8; 1600];
+        let Ok(made) = Surface::new(&mut bytes, Stride(80), 20, 1.0);
+        let surface = made.ok_or("a surface over the test buffer")?;
+        let Ok(red) = Color::from_hex("ff0000");
+        let Ok(at) = Rectangle::new(Point { x: 5.0, y: 5.0 }, TEN_SQUARE);
+        let Ok(()) = surface.fill_rectangle(red, at, 0);
+
+        drop(surface);
+
+        assert_eq!(
+            bytes.chunks_exact(4).nth(210),
+            Some([0x00, 0x00, 0xff, 0xff].as_slice()),
+            "the pixel at ten across and ten down is red"
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn fill_rectangle_writes_some_non_zero_pixel() {
-        let buffer = buffer(20, 20);
-        {
-            let mut bytes = buffer.borrow_mut();
-            let surface = match Surface::new(&mut bytes, Stride(20 * 4), 20, 1.0) {
-                Ok(Some(surface)) => surface,
-                Ok(None) | Err(_) => panic!("a surface over the test buffer"),
-            };
-            let Ok(red) = Color::from_hex("ff0000");
-            let Ok(at) = Rectangle::new(Point { x: 5.0, y: 5.0 }, Size { width: 10.0, height: 10.0 });
-            let Ok(()) = surface.fill_rectangle(red, at, 0);
-        }
-        let bytes = buffer.borrow();
-        assert_eq!(bytes[10 * 20 * 4 + 10 * 4], 0x00);
-        assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 1], 0x00);
-        assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 2], 0xff);
-        assert_eq!(bytes[10 * 20 * 4 + 10 * 4 + 3], 0xff);
-    }
+    fn clear_makes_the_pixel_transparent() -> Result<(), Failure> {
+        let mut bytes = vec![0_u8; 400];
+        let Ok(made) = Surface::new(&mut bytes, Stride(40), 10, 1.0);
+        let surface = made.ok_or("a surface over the test buffer")?;
+        let Ok(white) = Color::from_hex("ffffff");
+        let Ok(at) = Rectangle::new(Point { x: 0.0, y: 0.0 }, TEN_SQUARE);
+        let Ok(()) = surface.fill_rectangle(white, at, 0);
+        let Ok(()) = surface.clear(at);
 
-    #[test]
-    fn clear_makes_the_pixel_transparent() {
-        let buffer = buffer(10, 10);
-        {
-            let mut bytes = buffer.borrow_mut();
-            let surface = match Surface::new(&mut bytes, Stride(10 * 4), 10, 1.0) {
-                Ok(Some(surface)) => surface,
-                Ok(None) | Err(_) => panic!("a surface over the test buffer"),
-            };
-            let Ok(white) = Color::from_hex("ffffff");
-            let Ok(at) = Rectangle::new(Point { x: 0.0, y: 0.0 }, Size { width: 10.0, height: 10.0 });
-            let Ok(()) = surface.fill_rectangle(white, at, 0);
-            let Ok(()) = surface.clear(at);
-        }
-        let bytes = buffer.borrow();
-        for byte in bytes.iter() {
-            assert_eq!(*byte, 0);
-        }
+        drop(surface);
+
+        assert!(bytes.iter().all(|byte| *byte == 0), "a pixel was left behind");
+
+        Ok(())
     }
 
     #[test]
     fn insetting_past_the_middle_gives_nothing_rather_than_a_backwards_rectangle() {
         let Ok(cell) = Rectangle::new(Point { x: 10.0, y: 10.0 }, Size { width: 8.0, height: 4.0 });
         let Ok(inner) = cell.inset(6.0);
+
         assert_eq!(inner.width, 0.0, "the width went backwards: {inner:?}");
         assert_eq!(inner.height, 0.0, "the height went backwards: {inner:?}");
         assert!(inner.x >= cell.x && inner.y >= cell.y, "the corner moved out: {inner:?}");
@@ -248,16 +245,12 @@ mod tests {
     #[test]
     fn an_inset_comes_off_both_sides() {
         let Ok(rect) = Rectangle::new(Point { x: 0.0, y: 0.0 }, Size { width: 10.0, height: 6.0 });
-        let Ok(inner) = rect.inset(1.0);
-        assert_eq!(Ok(inner), Rectangle::new(Point { x: 1.0, y: 1.0 }, Size { width: 8.0, height: 4.0 }));
+
+        assert_eq!(rect.inset(1.0), Rectangle::new(Point { x: 1.0, y: 1.0 }, Size { width: 8.0, height: 4.0 }));
     }
 
     #[test]
     fn color_from_hex_round_trips_through_a_red_pixel() {
-        let Ok(color) = Color::from_hex("deadbe");
-        assert_eq!(color.0[0], 0xbe);
-        assert_eq!(color.0[1], 0xad);
-        assert_eq!(color.0[2], 0xde);
-        assert_eq!(color.0[3], 0xff);
+        assert_eq!(Color::from_hex("deadbe"), Ok(Color([0xbe, 0xad, 0xde, 0xff])));
     }
 }

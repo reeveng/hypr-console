@@ -90,9 +90,7 @@ pub fn host() -> Result<String, Error> {
     }
 }
 
-const MARK: &str = "@user@";
-
-const PIECES: [&str; 17] = [
+const PIECES: [&str; 18] = [
     "console-input-controller",
     "console-input-keyboard",
     "console-bar",
@@ -105,6 +103,7 @@ const PIECES: [&str; 17] = [
     "console-events",
     "console-home",
     "console-control-center",
+    "console-overview",
     "console-idle",
     "console-warm",
     "console-light",
@@ -198,11 +197,11 @@ enum Pushed {
     None,
 }
 
-fn named<'a>(table: &'a [(&'a str, &'a str)], spoken: &str) -> Result<Option<&'a str>, Never> {
+fn lookup<'a>(table: &'a [(&'a str, &'a str)], spoken: &str) -> Result<Option<&'a str>, Never> {
     Ok(table.iter().find(|(said, _)| *said == spoken).map(|(_, name)| *name))
 }
 
-fn said(table: &[(&str, &str)]) -> Result<String, Never> {
+fn suggestions(table: &[(&str, &str)]) -> Result<String, Never> {
     let every: Vec<&str> = table.iter().map(|(spoken, _)| *spoken).collect();
 
     Ok(format!("try one of {}", every.join(", ")))
@@ -242,7 +241,7 @@ pub enum Way {
 }
 
 impl Level {
-    pub fn went(self, way: Way, from: Level, unsaid: &str) -> CheckResult {
+    pub fn expect_moved(self, way: Way, from: Level, unsaid: &str) -> CheckResult {
         let (was, now) = match (from, self) {
             (Level::At(was), Level::At(now)) => (was, now),
             (Level::Unsaid, _) | (_, Level::Unsaid) => return failed(unsaid.to_string()),
@@ -337,7 +336,7 @@ impl Device {
         };
 
         let said = match said.trim().is_empty() {
-            true => MARK.to_string(),
+            true => console_manifest_migrations::USER.to_string(),
             false => said.trim().to_string(),
         };
 
@@ -352,7 +351,7 @@ impl Device {
         Ok(format!("/home/{whom}"))
     }
 
-    pub fn watching(
+    pub fn set_watching(
         &mut self,
         watching: std::sync::Arc<std::sync::Mutex<crate::watching::Watching>>,
     ) -> Result<(), Never> {
@@ -367,7 +366,7 @@ impl Device {
             None => return Ok(String::new()),
         };
 
-        let Ok(mut held) = crate::watching::held(watching);
+        let Ok(mut held) = crate::watching::lock(watching);
 
         held.tick()
     }
@@ -417,13 +416,13 @@ impl Device {
 
     pub fn user(&mut self, command: &str) -> Result<String, Never> {
         let Ok(whom) = self.whoever();
-        let Ok(quoted) = quoted(command);
+        let Ok(quoted) = shell_quote(command);
         let asked = format!("machinectl shell --uid={whom} .host /bin/sh -c {quoted}");
 
         self.ssh(&asked)
     }
 
-    pub fn told(&mut self, at: &str) -> Result<Vec<console_panel::description::Description>, Never> {
+    pub fn read_descriptions(&mut self, at: &str) -> Result<Vec<console_panel::description::Description>, Never> {
         let Ok(said) = self.in_session(&format!("cat {at} 2>/dev/null"));
 
         Ok(said
@@ -506,12 +505,12 @@ impl Device {
     }
 
     pub fn trigger(&mut self, which: &str, amount: f64) -> CheckResult {
-        let Ok(found) = named(&vocabulary::TRIGGERS, which);
+        let Ok(found) = lookup(&vocabulary::TRIGGERS, which);
 
         let named = match found {
             Some(named) => named,
             None => {
-                let Ok(said) = said(&vocabulary::TRIGGERS);
+                let Ok(said) = suggestions(&vocabulary::TRIGGERS);
 
                 return failed(format!("there is no trigger called {which:?}; {said}"));
             }
@@ -528,12 +527,12 @@ impl Device {
     }
 
     pub fn stick(&mut self, which: &str, to: Point<f64>) -> CheckResult {
-        let Ok(found) = named(&vocabulary::AXES, which);
+        let Ok(found) = lookup(&vocabulary::AXES, which);
 
         let named = match found {
             Some(named) => named,
             None => {
-                let Ok(said) = said(&vocabulary::AXES);
+                let Ok(said) = suggestions(&vocabulary::AXES);
 
                 return failed(format!("there is no stick called {which:?}; {said}"));
             }
@@ -582,7 +581,7 @@ impl Device {
     }
 
     fn axis(&mut self, capability: &str, value: Value<'_>) -> CheckResult {
-        let Ok(quoted) = quoted(capability);
+        let Ok(quoted) = shell_quote(capability);
         let value = value.0;
         let asked = format!(
             "busctl --system call {} {} {} SendEvent sv {quoted} {value} 2>&1",
@@ -610,11 +609,13 @@ impl Device {
     fn tapped(&mut self, asked: &str, otherwise: String) -> CheckResult {
         self.taken = None;
 
-        let Ok(said) = self.ssh(&format!("console-tap {asked} 2>&1"));
+        let Ok(whom) = self.whoever();
+        let Ok(session) = session_environment(&whom);
+        let Ok(said) = self.ssh(&format!("{{ {session} && console-tap {asked}; }} 2>&1"));
 
-        match said.contains("console-tap:") {
-            true => cannot(&format!("{otherwise}: {}", said.trim())),
-            false => Ok(()),
+        match (said.contains("console-tap:"), said.contains("Hyprland session")) {
+            (true, _) | (_, true) => cannot(&format!("{otherwise}: {}", said.trim())),
+            (false, false) => Ok(()),
         }
     }
 
@@ -691,11 +692,10 @@ impl Device {
 
     pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
         let Ok(said) = self.hypr("layers -j");
-        let Ok(read) = answered(console_compositor::Query::Layers, &said);
+        let Ok(read) = parse_answer(console_compositor::Layers, &said);
 
         let surfaces = match read {
-            Some(console_compositor::Answer::Layers(surfaces)) => surfaces,
-            Some(_not_what_was_asked) => return Ok(None),
+            Some(surfaces) => surfaces,
             None => return Ok(None),
         };
 
@@ -724,14 +724,14 @@ impl Device {
     }
 
     pub fn load_profile(&mut self, name: &str) -> Result<(), Never> {
-        let Ok(quoted) = quoted(name);
+        let Ok(quoted) = shell_quote(name);
         let Ok(_) = self.user(&format!("controller-profile {quoted}"));
 
         Ok(())
     }
 
     pub fn exec_cmd(&mut self, command: &str) -> Result<String, Never> {
-        let Ok(quoted) = quoted(&format!("hl.dsp.exec_cmd(\"{command}\")"));
+        let Ok(quoted) = shell_quote(&format!("hl.dsp.exec_cmd(\"{command}\")"));
 
         self.hypr(&format!("dispatch {quoted}"))
     }
@@ -817,7 +817,7 @@ impl Device {
     pub fn go_to(&mut self, workspace: &str) -> Result<Outcome, Never> {
         let wanted = workspace.to_string();
         let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::None);
-        let Ok(quoted) = quoted(&lua);
+        let Ok(quoted) = shell_quote(&lua);
         let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
 
         self.until::<Never>(
@@ -987,12 +987,12 @@ impl Device {
     pub fn types(&mut self, words: &str) -> Result<String, Never> {
         let Ok(whom) = self.whoever();
         let Ok(session) = session_environment(&whom);
-        let Ok(quoted) = quoted(words);
+        let Ok(quoted) = shell_quote(words);
 
         self.user(&format!("{session} && wtype {quoted}"))
     }
 
-    pub fn keyed(&mut self, held: &[&str], key: &str) -> CheckResult {
+    pub fn press_chord(&mut self, held: &[&str], key: &str) -> CheckResult {
         let mut chord = Vec::new();
 
         for one in held.iter().chain(std::iter::once(&key)) {
@@ -1138,7 +1138,7 @@ impl Device {
     }
 
     pub fn files(&mut self, where_: &str) -> Result<Vec<String>, Never> {
-        let Ok(quoted) = quoted(where_);
+        let Ok(quoted) = shell_quote(where_);
         let Ok(said) = self.user(&format!("ls -1 {quoted} 2>/dev/null"));
         let mut found: Vec<String> = said
             .lines()
@@ -1166,9 +1166,8 @@ impl Device {
 
         let mut named = Vec::new();
 
-        let surfaces = match console_compositor::answer_of(console_compositor::Query::Layers, found) {
-            Ok(console_compositor::Answer::Layers(surfaces)) => surfaces,
-            Ok(_not_what_was_asked) => Vec::new(),
+        let surfaces = match console_compositor::said_of(console_compositor::Layers, found) {
+            Ok(surfaces) => surfaces,
             Err(_unreadable) => Vec::new(),
         };
 
@@ -1203,7 +1202,7 @@ impl Device {
         let Ok(rounds) = toward_zero_u32(seconds / 0.5);
 
         for _ in 0..rounds {
-            let Ok(stop) = crate::stopping::asked();
+            let Ok(stop) = crate::stopping::stop_state();
 
             match stop {
                 crate::stopping::Stop::Requested => return Ok(Outcome::RanOut),
@@ -1230,7 +1229,7 @@ impl Device {
         Ok(Outcome::RanOut)
     }
 
-    pub fn stepped(&mut self, button: &str, reading: fn(&mut Self) -> Result<Level, Never>) -> Result<Level, Never> {
+    pub fn press_and_wait(&mut self, button: &str, reading: fn(&mut Self) -> Result<Level, Never>) -> Result<Level, Never> {
         let Ok(was) = reading(self);
         let Ok(()) = self.press(button);
         let Ok(_) = self.changed(reading, &was, PATIENCE);
@@ -1258,11 +1257,11 @@ impl Device {
         )
     }
 
-    pub fn drawn(&mut self, seconds: f64) -> Result<Outcome, Never> {
+    pub fn wait_for_menu(&mut self, seconds: f64) -> Result<Outcome, Never> {
         self.until(menus_up, seconds)
     }
 
-    pub fn closed(&mut self, seconds: f64) -> Result<Outcome, Never> {
+    pub fn wait_for_close(&mut self, seconds: f64) -> Result<Outcome, Never> {
         self.until(
             |seen| {
                 let Ok(up) = menus_up(seen);
@@ -1274,7 +1273,7 @@ impl Device {
     }
 
     pub fn frame_cache(&mut self, picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
-        let Ok(quoted) = quoted(picture);
+        let Ok(quoted) = shell_quote(picture);
         let Ok(said) = self.user(&format!(
             "find ~/.cache/awww -type f -exec stat -c %Y {{}} + 2>/dev/null \
              | sort -n | tail -1; echo --; stat -c %Y {quoted} 2>/dev/null"
@@ -1331,9 +1330,7 @@ impl Device {
                     Outcome::RanOut => return Err(Error::DeviceWroteNoPicture),
                 }
 
-                let here =
-                    std::env::temp_dir().join(format!("console-shot-{}", std::process::id()));
-                std::fs::create_dir_all(&here).map_err(Error::Machine)?;
+                let here = console_core_temporary_directories::fresh("shot").map_err(Error::Scratch)?;
                 let shot = here.join("screen.png");
                 let Ok(mut fetching) = Program::Scp.command();
 
@@ -1361,14 +1358,14 @@ impl Device {
     }
 
     pub fn color(&mut self, at: Point<f64>) -> Result<String, Error> {
-        let screen = self.showing()?;
+        let screen = self.current_screen()?;
         let Ok(logical) = screen.logical();
         let picture = self.picture()?;
 
         where_(picture, at, logical)
     }
 
-    fn showing(&mut self) -> Result<console_screen::Screen, Error> {
+    fn current_screen(&mut self) -> Result<console_screen::Screen, Error> {
         match self.screen {
             Some(known) => Ok(known),
             None => {
@@ -1384,6 +1381,19 @@ impl Device {
                 Ok(screen)
             },
         }
+    }
+
+    pub fn standing(&mut self) -> Result<console_screen::Shape, Never> {
+        let Ok(shown) = self.shown();
+
+        Ok(match shown {
+            Some(screen) => {
+                let Ok(shape) = screen.shape();
+
+                shape
+            }
+            None => console_screen::Shape::Wider,
+        })
     }
 
     fn shown(&mut self) -> Result<Option<console_screen::Screen>, Never> {
@@ -1441,7 +1451,7 @@ impl Device {
             }
 
             let Ok(()) = self.press("b");
-            let Ok(_closed) = self.closed(A_MOMENT);
+            let Ok(_closed) = self.wait_for_close(A_MOMENT);
         }
 
         let Ok(profile) = self.profile();
@@ -1519,7 +1529,7 @@ fn address(client: &serde_json::Value) -> Result<Option<String>, Never> {
     Ok(client.get("address").and_then(|address| address.as_str()).map(str::to_string))
 }
 
-fn answered(question: console_compositor::Query, said: &str) -> Result<Option<console_compositor::Answer>, Never> {
+fn parse_answer<Q: console_compositor::Question>(question: Q, said: &str) -> Result<Option<Q::Reply>, Never> {
     Ok(match console_compositor::read(question, said) {
         Ok(answer) => Some(answer),
         Err(why) => {
@@ -1541,7 +1551,7 @@ fn read(said: &str) -> Result<Option<serde_json::Value>, Never> {
     })
 }
 
-pub fn quoted(said: &str) -> Result<String, Never> {
+pub fn shell_quote(said: &str) -> Result<String, Never> {
     Ok(format!("'{}'", said.replace('\'', r"'\''")))
 }
 
@@ -1549,7 +1559,7 @@ fn chord(capabilities: &[String]) -> Result<String, Never> {
     let mut words = vec![format!("as {}", capabilities.len())];
 
     for one in capabilities {
-        let Ok(one) = quoted(one);
+        let Ok(one) = shell_quote(one);
 
         words.push(one);
     }
@@ -1564,33 +1574,22 @@ fn calling(chord: &str) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn dry_run() -> Device {
-        Device::new("root@handheld", DryRun::Pretend).expect("a stage")
+    fn dry() -> Result<Device, crate::Error> {
+        Device::new("root@handheld", DryRun::Pretend)
     }
 
-    fn root() -> std::path::PathBuf {
+    fn root() -> Result<std::path::PathBuf, Never> {
         let Ok(root) = crate::root();
 
-        root
-    }
-
-    fn quoted(word: &str) -> String {
-        let Ok(quoted) = super::quoted(word);
-
-        quoted
-    }
-
-    fn capability_under(profile: Option<&Profile>, button: &str) -> Option<String> {
-        let Ok(capability) = super::capability_under(profile, button);
-
-        capability
+        Ok(root)
     }
 
     #[test]
-    fn the_pieces_asked_about_are_the_ones_the_manifest_enables() {
-        let held = std::fs::read_to_string(root().join("desktop.conf"))
-            .expect("the manifest");
+    fn the_pieces_asked_about_are_the_ones_the_manifest_enables() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(root) = root();
+        let held = std::fs::read_to_string(root.join("desktop.conf"))?;
 
         let Ok(services) =
             console_core_ini_files::lines(&held, console_core_ini_files::Under("services"));
@@ -1609,27 +1608,31 @@ mod tests {
             named, wanted,
             "the desktop the manifest enables is not the desktop the checks ask about"
         );
+
+        Ok(())
     }
 
     #[test]
     fn a_word_with_a_quote_in_it_is_still_one_word() {
-        assert_eq!(quoted("plain"), "'plain'");
-        assert_eq!(quoted("it's"), r"'it'\''s'");
+        assert_eq!(super::shell_quote("plain"), Ok("'plain'".to_string()));
+        assert_eq!(super::shell_quote("it's"), Ok(r"'it'\''s'".to_string()));
     }
 
     #[test]
     fn a_chord_says_how_many_it_is_before_it_says_what_they_are() {
-        let Ok(said) = super::chord(&["Gamepad:Button:South".to_string()]);
-        assert_eq!(said, "as 1 'Gamepad:Button:South'");
+        assert_eq!(super::chord(&["Gamepad:Button:South".to_string()]), Ok("as 1 'Gamepad:Button:South'".to_string()));
     }
 
     #[test]
-    fn a_key_under_a_modifier_is_the_modifier_and_then_the_key() {
+    fn a_key_under_a_modifier_is_the_modifier_and_then_the_key() -> Result<(), Box<dyn Error>> {
         let Ok(one) = vocabulary::key_capability("super");
         let Ok(other) = vocabulary::key_capability("i");
-        let Ok(said) = super::chord(&[one.expect("a modifier"), other.expect("a letter")]);
+        let one = one.ok_or("a modifier")?;
+        let other = other.ok_or("a letter")?;
 
-        assert_eq!(said, "as 2 'Keyboard:KeyLeftMeta' 'Keyboard:KeyI'");
+        assert_eq!(super::chord(&[one, other]), Ok("as 2 'Keyboard:KeyLeftMeta' 'Keyboard:KeyI'".to_string()));
+
+        Ok(())
     }
 
     #[test]
@@ -1639,30 +1642,39 @@ mod tests {
     }
 
     #[test]
-    fn a_button_is_sent_as_what_the_loaded_profile_makes_of_it() {
-        let profiles = every_profile(&root()).expect("the profiles");
+    fn a_button_is_sent_as_what_the_loaded_profile_makes_of_it() -> Result<(), Box<dyn Error>> {
+        let Ok(root) = root();
+        let profiles = every_profile(&root)?;
         assert_eq!(
             capability_under(profiles.get("router"), "right-paddle-top"),
-            Some("Keyboard:KeyF15".to_string())
+            Ok(Some("Keyboard:KeyF15".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_button_that_means_nothing_in_a_picker_is_still_sent() {
-        let profiles = every_profile(&root()).expect("the profiles");
+    fn a_button_that_means_nothing_in_a_picker_is_still_sent() -> Result<(), Box<dyn Error>> {
+        let Ok(root) = root();
+        let profiles = every_profile(&root)?;
         assert_eq!(
             capability_under(profiles.get("router"), "view"),
-            Some("Gamepad:Button:Select".to_string())
+            Ok(Some("Gamepad:Button:Select".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_button_a_profile_says_nothing_about_is_sent_as_itself() {
-        let profiles = every_profile(&root()).expect("the profiles");
+    fn a_button_a_profile_says_nothing_about_is_sent_as_itself() -> Result<(), Box<dyn Error>> {
+        let Ok(root) = root();
+        let profiles = every_profile(&root)?;
         assert_eq!(
             capability_under(profiles.get("game"), "a"),
-            Some("Gamepad:Button:South".to_string())
+            Ok(Some("Gamepad:Button:South".to_string()))
         );
+
+        Ok(())
     }
 
     #[test]
@@ -1687,10 +1699,12 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_sent_on_a_dry_run() {
-        let mut device = dry_run();
-        device.press("a");
+    fn nothing_is_sent_on_a_dry_run() -> Result<(), Box<dyn Error>> {
+        let mut device = dry()?;
+        let Ok(()) = device.press("a");
         assert!(!device.done.is_empty(), "the command is still read");
+
+        Ok(())
     }
 
     #[test]

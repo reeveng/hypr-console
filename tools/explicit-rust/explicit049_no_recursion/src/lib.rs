@@ -38,7 +38,7 @@ use clippy_utils::diagnostics::span_lint_hir_and_then;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::{CaptureBy, Expr, ExprKind, HirId, Node};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Instance;
 use rustc_span::Span;
 
@@ -98,10 +98,6 @@ impl Default for Explicit049NoRecursion {
     }
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // A trait method named through the trait is followed to the impl the types
 // choose, where they choose one. Where they do not -- a generic caller -- the
 // trait's own method is the edge, which finds nothing, and that is the honest
@@ -159,10 +155,6 @@ fn standing_in(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<LocalDefId> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit049NoRecursion {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }
@@ -185,10 +177,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit049NoRecursion {
     }
 
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         for one in self.written.iter() {
             let caller = &one.caller;
 

@@ -53,7 +53,7 @@ pub enum Urgency {
 }
 
 impl Urgency {
-    fn named(said: Option<&str>) -> Result<Self, Never> {
+    fn parse(said: Option<&str>) -> Result<Self, Never> {
         Ok(match said {
             Some("low") => Urgency::Low,
             Some("critical") => Urgency::Critical,
@@ -140,9 +140,9 @@ pub fn whole(said: &str) -> Result<Inbox, Never> {
     Ok(Inbox { waiting, earlier, do_not_disturb })
 }
 
-pub fn written(whole: &Inbox) -> Result<String, Never> {
-    let Ok(waiting) = spelled(&whole.waiting);
-    let Ok(earlier) = spelled(&whole.earlier);
+pub fn serialize(whole: &Inbox) -> Result<String, Never> {
+    let Ok(waiting) = to_stored(&whole.waiting);
+    let Ok(earlier) = to_stored(&whole.earlier);
     let Ok(do_not_disturb) = whole.do_not_disturb.said();
 
     let kept = StoredInbox { waiting, earlier, do_not_disturb: Some(do_not_disturb.to_string()) };
@@ -153,7 +153,7 @@ pub fn written(whole: &Inbox) -> Result<String, Never> {
     })
 }
 
-fn spelled(held: &[Notification]) -> Result<Vec<StoredNotification>, Never> {
+fn to_stored(held: &[Notification]) -> Result<Vec<StoredNotification>, Never> {
     let mut every: Vec<StoredNotification> = Vec::new();
 
     for notification in held {
@@ -187,7 +187,7 @@ fn every(held: Vec<StoredNotification>) -> Result<Vec<Notification>, Never> {
         let Ok(application) = word(said.application_name);
         let Ok(summary) = word(said.summary);
         let Ok(body) = word(said.body);
-        let Ok(urgency) = Urgency::named(said.urgency.as_deref());
+        let Ok(urgency) = Urgency::parse(said.urgency.as_deref());
 
         every.push(Notification { id: said.id, application, summary, body, urgency });
     }
@@ -243,14 +243,17 @@ mod tests {
     const NONE: &str = "[\n]";
 
     #[test]
-    fn what_is_being_held_is_read_whole() {
+    fn what_is_being_held_is_read_whole() -> Result<(), &'static str> {
         let Ok(held) = read(TWO);
+        let fell_over = held.first().ok_or("nothing was read")?;
 
         assert_eq!(held.len(), 2);
-        assert_eq!(held[0].id, 4);
-        assert_eq!(held[0].summary, "Notifications fell over");
-        assert_eq!(held[0].body, "console-notify.service stopped");
-        assert_eq!(held[0].application, "Console");
+        assert_eq!(fell_over.id, 4);
+        assert_eq!(fell_over.summary, "Notifications fell over");
+        assert_eq!(fell_over.body, "console-notify.service stopped");
+        assert_eq!(fell_over.application, "Console");
+
+        Ok(())
     }
 
     #[test]
@@ -261,12 +264,15 @@ mod tests {
     }
 
     #[test]
-    fn a_fault_says_it_is_one_and_nothing_else_does() {
+    fn a_fault_says_it_is_one_and_nothing_else_does() -> Result<(), &'static str> {
         let Ok(held) = read(TWO);
+        let [fault, listening] = held.first_chunk::<2>().ok_or("two were not read")?;
 
-        assert_eq!(held[0].wrong(), Ok(Error::Yes));
-        assert_eq!(held[1].wrong(), Ok(Error::No));
-        assert_eq!(held[0].urgency.says(), Ok("Urgent"));
+        assert_eq!(fault.wrong(), Ok(Error::Yes));
+        assert_eq!(listening.wrong(), Ok(Error::No));
+        assert_eq!(fault.urgency.says(), Ok("Urgent"));
+
+        Ok(())
     }
 
     #[test]
@@ -277,20 +283,26 @@ mod tests {
     }
 
     #[test]
-    fn a_notification_with_nothing_in_it_is_still_one() {
+    fn a_notification_with_nothing_in_it_is_still_one() -> Result<(), &'static str> {
         let bare = r#"[{"id":9,"app_name":null,"summary":null,"body":null,"urgency":null}]"#;
         let Ok(held) = read(bare);
+        let one = held.first().ok_or("nothing was read")?;
 
         assert_eq!(held.len(), 1);
-        assert_eq!(held[0].urgency, Urgency::Normal);
-        assert_eq!(held[0].says(), Ok("Notification 9".to_string()));
+        assert_eq!(one.urgency, Urgency::Normal);
+        assert_eq!(one.says(), Ok("Notification 9".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_notification_with_no_summary_is_named_by_its_body() {
+    fn a_notification_with_no_summary_is_named_by_its_body() -> Result<(), &'static str> {
         let Ok(held) = read(r#"[{"id":2,"summary":"","body":"the microphone is on"}]"#);
+        let one = held.first().ok_or("nothing was read")?;
 
-        assert_eq!(held[0].says(), Ok("the microphone is on".to_string()));
+        assert_eq!(one.says(), Ok("the microphone is on".to_string()));
+
+        Ok(())
     }
 
     #[test]
@@ -310,7 +322,7 @@ mod tests {
         );
 
         assert_eq!(whole.waiting.len(), 1);
-        assert_eq!(whole.waiting[0].body, "and its body");
+        assert_eq!(whole.waiting.first().map(|one| one.body.as_str()), Some("and its body"));
         assert_eq!(whole.earlier.len(), 1);
         assert_eq!(whole.do_not_disturb, DoNotDisturb::On);
     }
@@ -319,15 +331,11 @@ mod tests {
     fn what_is_written_is_what_is_read_back() {
         let Ok(held) = read(TWO);
         let whole = Inbox { waiting: held.clone(), earlier: Vec::new(), do_not_disturb: DoNotDisturb::Off };
-        let Ok(written) = written(&whole);
-        let Ok(back) = whole_of(&written);
+        let Ok(written) = serialize(&whole);
+        let Ok(back) = super::whole(&written);
 
+        assert_eq!(back.waiting.first().map(|one| one.urgency), Some(Urgency::Critical));
         assert_eq!(back, whole);
-        assert_eq!(back.waiting[0].urgency, Urgency::Critical);
-    }
-
-    fn whole_of(said: &str) -> Result<Inbox, Never> {
-        whole(said)
     }
 
     #[test]
@@ -342,7 +350,7 @@ mod tests {
     #[test]
     fn a_daemon_that_is_quiet_says_so_in_the_file() {
         let quiet = Inbox { do_not_disturb: DoNotDisturb::On, ..Inbox::default() };
-        let Ok(written) = written(&quiet);
+        let Ok(written) = serialize(&quiet);
 
         assert!(written.contains("held-back"), "{written}");
     }

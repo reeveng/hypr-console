@@ -80,13 +80,13 @@ pub struct Generation {
 }
 
 impl Generation {
-    pub fn said(&self) -> Result<String, Never> {
+    pub fn serialize(&self) -> Result<String, Never> {
         let Ok(word) = self.state.word();
 
         Ok(format!("{} {word}\n", self.commit))
     }
 
-    pub fn named(&self) -> Result<String, Never> {
+    pub fn label(&self) -> Result<String, Never> {
         Ok(format!("{} ({})", self.number, self.commit))
     }
 
@@ -184,7 +184,7 @@ pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
 pub fn remember(at: &Path, generation: &Generation) -> Result<(), Unapplied> {
     std::fs::create_dir_all(at).map_err(|fault| Unapplied::Making(at.to_path_buf(), fault))?;
 
-    let Ok(said) = generation.said();
+    let Ok(said) = generation.serialize();
 
     console_core_atomic_writes::whole(&at.join(generation.number.to_string()), said.as_bytes())
         .map_err(Unapplied::Wrote)
@@ -194,20 +194,22 @@ pub fn remember(at: &Path, generation: &Generation) -> Result<(), Unapplied> {
 mod tests {
     use super::*;
 
-    fn started(number: u32, commit: &str) -> Generation {
-        Generation { number, commit: commit.to_string(), state: State::Started }
+    fn started(number: u32, commit: &str) -> Result<Generation, Never> {
+        Ok(Generation { number, commit: commit.to_string(), state: State::Started })
     }
 
     #[test]
     fn a_machine_that_has_never_applied_gets_the_first_generation() {
         let Ok(next) = next(&[], Commit("a1b2c3d"));
 
-        assert_eq!(next, started(1, "a1b2c3d"));
+        assert_eq!(Ok(next), started(1, "a1b2c3d"));
     }
 
     #[test]
     fn the_next_generation_is_one_past_the_highest_and_not_one_past_the_last_read() {
-        let kept = vec![started(7, "a1b2c3d"), started(2, "0ff0ff0")];
+        let Ok(seventh) = started(7, "a1b2c3d");
+        let Ok(second) = started(2, "0ff0ff0");
+        let kept = vec![seventh, second];
         let Ok(next) = next(&kept, Commit("beefbee"));
 
         assert_eq!(next.number, 8);
@@ -222,7 +224,8 @@ mod tests {
 
     #[test]
     fn an_apply_that_reached_the_end_leaves_nothing_unfinished() {
-        let Ok(done) = started(3, "a1b2c3d").finished();
+        let Ok(third) = started(3, "a1b2c3d");
+        let Ok(done) = third.finished();
         let kept = [done];
         let Ok(unfinished) = unfinished(&kept);
 
@@ -231,16 +234,19 @@ mod tests {
 
     #[test]
     fn an_apply_that_stopped_partway_is_the_generation_that_never_finished() {
-        let kept = [started(3, "a1b2c3d")];
+        let Ok(third) = started(3, "a1b2c3d");
+        let kept = [third.clone()];
         let Ok(unfinished) = unfinished(&kept);
 
-        assert_eq!(unfinished, Some(&started(3, "a1b2c3d")));
+        assert_eq!(unfinished, Some(&third));
     }
 
     #[test]
     fn an_older_generation_that_never_finished_is_not_what_is_running() {
-        let Ok(done) = started(4, "beefbee").finished();
-        let kept = vec![started(3, "a1b2c3d"), done];
+        let Ok(fourth) = started(4, "beefbee");
+        let Ok(third) = started(3, "a1b2c3d");
+        let Ok(done) = fourth.finished();
+        let kept = vec![third, done];
         let Ok(unfinished) = unfinished(&kept);
 
         assert_eq!(unfinished, None);
@@ -248,9 +254,10 @@ mod tests {
 
     #[test]
     fn what_was_written_is_what_is_read_back() {
-        let Ok(done) = started(12, "a1b2c3d").finished();
-        let Ok(said) = done.said();
-        let Ok(read) = one(12, &said);
+        let Ok(twelfth) = started(12, "a1b2c3d");
+        let Ok(done) = twelfth.finished();
+        let Ok(serialize) = done.serialize();
+        let Ok(read) = one(12, &serialize);
 
         assert_eq!(read, done);
     }
@@ -259,6 +266,6 @@ mod tests {
     fn a_word_nothing_here_wrote_is_an_apply_that_did_not_finish() {
         let Ok(read) = one(12, "a1b2c3d confirmed\n");
 
-        assert_eq!(read, started(12, "a1b2c3d"));
+        assert_eq!(Ok(read), started(12, "a1b2c3d"));
     }
 }

@@ -59,7 +59,7 @@ pub enum Axis {
 }
 
 impl Touch {
-    pub fn touched(&mut self, down: ButtonPress, now: f64) -> Result<Vec<Effect>, Never> {
+    pub fn handle_press(&mut self, down: ButtonPress, now: f64) -> Result<Vec<Effect>, Never> {
         match down {
             ButtonPress::Down => {
                 *self = Touch {
@@ -120,7 +120,7 @@ impl Touch {
         Ok(())
     }
 
-    pub fn carried(&mut self) -> Result<Vec<Effect>, Never> {
+    pub fn flush_motion(&mut self) -> Result<Vec<Effect>, Never> {
         let (mut across, mut down) = self.moved;
         self.moved = (0, 0);
 
@@ -164,86 +164,90 @@ impl Touch {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
     #[test]
     fn a_quick_touch_that_stayed_still_is_a_click() {
         let mut finger = Touch::default();
-        assert!(ok(finger.touched(ButtonPress::Down, 1000.0)).is_empty());
-        assert_eq!(ok(finger.touched(ButtonPress::Up, 1000.1)), ok(click()));
+
+        assert_eq!(finger.handle_press(ButtonPress::Down, 1000.0), Ok(Vec::new()));
+        assert_eq!(finger.handle_press(ButtonPress::Up, 1000.1), click());
     }
 
     #[test]
     fn a_touch_that_lingered_is_not_a_click() {
         let mut finger = Touch::default();
-        ok(finger.touched(ButtonPress::Down, 1000.0));
-        assert!(ok(finger.touched(ButtonPress::Up, 1000.0 + TAP_SECONDS + 0.01)).is_empty());
+        let Ok(_) = finger.handle_press(ButtonPress::Down, 1000.0);
+
+        assert_eq!(finger.handle_press(ButtonPress::Up, 1000.0 + TAP_SECONDS + 0.01), Ok(Vec::new()));
     }
 
     #[test]
     fn a_touch_that_travelled_is_not_a_click() {
         let mut finger = Touch::default();
-        ok(finger.touched(ButtonPress::Down, 1000.0));
-        ok(finger.at(Axis::Sideways, 0));
-        ok(finger.at(Axis::Sideways, TAP_TRAVEL + 1));
-        assert!(ok(finger.touched(ButtonPress::Up, 1000.1)).is_empty());
+        let Ok(_) = finger.handle_press(ButtonPress::Down, 1000.0);
+        let Ok(()) = finger.at(Axis::Sideways, 0);
+        let Ok(()) = finger.at(Axis::Sideways, TAP_TRAVEL.saturating_add(1));
+
+        assert_eq!(finger.handle_press(ButtonPress::Up, 1000.1), Ok(Vec::new()));
     }
 
     #[test]
     fn the_first_report_of_a_touch_moves_nothing() {
         let mut finger = Touch::default();
-        ok(finger.touched(ButtonPress::Down, 1000.0));
-        ok(finger.at(Axis::Sideways, 800));
-        assert!(ok(finger.carried()).is_empty());
+        let Ok(_) = finger.handle_press(ButtonPress::Down, 1000.0);
+        let Ok(()) = finger.at(Axis::Sideways, 800);
+
+        assert_eq!(finger.flush_motion(), Ok(Vec::new()));
     }
 
     #[test]
     fn a_finger_that_moved_moves_the_pointer_by_the_gain() {
         let mut finger = Touch::default();
-        ok(finger.touched(ButtonPress::Down, 1000.0));
-        ok(finger.at(Axis::Sideways, 100));
-        ok(finger.at(Axis::Sideways, 200));
-        assert_eq!(
-            ok(finger.carried()),
-            [Effect::Frame(vec![
-                ok(Output::relative(RelativeAxisCode::REL_X.0, (100.0 * GAIN) as i32)),
-                ok(Output::relative(RelativeAxisCode::REL_Y.0, 0)),
-            ])]
-        );
+        let Ok(_) = finger.handle_press(ButtonPress::Down, 1000.0);
+        let Ok(()) = finger.at(Axis::Sideways, 100);
+        let Ok(()) = finger.at(Axis::Sideways, 200);
+        let Ok(travelled) = console_core_number_conversion::toward_zero_i32(100.0 * GAIN);
+        let Ok(across) = Output::relative(RelativeAxisCode::REL_X.0, travelled);
+        let Ok(down) = Output::relative(RelativeAxisCode::REL_Y.0, 0);
+
+        assert_eq!(finger.flush_motion(), Ok(vec![Effect::Frame(vec![across, down])]));
     }
 
     #[test]
     fn what_the_gain_leaves_behind_is_kept() {
         let mut finger = Touch::default();
-        ok(finger.touched(ButtonPress::Down, 1000.0));
-        ok(finger.at(Axis::Sideways, 0));
-        let over: u32 = (1..=4)
-            .map(|step| {
-                ok(finger.at(Axis::Sideways, step));
-                u32::try_from(ok(finger.carried()).len()).unwrap()
-            })
-            .sum();
-        assert!(over > 0, "four units at a gain of {GAIN} is more than one pixel");
+        let Ok(_) = finger.handle_press(ButtonPress::Down, 1000.0);
+        let Ok(()) = finger.at(Axis::Sideways, 0);
+        let mut over: Vec<Effect> = Vec::new();
+
+        for step in 1..=4 {
+            let Ok(()) = finger.at(Axis::Sideways, step);
+            let Ok(carried) = finger.flush_motion();
+
+            over.extend(carried);
+        }
+
+        assert!(!over.is_empty(), "four units at a gain of {GAIN} is more than one pixel");
     }
 
     #[test]
     fn pressing_the_pad_in_holds_the_button_down() {
         let mut finger = Touch::default();
-        assert_eq!(ok(finger.pressed(1)), [Effect::Frame(vec![ok(Output::key(KeyCode::BTN_LEFT.0, 1))])]);
+        let Ok(clicked) = Output::key(KeyCode::BTN_LEFT.0, 1);
+
+        assert_eq!(finger.pressed(1), Ok(vec![Effect::Frame(vec![clicked])]));
         assert!(finger.held);
-        ok(finger.pressed(0));
+
+        let Ok(_) = finger.pressed(0);
+
         assert!(!finger.held);
     }
 
     #[test]
     fn a_report_with_no_finger_down_is_nothing() {
         let mut finger = Touch::default();
-        ok(finger.at(Axis::Sideways, 500));
-        ok(finger.at(Axis::Sideways, 900));
-        assert!(ok(finger.carried()).is_empty());
+        let Ok(()) = finger.at(Axis::Sideways, 500);
+        let Ok(()) = finger.at(Axis::Sideways, 900);
+
+        assert_eq!(finger.flush_motion(), Ok(Vec::new()));
     }
 }

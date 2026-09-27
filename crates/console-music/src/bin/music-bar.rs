@@ -28,6 +28,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 use console_music::player;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_program_contract::Topic;
 use console_panel::door::{Up, is_open};
@@ -47,21 +48,20 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut last = String::new();
+    let Ok(opening) = subscribe();
 
-    let Ok(opening) = listening();
-
-    loop {
+    let ended = console_core_iteration::iterate(String::new(), |last| {
         let Ok(said) = line(&icon);
 
-        match said == last {
-            true => {},
+        let last = match said == last {
+            true => last,
             false => {
                 println!("{said}");
                 let _ = std::io::stdout().flush();
-                last = said;
+
+                said
             }
-        }
+        };
 
         match opening.recv_timeout(EVERY) {
             Ok(()) | Err(RecvTimeoutError::Timeout) => (),
@@ -74,10 +74,21 @@ fn main() -> ExitCode {
             )]
             Err(RecvTimeoutError::Disconnected) => std::thread::sleep(EVERY),
         }
+
+        Ok(Step::<String, Never>::Again(last))
+    });
+
+    match ended {
+        Ok(never) => match never {},
+        Err(endless) => {
+            eprintln!("music-bar: {endless}");
+
+            ExitCode::FAILURE
+        }
     }
 }
 
-fn listening() -> Result<std::sync::mpsc::Receiver<()>, Never> {
+fn subscribe() -> Result<std::sync::mpsc::Receiver<()>, Never> {
     let (say, heard) = channel();
 
     let Ok(()) = console_events::again::layers(say.clone());
@@ -107,11 +118,11 @@ fn line(icon: &str) -> Result<String, Never> {
         }
     };
     let worn: Vec<&str> = std::iter::once(class).chain(lit).collect();
-    let quoted = quoted(&mark)?;
+    let quoted = json_string(&mark)?;
 
     Ok(format!(r#"{{"text": {}, "class": {}}}"#, quoted, serde_json::Value::from(worn)))
 }
 
-fn quoted(said: &str) -> Result<String, Never> {
+fn json_string(said: &str) -> Result<String, Never> {
     Ok(serde_json::Value::String(said.to_string()).to_string())
 }

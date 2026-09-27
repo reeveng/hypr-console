@@ -31,7 +31,7 @@ pub fn read(said: &str) -> Result<Option<Stamp>, Never> {
     })
 }
 
-pub fn written(stamp: &Stamp) -> Result<String, Never> {
+pub fn format_stamp(stamp: &Stamp) -> Result<String, Never> {
     Ok(format!("{} {}\n", stamp.hash, stamp.version))
 }
 
@@ -55,7 +55,7 @@ pub fn next(was: Option<&str>) -> Result<String, Never> {
     })
 }
 
-pub fn packed(bytes: &[u8]) -> Result<Option<String>, Never> {
+pub fn version_of(bytes: &[u8]) -> Result<Option<String>, Never> {
     let text = String::from_utf8_lossy(bytes);
 
     let rest = match text.split_once("\"version\": \"") {
@@ -77,55 +77,36 @@ pub fn packed(bytes: &[u8]) -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn read(said: &str) -> Option<Stamp> {
-        let Ok(stamp) = super::read(said);
-
-        stamp
-    }
-
-    fn written(stamp: &Stamp) -> String {
-        let Ok(said) = super::written(stamp);
-
-        said
-    }
-
-    fn next(was: Option<&str>) -> String {
-        let Ok(said) = super::next(was);
-
-        said
-    }
-
-    fn packed(bytes: &[u8]) -> Option<String> {
-        let Ok(said) = super::packed(bytes);
-
-        said
-    }
+    use std::error::Error;
 
     #[test]
-    fn a_note_is_what_was_packed_and_what_it_was_called() {
-        let stamp = read("abc123 1.0.4\n").expect("a note");
+    fn a_note_is_what_was_packed_and_what_it_was_called() -> Result<(), Box<dyn Error>> {
+        let Ok(stamp) = read("abc123 1.0.4\n");
+        let stamp = stamp.ok_or("a note")?;
+
         assert_eq!(stamp.hash, "abc123");
         assert_eq!(stamp.version, "1.0.4");
-        assert_eq!(written(&stamp), "abc123 1.0.4\n");
+        assert_eq!(format_stamp(&stamp), Ok("abc123 1.0.4\n".to_string()));
+
+        Ok(())
     }
 
     #[test]
     fn a_note_that_says_nothing_is_no_note_at_all() {
-        assert_eq!(read(""), None);
-        assert_eq!(read("abc123"), None);
+        assert_eq!(read(""), Ok(None));
+        assert_eq!(read("abc123"), Ok(None));
     }
 
     #[test]
     fn the_next_version_is_the_last_number_and_one() {
-        assert_eq!(next(Some("1.0.9")), "1.0.10");
-        assert_eq!(next(Some("2.3.99")), "2.3.100");
+        assert_eq!(next(Some("1.0.9")), Ok("1.0.10".to_string()));
+        assert_eq!(next(Some("2.3.99")), Ok("2.3.100".to_string()));
     }
 
     #[test]
     fn nothing_to_go_up_from_starts_at_the_first_one() {
-        assert_eq!(next(None), FIRST);
-        assert_eq!(next(Some("what")), FIRST);
+        assert_eq!(next(None), Ok(FIRST.to_string()));
+        assert_eq!(next(Some("what")), Ok(FIRST.to_string()));
     }
 
     #[test]
@@ -133,11 +114,12 @@ mod tests {
         let palette = crate::source::Palette(":root { --pink: #ffb5e2; }");
         let Ok(files) = crate::source::every("1.2.3", palette);
         let Ok(held) = crate::pack::zip(&files);
-        assert_eq!(packed(&held).as_deref(), Some("1.2.3"));
+
+        assert_eq!(version_of(&held), Ok(Some("1.2.3".to_string())));
     }
 
     #[test]
     fn an_archive_that_is_not_ours_says_nothing_about_a_version() {
-        assert_eq!(packed(b"PK\x03\x04 and nothing else"), None);
+        assert_eq!(version_of(b"PK\x03\x04 and nothing else"), Ok(None));
     }
 }

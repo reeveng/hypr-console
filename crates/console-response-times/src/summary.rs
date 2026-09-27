@@ -132,7 +132,7 @@ fn stretches(entries: &[&Entry]) -> Result<Vec<(String, Spread)>, Never> {
     Ok(all)
 }
 
-pub fn told(about: &About) -> Result<String, Never> {
+pub fn summarize(about: &About) -> Result<String, Never> {
     let Ok(middle) = milliseconds(about.waited.middle);
     let Ok(worst) = milliseconds(about.waited.worst);
     let slow = match about.waited.high {
@@ -184,30 +184,37 @@ pub fn told(about: &About) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn waits(milliseconds: &[u64]) -> Vec<Duration> {
-        milliseconds.iter().map(|each| Duration::from_millis(*each)).collect()
+    type Opening<'a> = (&'a str, u64, &'a [(&'a str, u64)]);
+
+    fn waits(milliseconds: &[u64]) -> Result<Vec<Duration>, Never> {
+        Ok(milliseconds.iter().map(|each| Duration::from_millis(*each)).collect())
     }
 
-    fn opening(who: &str, waited: u64, marks: &[(&str, u64)]) -> Entry {
-        Entry {
-            at: 0,
-            up: 0.0,
-            load: 0.0,
-            who: who.to_string(),
-            what: "opening".to_string(),
-            waited: Duration::from_millis(waited),
-            marks: marks
-                .iter()
-                .map(|(name, took)| ((*name).to_string(), Duration::from_millis(*took)))
-                .collect(),
-            notes: Vec::new(),
-        }
+    fn openings(rows: &[Opening<'_>]) -> Result<Vec<Entry>, Never> {
+        Ok(rows
+            .iter()
+            .map(|(who, waited, marks)| Entry {
+                at: 0,
+                up: 0.0,
+                load: 0.0,
+                who: who.to_string(),
+                what: "opening".to_string(),
+                waited: Duration::from_millis(*waited),
+                marks: marks
+                    .iter()
+                    .map(|(name, took)| ((*name).to_string(), Duration::from_millis(*took)))
+                    .collect(),
+                notes: Vec::new(),
+            })
+            .collect())
     }
 
     #[test]
     fn the_share_is_one_of_the_waits_and_not_a_number_between_two() {
-        let sorted = waits(&[10, 20, 30, 40]);
+        let Ok(sorted) = waits(&[10, 20, 30, 40]);
+
         assert_eq!(at_share(&sorted, 0.5), Ok(Duration::from_millis(20)));
         assert_eq!(at_share(&sorted, 0.9), Ok(Duration::from_millis(40)));
         assert_eq!(at_share(&sorted, 0.0), Ok(Duration::from_millis(10)));
@@ -224,8 +231,10 @@ mod tests {
 
     #[test]
     fn the_slow_tenth_is_withheld_until_there_are_ten_to_take_it_from() {
-        let Ok(nine) = spread(waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9]));
-        let Ok(ten) = spread(waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 100]));
+        let Ok(nine_waits) = waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let Ok(ten_waits) = waits(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 100]);
+        let Ok(nine) = spread(nine_waits);
+        let Ok(ten) = spread(ten_waits);
 
         assert_eq!(nine.high, None);
         assert_eq!(ten.high, Some(Duration::from_millis(9)));
@@ -235,77 +244,90 @@ mod tests {
 
     #[test]
     fn the_surfaces_are_ordered_by_the_middle_and_not_by_the_worst() {
-        let entries = vec![
-            opening("launcher", 400, &[]),
-            opening("launcher", 420, &[]),
-            opening("notifications-panel", 90, &[]),
-            opening("notifications-panel", 3000, &[]),
-        ];
+        let Ok(entries) = openings(&[
+            ("launcher", 400, &[]),
+            ("launcher", 420, &[]),
+            ("notifications-panel", 90, &[]),
+            ("notifications-panel", 3000, &[]),
+        ]);
         let Ok(gathered) = about(&entries);
+        let named: Vec<&str> = gathered.iter().map(|surface| surface.who.as_str()).collect();
 
-        assert_eq!(gathered[0].who, "launcher");
-        assert_eq!(gathered[1].who, "notifications-panel");
+        assert_eq!(named, ["launcher", "notifications-panel"]);
     }
 
     #[test]
-    fn the_stretches_are_ordered_by_which_of_them_is_the_slow_one() {
-        let entries = vec![
-            opening("launcher", 400, &[("press", 10), ("gtk", 130), ("placed", 240)]),
-            opening("launcher", 380, &[("press", 12), ("gtk", 120), ("placed", 230)]),
-        ];
+    fn the_stretches_are_ordered_by_which_of_them_is_the_slow_one() -> Result<(), Box<dyn Error>> {
+        let Ok(entries) = openings(&[
+            ("launcher", 400, &[("press", 10), ("gtk", 130), ("placed", 240)]),
+            ("launcher", 380, &[("press", 12), ("gtk", 120), ("placed", 230)]),
+        ]);
         let Ok(gathered) = about(&entries);
+        let launcher = gathered.first().ok_or("nothing was gathered")?;
+        let named: Vec<&str> = launcher.marks.iter().map(|(name, _)| name.as_str()).collect();
 
-        let named: Vec<&str> = gathered[0].marks.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(named, ["placed", "gtk", "press"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_stretch_that_only_some_openings_had_is_counted_over_those() {
-        let entries = vec![
-            opening("launcher", 400, &[("gtk", 100)]),
-            opening("launcher", 700, &[("gtk", 100), ("screen", 300)]),
-        ];
+    fn a_stretch_that_only_some_openings_had_is_counted_over_those() -> Result<(), Box<dyn Error>> {
+        let Ok(entries) = openings(&[
+            ("launcher", 400, &[("gtk", 100)]),
+            ("launcher", 700, &[("gtk", 100), ("screen", 300)]),
+        ]);
         let Ok(gathered) = about(&entries);
-
-        let screen = gathered[0]
+        let launcher = gathered.first().ok_or("nothing was gathered")?;
+        let screen = launcher
             .marks
             .iter()
             .find(|(name, _)| name == "screen")
-            .expect("the wait for the screen");
+            .ok_or("no wait for the screen")?;
+
         assert_eq!(screen.1.many, 1);
         assert_eq!(screen.1.middle, Duration::from_millis(300));
+
+        Ok(())
     }
 
     #[test]
-    fn a_worst_that_happened_while_the_machine_was_busy_says_so() {
-        let mut busy = opening("launcher", 1007, &[]);
-        busy.load = 5.2;
-        let quiet = opening("launcher", 148, &[]);
+    fn a_worst_that_happened_while_the_machine_was_busy_says_so() -> Result<(), Box<dyn Error>> {
+        let Ok(mut entries) = openings(&[("launcher", 148, &[]), ("launcher", 1007, &[])]);
 
-        let Ok(gathered) = about(&[quiet, busy]);
-        let Ok(said) = told(&gathered[0]);
+        for busy in entries.iter_mut().filter(|entry| entry.waited == Duration::from_millis(1007)) {
+            busy.load = 5.2;
+        }
+
+        let Ok(gathered) = about(&entries);
+        let launcher = gathered.first().ok_or("nothing was gathered")?;
+        let Ok(said) = summarize(launcher);
 
         assert!(said.contains("worst 1007ms, on a machine at 5.2"), "{said}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_worst_on_a_quiet_machine_is_told_without_a_word_about_the_machine() {
-        let Ok(gathered) = about(&[opening("launcher", 148, &[])]);
-        let Ok(said) = told(&gathered[0]);
+    fn a_worst_on_a_quiet_machine_is_told_without_a_word_about_the_machine() -> Result<(), Box<dyn Error>> {
+        let Ok(entries) = openings(&[("launcher", 148, &[])]);
+        let Ok(gathered) = about(&entries);
+        let launcher = gathered.first().ok_or("nothing was gathered")?;
+        let Ok(said) = summarize(launcher);
 
         assert!(!said.contains("on a machine"), "{said}");
+
+        Ok(())
     }
 
     #[test]
     fn who_waited_for_what_is_what_makes_two_lines_the_same_kind() {
-        let entries = vec![
-            opening("launcher", 400, &[]),
-            {
-                let mut list = opening("launcher", 900, &[]);
-                list.what = "list".to_string();
-                list
-            },
-        ];
+        let Ok(mut entries) = openings(&[("launcher", 400, &[]), ("launcher", 900, &[])]);
+
+        for list in entries.iter_mut().filter(|entry| entry.waited == Duration::from_millis(900)) {
+            list.what = "list".to_string();
+        }
+
         let Ok(gathered) = about(&entries);
 
         assert_eq!(gathered.len(), 2);

@@ -93,8 +93,8 @@ pub fn sweeps(migration: &Migration) -> Result<BTreeSet<String>, Never> {
         .iter()
         .filter_map(|step| {
             let (section, entry) = match step {
-                Step::Attic(at) => (Section("[files]"), *at),
-                Step::Disable(unit) | Step::DisableGlobally(unit) => (Section("[services]"), *unit),
+                Step::Attic(at) => (Section::Files, *at),
+                Step::Disable(unit) | Step::DisableGlobally(unit) => (Section::Services, *unit),
                 Step::AtticEach(_)
                 | Step::Stop(_)
                 | Step::Terminate(_)
@@ -139,7 +139,7 @@ pub fn setting(said: &str, copy: &CopySetting) -> Result<Option<String>, Never> 
         .map(str::to_owned))
 }
 
-pub fn rewritten(said: &str, rewrite: &Rewrite) -> Result<Option<String>, Never> {
+pub fn rewrite(said: &str, rewrite: &Rewrite) -> Result<Option<String>, Never> {
     let found = said.lines().any(|line| line == rewrite.was);
 
     Ok(match found {
@@ -175,18 +175,19 @@ mod tests {
         becomes: "Session=console.desktop",
     };
 
-    fn of(steps: &'static [Step]) -> Migration {
-        Migration { moment: Moment(1), says: "", steps }
+    fn of(steps: &'static [Step]) -> Result<Migration, Never> {
+        Ok(Migration { moment: Moment(1), says: "", steps })
     }
 
     #[test]
     fn a_migration_claims_what_it_moves_and_what_it_disables() {
-        let Ok(claimed) = sweeps(&of(&[
+        let Ok(migration) = of(&[
             Step::Attic("/usr/local/bin/console-poke"),
             Step::Attic("/home/@user@/.config/mako/config"),
             Step::Disable("console-sky.service"),
             Step::DisableGlobally("console-well.timer"),
-        ]));
+        ]);
+        let Ok(claimed) = sweeps(&migration);
 
         assert!(claimed.contains("/usr/local/bin/console-poke"));
         assert!(claimed.contains("/home/@user@/.config/mako/config"));
@@ -197,7 +198,8 @@ mod tests {
 
     #[test]
     fn stopping_a_unit_is_not_claiming_it() {
-        let Ok(claimed) = sweeps(&of(&[Step::Stop("console-session.service"), Step::Terminate("kew")]));
+        let Ok(migration) = of(&[Step::Stop("console-session.service"), Step::Terminate("kew")]);
+        let Ok(claimed) = sweeps(&migration);
 
         assert!(claimed.is_empty());
     }
@@ -237,15 +239,15 @@ mod tests {
 
     #[test]
     fn a_line_that_says_the_old_session_is_rewritten_and_nothing_else_is() {
-        let Ok(said) = rewritten("[Autologin]\nUser=ada\nSession=hyprland.desktop\n", &AUTOLOGIN);
+        let Ok(said) = rewrite("[Autologin]\nUser=ada\nSession=hyprland.desktop\n", &AUTOLOGIN);
 
         assert_eq!(said.as_deref(), Some("[Autologin]\nUser=ada\nSession=console.desktop\n"));
     }
 
     #[test]
     fn a_file_that_already_says_something_else_is_left_as_it_is() {
-        let Ok(gamescope) = rewritten("Session=gamescope-wayland.desktop\n", &AUTOLOGIN);
-        let Ok(longer) = rewritten("Session=hyprland.desktop.old\n", &AUTOLOGIN);
+        let Ok(gamescope) = rewrite("Session=gamescope-wayland.desktop\n", &AUTOLOGIN);
+        let Ok(longer) = rewrite("Session=hyprland.desktop.old\n", &AUTOLOGIN);
 
         assert_eq!(gamescope, None);
         assert_eq!(longer, None);

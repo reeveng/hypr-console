@@ -77,7 +77,7 @@ enum Wanted {
     Turned(Turn),
 }
 
-fn kept(at: &std::path::Path) -> Result<String, Never> {
+fn read_file(at: &std::path::Path) -> Result<String, Never> {
     Ok(match console_core_atomic_writes::text_or_empty(at) {
         Ok(said) => said,
         Err(fault) => {
@@ -116,14 +116,14 @@ fn main() -> ExitCode {
 
     let wanted = match word.as_str() {
         "" => {
-            let Ok(monitors) = asked();
+            let Ok(monitors) = query_monitors();
 
             let monitors = match monitors {
                 Some(monitors) => monitors,
                 None => return ExitCode::FAILURE,
             };
 
-            let Ok(standing) = size::standing(&monitors);
+            let Ok(standing) = size::current_size(&monitors);
             let Ok(shown) = console_screen::shown(&monitors);
 
             match (standing, shown) {
@@ -261,12 +261,12 @@ fn remembers(
     wanted: Option<Turn>,
 ) -> Result<Remembers, Unnamed> {
     let turn_at = turning::at(home, panel)?;
-    let Ok(written) = kept(&turn_at);
+    let Ok(written) = read_file(&turn_at);
     let Ok(turn) = Turn::of(&written);
 
     let standing = match wanted.or(turn) {
         Some(turn) => {
-            let Ok(turned) = turning::turned(screen, turn);
+            let Ok(turned) = turning::rotate(screen, turn);
 
             turned
         }
@@ -275,7 +275,7 @@ fn remembers(
     let Ok(shape) = standing.shape();
 
     let size_at = size::at(home, panel, shape)?;
-    let Ok(written) = kept(&size_at);
+    let Ok(written) = read_file(&size_at);
     let Ok(said) = Size::of(&written);
 
     let size = match said {
@@ -283,7 +283,7 @@ fn remembers(
         None => {
             let Ok(other) = shape.other();
             let at = size::at(home, panel, other)?;
-            let Ok(written) = kept(&at);
+            let Ok(written) = read_file(&at);
             let Ok(said) = Size::of(&written);
 
             said
@@ -294,7 +294,7 @@ fn remembers(
 }
 
 fn applied(home: &std::path::Path) -> Result<ExitCode, Never> {
-    let Ok(said) = asked();
+    let Ok(said) = query_monitors();
 
     let monitors = match said {
         Some(monitors) => monitors,
@@ -302,7 +302,7 @@ fn applied(home: &std::path::Path) -> Result<ExitCode, Never> {
     };
 
     for monitor in &monitors {
-        let Ok(driving) = console_screen::driving(monitor);
+        let Ok(driving) = console_screen::from_monitor(monitor);
 
         let screen = match driving {
             Some(screen) => screen,
@@ -362,7 +362,7 @@ fn refused(
 ) -> Result<Option<String>, Never> {
     let standing = match turn {
         Some(turn) => {
-            let Ok(turned) = turning::turned(screen, turn);
+            let Ok(turned) = turning::rotate(screen, turn);
 
             turned
         }
@@ -385,10 +385,9 @@ fn refused(
     })
 }
 
-fn asked() -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
-    Ok(match console_compositor::query(console_compositor::Query::Monitors) {
-        Ok(console_compositor::Answer::Monitors(monitors)) => Some(monitors),
-        Ok(_not_what_was_asked) => None,
+fn query_monitors() -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
+    Ok(match console_compositor::ask(console_compositor::Monitors) {
+        Ok(monitors) => Some(monitors),
         Err(why) => {
             eprintln!("console-scale: {why}");
 

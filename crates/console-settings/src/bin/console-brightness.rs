@@ -44,6 +44,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use console_core_external_programs::Program;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_notifications::saying::{StatePath, Notification, Content, raise_kept};
 use console_settings::learned::{self, Band, Following, Standing};
@@ -134,7 +135,7 @@ fn main() -> std::process::ExitCode {
         false => {},
     }
 
-    let Ok(named) = Way::named(&word);
+    let Ok(named) = Way::parse(&word);
 
     let way = match named {
         Some(way) => way,
@@ -147,7 +148,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let Ok(going) = panel.stepped(now, way);
+    let Ok(going) = panel.step_from(now, way);
 
     let Ok(moved) = panel.set(going);
 
@@ -159,7 +160,7 @@ fn main() -> std::process::ExitCode {
         Moved::Yes => {},
     }
 
-    let Ok(()) = said(&panel, going);
+    let Ok(()) = notify(&panel, going);
     let Ok(()) = learn(&panel, going);
 
     std::process::ExitCode::SUCCESS
@@ -175,7 +176,7 @@ fn lit() -> Result<Option<Lit>, Never> {
 }
 
 fn levels(home: &Path) -> Result<Option<learned::Levels>, Never> {
-    let Ok(standing) = learned::standing(home);
+    let Ok(standing) = learned::load(home);
 
     Ok(match standing {
         Standing::Loaded(levels) => Some(levels),
@@ -265,7 +266,7 @@ fn follow_or_not() -> Result<std::process::ExitCode, Never> {
     let Ok(at) = learned::asked_at(&home);
     let Ok(standing) = learned::following(&home);
     let Ok(other) = standing.other();
-    let Ok(written) = other.written();
+    let Ok(written) = other.as_str();
 
     match at.parent().map(std::fs::create_dir_all) {
         Some(Err(fault)) => {
@@ -346,7 +347,7 @@ fn wear(panel: &Panel, home: &Path, band: Band) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let Ok(wanting) = held.asked(band);
+    let Ok(wanting) = held.level_for(band);
 
     let asked = match wanting {
         Some(asked) => asked,
@@ -391,29 +392,32 @@ fn follow(panel: &Panel) -> Result<std::process::ExitCode, Never> {
 
     let Ok(patience) = Schedule::asking_every(ROUND, ASKING);
 
-    let mut acted: Option<Band> = None;
+    let watched = console_core_iteration::iterate(None, |acted: Option<Band>| {
+        let Ok(found) = console_waiting::until_some(patience, || moved_to(&sensor, acted));
 
-    loop {
-        let Ok(found) = console_waiting::found(patience, || moved_to(&sensor, acted));
-
-        match found {
+        Ok(Step::<_, std::process::ExitCode>::Again(match found {
             Some(band) => {
                 let Ok(()) = wear(panel, &home, band);
 
-                acted = Some(band);
+                Some(band)
             }
-            None => {},
-        }
-    }
+            None => acted,
+        }))
+    });
+
+    Ok(match watched {
+        Ok(code) => code,
+        Err(_endless) => std::process::ExitCode::FAILURE,
+    })
 }
 
-fn said(panel: &Panel, going: i64) -> Result<(), Never> {
+fn notify(panel: &Panel, going: i64) -> Result<(), Never> {
     let points = panel.as_points(going)?;
-    let words = screen::said(points)?;
+    let words = screen::brightness_label(points)?;
     let notification = Notification::new(Content { summary: &words, body: "" })?;
     let notification = notification.lasting(1500)?;
     let notification = notification.valued(points)?;
-    let kept = StatePath::named("brightness")?;
+    let kept = StatePath::new("brightness")?;
     let Ok(()) = raise_kept(notification, &kept);
 
     Ok(())

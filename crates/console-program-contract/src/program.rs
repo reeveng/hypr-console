@@ -32,7 +32,7 @@ impl<State> Initial<State> {
         Ok(Initial { state, subscriptions: Vec::new() })
     }
 
-    pub fn subscribed(state: State, subscriptions: Vec<Subscription>) -> Result<Self, Never> {
+    pub fn with_subscriptions(state: State, subscriptions: Vec<Subscription>) -> Result<Self, Never> {
         Ok(Initial { state, subscriptions })
     }
 }

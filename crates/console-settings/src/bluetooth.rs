@@ -110,7 +110,7 @@ pub fn looking(said: &str) -> Result<Looking, Never> {
     }
 }
 
-pub fn named(device: &Device) -> Result<Named, Never> {
+pub fn naming(device: &Device) -> Result<Named, Never> {
     match device.name == device.address.replace(':', "-") {
         true => Ok(Named::Itself),
         false => Ok(Named::Alias),
@@ -121,7 +121,7 @@ pub const FAINTEST: i32 = -100;
 
 pub const LOUDEST: i32 = -50;
 
-pub fn heard(said: &str) -> Result<Option<i32>, Never> {
+pub fn parse_rssi(said: &str) -> Result<Option<i32>, Never> {
     let found = said
         .lines()
         .filter_map(|line| line.trim().strip_prefix("RSSI:"))
@@ -156,7 +156,7 @@ pub fn share(heard: i32) -> Result<i32, Never> {
 }
 
 fn place(met: &Met) -> Result<u32, Never> {
-    let Ok(named) = named(&met.device);
+    let Ok(named) = naming(&met.device);
 
     Ok(match met.joined {
         Joined::Yes => 0,
@@ -252,17 +252,17 @@ mod tests {
             name: "Blue Keys".to_string(),
         };
 
-        assert_eq!(named(&quiet), Ok(Named::Itself));
-        assert_eq!(named(&says), Ok(Named::Alias));
+        assert_eq!(naming(&quiet), Ok(Named::Itself));
+        assert_eq!(naming(&says), Ok(Named::Alias));
     }
 
     #[test]
     fn how_loud_a_device_is_is_read_off_the_word_bluez_writes_it_in() {
         let said = "\tName: Mouse\n\tRSSI: 0xffffffa9 (-87)\n\tTxPower: 0x0000 (0)\n";
 
-        assert_eq!(heard(said), Ok(Some(-87)));
-        assert_eq!(heard("\tName: Mouse\n"), Ok(None), "a device the radio has not heard");
-        assert_eq!(heard("\tRSSI: nothing\n"), Ok(None));
+        assert_eq!(parse_rssi(said), Ok(Some(-87)));
+        assert_eq!(parse_rssi("\tName: Mouse\n"), Ok(None), "a device the radio has not heard");
+        assert_eq!(parse_rssi("\tRSSI: nothing\n"), Ok(None));
     }
 
     #[test]

@@ -29,6 +29,15 @@
 //! tree already knows by another name -- the stage is the tree somewhere
 //! else, and an absolute answer read on this machine is not the device's.
 //!
+//! `temp_dir` is the same fault and is asked about in tests as well, which
+//! nothing else here is. It is the machine's directory, shared with every
+//! other process on it, and a name joined to it by hand is a directory an
+//! earlier run may still be holding. `console-core-temporary-directories` is
+//! where that is made fresh and where a fault emptying it is said, and it was
+//! written to end the copies -- which went on being written, nearly all in
+//! tests, until this asked. A test is where a stale directory reads as a
+//! pass.
+//!
 //! `thread_local!` is deliberately not here, and EXPLICIT026's head is why: a
 //! `thread_local!` in a panel is there because glib's main context is
 //! per-thread and what is held is not `Send`. Every violation would carry the
@@ -75,7 +84,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, Item, ItemKind, Mutability, QPath};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT044: a value the whole process shares is one a function reads
@@ -85,10 +94,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT044_NO_AMBIENT_VALUE,
     Deny,
     "a value read from the process rather than handed in"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // The two ways a process changes what every later reader of it will see, and
@@ -128,10 +133,6 @@ fn can_be_written(cx: &LateContext<'_>, item: &Item<'_>, mutability: Mutability)
 
 impl<'tcx> LateLintPass<'tcx> for Explicit044NoAmbientValue {
     fn check_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx Item<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if item.span.from_expansion() {
             return;
         }
@@ -159,10 +160,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit044NoAmbientValue {
     }
 
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }
@@ -180,6 +177,23 @@ impl<'tcx> LateLintPass<'tcx> for Explicit044NoAmbientValue {
         };
 
         let named = cx.tcx.def_path_str(id);
+
+        if named == "std::env::temp_dir" {
+            span_lint_and_help(
+                cx,
+                EXPLICIT044_NO_AMBIENT_VALUE,
+                expr.span,
+                "`std::env::temp_dir` is the machine's directory, shared with every process on it",
+                None,
+                "ask `console_core_temporary_directories::fresh` for a directory of this process's own. \
+                 It empties whatever an earlier run with the same id left and says so when it cannot, \
+                 where a name joined here by hand hands the caller somebody else's files. Where the \
+                 directory is meant to be shared -- a lock two runs queue on -- allow this rule here and \
+                 let the reason say who it is shared with",
+            );
+
+            return;
+        }
 
         let Some(harm) = reaches_past_the_call(named.as_str()) else {
             return;

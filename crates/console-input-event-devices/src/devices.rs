@@ -17,13 +17,14 @@ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
 use crate::device::{Device, INPUT};
 use crate::event::LONG;
-use crate::kernel::{self, IN, Waiting, checked};
-use crate::presses::{ButtonPress, pressed};
+use crate::kernel::{self, IN, Waiting, check};
+use crate::presses::{ButtonPress, decode_presses};
 use crate::touches::{ScreenTouch, Touchscreen};
 
 const NODE: &str = "event";
@@ -55,10 +56,10 @@ pub struct Woke {
 }
 
 impl Devices {
-    pub fn watched() -> io::Result<Devices> {
+    pub fn open() -> io::Result<Devices> {
         // SAFETY: flags only; what comes back is a new descriptor or -1.
         let made = unsafe { kernel::inotify_init1(kernel::CLOSE_ON_EXEC | kernel::NOT_BLOCKING) };
-        let descriptor = checked(made)?;
+        let descriptor = check(made)?;
 
         // SAFETY: a descriptor the kernel just handed this process, owned by
         // nothing else, so the file is its only owner from here.
@@ -72,15 +73,15 @@ impl Devices {
         // SAFETY: a live descriptor and a NUL-ended path the call only reads.
         let added = unsafe { kernel::inotify_add_watch(told.as_raw_fd(), path.as_ptr(), kernel::CREATED | kernel::CHANGED) };
 
-        checked(added)?;
+        check(added)?;
 
         let mut devices = Devices { told, held: Vec::new() };
-        let Ok(()) = devices.opened();
+        let Ok(()) = devices.open_all();
 
         Ok(devices)
     }
 
-    fn opened(&mut self) -> Result<(), Never> {
+    fn open_all(&mut self) -> Result<(), Never> {
         let entries = match fs::read_dir(INPUT) {
             Ok(entries) => entries,
             Err(why) => {
@@ -112,66 +113,79 @@ impl Devices {
         Ok(())
     }
 
-    fn drained(&mut self) -> Result<(), Never> {
-        let mut buffer = [0_u8; 4096];
+    fn drain(&mut self) -> Result<(), Never> {
+        let _drained = console_core_iteration::iterate((&mut self.told, [0_u8; 4096]), |(told, mut buffer)| {
+            Ok(match told.read(&mut buffer) {
+                Ok(0) => Step::Halt(()),
+                Err(_the_read_failed) => Step::Halt(()),
+                Ok(_) => Step::Again((told, buffer)),
+            })
+        });
 
-        loop {
-            match self.told.read(&mut buffer) {
-                Ok(0) => return Ok(()),
-                Err(_the_read_failed) => return Ok(()),
-                Ok(_) => {}
-            }
+        Ok(())
+    }
+
+    pub fn wait(&mut self, also: Option<BorrowedFd<'_>>) -> io::Result<Woke> {
+        let ended = console_core_iteration::iterate(self, |devices| {
+            Ok(match devices.waited(also) {
+                Ok(Some(woke)) => Step::Halt(Ok(woke)),
+                Ok(None) => Step::Again(devices),
+                Err(fault) => Step::Halt(Err(fault)),
+            })
+        });
+
+        match ended {
+            Ok(woke) => woke,
+            Err(endless) => Err(io::Error::other(endless)),
         }
     }
 
-    pub fn waited(&mut self, also: Option<BorrowedFd<'_>>) -> io::Result<Woke> {
-        loop {
-            let mut waiting = vec![Waiting { descriptor: self.told.as_raw_fd(), events: IN, returned: 0 }];
+    fn waited(&mut self, also: Option<BorrowedFd<'_>>) -> io::Result<Option<Woke>> {
+        let mut waiting = vec![Waiting { descriptor: self.told.as_raw_fd(), events: IN, returned: 0 }];
 
-            waiting.extend(also.map(|also| Waiting { descriptor: also.as_raw_fd(), events: IN, returned: 0 }));
-            waiting.extend(self.held.iter().map(|device| Waiting { descriptor: device.file.as_raw_fd(), events: IN, returned: 0 }));
+        waiting.extend(also.map(|also| Waiting { descriptor: also.as_raw_fd(), events: IN, returned: 0 }));
+        waiting.extend(self.held.iter().map(|device| Waiting { descriptor: device.file.as_raw_fd(), events: IN, returned: 0 }));
 
-            let Ok(many) = fitted::<_, c_ulong>(waiting.len());
+        let Ok(many) = fitted::<_, c_ulong>(waiting.len());
 
-            // SAFETY: `many` entries, all of them live descriptors this
-            // struct or the caller holds for the length of the call.
-            let polled = unsafe { kernel::poll(waiting.as_mut_ptr(), many, -1) };
+        // SAFETY: `many` entries, all of them live descriptors this
+        // struct or the caller holds for the length of the call.
+        let polled = unsafe { kernel::poll(waiting.as_mut_ptr(), many, -1) };
 
-            checked(polled)?;
+        check(polled)?;
 
-            let stirred: HashSet<RawFd> = waiting
-                .iter()
-                .filter(|one| one.returned != 0)
-                .map(|one| one.descriptor)
-                .collect();
-            let plugged = match stirred.contains(&self.told.as_raw_fd()) {
-                true => Ready::Yes,
-                false => Ready::No,
-            };
-            let also = match also.map(|also| stirred.contains(&also.as_raw_fd())) {
-                Some(true) => Ready::Yes,
-                Some(false) | None => Ready::No,
-            };
-            let readable: HashSet<u32> = (0..)
-                .zip(self.held.iter())
-                .filter(|(_, device)| stirred.contains(&device.file.as_raw_fd()))
-                .map(|(at, _)| at)
-                .collect();
-            let Ok((presses, touches)) = self.read(&readable);
+        let stirred: HashSet<RawFd> = waiting
+            .iter()
+            .filter(|one| one.returned != 0)
+            .map(|one| one.descriptor)
+            .collect();
+        let plugged = match stirred.contains(&self.told.as_raw_fd()) {
+            true => Ready::Yes,
+            false => Ready::No,
+        };
+        let also = match also.map(|also| stirred.contains(&also.as_raw_fd())) {
+            Some(true) => Ready::Yes,
+            Some(false) | None => Ready::No,
+        };
+        let readable: HashSet<u32> = (0..)
+            .zip(self.held.iter())
+            .filter(|(_, device)| stirred.contains(&device.file.as_raw_fd()))
+            .map(|(at, _)| at)
+            .collect();
+        let Ok((presses, touches)) = self.read(&readable);
 
-            match plugged {
-                Ready::Yes => {
-                    let Ok(()) = self.drained();
-                    let Ok(()) = self.opened();
-                }
-                Ready::No => {}
+        match plugged {
+            Ready::Yes => {
+                let Ok(()) = self.drain();
+                let Ok(()) = self.open_all();
             }
-
-            match (presses.is_empty(), touches.is_empty(), also) {
-                (true, true, Ready::No) => {}
-                (false, _, _) | (_, false, _) | (true, true, Ready::Yes) => return Ok(Woke { presses, touches, also }),
-            }
+            Ready::No => {}
         }
+
+        Ok(match (presses.is_empty(), touches.is_empty(), also) {
+            (true, true, Ready::No) => None,
+            (false, _, _) | (_, false, _) | (true, true, Ready::Yes) => Some(Woke { presses, touches, also }),
+        })
     }
 
     fn read(&mut self, readable: &HashSet<u32>) -> Result<(Vec<ButtonPress>, Vec<ScreenTouch>), Never> {
@@ -187,13 +201,13 @@ impl Devices {
                 true => match device.file.read(&mut buffer) {
                     Ok(long) => {
                         let (whole, _) = buffer.split_at(long.min(buffer.len()));
-                        let Ok(heard) = pressed(whole);
+                        let Ok(heard) = decode_presses(whole);
 
                         presses.extend(heard);
 
                         match device.screen.as_mut() {
                             Some(screen) => {
-                                let Ok(felt) = screen.heard(whole);
+                                let Ok(felt) = screen.decode(whole);
 
                                 touches.extend(felt);
                             }

@@ -57,14 +57,14 @@ pub fn started(who: &str) -> Result<(), Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Came<'a>(pub &'a str);
 
-pub fn asked(
+pub fn start(
     who: &str,
     pressed: Option<&str>,
     from: Came<'_>,
     exec: Duration,
 ) -> Result<(), Never> {
     let wait = Wait { who, what: "opening" };
-    let Ok(waiting) = Waiting::asked(wait, pressed, from.0, exec);
+    let Ok(waiting) = Waiting::start(wait, pressed, from.0, exec);
 
     OPENING.with(|held| *held.borrow_mut() = Some(waiting));
 
@@ -83,8 +83,8 @@ pub fn counted(name: &str, many: u64) -> Result<(), Never> {
     with(|waiting| waiting.counted(name, many))
 }
 
-pub fn named(note: Note<'_>) -> Result<(), Never> {
-    with(|waiting| waiting.named(note))
+pub fn add_note(note: Note<'_>) -> Result<(), Never> {
+    with(|waiting| waiting.add_note(note))
 }
 
 pub fn running() -> Result<Running, Never> {
@@ -100,12 +100,12 @@ pub enum Running {
     No,
 }
 
-pub fn done() -> Result<(), Never> {
+pub fn finish() -> Result<(), Never> {
     let waiting = OPENING.with(|held| held.borrow_mut().take());
 
     match waiting {
         Some(waiting) => {
-            let Ok(()) = waiting.done();
+            let Ok(()) = waiting.finish();
         }
         None => {},
     }
@@ -142,8 +142,8 @@ mod tests {
     fn stamping_an_opening_that_was_never_started_does_nothing() {
         let Ok(()) = mark("surface");
         let Ok(()) = counted("rows", 4);
-        let Ok(()) = named(Note { name: "door", said: "menu" });
+        let Ok(()) = add_note(Note { name: "door", said: "menu" });
         let Ok(()) = taking("screen", Duration::from_millis(20));
-        let Ok(()) = done();
+        let Ok(()) = finish();
     }
 }

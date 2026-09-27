@@ -6,7 +6,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{HirId, Path};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT052: the kernel is asked through rustix, and never through libc.
@@ -32,13 +32,9 @@ dylint_linting::declare_late_lint! {
     "a system call is asked through rustix, not libc"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl<'tcx> LateLintPass<'tcx> for Explicit052NoLibc {
     fn check_path(&mut self, cx: &LateContext<'tcx>, path: &Path<'tcx>, _: HirId) {
-        if is_test_build(cx) || path.span.from_expansion() {
+        if path.span.from_expansion() {
             return;
         }
         let Some(id) = path.res.opt_def_id() else {

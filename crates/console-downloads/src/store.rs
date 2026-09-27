@@ -53,7 +53,7 @@ impl Kind {
 }
 
 pub fn cache() -> Result<Option<PathBuf>, Never> {
-    console_core_places::Base::Cache.hers()
+    console_core_places::Base::Cache.user()
 }
 
 pub fn folder(cache: &Path) -> Result<PathBuf, Never> {
@@ -76,13 +76,13 @@ pub fn pictures(cache: &Path) -> Result<PathBuf, Never> {
 pub const SIDE: &str = "128";
 
 pub fn picture_of(cache: &Path, id: &str) -> Result<Option<PathBuf>, Never> {
-    let Ok(named) = named(id);
+    let Ok(named) = valid_id(id);
     let Ok(pictures) = pictures(cache);
 
     Ok(named.map(|id| pictures.join(format!("{id}.jpg"))))
 }
 
-pub fn named(id: &str) -> Result<Option<String>, Never> {
+pub fn valid_id(id: &str) -> Result<Option<String>, Never> {
     let plain = |letter: char| letter.is_ascii_alphanumeric() || letter == '-' || letter == '_';
 
     Ok(match !id.is_empty() && id.chars().all(plain) {
@@ -95,8 +95,8 @@ pub fn named(id: &str) -> Result<Option<String>, Never> {
 mod tests {
     use super::*;
 
-    fn cache() -> PathBuf {
-        Path::new("/home/ada/.cache").to_path_buf()
+    fn cache() -> Result<PathBuf, Never> {
+        Ok(Path::new("/home/ada/.cache").to_path_buf())
     }
 
     #[test]
@@ -109,9 +109,10 @@ mod tests {
 
     #[test]
     fn each_tab_keeps_what_it_found_apart_from_the_other() {
-        let Ok(sound) = found_at(&cache(), Kind::Sound);
-        let Ok(film) = found_at(&cache(), Kind::Film);
-        let Ok(folder) = folder(&cache());
+        let Ok(cache) = cache();
+        let Ok(sound) = found_at(&cache, Kind::Sound);
+        let Ok(film) = found_at(&cache, Kind::Film);
+        let Ok(folder) = folder(&cache);
 
         assert_ne!(sound, film);
         assert!(sound.starts_with(folder));
@@ -121,10 +122,12 @@ mod tests {
 
     #[test]
     fn an_id_that_could_leave_the_folder_is_no_id_at_all() {
-        assert_eq!(named("qU9mHegkTc4"), Ok(Some("qU9mHegkTc4".to_string())));
-        assert_eq!(named("../../.bashrc"), Ok(None));
-        assert_eq!(named("a/b"), Ok(None));
-        assert_eq!(named(""), Ok(None));
-        assert_eq!(picture_of(&cache(), "../evil"), Ok(None));
+        assert_eq!(valid_id("qU9mHegkTc4"), Ok(Some("qU9mHegkTc4".to_string())));
+        assert_eq!(valid_id("../../.bashrc"), Ok(None));
+        assert_eq!(valid_id("a/b"), Ok(None));
+        assert_eq!(valid_id(""), Ok(None));
+        let Ok(cache) = cache();
+
+        assert_eq!(picture_of(&cache, "../evil"), Ok(None));
     }
 }

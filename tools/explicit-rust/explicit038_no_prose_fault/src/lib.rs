@@ -50,10 +50,6 @@ dylint_linting::declare_late_lint! {
     "a fault said in prose is a fault no caller can decide anything about"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // An impl of someone else's trait did not choose its signature, and a trait
 // written here is asked once, at the trait, rather than at every impl of it --
 // so both are skipped in the pass over functions.
@@ -66,6 +62,17 @@ fn belongs_to_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefI
 
 fn is_the_entry_point(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
     matches!(cx.tcx.entry_fn(()), Some((entry, _)) if entry == def_id.to_def_id())
+        || is_the_entry_point_under_a_harness(cx, def_id)
+}
+
+// The harness build of a binary puts its own `main` in as the entry point, so
+// the one the binary wrote is asked by where it stands instead: a `main` at the
+// root of a crate built with `--test` is the entry point of the ordinary build
+// of that same crate.
+fn is_the_entry_point_under_a_harness(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
+    cx.sess().opts.test
+        && cx.tcx.opt_item_name(def_id.to_def_id()) == Some(rustc_span::sym::main)
+        && cx.tcx.parent_module_from_def_id(def_id).is_top_level_module()
 }
 
 fn speaks_another_language(kind: rustc_hir::intravisit::FnKind<'_>) -> bool {
@@ -127,9 +134,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit038NoProseFault {
         _span: Span,
         def_id: rustc_hir::def_id::LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
         if matches!(kind, rustc_hir::intravisit::FnKind::Closure) {
             return;
         }
@@ -142,12 +146,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit038NoProseFault {
         if is_the_entry_point(cx, def_id) {
             return;
         }
-        if cx
-            .tcx
-            .hir_attrs(cx.tcx.local_def_id_to_hir_id(def_id))
-            .iter()
-            .any(|held| held.has_name(rustc_span::sym::test))
-        {
+        if clippy_utils::is_test_function(cx.tcx, def_id) {
             return;
         }
 
@@ -169,10 +168,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit038NoProseFault {
     // rather than at every impl of it -- which is the same reasoning that lets
     // the impls go unasked.
     fn check_trait_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx rustc_hir::TraitItem<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         let rustc_hir::TraitItemKind::Fn(sig, _) = item.kind else {
             return;
         };

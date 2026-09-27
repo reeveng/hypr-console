@@ -114,7 +114,7 @@ impl Properties {
         })
     }
 
-    fn found(&self, interface: InterfaceName<'_>, name: PropertyName<'_>) -> Result<Option<(&str, &Property)>, Never> {
+    fn find(&self, interface: InterfaceName<'_>, name: PropertyName<'_>) -> Result<Option<(&str, &Property)>, Never> {
         let (interface, name) = (interface.0, name.0);
 
         Ok(match interface.is_empty() {
@@ -130,7 +130,7 @@ impl Properties {
 }
 
 fn wrapped(property: &Property) -> Result<Value, Never> {
-    Value::held(&property.declared.shape, property.value.clone())
+    Value::variant(&property.declared.shape, property.value.clone())
 }
 
 fn complaint(message: &Message, fault: ValidationError, why: &str) -> Result<Response, Never> {
@@ -162,7 +162,7 @@ fn get(message: &Message, properties: &Properties) -> Result<Response, Never> {
         }
     };
 
-    let Ok(found) = properties.found(InterfaceName(interface), PropertyName(name));
+    let Ok(found) = properties.find(InterfaceName(interface), PropertyName(name));
 
     let (_on, property) = match found {
         Some(found) => found,
@@ -231,7 +231,7 @@ fn set(message: &Message, properties: &mut Properties) -> Result<Response, Never
         Some(_) | None => return complaint(message, ValidationError::InvalidArgs, "Set takes a variant"),
     };
 
-    let Ok(found) = properties.found(InterfaceName(&interface), PropertyName(&name));
+    let Ok(found) = properties.find(InterfaceName(&interface), PropertyName(&name));
 
     let (on, declared) = match found {
         Some((on, property)) => (on.to_string(), property.declared.clone()),
@@ -292,44 +292,44 @@ pub fn changed(at: ObjectPath<'_>, interface: InterfaceName<'_>, changes: &[&Pro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::{Kind, Whom};
+    use crate::messages::{Error, Kind, Whom};
 
     const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
-    fn property(name: &str, shape: &str, access: Access, value: Value) -> Property {
-        Property {
+    fn property((name, shape): (&str, &str), access: Access, value: Value) -> Result<Property, Never> {
+        Ok(Property {
             declared: introspection::Property { name: name.to_string(), shape: shape.to_string(), access },
             value,
-        }
+        })
     }
 
-    fn held() -> Properties {
+    fn held() -> Result<Properties, Never> {
         let mut properties = Properties::default();
-        let Ok(()) = properties.add(PLAYER, property("PlaybackStatus", "s", Access::Read, Value::Word("Playing".to_string())));
-        let Ok(()) = properties.add(PLAYER, property("Volume", "d", Access::ReadWrite, Value::Fraction(0.5)));
-        let Ok(()) = properties.add(PLAYER, property("Secret", "s", Access::Write, Value::Word("hidden".to_string())));
+        let Ok(status) = property(("PlaybackStatus", "s"), Access::Read, Value::Word("Playing".to_string()));
+        let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.5));
+        let Ok(secret) = property(("Secret", "s"), Access::Write, Value::Word("hidden".to_string()));
+        let Ok(()) = properties.add(PLAYER, status);
+        let Ok(()) = properties.add(PLAYER, volume);
+        let Ok(()) = properties.add(PLAYER, secret);
 
-        properties
+        Ok(properties)
     }
 
-    fn calling(member: &str, values: Vec<Value>) -> Message {
+    fn calling(member: &str, values: Vec<Value>) -> Result<Message, Never> {
         let Ok(call) = Message::call(&Whom { to: "org.example", at: "/org/example", on: INTERFACE, calling: member });
 
-        Message { serial: 7, sender: Some(":1.9".to_string()), values, ..call }
+        Ok(Message { serial: 7, sender: Some(":1.9".to_string()), values, ..call })
     }
 
-    fn word(said: &str) -> Value {
-        Value::Word(said.to_string())
-    }
-
-    fn fault(answered: &Response) -> Option<&str> {
-        answered.reply.fault.as_deref()
+    fn fault(answered: &Response) -> Result<Option<&str>, Never> {
+        Ok(answered.reply.fault.as_deref())
     }
 
     #[test]
     fn get_answers_the_value_in_its_declared_shape() {
-        let mut properties = held();
-        let Ok(answered) = answer(&calling(GET, vec![word(PLAYER), word("Volume")]), &mut properties);
+        let Ok(mut properties) = held();
+        let Ok(call) = calling(GET, vec![Value::Word(PLAYER.to_string()), Value::Word("Volume".to_string())]);
+        let Ok(answered) = answer(&call, &mut properties);
 
         assert_eq!(answered.reply.kind, Kind::Answer);
         assert_eq!(answered.reply.reply_to, Some(7));
@@ -342,24 +342,27 @@ mod tests {
 
     #[test]
     fn a_property_nobody_has_is_the_fault_the_specification_names() {
-        let mut properties = held();
-        let Ok(answered) = answer(&calling(GET, vec![word(PLAYER), word("Nothing")]), &mut properties);
+        let Ok(mut properties) = held();
+        let Ok(call) = calling(GET, vec![Value::Word(PLAYER.to_string()), Value::Word("Nothing".to_string())]);
+        let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), Some("org.freedesktop.DBus.Error.UnknownProperty"));
+        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.UnknownProperty")));
     }
 
     #[test]
     fn an_empty_interface_finds_the_name_wherever_it_is() {
-        let mut properties = held();
-        let Ok(answered) = answer(&calling(GET, vec![word(""), word("PlaybackStatus")]), &mut properties);
+        let Ok(mut properties) = held();
+        let Ok(call) = calling(GET, vec![Value::Word("".to_string()), Value::Word("PlaybackStatus".to_string())]);
+        let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), None);
+        assert_eq!(fault(&answered), Ok(None));
     }
 
     #[test]
     fn get_all_leaves_out_what_may_only_be_written() {
-        let mut properties = held();
-        let Ok(answered) = answer(&calling(GET_ALL, vec![word(PLAYER)]), &mut properties);
+        let Ok(mut properties) = held();
+        let Ok(call) = calling(GET_ALL, vec![Value::Word(PLAYER.to_string())]);
+        let Ok(answered) = answer(&call, &mut properties);
 
         let listed = match answered.reply.values.first() {
             Some(Value::List(listed)) => listed.clone(),
@@ -384,19 +387,21 @@ mod tests {
 
     #[test]
     fn get_all_of_an_interface_nobody_has_says_so() {
-        let mut properties = held();
-        let Ok(answered) = answer(&calling(GET_ALL, vec![word("org.example.Nothing")]), &mut properties);
+        let Ok(mut properties) = held();
+        let Ok(call) = calling(GET_ALL, vec![Value::Word("org.example.Nothing".to_string())]);
+        let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), Some("org.freedesktop.DBus.Error.UnknownInterface"));
+        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.UnknownInterface")));
     }
 
     #[test]
     fn set_writes_the_value_and_says_what_changed() {
-        let mut properties = held();
+        let Ok(mut properties) = held();
         let sent = Value::Variant { shape: "d".to_string(), value: Box::new(Value::Fraction(0.8)) };
-        let Ok(answered) = answer(&calling(SET, vec![word(PLAYER), word("Volume"), sent]), &mut properties);
+        let Ok(call) = calling(SET, vec![Value::Word(PLAYER.to_string()), Value::Word("Volume".to_string()), sent]);
+        let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), None);
+        assert_eq!(fault(&answered), Ok(None));
         assert_eq!(
             answered.changed,
             Some(PropertyChange { interface: PLAYER.to_string(), name: "Volume".to_string(), value: Value::Fraction(0.8) })
@@ -406,28 +411,30 @@ mod tests {
 
     #[test]
     fn set_on_a_property_that_is_only_read_is_refused_and_changes_nothing() {
-        let mut properties = held();
-        let sent = Value::Variant { shape: "s".to_string(), value: Box::new(word("Stopped")) };
-        let Ok(answered) = answer(&calling(SET, vec![word(PLAYER), word("PlaybackStatus"), sent]), &mut properties);
+        let Ok(mut properties) = held();
+        let sent = Value::Variant { shape: "s".to_string(), value: Box::new(Value::Word("Stopped".to_string())) };
+        let Ok(call) = calling(SET, vec![Value::Word(PLAYER.to_string()), Value::Word("PlaybackStatus".to_string()), sent]);
+        let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), Some("org.freedesktop.DBus.Error.PropertyReadOnly"));
+        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.PropertyReadOnly")));
         assert_eq!(answered.changed, None);
-        assert_eq!(properties.value(InterfaceName(PLAYER), PropertyName("PlaybackStatus")), Ok(Some(&word("Playing"))));
+        assert_eq!(properties.value(InterfaceName(PLAYER), PropertyName("PlaybackStatus")), Ok(Some(&Value::Word("Playing".to_string()))));
     }
 
     #[test]
     fn set_in_the_wrong_shape_is_refused_and_changes_nothing() {
-        let mut properties = held();
-        let sent = Value::Variant { shape: "s".to_string(), value: Box::new(word("loud")) };
-        let Ok(answered) = answer(&calling(SET, vec![word(PLAYER), word("Volume"), sent]), &mut properties);
+        let Ok(mut properties) = held();
+        let sent = Value::Variant { shape: "s".to_string(), value: Box::new(Value::Word("loud".to_string())) };
+        let Ok(call) = calling(SET, vec![Value::Word(PLAYER.to_string()), Value::Word("Volume".to_string()), sent]);
+        let Ok(answered) = answer(&call, &mut properties);
 
-        assert_eq!(fault(&answered), Some("org.freedesktop.DBus.Error.InvalidArgs"));
+        assert_eq!(fault(&answered), Ok(Some("org.freedesktop.DBus.Error.InvalidArgs")));
         assert_eq!(properties.value(InterfaceName(PLAYER), PropertyName("Volume")), Ok(Some(&Value::Fraction(0.5))));
     }
 
     #[test]
     fn the_signal_names_the_interface_first_and_not_the_object() {
-        let volume = property("Volume", "d", Access::ReadWrite, Value::Fraction(0.8));
+        let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.8));
         let Ok(said) = changed(ObjectPath("/org/mpris/MediaPlayer2"), InterfaceName(PLAYER), &[&volume]);
 
         assert_eq!(said.kind, Kind::Signal);
@@ -435,14 +442,18 @@ mod tests {
         assert_eq!(said.interface.as_deref(), Some(INTERFACE));
         assert_eq!(said.member.as_deref(), Some(CHANGED));
         assert_eq!(said.shape, "sa{sv}as");
-        assert_eq!(said.values.first(), Some(&word(PLAYER)));
+        assert_eq!(said.values.first(), Some(&Value::Word(PLAYER.to_string())));
     }
 
     #[test]
-    fn the_signal_is_bytes_a_bus_would_take() {
-        let volume = property("Volume", "d", Access::ReadWrite, Value::Fraction(0.8));
+    fn the_signal_is_bytes_a_bus_would_take() -> Result<(), Error> {
+        let Ok(volume) = property(("Volume", "d"), Access::ReadWrite, Value::Fraction(0.8));
         let Ok(said) = changed(ObjectPath("/org/mpris/MediaPlayer2"), InterfaceName(PLAYER), &[&volume]);
 
-        assert!(said.bytes(1).is_ok(), "{:?}", said.bytes(1));
+        let bytes = said.bytes(1)?;
+
+        assert!(!bytes.is_empty());
+
+        Ok(())
     }
 }

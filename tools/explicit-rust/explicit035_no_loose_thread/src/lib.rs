@@ -7,7 +7,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{PatKind, Stmt, StmtKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
@@ -46,10 +46,6 @@ dylint_linting::declare_late_lint! {
     "a thread whose handle is dropped where it is made says nothing about how long it lives"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // `thread::spawn` hands back a handle; `Builder::spawn` hands back one inside a
 // `Result`. Both are the same decision, so the `Result` is peeled first rather
 // than the rule being written twice.
@@ -81,9 +77,6 @@ fn dropped_where_it_was_made<'tcx>(stmt: &'tcx Stmt<'tcx>) -> Option<&'tcx rustc
 
 impl<'tcx> LateLintPass<'tcx> for Explicit035NoLooseThread {
     fn check_stmt(&mut self, cx: &LateContext<'tcx>, stmt: &'tcx Stmt<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         if stmt.span.from_expansion() {
             return;
         }

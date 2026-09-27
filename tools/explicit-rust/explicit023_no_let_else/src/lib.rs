@@ -45,7 +45,7 @@ extern crate rustc_ast;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::ast::{LocalKind, Stmt, StmtKind};
-use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
+use rustc_lint::{EarlyContext, EarlyLintPass};
 
 dylint_linting::declare_early_lint! {
     /// EXPLICIT023: `let … else` is forbidden. Its `else` is not a name for
@@ -58,19 +58,8 @@ dylint_linting::declare_early_lint! {
     "`let … else` is forbidden; write the `match` in the initializer"
 }
 
-// Tests are exempt, as they are for every rule here. `opts.test` is true only
-// for the harness build of a target, so the ordinary build of the same library
-// is linted as production.
-fn is_test_build(cx: &EarlyContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl EarlyLintPass for Explicit023NoLetElse {
     fn check_stmt(&mut self, cx: &EarlyContext<'_>, stmt: &Stmt) {
-        if is_test_build(cx) {
-            return;
-        }
-
         let binding = match &stmt.kind {
             StmtKind::Let(local) => local,
             StmtKind::Expr(..)

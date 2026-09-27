@@ -35,11 +35,11 @@ use std::collections::BTreeSet;
 
 use console_core_never::Never;
 use console_music_player::answers::{NAME, OBJECT, PLAYER, Status};
-use console_core_places::{Base, OURS};
+use console_core_places::{Base, APPLICATION};
 use console_music_player::bookmark::NOTE;
 use console_awake::InhibitReason;
 use console_test_stages::checking::{Body, Check, CheckResult, Why, cannot, failed};
-use console_test_stages::device::{Device, PATIENCE, Ready};
+use console_test_stages::device::{Device, Outcome, PATIENCE, Ready};
 
 pub const LIBRARY: Check = Check {
     name: "280-a-song-pressed-plays-the-library",
@@ -73,6 +73,17 @@ pub const AWAKE: Check = Check {
     since: "2026-09-21",
     bodies: &[Body::Device(awake)],
 };
+
+pub const SLEEP: Check = Check {
+    name: "284-sleep-pressed-over-a-song-stops-it",
+    about: "Sleep pressed while a song plays pauses the song, so the song's sleep lock is not \
+            what refuses the suspend a person asked for.",
+    feature: "music",
+    since: "2026-09-26",
+    bodies: &[Body::Device(sleep_over_a_song)],
+};
+
+const ON_BATTERY: &str = "settings-panel Battery";
 
 const WALK: u32 = 6;
 
@@ -236,7 +247,7 @@ fn quiet(stage: &mut Device) -> CheckResult {
     }
 }
 
-fn awake(stage: &mut Device) -> CheckResult {
+fn a_song_of_our_own(stage: &mut Device) -> CheckResult {
     let Ok(playing) = playing(stage);
 
     match playing {
@@ -266,7 +277,49 @@ fn awake(stage: &mut Device) -> CheckResult {
 
     let first = songs.first().ok_or(Why::Cannot("no songs".to_string()))?;
 
-    playing_the_library(stage, first)?;
+    playing_the_library(stage, first)
+}
+
+fn sleep_over_a_song(stage: &mut Device) -> CheckResult {
+    a_song_of_our_own(stage)?;
+
+    let Ok(_) = stage.until(locked, PATIENCE);
+    let Ok(_) = stage.exec_cmd(ON_BATTERY);
+    let Ok(up) = stage.wait_for_menu(PATIENCE);
+
+    match up {
+        Outcome::Happened => {},
+        Outcome::RanOut => {
+            let Ok(()) = ended(stage);
+
+            return failed(format!("{ON_BATTERY} never came up to press Sleep on"));
+        }
+    }
+
+    let Ok(()) = stage.press("a");
+    let Ok(_) = stage.until(paused, SETTLING);
+    let Ok(stopped) = paused(stage);
+    let Ok(held) = locked(stage);
+
+    let Ok(()) = ended(stage);
+
+    let Ok(what) = InhibitReason::FromSleeping.what();
+
+    match (stopped, held) {
+        (Ready::Yes, Ready::NotYet) => Ok(()),
+        (Ready::NotYet, _) => failed(format!(
+            "Sleep was pressed over a playing song and the song went on, so its {what} lock \
+             refused the suspend and the button closed the panel over a machine still awake"
+        )),
+        (Ready::Yes, Ready::Yes) => failed(format!(
+            "Sleep paused the song and a {what} lock was still held {SETTLING} seconds later, \
+             so the suspend it asked for was refused all the same"
+        )),
+    }
+}
+
+fn awake(stage: &mut Device) -> CheckResult {
+    a_song_of_our_own(stage)?;
 
     let Ok(_) = stage.until(locked, PATIENCE);
     let Ok(held) = locked(stage);
@@ -403,20 +456,20 @@ fn paused(stage: &mut Device) -> Result<Ready, Never> {
     status_is(stage, Status::Paused)
 }
 
-fn kept() -> Result<String, Never> {
+fn note_path() -> Result<String, Never> {
     let Ok(state) = Base::State.usual();
 
-    Ok(format!("\"$HOME/{state}/{OURS}/{NOTE}\""))
+    Ok(format!("\"$HOME/{state}/{APPLICATION}/{NOTE}\""))
 }
 
 fn note(stage: &mut Device) -> Result<String, Never> {
-    let Ok(at) = kept();
+    let Ok(at) = note_path();
 
     stage.user(&format!("cat {at} 2>/dev/null"))
 }
 
 fn put_back(stage: &mut Device, note: &str) -> Result<(), Never> {
-    let Ok(at) = kept();
+    let Ok(at) = note_path();
 
     let Ok(_) = match note.is_empty() {
         true => stage.user(&format!("rm -f {at}")),

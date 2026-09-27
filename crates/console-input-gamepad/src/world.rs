@@ -88,7 +88,7 @@ impl World {
             .map(|(role, _)| role.as_str()))
     }
 
-    pub fn written(&self, role: &str) -> Result<Vec<Written>, Never> {
+    pub fn writes_by(&self, role: &str) -> Result<Vec<Written>, Never> {
         Ok(self.log.iter().filter(|(said, _)| said == role).map(|(_, what)| *what).collect())
     }
 
@@ -98,7 +98,7 @@ impl World {
         kind: EventType,
         code: Option<u16>,
     ) -> Result<Vec<Written>, Never> {
-        let written = self.written(role)?;
+        let written = self.writes_by(role)?;
 
         Ok(written
             .into_iter()
@@ -154,60 +154,83 @@ impl Sink for World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capture::captured;
+    use crate::GamepadError;
+    use crate::capture::load_capture;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
+    fn world() -> Result<World, GamepadError> {
+        let seen = load_capture()?;
+        let Ok(world) = World::of(seen);
 
-        value
-    }
-
-    fn world() -> World {
-        ok(World::of(captured().expect("the capture carried in this program parses")))
+        Ok(world)
     }
 
     #[test]
-    fn every_device_gets_a_path_of_its_own() {
-        let world = world();
-        let mut paths: Vec<String> = world.devices.values().map(|device| device.path.clone()).collect();
+    fn every_device_gets_a_path_of_its_own() -> Result<(), GamepadError> {
+        let world = world()?;
+        let mut paths: Vec<String> = world.devices.values().map(|d| d.path.clone()).collect();
+
         paths.sort();
         paths.dedup();
+
         assert_eq!(paths.len(), world.devices.len());
+
+        Ok(())
     }
 
     #[test]
-    fn what_is_written_is_waiting_and_is_remembered() {
-        let mut world = world();
+    fn what_is_written_is_waiting_and_is_remembered() -> Result<(), GamepadError> {
+        let mut world = world()?;
+
         world.write("pad", EventType::KEY, 304, 1);
         world.syn("pad");
-        assert_eq!(ok(world.written("pad")), [Written { kind: EventType::KEY, code: 304, value: 1 }]);
-        assert_eq!(world.devices["pad"].waiting.len(), 2, "the event and its report");
+
+        assert_eq!(world.writes_by("pad"), Ok(vec![Written { kind: EventType::KEY, code: 304, value: 1 }]));
+        assert_eq!(world.devices.get("pad").map(|pad| pad.waiting.len()), Some(2), "the event and its report");
+
+        Ok(())
     }
 
     #[test]
-    fn a_device_that_has_gone_is_not_there_to_be_found() {
-        let mut world = world();
-        let path = world.path("pad").expect("a pad");
-        assert_eq!(ok(world.role_at(&path)), Some("pad"));
-        ok(world.devices.get_mut("pad").expect("a pad").unplug());
-        assert_eq!(ok(world.role_at(&path)), None);
-        assert!(!ok(world.plugged()).contains(&path));
+    fn a_device_that_has_gone_is_not_there_to_be_found() -> Result<(), GamepadError> {
+        let mut world = world()?;
+        let path = world.path("pad").ok_or(GamepadError::NotFound("pad"))?;
+
+        assert_eq!(world.role_at(&path), Ok(Some("pad")));
+
+        let pad = world.devices.get_mut("pad").ok_or(GamepadError::NotFound("pad"))?;
+        let Ok(()) = pad.unplug();
+        let Ok(plugged) = world.plugged();
+
+        assert_eq!(world.role_at(&path), Ok(None));
+        assert!(!plugged.contains(&path));
+
+        Ok(())
     }
 
     #[test]
-    fn a_wheel_is_how_far_it_turned_rather_than_how_often() {
-        let mut world = world();
+    fn a_wheel_is_how_far_it_turned_rather_than_how_often() -> Result<(), GamepadError> {
+        let mut world = world()?;
+
         for notch in [1, 1, -1] {
             world.write("mouse", EventType::RELATIVE, 8, notch);
         }
-        assert_eq!(ok(world.total("mouse", EventType::RELATIVE, 8)), 1);
-        assert_eq!(ok(world.of_kind("mouse", EventType::RELATIVE, Some(8))).len(), 3);
+
+        let Ok(turned) = world.of_kind("mouse", EventType::RELATIVE, Some(8));
+
+        assert_eq!(world.total("mouse", EventType::RELATIVE, 8), Ok(1));
+        assert_eq!(turned.len(), 3);
+
+        Ok(())
     }
 
     #[test]
-    fn writing_to_a_device_that_is_not_there_writes_nothing() {
-        let mut world = world();
+    fn writing_to_a_device_that_is_not_there_writes_nothing() -> Result<(), GamepadError> {
+        let mut world = world()?;
+
         world.write("trackball", EventType::KEY, 1, 1);
+
         assert!(world.log.is_empty());
+
+        Ok(())
     }
 }

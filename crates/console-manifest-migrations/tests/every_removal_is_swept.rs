@@ -26,14 +26,18 @@
 //! between this and what the manifest did before.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error;
+use std::fmt;
 use std::path::Path;
 use std::process::Command;
 
+use console_core_never::Never;
 use console_core_external_programs::Program;
 use console_manifest_migrations::history::{DIRECTORY, EVERY};
 use console_manifest_migrations::sweeping::{self, ON_PURPOSE};
 use console_rename::UNSAID;
-use console_manifest_migrations::{Outlives, Recorded, Section, holds, outlives, recorded, unswept};
+use console_manifest_engine::manifest::{Manifest, Reading};
+use console_manifest_migrations::{Recorded, Section, holds, recording_state, unswept};
 
 const MANIFEST: &str = "desktop.conf";
 
@@ -41,80 +45,79 @@ const MACHINES: &str = "machines.conf";
 
 const FILES: [&str; 2] = [MANIFEST, MACHINES];
 
-fn read_as(file: &str, said: &str) -> String {
-    match file == MACHINES {
-        true => {
-            let Ok(every) = console_manifest_engine::machines::of_every(said);
+#[derive(Clone, Copy)]
+struct FileName<'a>(&'a str);
 
-            every
-        }
-        false => said.to_string(),
+fn read_as(file: FileName<'_>, said: &str) -> Result<String, Never> {
+    match file.0 == MACHINES {
+        true => console_manifest_engine::machines::of_every(said),
+        false => Ok(said.to_string()),
     }
 }
 
-fn carried(said: &str) -> BTreeMap<String, String> {
+#[derive(Debug)]
+enum Unread {
+    Unstarted(String, std::io::Error),
+    Failed(String, String),
+    NotACommit(String),
+    NotATime(String, String),
+}
+
+impl fmt::Display for Unread {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Unread::Unstarted(asked, fault) => write!(to, "git {asked}: {fault}"),
+            Unread::Failed(asked, said) => write!(to, "git {asked}: {said}"),
+            Unread::NotACommit(said) => write!(to, "the log said `{said}`, which is not a commit and a time"),
+            Unread::NotATime(revision, when) => write!(to, "{revision} was committed at `{when}`, which is not a time"),
+        }
+    }
+}
+
+impl Error for Unread {}
+
+fn manifest_entries(said: &str) -> Result<BTreeMap<String, Section>, Box<dyn Error>> {
+    let manifest = Manifest::read_as(said, Reading::Recorded)?;
+    let Ok(sections) = manifest.sections();
     let mut found = BTreeMap::new();
-    let mut section = String::new();
 
-    for line in said.lines() {
-        let line = line.trim();
+    for (section, entries) in sections {
+        for entry in entries {
+            let Ok(holds) = holds(section, entry);
 
-        match line.starts_with('[') && line.ends_with(']') {
-            true => {
-                section = line.to_string();
-
-                continue;
-            }
-            false => {},
-        }
-
-        let named = !line.is_empty() && !line.starts_with('#');
-
-        let Ok(outlives) = outlives(&section);
-
-        match (named, outlives) {
-            (true, Outlives::TheManifest) => {
-                let name = line.split_whitespace().next().unwrap_or("");
-                let Ok(holds) = holds(Section(&section), name);
-
-                match holds {
-                    Some(holds) => {
-                        found.insert(holds, section.clone());
-                    }
-                    None => {},
+            match holds {
+                Some(holds) => {
+                    found.insert(holds, section);
                 }
+                None => {},
             }
-            (true, Outlives::None) | (false, _) => {},
         }
     }
 
-    found
+    Ok(found)
 }
 
-fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
+fn git(root: &Path, arguments: &[&str]) -> Result<String, Unread> {
     let Ok(name) = Program::Git.name();
+    let asked = arguments.join(" ");
     let said = Command::new(name)
         .current_dir(root)
         .args(arguments)
         .output()
-        .map_err(|fault| format!("git {}: {fault}", arguments.join(" ")))?;
+        .map_err(|fault| Unread::Unstarted(asked.clone(), fault))?;
 
     match said.status.success() {
         true => Ok(String::from_utf8_lossy(&said.stdout).to_string()),
-        false => Err(format!(
-            "git {}: {}",
-            arguments.join(" "),
-            String::from_utf8_lossy(&said.stderr).trim()
-        )),
+        false => Err(Unread::Failed(asked, String::from_utf8_lossy(&said.stderr).trim().to_string())),
     }
 }
 
 struct Carried {
-    before: BTreeMap<String, String>,
+    before: BTreeMap<String, Section>,
     since: BTreeSet<String>,
 }
 
-fn ever(root: &Path) -> Result<Carried, String> {
+fn ever(root: &Path) -> Result<Carried, Box<dyn Error>> {
     let mut asked: Vec<&str> = vec!["log", "--format=%H %ct", "HEAD", "--"];
 
     asked.extend(FILES);
@@ -125,20 +128,25 @@ fn ever(root: &Path) -> Result<Carried, String> {
     for said in revisions.lines() {
         let (revision, when) = match said.split_once(' ') {
             Some(both) => both,
-            None => return Err(format!("the log said `{said}`, which is not a commit and a time")),
+            None => {
+                let fault: Box<dyn Error> = Box::new(Unread::NotACommit(said.to_string()));
+
+                return Err(fault);
+            }
         };
         let committed = when
             .trim()
             .parse::<u64>()
-            .map_err(|fault| format!("{revision} was committed at `{when}`: {fault}"))?;
-        let Ok(recorded) = recorded(committed);
+            .map_err(|_| Unread::NotATime(revision.to_string(), when.to_string()))?;
+        let Ok(recorded) = recording_state(committed);
 
-        for file in FILES {
+        'files: for file in FILES {
             let said = match git(root, &["show", &format!("{revision}:{file}")]) {
                 Ok(said) => said,
-                Err(_it_was_not_in_the_tree_that_far_back) => continue,
+                Err(_it_was_not_in_the_tree_that_far_back) => continue 'files,
             };
-            let found = carried(&read_as(file, &said));
+            let Ok(read) = read_as(FileName(file), &said);
+            let found = manifest_entries(&read).map_err(|fault| format!("{revision}:{file}: {fault}"))?;
 
             match recorded {
                 Recorded::Yes => carried_then.since.extend(found.into_keys()),
@@ -150,29 +158,25 @@ fn ever(root: &Path) -> Result<Carried, String> {
     Ok(carried_then)
 }
 
-fn now(root: &Path) -> BTreeSet<String> {
-    FILES
-        .into_iter()
-        .flat_map(|file| match std::fs::read_to_string(root.join(file)) {
-            Ok(said) => carried(&read_as(file, &said)).into_keys().collect::<Vec<String>>(),
-            Err(fault) => panic!("{file}: {fault}"),
-        })
-        .collect()
+fn now(root: &Path) -> Result<BTreeSet<String>, Box<dyn Error>> {
+    let mut found = BTreeSet::new();
+
+    for file in FILES {
+        let said = std::fs::read_to_string(root.join(file)).map_err(|fault| format!("{file}: {fault}"))?;
+        let Ok(read) = read_as(FileName(file), &said);
+        let entries = manifest_entries(&read).map_err(|fault| format!("{file}: {fault}"))?;
+
+        found.extend(entries.into_keys());
+    }
+
+    Ok(found)
 }
 
 #[test]
-fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
-    let root = match console_repository::root() {
-        Ok(root) => root,
-        Err(why) => panic!("the top of the tree: {why}"),
-    };
-
-    let now = now(&root);
-
-    let ever = match ever(&root) {
-        Ok(ever) => ever,
-        Err(why) => panic!("what the manifest has carried: {why}"),
-    };
+fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() -> Result<(), Box<dyn Error>> {
+    let root = console_repository::root().map_err(|why| format!("the top of the tree: {why}"))?;
+    let now = now(&root)?;
+    let ever = ever(&root).map_err(|why| format!("what the manifest has carried: {why}"))?;
 
     let Ok(under) = sweeping::beside(&root);
     let Ok(swept) = sweeping::all_claimed(EVERY);
@@ -183,14 +187,18 @@ fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
 
             on_purpose
         }
-        Err(_) => BTreeSet::new(),
+        Err(_nothing_is_left_on_purpose_until_the_file_is_written) => BTreeSet::new(),
     };
 
     let Ok(left) = unswept(&ever.before, &now, &swept, &on_purpose, &ever.since);
 
     let said: Vec<String> = left
         .iter()
-        .map(|entry| format!("  {} left {} and nothing sweeps it", entry.holds, entry.section))
+        .map(|entry| {
+            let Ok(section) = entry.section.name();
+
+            format!("  {} left [{section}] and nothing sweeps it", entry.holds)
+        })
         .collect();
 
     assert!(
@@ -200,21 +208,15 @@ fn nothing_has_left_the_manifest_with_no_migration_and_no_reason() {
          migrations/{ON_PURPOSE} with the reason.",
         said.join("\n")
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_manifest_has_a_history_to_read() {
-    let root = match console_repository::root() {
-        Ok(root) => root,
-        Err(why) => panic!("the top of the tree: {why}"),
-    };
-
-    let ever = match ever(&root) {
-        Ok(ever) => ever,
-        Err(why) => panic!("what the manifest has carried: {why}"),
-    };
-
-    let now = now(&root);
+fn the_manifest_has_a_history_to_read() -> Result<(), Box<dyn Error>> {
+    let root = console_repository::root().map_err(|why| format!("the top of the tree: {why}"))?;
+    let ever = ever(&root).map_err(|why| format!("what the manifest has carried: {why}"))?;
+    let now = now(&root)?;
 
     assert!(!now.is_empty(), "the manifest carries nothing, so this checked nothing");
     let carried: BTreeSet<&String> = ever.before.keys().chain(ever.since.iter()).collect();
@@ -224,6 +226,8 @@ fn the_manifest_has_a_history_to_read() {
         "the manifest's history carries no more than it does today, which means the \
          history was not read"
     );
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -231,40 +235,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_section_that_outlives_the_manifest_has_its_entries_read() {
-        let found = carried("[build]\nconsole-poke\n\n[packages]\ngrim\n");
+    fn a_section_that_outlives_the_manifest_has_its_entries_read() -> Result<(), Box<dyn Error>> {
+        let found = manifest_entries("[build]\nconsole-poke\n\n[packages]\ngrim\n")?;
 
-        assert_eq!(found.get("/usr/local/bin/console-poke").map(String::as_str), Some("[build]"));
+        assert_eq!(found.get("/usr/local/bin/console-poke"), Some(&Section::Build));
         assert_eq!(found.len(), 1);
+
+        Ok(())
     }
 
     #[test]
-    fn a_comment_and_a_blank_line_carry_nothing() {
-        assert!(carried("[build]\n# the programs\n\n").is_empty());
-    }
+    fn a_comment_and_a_blank_line_carry_nothing() -> Result<(), Box<dyn Error>> {
+        let found = manifest_entries("[build]\n# the programs\n\n")?;
 
-    #[test]
-    fn a_line_that_says_more_than_a_name_is_read_as_its_first_word() {
-        let found = carried("[files]\n/usr/local/bin/console-poke  0755\n");
+        assert!(found.is_empty());
 
-        assert!(found.contains_key("/usr/local/bin/console-poke"));
+        Ok(())
     }
 
     #[test]
     fn a_program_declared_either_way_is_the_same_thing_on_the_machine() {
-        let Ok(built) = holds(Section("[build]"), "launcher");
-        let Ok(carried) = holds(Section("[files]"), "/usr/local/bin/launcher");
+        let Ok(built) = holds(Section::Build, "launcher");
+        let Ok(carried) = holds(Section::Files, "/usr/local/bin/launcher");
 
         assert_eq!(built, carried);
     }
 }
 
 #[test]
-fn no_migration_still_says_its_reason_is_unwritten() {
+fn no_migration_still_says_its_reason_is_unwritten() -> Result<(), std::io::Error> {
     let at = Path::new(env!("CARGO_MANIFEST_DIR")).join(DIRECTORY);
     let mut unsaid: Vec<String> = Vec::new();
+    let migrations = std::fs::read_dir(&at)?;
 
-    for found in std::fs::read_dir(&at).expect("migrations").flatten() {
+    for found in migrations.flatten() {
         let path = found.path();
 
         let said = match std::fs::read_to_string(&path) {
@@ -272,8 +276,9 @@ fn no_migration_still_says_its_reason_is_unwritten() {
             Err(_it_is_a_directory_or_worse) => continue,
         };
 
-        if said.contains(UNSAID) {
-            unsaid.push(path.display().to_string());
+        match said.contains(UNSAID) {
+            true => unsaid.push(path.display().to_string()),
+            false => {},
         }
     }
 
@@ -283,4 +288,6 @@ fn no_migration_still_says_its_reason_is_unwritten() {
          a migration argues for itself -- what reads the old name, what a person \
          sees with two of them, what a machine that misses this is left holding",
     );
+
+    Ok(())
 }

@@ -74,6 +74,8 @@ impl fmt::Display for Unkept {
     }
 }
 
+impl std::error::Error for Unkept {}
+
 pub fn shown(said: &str) -> Result<Radio, Never> {
     Ok(match said.lines().any(|line| line.trim() == POWERED) {
         true => Radio::On,
@@ -96,7 +98,7 @@ pub fn beside(runtime: &Path) -> Result<PathBuf, Never> {
     Ok(runtime.join(NAMED))
 }
 
-pub fn asked() -> Result<Radio, Unkept> {
+pub fn query_radio() -> Result<Radio, Unkept> {
     let Ok(mut bluetoothctl) = Program::Bluetoothctl.command();
 
     let said = match bluetoothctl.arg("show").output() {
@@ -124,7 +126,7 @@ pub fn remember(runtime: &Path, radio: Radio) -> Result<(), Unkept> {
     }
 }
 
-pub fn remembered(runtime: &Path) -> Result<Option<Radio>, Unkept> {
+pub fn load_saved(runtime: &Path) -> Result<Option<Radio>, Unkept> {
     let Ok(at) = beside(runtime);
     let Ok(held) = console_core_atomic_writes::read(&at);
 
@@ -179,19 +181,20 @@ mod tests {
     }
 
     #[test]
-    fn what_was_written_down_is_what_comes_back() {
-        let held = std::env::temp_dir().join(format!("console-radio-{}", std::process::id()));
+    fn what_was_written_down_is_what_comes_back() -> Result<(), Box<dyn std::error::Error>> {
+        let held = console_core_temporary_directories::fresh("radio")?;
 
-        assert_eq!(remembered(&held), Ok(None), "nothing has been left here");
+        assert_eq!(load_saved(&held), Ok(None), "nothing has been left here");
 
-        let Ok(()) = remember(&held, Radio::On).map_err(|fault| panic!("{fault}"));
+        remember(&held, Radio::On)?;
 
-        assert_eq!(remembered(&held), Ok(Some(Radio::On)));
+        assert_eq!(load_saved(&held), Ok(Some(Radio::On)));
 
-        let Ok(()) = forget(&held).map_err(|fault| panic!("{fault}"));
+        forget(&held)?;
 
-        assert_eq!(remembered(&held), Ok(None));
+        assert_eq!(load_saved(&held), Ok(None));
 
         let _ = std::fs::remove_dir_all(&held);
+        Ok(())
     }
 }

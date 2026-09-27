@@ -3,9 +3,14 @@
 //! ```text
 //! rename-words plan  [PATH...]   write renames.plan: every place a retired
 //!                                word is defined, and what it may become
+//! rename-words pick            answer the open lines of renames.plan one at
+//!                                a time, with the code around each on screen
 //! rename-words apply [PATH...]   carry out what renames.plan settled
 //! rename-words check [PATH...]   fail while a retired word is still defined
 //!                                somewhere the plan did not keep it
+//! rename-words at FILE:LINE OLD NEW [FILE:LINE OLD NEW...]
+//!                                rename the one name OLD on that line, and
+//!                                every use of it, whatever it is
 //! ```
 //!
 //! Every session that renamed by hand renamed a word, not a thing. `Missing`
@@ -26,11 +31,15 @@
 //!
 //! `check` is what keeps a finished rename finished: a retired word defined
 //! anywhere the plan did not mark as kept is a failure, so a session that writes
-//! one back hears about it from a tool rather than from the person.
+//! one back hears about it from a tool rather than from the person. A section
+//! whose heading says `(walking)` is a table the tree is still walking towards,
+//! the way a lint is registered warned: its words are planned and counted, and
+//! `check` holds them only once the heading drops the mark.
 
 mod analyzer;
 mod definitions;
 mod lexing;
+mod pick;
 mod plan;
 mod vocabulary;
 
@@ -247,11 +256,90 @@ fn apply(root: &Path, paths: &[String]) -> std::io::Result<ExitCode> {
     })
 }
 
+fn in_impl(code: &str, offset: usize) -> bool {
+    let bytes = code.as_bytes();
+    let mut depth = 0i32;
+    let opening = (0..offset).rev().find(|at| {
+        match bytes[*at] {
+            b'}' => depth += 1,
+            b'{' if depth == 0 => return true,
+            b'{' => depth -= 1,
+            _ => {},
+        }
+        false
+    });
+    let Some(opening) = opening else { return false };
+    let header_start = code[..opening].rfind([';', '}', '{']).map_or(0, |n| n + 1);
+    let words: Vec<&str> = identifiers(&code[header_start..opening]).map(|(_, word)| word).collect();
+
+    words.contains(&"impl") && !words.contains(&"fn")
+}
+
+fn pointed(src: &str, line: u32, word: &str) -> Option<Definition> {
+    let code = blank(src);
+    let start = code.split_inclusive('\n').take(usize::try_from(line).ok()?).map(str::len).sum::<usize>();
+    let end = code[start..].find('\n').map_or(code.len(), |n| start + n);
+    let (at, _) = identifiers(&code[start..end]).find(|(_, found)| *found == word)?;
+    let declared = definitions(src, &|candidate| candidate == word).into_iter().find(|definition| definition.line == line);
+    let declared = declared.map(|definition| match (definition.kind, in_impl(&code, start + at)) {
+        ("fn", true) => Definition { kind: "method", ..definition },
+        _ => definition,
+    });
+
+    Some(declared.unwrap_or(Definition {
+        word: word.to_string(),
+        kind: "local",
+        owner: None,
+        line,
+        column: u32::try_from(code[start..start + at].encode_utf16().count()).unwrap_or(u32::MAX),
+        context: src[start..end].trim().to_string(),
+    }))
+}
+
+fn at(root: &Path, arguments: &[String]) -> std::io::Result<ExitCode> {
+    if arguments.is_empty() || arguments.len() % 3 != 0 {
+        eprintln!("usage: rename-words at FILE:LINE OLD NEW [FILE:LINE OLD NEW...]");
+        return Ok(ExitCode::from(2));
+    }
+    let mut analyzer = analyzer::Analyzer::start(root)?;
+    let mut refused = 0;
+
+    for triple in arguments.chunks(3) {
+        let [place, old, new] = triple else { continue };
+        let Some((file, line)) = place.rsplit_once(':').and_then(|(file, line)| Some((file, line.parse::<u32>().ok()?.checked_sub(1)?))) else {
+            refused += 1;
+            println!("{place}: not FILE:LINE");
+            continue;
+        };
+        let path = root.join(file);
+        let src = std::fs::read_to_string(&path)?;
+        let Some(definition) = pointed(&src, line, old) else {
+            refused += 1;
+            println!("{place}: no {old} on that line");
+            continue;
+        };
+
+        match analyzer.rename(&path, &definition, new)? {
+            Ok(touched) => println!("{place}: {old} -> {new}  ({} files)", touched.len()),
+            Err(fault) => {
+                refused += 1;
+                println!("{place}: {old} -> {new}  REFUSED {fault}");
+            },
+        }
+    }
+
+    Ok(match refused {
+        0 => ExitCode::SUCCESS,
+        _ => ExitCode::FAILURE,
+    })
+}
+
 fn check(root: &Path, paths: &[String]) -> std::io::Result<ExitCode> {
     let vocabulary = vocabulary::read(root)?;
     let chosen = plan::read(root)?;
     let wanted = named(&vocabulary);
     let mut left = 0;
+    let mut walking = 0;
 
     for file in tracked(root, paths)? {
         let src = std::fs::read_to_string(root.join(&file))?;
@@ -260,9 +348,16 @@ fn check(root: &Path, paths: &[String]) -> std::io::Result<ExitCode> {
             if chosen.get(&file).and_then(|keys| keys.get(&definition.key())).is_some_and(|right| right == KEEP) {
                 continue;
             }
+            if vocabulary.walking.contains(&definition.word) {
+                walking += 1;
+                continue;
+            }
             println!("{file}:{}: {}", definition.line + 1, definition.key());
             left += 1;
         }
+    }
+    if walking > 0 {
+        println!("{walking} definitions still hold a word from a (walking) section; `rename-words plan` lists them");
     }
 
     Ok(match left {
@@ -281,8 +376,10 @@ fn main() -> ExitCode {
         "plan" => plan(&root, paths),
         "apply" => apply(&root, paths),
         "check" => check(&root, paths),
+        "at" => at(&root, paths),
+        "pick" => pick::pick(&root),
         _ => {
-            eprintln!("usage: rename-words plan|apply|check [PATH...]");
+            eprintln!("usage: rename-words plan|pick|apply|check [PATH...] | at FILE:LINE OLD NEW...");
             Ok(ExitCode::from(2))
         },
     });
@@ -293,5 +390,35 @@ fn main() -> ExitCode {
             eprintln!("rename-words: {fault}");
             ExitCode::FAILURE
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pointed;
+
+    #[test]
+    fn a_name_on_a_line_is_found_as_its_definition_or_as_a_local() {
+        let src = "struct Size { wide: u32 }\nfn said(bytes: u64) -> String {\n    let \"said\" = said; said\n}\n";
+        let field = pointed(src, 0, "wide").map(|found| found.key());
+        let function = pointed(src, 1, "said").map(|found| (found.kind, found.column));
+        let local = pointed(src, 1, "bytes").map(|found| (found.kind, found.column));
+        let past_the_string = pointed(src, 2, "said").map(|found| found.column);
+
+        assert_eq!(field.as_deref(), Some("wide field of Size"));
+        assert_eq!(function, Some(("fn", 3)));
+        assert_eq!(local, Some(("local", 8)));
+        assert_eq!(past_the_string, Some(17));
+        assert!(pointed(src, 0, "missing").is_none());
+    }
+
+    #[test]
+    fn a_function_inside_an_impl_is_a_method_and_one_outside_is_not() {
+        let src = "impl<T> Hand<T> where T: Copy {\n    pub fn asked() -> u8 { match 1 { _ => {} } 0 }\n    fn later() {}\n}\nfn asked() {}\nmod tests {\n    fn later() {}\n}\n";
+
+        assert_eq!(pointed(src, 1, "asked").map(|found| found.kind), Some("method"));
+        assert_eq!(pointed(src, 2, "later").map(|found| found.kind), Some("method"));
+        assert_eq!(pointed(src, 4, "asked").map(|found| found.kind), Some("fn"));
+        assert_eq!(pointed(src, 6, "later").map(|found| found.kind), Some("fn"));
     }
 }

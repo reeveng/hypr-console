@@ -10,6 +10,7 @@ name = "console_test_flows"
 path = "src/lib.rs"
 
 [dev-dependencies]
+console-core-never.workspace = true
 console-core-geometry.workspace = true
 console-input-controller.workspace = true
 console-onscreen.workspace = true

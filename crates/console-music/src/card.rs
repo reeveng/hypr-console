@@ -75,7 +75,7 @@ use crate::player::{self, Order, Over, Playing, Sound};
 use crate::update::{Closes, MusicEvent, MusicEffect, Music, Standing, closes};
 use crate::library::folder;
 use console_panel::actor::{self, Address, Answer};
-use console_program_contract::{Arguments, Effect, Executable, Program as _, Topic, Update, Event};
+use console_program_contract::{Arguments, Effect, Program as _, Topic, Update, Event};
 use console_panel::page::{Aside, Bar, Handler, Active, Level, Page, Picture, ButtonPress, Row, Rows, Showing};
 use console_panel::card::{Card, Door};
 use console_panel::running;
@@ -117,7 +117,7 @@ impl actor::Machine for Actor {
 
 type Panel = Address<Message>;
 
-fn standing(held: &Panel) -> Result<Standing, Never> {
+fn panel_state(held: &Panel) -> Result<Standing, Never> {
     Ok(match held.ask(Message::At) {
         Ok(standing) => standing,
         Err(_the_actor_has_gone) => {
@@ -168,12 +168,12 @@ fn carry(effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Neve
         }
 
         Effect::Run(runs) => {
-            let whole = whole(runs)?;
+            let whole = running::words_of(runs)?;
 
             showing.later(whole);
         }
         Effect::Spawn(runs) => {
-            let whole = whole(runs)?;
+            let whole = running::words_of(runs)?;
 
             showing.leave_running(whole);
         }
@@ -191,23 +191,6 @@ fn carry(effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Neve
     Ok(())
 }
 
-fn whole(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
-    let mut arguments = vec![
-        match runs.program {
-            Executable::External(program) => {
-                let Ok(name) = program.name();
-
-                name.to_string()
-            }
-            Executable::Internal(name) => name.to_string(),
-        },
-    ];
-
-    arguments.extend(runs.arguments.clone());
-
-    Ok(arguments)
-}
-
 fn playing_rows(held: &Panel) -> Result<Vec<Row>, Never> {
     let asked = player::playing()?;
 
@@ -215,13 +198,13 @@ fn playing_rows(held: &Panel) -> Result<Vec<Row>, Never> {
         Some(playing) => match playing.sound != Sound::Stopped {
             true => playing_card(held, playing),
             false => {
-                let Ok(row) = Row::nothing("Not Playing");
+                let Ok(row) = Row::placeholder("Not Playing");
 
                 Ok(vec![row])
             }
         },
         None => {
-            let Ok(row) = Row::nothing("Not Playing");
+            let Ok(row) = Row::placeholder("Not Playing");
 
             Ok(vec![row])
         }
@@ -229,13 +212,13 @@ fn playing_rows(held: &Panel) -> Result<Vec<Row>, Never> {
 }
 
 fn typed_in(held: &Panel) -> Result<String, Never> {
-    let standing = standing(held)?;
+    let standing = panel_state(held)?;
 
     Ok(standing.typed.trim().to_string())
 }
 
 fn press_at(held: &Panel) -> Result<u32, Never> {
-    let standing = standing(held)?;
+    let standing = panel_state(held)?;
 
     Ok(standing.press)
 }
@@ -273,7 +256,7 @@ fn walking(held: &Panel, row: Row) -> Result<Row, Never> {
         console_core_number_conversion::fitted::<_, u32>(row.buttons.as_ref().map_or(0, |across| across.presses.len()));
     let held = held.clone();
 
-    row.leveled(Arc::new(move |by| {
+    row.with_level(Arc::new(move |by| {
         let _ = decided(&held, MusicEvent::Along { by, of });
     }))
 }
@@ -308,7 +291,7 @@ fn scrub_row() -> Result<Row, Never> {
     let Ok(nothing) = Handler::and_stay(|_| {});
     let Ok(row) = Row::new(&done, Aside(&whole), nothing);
     let Ok(row) = row.picturing(Picture::Bar(bar));
-    let Ok(row) = row.leveled(step);
+    let Ok(row) = row.with_level(step);
 
     row.seeking(|showing, frac| {
         let Ok(()) = player::seek(frac);
@@ -338,13 +321,13 @@ fn clock(micros: i64) -> Result<String, Never> {
 
 fn scrub_step(scrub: Scrub) -> Result<Level, Never> {
     Ok(Arc::new(move |directory| {
-        let Ok(step) = stepped(scrub, directory);
+        let Ok(step) = scrub_to(scrub, directory);
 
         let Ok(()) = player::seek(step);
     }))
 }
 
-fn stepped(scrub: Scrub, directory: i32) -> Result<f64, Never> {
+fn scrub_to(scrub: Scrub, directory: i32) -> Result<f64, Never> {
     let Scrub { at, of } = scrub;
     let target = at.saturating_add(i64::from(directory).saturating_mul(SCRUB)).clamp(0, of);
 
@@ -431,7 +414,7 @@ fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
 
     match things.is_empty() {
         true => {
-            let Ok(row) = Row::nothing(&format!("No Music in {}", folder.display()));
+            let Ok(row) = Row::placeholder(&format!("No Music in {}", folder.display()));
 
             return Ok(vec![row]);
         }
@@ -439,8 +422,8 @@ fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
     }
 
     things.sort_by(|one, other| {
-        let Ok(first) = console_panel::page::standing(&one.name);
-        let Ok(second) = console_panel::page::standing(&other.name);
+        let Ok(first) = console_panel::page::sort_rank(&one.name);
+        let Ok(second) = console_panel::page::sort_rank(&other.name);
 
         first
             .cmp(&second)
@@ -450,7 +433,7 @@ fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
     let mut rows: Vec<Row> = Vec::new();
 
     for thing in &things {
-        let row = chosen(held, thing)?;
+        let row = thing_row(held, thing)?;
 
         rows.push(row);
     }
@@ -464,7 +447,7 @@ fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never>
 
     match found.is_empty() {
         true => {
-            let Ok(row) = Row::nothing(&format!("No Results for \u{201c}{word}\u{201d}"));
+            let Ok(row) = Row::placeholder(&format!("No Results for \u{201c}{word}\u{201d}"));
 
             return Ok(vec![row]);
         }
@@ -484,7 +467,7 @@ fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never>
 }
 
 fn songs(folder: &Path) -> Result<Vec<Song>, Never> {
-    let Ok(cache) = console_core_places::Base::Cache.hers();
+    let Ok(cache) = console_core_places::Base::Cache.user();
 
     let cache = match cache {
         Some(cache) => cache,
@@ -495,14 +478,14 @@ fn songs(folder: &Path) -> Result<Vec<Song>, Never> {
     let said = std::fs::read_to_string(at);
 
     let known = match said {
-        Ok(said) => looking::kept(&said)?,
+        Ok(said) => looking::parse(&said)?,
         Err(_unreadable) => Vec::new(),
     };
 
     looking::songs(folder, &library::things, &known)
 }
 
-fn chosen(held: &Panel, thing: &Thing) -> Result<Row, Never> {
+fn thing_row(held: &Panel, thing: &Thing) -> Result<Row, Never> {
     let said = match thing.folder {
         true => "album",
         false => "",
@@ -549,11 +532,11 @@ fn shown_in_the_files(
         let Ok(effects) = decided(&held, MusicEvent::Shown(path.clone()));
 
         for effect in &effects {
-            let Ok(runs) = effect.spawned();
+            let Ok(runs) = effect.as_spawn();
 
             match runs {
                 Some(runs) => {
-                    let Ok(whole) = whole(runs);
+                    let Ok(whole) = running::words_of(runs);
                     let Ok(()) = running::left_running(&whole);
                 }
                 None => {},
@@ -585,7 +568,7 @@ fn read_the_library(held: &Panel, showing: &dyn Showing) -> Result<(), Never> {
 fn playing_page(held: &Panel) -> Result<Page, Never> {
     let showing = held.clone();
 
-    let Ok(asked) = Rows::asked(move || {
+    let Ok(asked) = Rows::computed(move || {
         let Ok(rows) = playing_rows(&showing);
 
         rows
@@ -593,7 +576,7 @@ fn playing_page(held: &Panel) -> Result<Page, Never> {
     let Ok(page) = Page::new("Now Playing", asked);
     let Ok(page) = page.in_the_middle();
 
-    page.listening(Topic::Player, player::worth_moving_the_clock)
+    page.with_subscription(Topic::Player, player::worth_moving_the_clock)
 }
 
 fn music_page(held: &Panel) -> Result<Page, Never> {
@@ -602,7 +585,7 @@ fn music_page(held: &Panel) -> Result<Page, Never> {
     let backing = held.clone();
     let typing = held.clone();
 
-    let Ok(asked) = Rows::asked(move || {
+    let Ok(asked) = Rows::computed(move || {
         let Ok(rows) = music_rows(&reading);
 
         rows
@@ -613,7 +596,7 @@ fn music_page(held: &Panel) -> Result<Page, Never> {
         let Ok(()) = read_the_library(&arriving, showing);
     });
     let Ok(page) = page.on_back(move |showing| {
-        let Ok(was) = standing(&backing);
+        let Ok(was) = panel_state(&backing);
 
         let Ok(()) = press(&backing, MusicEvent::Back, showing);
 
@@ -679,11 +662,14 @@ pub fn library(_argv: &[String]) -> Result<Card, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use console_panel::page::Same;
+    use console_panel::page::{Heading, Same};
+    use std::error::Error;
 
-    fn card() -> Vec<Row> {
+    const SINGLE: i64 = 180_000_000;
+    const MIX: i64 = 4_380_000_000;
+
+    fn card() -> Result<Vec<Row>, Never> {
         let Ok(room) = ascii::room(TALL);
-
         let Ok(markup) = room.markup();
 
         let Ok(head) = head_row(Head {
@@ -693,40 +679,31 @@ mod tests {
         });
 
         let Ok(scrub) = scrub_row();
-
         let Ok(play) = ButtonPress::new(Icon::Play, Active::No, |_| ());
-
         let Ok(pressing) = Row::pressing(vec![play], 0);
 
-        vec![head, scrub, pressing]
-    }
-
-    fn heading(row: &Row) -> console_panel::page::Heading {
-        let Ok(heading) = row.heading();
-
-        heading
+        Ok(vec![head, scrub, pressing])
     }
 
     #[test]
     fn nothing_on_the_card_that_cannot_be_pressed_is_stood_on() {
-        let rows = card();
+        let Ok(rows) = card();
 
         assert_eq!(
-            rows.first().map(heading),
-            Some(console_panel::page::Heading::Yes),
+            rows.first().map(Row::heading),
+            Some(Ok(Heading::Yes)),
             "the head is stood on for nothing",
         );
         assert_eq!(
-            rows.iter().filter(|row| heading(row) == console_panel::page::Heading::Yes).count(),
+            rows.iter().filter(|row| row.heading() == Ok(Heading::Yes)).count(),
             1,
             "a card about one song reads more than its head",
         );
     }
 
     #[test]
-    fn the_sleeve_keeps_its_room_before_there_is_a_cover_for_it() {
+    fn the_sleeve_keeps_its_room_before_there_is_a_cover_for_it() -> Result<(), Box<dyn Error>> {
         let Ok(room) = ascii::room(TALL);
-
         let Ok(markup) = room.markup();
 
         let Ok(empty) =
@@ -734,35 +711,35 @@ mod tests {
 
         let Ok(plain) = room.plain();
 
-        assert_eq!(u32::try_from(plain.lines().count()).unwrap(), TALL);
-        assert!(plain.lines().all(|line| u32::try_from(line.chars().count()).unwrap() == room.columns));
+        let tall = u32::try_from(plain.lines().count())?;
+
+        assert_eq!(tall, TALL);
+        assert!(plain.lines().all(|line| u32::try_from(line.chars().count()) == Ok(room.columns)));
+
         let Ok(bare) = Row::stacked(Picture::None, "Blue Monday", Aside("New Order"));
 
         assert_eq!(empty.looks_like(&bare), Ok(Same::No));
+
+        Ok(())
     }
 
     #[test]
     fn the_bar_steps_by_the_same_few_seconds_whatever_the_song_is() {
-        let single = 3 * 60 * 1_000_000;
-        let mix = 73 * 60 * 1_000_000;
         let moved = |total: i64| {
-            let Ok(stepped) = stepped(Scrub { at: 30_000_000, of: total }, 1);
+            let Ok(scrub_to) = scrub_to(Scrub { at: 30_000_000, of: total }, 1);
             let Ok(whole) = total.float();
 
-            (stepped * whole - 30_000_000.0) / 1_000_000.0
+            (scrub_to * whole - 30_000_000.0) / 1_000_000.0
         };
 
-        assert!((moved(single) - 5.0).abs() < 0.001, "a single moved {}", moved(single));
-        assert!((moved(mix) - 5.0).abs() < 0.001, "a mix moved {}", moved(mix));
+        assert!((moved(SINGLE) - 5.0).abs() < 0.001, "a single moved {}", moved(SINGLE));
+        assert!((moved(MIX) - 5.0).abs() < 0.001, "a mix moved {}", moved(MIX));
     }
 
     #[test]
     fn the_bar_stops_at_both_ends_of_the_song() {
-        let song = 3 * 60 * 1_000_000;
-
-        let Ok(back) = stepped(Scrub { at: 1_000_000, of: song }, -1);
-
-        let Ok(on) = stepped(Scrub { at: song - 1_000_000, of: song }, 1);
+        let Ok(back) = scrub_to(Scrub { at: 1_000_000, of: SINGLE }, -1);
+        let Ok(on) = scrub_to(Scrub { at: SINGLE.saturating_sub(1_000_000), of: SINGLE }, 1);
 
         assert!(back < f64::EPSILON);
         assert!((on - 1.0).abs() < f64::EPSILON);

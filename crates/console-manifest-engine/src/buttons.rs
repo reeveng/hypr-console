@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use console_input_controller::actions::Table;
-use console_input_gamepad::front::{DEVICES, Front, Read, asking, loading, one_said, wearing};
+use console_input_gamepad::front::{DEVICES, Front, Read, capabilities_command, load_profile_command, one_said, profile_path_command};
 use console_input_gamepad::devices::Has;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::moved::{Tasks, path_in};
@@ -59,7 +59,7 @@ impl Standing {
     }
 }
 
-pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
+pub fn check_buttons(_root: &Path, home: &str) -> Result<Standing, Never> {
     let devices = match std::fs::read_to_string(DEVICES) {
         Ok(said) => said,
 
@@ -69,7 +69,7 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
         }
     };
 
-    let Ok(asking) = asking();
+    let Ok(asking) = capabilities_command();
     let Ok(asked) = machine::run(&asking);
     let Ok(front) = Front::of(Read { said: &asked.out, devices: &devices });
     let Ok(at) = path_in(Path::new(home));
@@ -105,7 +105,7 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
         let where_ = played
             .iter()
             .map(|one| {
-                let Ok(said) = spoken(one);
+                let Ok(said) = describe(one);
 
                 said
             })
@@ -127,7 +127,7 @@ pub fn standing(_root: &Path, home: &str) -> Result<Standing, Never> {
     })
 }
 
-fn spoken(binding: &Binding) -> Result<String, Never> {
+fn describe(binding: &Binding) -> Result<String, Never> {
     let mut words: Vec<&str> = binding.held.iter().map(String::as_str).collect();
 
     words.push(&binding.pressed);
@@ -164,7 +164,7 @@ fn here(front: &Front, binding: &Binding) -> Result<Has, Never> {
 }
 
 pub fn wrote_router() -> Result<Option<String>, Never> {
-    let Ok(asking) = asking();
+    let Ok(asking) = capabilities_command();
     let Ok(asked) = machine::run(&asking);
     let Ok(front) = Front::of(Read { said: &asked.out, devices: "" });
 
@@ -209,11 +209,11 @@ pub fn again(worn: Option<String>, still_here: impl Fn(&str) -> bool) -> Result<
 }
 
 pub fn wear_again() -> Result<(), Never> {
-    let Ok(wearing) = wearing();
+    let Ok(wearing) = profile_path_command();
     let Ok(worn) = machine::run(&wearing);
     let Ok(one) = one_said(&worn.out);
     let Ok(path) = again(one, |path| std::path::Path::new(path).is_file());
-    let Ok(asking) = loading(&path);
+    let Ok(asking) = load_profile_command(&path);
     let arguments: Vec<&str> = asking.iter().map(String::as_str).collect();
 
     println!("the pad is reading {path} again");
@@ -245,26 +245,22 @@ pub fn read(home: &str) -> Result<Tasks, Never> {
 mod tests {
     use super::*;
 
-    fn again(worn: Option<String>, still_here: impl Fn(&str) -> bool) -> String {
-        let Ok(again) = super::again(worn, still_here);
-
-        again
-    }
-
     #[test]
     fn the_pad_reads_the_profile_it_is_wearing_again() {
         let worn = format!("{PROFILES}{FILE}");
-        assert_eq!(again(Some(worn.clone()), |_| true), worn);
+
+        assert_eq!(again(Some(worn.clone()), |_| true), Ok(worn));
     }
 
     #[test]
     fn a_profile_the_tree_no_longer_writes_is_not_handed_back() {
         let gone = format!("{PROFILES}desktop.yaml");
-        assert_eq!(again(Some(gone), |_| false), format!("{PROFILES}{FILE}"));
+
+        assert_eq!(again(Some(gone), |_| false), Ok(format!("{PROFILES}{FILE}")));
     }
 
     #[test]
     fn a_pad_that_says_nothing_is_given_the_router() {
-        assert_eq!(again(None, |_| true), format!("{PROFILES}{FILE}"));
+        assert_eq!(again(None, |_| true), Ok(format!("{PROFILES}{FILE}")));
     }
 }

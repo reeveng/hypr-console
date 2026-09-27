@@ -62,38 +62,38 @@ pub fn guide(sections: &[Section], ink: HexColor) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use console_input_controller::actions::Table;
 
     use crate::guide::{Line, TYPED, sections};
 
-    fn ours() -> Table {
+    fn plain_guide() -> Result<String, Never> {
         let Ok(table) = Table::ours();
+        let Ok(sections) = sections(&table);
 
-        table
-    }
-
-    fn said() -> String {
-        let Ok(sections) = sections(&ours());
-        let Ok(said) = guide(&sections, PLAIN);
-
-        said
+        guide(&sections, PLAIN)
     }
 
     #[test]
     fn a_terminal_that_is_not_one_is_given_no_escapes() {
-        assert!(!said().contains('\u{1b}'), "an escape reached something reading a file");
+        let Ok(said) = plain_guide();
+
+        assert!(!said.contains('\u{1b}'), "an escape reached something reading a file");
     }
 
     #[test]
     fn every_line_is_the_button_and_what_it_does() {
-        assert!(said().contains("  Touchpad              move the pointer"));
+        let Ok(said) = plain_guide();
+
+        assert!(said.contains("  Touchpad              move the pointer"));
     }
 
     #[test]
     fn a_section_with_nothing_in_it_is_not_printed() {
-        let Ok(mut every) = sections(&ours());
+        let Ok(table) = Table::ours();
+        let Ok(mut every) = sections(&table);
 
-        every.push(Section { title: "Nothing at all".to_string(), lines: Vec::new() });
+        every.push(Section { title: String::from("Nothing at all"), lines: Vec::new() });
 
         let Ok(said) = guide(&every, PLAIN);
 
@@ -101,14 +101,20 @@ mod tests {
     }
 
     #[test]
-    fn a_section_with_something_in_it_is() {
-        let Ok(mut every) = sections(&ours());
-        let line = Line { button: "Super Q".to_string(), does: "close".to_string() };
+    fn a_section_with_something_in_it_is() -> Result<(), Box<dyn Error>> {
+        let Ok(table) = Table::ours();
+        let Ok(mut every) = sections(&table);
+        let line = Line { button: String::from("Super Q"), does: String::from("close") };
 
-        every.last_mut().expect("a section").lines.push(line);
+        match every.last_mut() {
+            Some(last) => last.lines.push(line),
+            None => return Err(Box::from("the guide has no sections")),
+        }
 
         let Ok(said) = guide(&every, PLAIN);
 
         assert!(said.contains(TYPED));
+
+        Ok(())
     }
 }

@@ -68,11 +68,11 @@ mod tests {
     }
 
     #[test]
-    fn every_file_is_a_migration_that_runs() {
+    fn every_file_is_a_migration_that_runs() -> Result<(), std::io::Error> {
         let at = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(DIRECTORY);
+        let history = std::fs::read_dir(&at)?;
 
-        let written: BTreeSet<String> = std::fs::read_dir(&at)
-            .expect("the history")
+        let written: BTreeSet<String> = history
             .flatten()
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -84,5 +84,7 @@ mod tests {
         let listed: BTreeSet<String> = EVERY.iter().map(|one| one.moment.to_string()).collect();
 
         assert_eq!(written, listed, "a module under {DIRECTORY} is not in EVERY, or is in it under another moment");
+
+        Ok(())
     }
 }

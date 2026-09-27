@@ -31,11 +31,11 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
 use console_battery as battery;
 use console_panel::actor::{self, Address, Answer};
 use console_panel::page::{Aside, Handler, Level, Page, Rows, Showing};
-use console_panel::running::{Notification, said, say};
+use console_panel::running::{Notification, run_output, say};
 use console_panel::before;
 use console_panel::card::{Card, Door};
 use crate::defaults::{self, Application};
-use crate::level::{Step, stepped};
+use crate::level::{Step, apply_step};
 use console_sound_effects::SoundEffects;
 use crate::rows::{Chosen, Languages, Opens, alphabet_rows, battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says, engine_says, language_rows, meeting_rows, notifications_rows, place_rows, region_rows, screen_rows, search_rows, sound_rows, tabs, language_picker_rows, security_rows, sound_effects, wifi_rows, zone_rows};
 use crate::languages::{self, Names, Language};
@@ -60,7 +60,7 @@ const NONE_AT_ALL: u32 = 0;
 
 
 fn pactl(arguments: &[&str]) -> Result<String, Never> {
-    said(Program::Pactl, arguments)
+    run_output(Program::Pactl, arguments)
 }
 
 fn of_kind(kind: &str) -> Result<Vec<sound::Thing>, Never> {
@@ -91,7 +91,7 @@ fn turn_to(index: i64, kind: &'static str) -> Result<Level, Never> {
         };
 
         let Ok(level) = thing.level();
-        let Ok(going) = stepped(level, Step(step));
+        let Ok(going) = apply_step(level, Step(step));
 
         let Ok(_) = pactl(&[
             &format!("set-{kind}-volume"),
@@ -104,16 +104,16 @@ fn turn_to(index: i64, kind: &'static str) -> Result<Level, Never> {
 const SINKS: &str = "sinks";
 const SPEAKERS: &str = "default sink";
 
-fn asked(note: &str, program: Program, arguments: &[&str]) -> Result<String, Never> {
-    before::said(note, program, arguments)
+fn run_and_note(note: &str, program: Program, arguments: &[&str]) -> Result<String, Never> {
+    before::run_and_note(note, program, arguments)
 }
 
-fn kept(note: &str) -> Result<String, Never> {
+fn last_output(note: &str) -> Result<String, Never> {
     before::last(note)
 }
 
 fn pactl_kept(note: &str, arguments: &[&str]) -> Result<String, Never> {
-    asked(note, Program::Pactl, arguments)
+    run_and_note(note, Program::Pactl, arguments)
 }
 
 fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
@@ -123,7 +123,7 @@ fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
 
     let Ok(sinks) = sound::read(&sinks);
     let Ok(mut rows) = sound_rows(&sinks, &playing, &speakers, hush, turn_to);
-    let Ok(effects) = SoundEffects::chosen();
+    let Ok(effects) = SoundEffects::current();
     let Ok(switch) = sound_effects(effects);
 
     rows.push(switch);
@@ -132,12 +132,12 @@ fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
 }
 
 fn sound_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(sinks) = kept(SINKS);
-    let Ok(speakers) = kept(SPEAKERS);
+    let Ok(sinks) = last_output(SINKS);
+    let Ok(speakers) = last_output(SPEAKERS);
 
     let Ok(sinks) = sound::read(&sinks);
     let Ok(mut rows) = sound_rows(&sinks, &[], &speakers, hush, turn_to);
-    let Ok(effects) = SoundEffects::chosen();
+    let Ok(effects) = SoundEffects::current();
     let Ok(switch) = sound_effects(effects);
 
     rows.push(switch);
@@ -178,7 +178,7 @@ fn dim() -> Result<Level, Never> {
 
                 match now {
                     Some(now) => {
-                        let Ok(going) = panel.stepped(now, way);
+                        let Ok(going) = panel.step_from(now, way);
 
                         let _ = panel.set(going);
                     }
@@ -194,7 +194,7 @@ fn guard(step: battery::Step) -> Result<Level, Never> {
     Ok(Arc::new(move |way| {
         let Ok(levels) = battery::Levels::here();
         let Ok(at) = levels.at(step);
-        let Ok(going) = stepped(at, Step(way));
+        let Ok(going) = apply_step(at, Step(way));
         let Ok(_) = levels.set(step, going);
     }))
 }
@@ -202,7 +202,7 @@ fn guard(step: battery::Step) -> Result<Level, Never> {
 const PROFILE: &str = "power profile";
 
 fn battery_tab() -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(profile) = asked(PROFILE, Program::Powerprofilesctl, &["get"]);
+    let Ok(profile) = run_and_note(PROFILE, Program::Powerprofilesctl, &["get"]);
 
     let Ok(levels) = battery::Levels::here();
 
@@ -217,7 +217,7 @@ fn warmth() -> Result<NightShift, Never> {
         None => return Ok(NightShift::Scheduled),
     };
 
-    let Ok(standing) = warm::standing(&home);
+    let Ok(standing) = warm::load(&home);
 
     match standing {
         warm::Standing::Loaded(warmth) => Ok(warmth),
@@ -237,7 +237,7 @@ fn warmth() -> Result<NightShift, Never> {
 }
 
 fn battery_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(profile) = kept(PROFILE);
+    let Ok(profile) = last_output(PROFILE);
 
     let Ok(levels) = battery::Levels::here();
 
@@ -254,13 +254,12 @@ fn standing_at(said: &str) -> Result<Option<size::Size>, Never> {
         None => return Ok(None),
     };
 
-    size::standing(&monitors)
+    size::current_size(&monitors)
 }
 
 fn monitors_in(said: &str) -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
-    Ok(match console_compositor::read(console_compositor::Query::Monitors, said) {
-        Ok(console_compositor::Answer::Monitors(monitors)) => Some(monitors),
-        Ok(_not_what_was_asked) => None,
+    Ok(match console_compositor::read(console_compositor::Monitors, said) {
+        Ok(monitors) => Some(monitors),
         Err(_the_compositor_said_nothing) => None,
     })
 }
@@ -275,7 +274,7 @@ fn turned_at(said: &str) -> Result<Option<turning::Turn>, Never> {
     let Ok(shown) = console_screen::shown(&monitors);
 
     match shown {
-        Some(screen) => turning::standing(&screen),
+        Some(screen) => turning::current_turn(&screen),
         None => Ok(None),
     }
 }
@@ -304,7 +303,7 @@ fn size_tab(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never>
     let Ok(brightness) = brightness();
     let Ok(warmth) = warmth();
     let Ok(words) = console_compositor::Query::Monitors.words();
-    let Ok(screens) = asked(SCREENS, Program::Hyprctl, words);
+    let Ok(screens) = run_and_note(SCREENS, Program::Hyprctl, words);
     let Ok(home) = home_rows(held);
     let Ok(standing) = standing_at(&screens);
     let Ok(turned) = turned_at(&screens);
@@ -316,12 +315,23 @@ fn size_tab(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never>
     screen_rows(Some(brightness), dim, room, warmth, standing, turned, home)
 }
 
-fn home_at() -> Result<Option<std::path::PathBuf>, Never> {
+fn home_standing() -> Result<console_screen::Shape, Never> {
+    Ok(match console_home_screen::standing() {
+        Ok(standing) => standing,
+        Err(fault) => {
+            eprintln!("settings-panel: which way up the screen stands: {fault}");
+
+            console_screen::Shape::Wider
+        }
+    })
+}
+
+fn home_at(standing: console_screen::Shape) -> Result<Option<std::path::PathBuf>, Never> {
     let Ok(said) = console_core_places::home();
 
     Ok(match said {
         Some(home) => {
-            let Ok(at) = shape::at(&home);
+            let Ok(at) = shape::at(&home, standing);
 
             Some(at)
         }
@@ -330,32 +340,35 @@ fn home_at() -> Result<Option<std::path::PathBuf>, Never> {
 }
 
 fn home_shape() -> Result<Shape, Never> {
-    let Ok(home) = home_at();
+    let Ok(standing) = home_standing();
+    let Ok(usual) = Shape::usual(standing);
+    let Ok(home) = home_at(standing);
 
     let at = match home {
         Some(at) => at,
-        None => return Ok(Shape::USUAL),
+        None => return Ok(usual),
     };
 
     let Ok(held) = console_core_atomic_writes::read(&at);
 
     Ok(match held {
         console_core_atomic_writes::Stored::Text(said) => {
-            let Ok(shape) = Shape::read(&said);
+            let Ok(shape) = Shape::read(&said, standing);
 
             shape
         }
-        console_core_atomic_writes::Stored::Absent => Shape::USUAL,
+        console_core_atomic_writes::Stored::Absent => usual,
         console_core_atomic_writes::Stored::Failed(fault) => {
             eprintln!("settings-panel: {}: {fault}", at.display());
 
-            Shape::USUAL
+            usual
         },
     })
 }
 
 fn home_set(shape: Shape) -> Result<(), Never> {
-    let Ok(home) = home_at();
+    let Ok(standing) = home_standing();
+    let Ok(home) = home_at(standing);
 
     let at = match home {
         Some(at) => at,
@@ -375,7 +388,7 @@ fn home_set(shape: Shape) -> Result<(), Never> {
         Some(Ok(())) | None => {},
     }
 
-    let Ok(written) = shape.written();
+    let Ok(written) = shape.serialize();
 
     match console_core_atomic_writes::whole(&at, written.as_bytes()) {
         Ok(()) => {},
@@ -386,7 +399,7 @@ fn home_set(shape: Shape) -> Result<(), Never> {
         }
     }
 
-    match console_panel::door::telling(console_panel::door::PadInput::Again) {
+    match console_panel::door::send_to_home(console_panel::door::PadInput::Again) {
         Ok(()) => {},
         Err(fault) => eprintln!("settings-panel: the home screen was not told: {fault}"),
     }
@@ -459,7 +472,7 @@ fn shaped(effect: &Effect<SettingsEffect>) -> Result<Option<&shape::Shape>, Neve
 fn size_meanwhile(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(brightness) = brightness();
     let Ok(warmth) = warmth();
-    let Ok(screens) = kept(SCREENS);
+    let Ok(screens) = last_output(SCREENS);
     let Ok(home) = home_rows(held);
     let Ok(standing) = standing_at(&screens);
     let Ok(turned) = turned_at(&screens);
@@ -514,7 +527,7 @@ fn join(network: wifi::Network, known: wifi::Known) -> Result<Handler, Never> {
 }
 
 fn notifications_tab() -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(held) = console_notifications::serving::held();
+    let Ok(held) = console_notifications::serving::load_inbox();
 
     notifications_rows(held.do_not_disturb)
 }
@@ -546,9 +559,9 @@ fn wifi_tab(sharing: &Sharing) -> Result<Vec<console_panel::page::Row>, Never> {
         None => {},
     }
 
-    let Ok(radio) = asked(WIFI_RADIO, Program::Nmcli, &["radio", "wifi"]);
-    let Ok(known) = asked(KNOWN, Program::Nmcli, &wifi::KNOWN);
-    let Ok(in_range) = asked(
+    let Ok(radio) = run_and_note(WIFI_RADIO, Program::Nmcli, &["radio", "wifi"]);
+    let Ok(known) = run_and_note(KNOWN, Program::Nmcli, &wifi::KNOWN);
+    let Ok(in_range) = run_and_note(
         IN_RANGE,
         Program::Nmcli,
         &["-t", "-f", wifi::FIELDS, "device", "wifi", "list"],
@@ -565,9 +578,9 @@ fn wifi_meanwhile(sharing: &Sharing) -> Result<Vec<console_panel::page::Row>, Ne
         None => {},
     }
 
-    let Ok(radio) = kept(WIFI_RADIO);
-    let Ok(known) = kept(KNOWN);
-    let Ok(in_range) = kept(IN_RANGE);
+    let Ok(radio) = last_output(WIFI_RADIO);
+    let Ok(known) = last_output(KNOWN);
+    let Ok(in_range) = last_output(IN_RANGE);
 
     wifi_at(Wifi { radio: &radio, known: &known, in_range: &in_range }, sharing)
 }
@@ -616,7 +629,7 @@ fn bluetooth_at(
         let said = ask(&device.address);
         let joined = bluetooth::joined(&said)?;
         let known = bluetooth::known(&said)?;
-        let heard = bluetooth::heard(&said)?;
+        let heard = bluetooth::parse_rssi(&said)?;
 
         met.push(bluetooth::Met { device, known, joined, heard });
     }
@@ -656,24 +669,24 @@ fn bluetooth_at(
 }
 
 fn bluetooth_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(radio) = asked(BLUETOOTH_RADIO, Program::Bluetoothctl, &["show"]);
-    let Ok(introduced) = asked(INTRODUCED, Program::Bluetoothctl, &["devices"]);
+    let Ok(radio) = run_and_note(BLUETOOTH_RADIO, Program::Bluetoothctl, &["show"]);
+    let Ok(introduced) = run_and_note(INTRODUCED, Program::Bluetoothctl, &["devices"]);
 
     bluetooth_at(looking, Bluetooth { radio: &radio, introduced: &introduced }, |address| {
         let Ok(about) = about(address);
-        let Ok(said) = asked(&about, Program::Bluetoothctl, &["info", address]);
+        let Ok(said) = run_and_note(&about, Program::Bluetoothctl, &["info", address]);
 
         said
     })
 }
 
 fn bluetooth_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(radio) = kept(BLUETOOTH_RADIO);
-    let Ok(introduced) = kept(INTRODUCED);
+    let Ok(radio) = last_output(BLUETOOTH_RADIO);
+    let Ok(introduced) = last_output(INTRODUCED);
 
     bluetooth_at(looking, Bluetooth { radio: &radio, introduced: &introduced }, |address| {
         let Ok(about) = about(address);
-        let Ok(said) = kept(&about);
+        let Ok(said) = last_output(&about);
 
         said
     })
@@ -682,15 +695,15 @@ fn bluetooth_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page
 const UP: &str = "wallpaper";
 
 fn on_the_screen() -> Result<String, Never> {
-    let Ok(said) = asked(UP, Program::Awww, &["query"]);
+    let Ok(said) = run_and_note(UP, Program::Awww, &["query"]);
 
-    place::showing(&said)
+    place::current_picture(&said)
 }
 
 fn was_on_the_screen() -> Result<String, Never> {
-    let Ok(said) = kept(UP);
+    let Ok(said) = last_output(UP);
 
-    place::showing(&said)
+    place::current_picture(&said)
 }
 
 #[derive(Debug)]
@@ -717,7 +730,7 @@ impl std::fmt::Display for Unchosen {
 impl std::error::Error for Unchosen {}
 
 fn write_down(wanted: &Wanted) -> Result<(), Unchosen> {
-    let Ok(asked) = place::asked();
+    let Ok(asked) = place::config_path();
 
     let at = asked.ok_or(Unchosen::NoOnes)?;
 
@@ -727,7 +740,7 @@ fn write_down(wanted: &Wanted) -> Result<(), Unchosen> {
         None => {},
     }
 
-    let Ok(written) = wanted.written();
+    let Ok(written) = wanted.serialize();
 
     console_core_atomic_writes::whole(&at, written.as_bytes()).map_err(Unchosen::Writing)
 }
@@ -818,7 +831,7 @@ fn wallpaper_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
     wallpaper_at(&up)
 }
 
-fn named(pictures: &[Offered], name: &str) -> Result<String, Never> {
+fn picture_label(pictures: &[Offered], name: &str) -> Result<String, Never> {
     let found = pictures.iter().find(|picture| picture.name == name).map(|one| one.says.clone());
 
     Ok(match found {
@@ -832,7 +845,7 @@ fn named(pictures: &[Offered], name: &str) -> Result<String, Never> {
 }
 
 fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
-    let Ok(asked) = Wanted::asked();
+    let Ok(asked) = Wanted::load();
 
     let up = up.to_string();
     let Ok(pictures) = offered();
@@ -858,7 +871,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
         &found,
         |following| {
             let picture = up.clone();
-            let Ok(said) = named(&pictures, &up);
+            let Ok(said) = picture_label(&pictures, &up);
             let going_on = match (following, up.is_empty()) {
                 (true, _) => "Wallpaper follows the weather".to_string(),
                 (false, true) => "Wallpaper stays as it is".to_string(),
@@ -881,7 +894,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
         },
         |name| {
             let picture = name.to_string();
-            let Ok(said) = named(&pictures, name);
+            let Ok(said) = picture_label(&pictures, name);
             let going_on = format!("{said} is going up");
             let Ok(does) = Handler::and_stay(move |showing| {
                 let Ok(()) = ask_for(
@@ -935,7 +948,7 @@ fn application_at(path: &std::path::Path) -> Result<Option<Application>, Never> 
 }
 
 fn opening(mime: &str) -> Result<String, Never> {
-    said(Program::XdgMime, &["query", "default", mime])
+    run_output(Program::XdgMime, &["query", "default", mime])
 }
 
 fn use_it(
@@ -952,12 +965,12 @@ fn use_it(
 
     Handler::and_stay(move |showing| {
         for mime in &every {
-            let Ok(_) = said(Program::XdgMime, &["default", &id, mime]);
+            let Ok(_) = run_output(Program::XdgMime, &["default", &id, mime]);
         }
 
         match scheme {
             true => {
-                let Ok(_) = said(Program::XdgSettings, &["set", "default-web-browser", &id]);
+                let Ok(_) = run_output(Program::XdgSettings, &["set", "default-web-browser", &id]);
             }
             false => {},
         }
@@ -1073,7 +1086,7 @@ fn defaults_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
         Destination::Search => {
             let Ok(back) = back_up(looking);
 
-            let Ok(chosen) = console_default_applications::engines::chosen();
+            let Ok(chosen) = console_default_applications::engines::current();
 
             search_rows(&chosen, back)
         }
@@ -1204,7 +1217,7 @@ fn names() -> Result<&'static Names, Never> {
     }))
 }
 
-fn spoken() -> Result<&'static Vec<Language>, Never> {
+fn supported_languages() -> Result<&'static Vec<Language>, Never> {
     #[cfg_attr(
         dylint_lib = "explicit044_no_ambient_value",
         allow(
@@ -1225,42 +1238,42 @@ fn spoken() -> Result<&'static Vec<Language>, Never> {
 }
 
 fn generated() -> Result<Vec<String>, Never> {
-    let Ok(said) = said(Program::Locale, &["-a"]);
+    let Ok(said) = run_output(Program::Locale, &["-a"]);
 
     languages::generated(&said)
 }
 
 fn lang() -> Result<Option<String>, Never> {
-    let Ok(said) = said(Program::Localectl, &["status"]);
+    let Ok(said) = run_output(Program::Localectl, &["status"]);
 
-    languages::chosen(&said)
+    languages::parse_lang(&said)
 }
 
 const ZONES: &str = "zones";
 
 fn zones() -> Result<Vec<String>, Never> {
-    let Ok(said) = asked(ZONES, Program::Timedatectl, &["list-timezones"]);
+    let Ok(said) = run_and_note(ZONES, Program::Timedatectl, &["list-timezones"]);
 
     hours::zones(&said)
 }
 
 fn here() -> Result<Option<String>, Never> {
-    let Ok(said) = said(Program::Timedatectl, &["show", "--property=Timezone", "--value"]);
+    let Ok(said) = run_output(Program::Timedatectl, &["show", "--property=Timezone", "--value"]);
 
-    hours::chosen(&said)
+    hours::parse_zone(&said)
 }
 
 fn called() -> Result<String, Never> {
-    let Ok(said) = said(Program::Hostnamectl, &["--static"]);
+    let Ok(said) = run_output(Program::Hostnamectl, &["--static"]);
 
     named::read(&said)
 }
 
 fn language_top(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
     let Ok(lang) = lang();
-    let Ok(spoken) = spoken();
+    let Ok(spoken) = supported_languages();
     let Ok(names) = names();
-    let Ok(standing) = languages::standing(spoken, lang.as_deref());
+    let Ok(standing) = languages::current_locale(spoken, lang.as_deref());
 
     let says = match &standing {
         Some(locale) => {
@@ -1274,10 +1287,10 @@ fn language_top(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
         },
     };
 
-    let Ok(chosen) = alphabets::chosen();
-    let Ok(types) = alphabets::said(&chosen);
+    let Ok(chosen) = alphabets::current();
+    let Ok(types) = alphabets::describe(&chosen);
 
-    let Ok(heard) = console_input_dictation::languages::chosen();
+    let Ok(heard) = console_input_dictation::languages::current();
     let Ok(listens) = dictation_says(&heard);
 
     let Ok(words) = open(looking, Destination::Languages);
@@ -1302,9 +1315,9 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     match onto {
         Destination::Languages => {
             let Ok(back) = back_up(looking);
-            let Ok(spoken) = spoken();
+            let Ok(spoken) = supported_languages();
             let Ok(lang) = lang();
-            let Ok(standing) = languages::standing(spoken, lang.as_deref());
+            let Ok(standing) = languages::current_locale(spoken, lang.as_deref());
 
             language_picker_rows(spoken, standing.as_ref(), back, |at, language| {
                 open(looking, Destination::Language(Deeper { name: language.to_string(), at }))
@@ -1312,10 +1325,10 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
         }
         Destination::Language(deeper) => {
             let Ok(back) = back_up(looking);
-            let Ok(spoken) = spoken();
+            let Ok(spoken) = supported_languages();
             let Ok(names) = names();
             let Ok(lang) = lang();
-            let Ok(standing) = languages::standing(spoken, lang.as_deref());
+            let Ok(standing) = languages::current_locale(spoken, lang.as_deref());
             let Ok(generated) = generated();
 
             let language = match spoken.iter().find(|language| language.language == deeper.name) {
@@ -1327,13 +1340,13 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
         }
         Destination::Alphabets => {
             let Ok(back) = back_up(looking);
-            let Ok(chosen) = alphabets::chosen();
+            let Ok(chosen) = alphabets::current();
 
             alphabet_rows(&chosen, back)
         }
         Destination::Dictation => {
             let Ok(back) = back_up(looking);
-            let Ok(chosen) = console_input_dictation::languages::chosen();
+            let Ok(chosen) = console_input_dictation::languages::current();
 
             dictation_rows(&chosen, back)
         }
@@ -1379,7 +1392,7 @@ fn named_row() -> Result<console_panel::page::Row, Never> {
 }
 
 fn search_row(looking: &ActorAddress) -> Result<console_panel::page::Row, Never> {
-    let Ok(engine) = console_default_applications::engines::chosen();
+    let Ok(engine) = console_default_applications::engines::current();
     let Ok(says) = engine_says(&engine);
     let Ok(opens) = open(looking, Destination::Search);
     let Ok(row) = console_panel::page::Row::new("Search Engine", Aside(&says), opens);
@@ -1417,7 +1430,7 @@ fn setting_rows(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
 fn tab(
     of: impl Fn() -> Result<Vec<console_panel::page::Row>, Never> + Send + Sync + 'static,
 ) -> Result<Rows, Never> {
-    Rows::asked(move || {
+    Rows::computed(move || {
         let Ok(rows) = of();
 
         rows
@@ -1455,7 +1468,7 @@ fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
     let Ok(configuration) = configuration_page(&configuration, looking);
 
     let Ok(asked) = tab(|| {
-        let Ok(now) = Appearance::chosen();
+        let Ok(now) = Appearance::current();
 
         crate::rows::books_rows(now)
     });
@@ -1488,7 +1501,7 @@ fn sound_page(title: &str) -> Result<Page, Never> {
         rows
     });
 
-    page.listening(console_program_contract::Topic::Sound, console_events::again::sound)
+    page.with_subscription(console_program_contract::Topic::Sound, console_events::again::sound)
 }
 
 fn bluetooth_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
@@ -1504,8 +1517,8 @@ fn bluetooth_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
         rows
     });
     let Ok(words) = crate::rows::looking_words();
-    let Ok(watch) = console_panel::page::Watch::anything(&words);
-    let Ok(page) = page.watching(watch);
+    let Ok(watch) = console_panel::page::Watch::command(&words);
+    let Ok(page) = page.with_watch(watch);
 
     page.on_back(move |showing| {
         let Ok(was) = looking_at(&backing_bluetooth);

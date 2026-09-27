@@ -31,7 +31,7 @@ use console_core_external_programs::{Installed, installed};
 use console_core_never::Never;
 
 fn main() -> std::process::ExitCode {
-    let Ok(chosen) = engines::chosen();
+    let Ok(chosen) = engines::current();
     let key = match std::env::args().nth(1) {
         Some(key) => key,
         None => chosen,
@@ -54,7 +54,7 @@ fn main() -> std::process::ExitCode {
             Installed::No => continue,
         }
 
-        let Ok(shipped) = shipped(place);
+        let Ok(shipped) = read_shipped(place);
 
         let Ok(said) = match place.file == CHROMIUM.file {
             true => policies::chromium(engine),
@@ -70,7 +70,7 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn shipped(place: &Where) -> Result<String, Never> {
+fn read_shipped(place: &Where) -> Result<String, Never> {
     Ok(match place.beneath.is_empty() {
         true => String::new(),
         false => {

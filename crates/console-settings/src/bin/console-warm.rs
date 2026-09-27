@@ -55,7 +55,7 @@ fn main() -> ExitCode {
     };
 
     let Ok(at) = at(&home);
-    let Ok(held) = warm::standing(&home);
+    let Ok(held) = warm::load(&home);
 
     let standing = match held {
         Standing::Loaded(warmth) => warmth,

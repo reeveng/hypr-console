@@ -17,6 +17,8 @@ path = "src/bin/console-events.rs"
 console-core-places = { workspace = true }
 console-program-contract.workspace = true
 console-core-never.workspace = true
+console-core-iteration.workspace = true
+console-core-directory-listing.workspace = true
 console-onscreen.workspace = true
 console-core-reconnect.workspace = true
 console-core-external-programs.workspace = true
@@ -24,6 +26,11 @@ console-program-lifetime.workspace = true
 console-core-number-conversion.workspace = true
 rustix.workspace = true
 console-waiting.workspace = true
+
+[dev-dependencies]
+# Waiting for the pool to come up rather than for a number of milliseconds.
+console-waiting.workspace = true
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

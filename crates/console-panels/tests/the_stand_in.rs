@@ -12,29 +12,31 @@
 //! against a nested desktop and reads back what it drew, and that check does not
 //! know or care which side of this socket drew it -- which is the point.
 
+use std::error::Error;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::thread::JoinHandle;
 
+use console_core_never::Never;
+
 use console_panel::handoff::{self, Request, DrawnBy};
 
-fn somewhere(named: &str) -> PathBuf {
-    let at = std::env::temp_dir().join(format!("console-panels-{}-{named}", std::process::id()));
-    let _ = std::fs::remove_file(&at);
+fn somewhere(named: &str) -> Result<PathBuf, console_core_temporary_directories::Unmade> {
+    let at = console_core_temporary_directories::fresh(&format!("panels-{named}"))?;
 
-    at
+    Ok(at.join("host.sock"))
 }
 
-fn arguments(words: &[&str]) -> Vec<String> {
-    words.iter().map(|word| (*word).to_string()).collect()
+fn arguments(words: &[&str]) -> Result<Vec<String>, Never> {
+    Ok(words.iter().map(|word| (*word).to_string()).collect())
 }
 
 struct Host {
     at: PathBuf,
     heard: std::sync::mpsc::Receiver<Request>,
-    serving: Option<JoinHandle<()>>,
+    serving: Option<JoinHandle<Result<(), std::io::Error>>>,
 }
 
 impl Drop for Host {
@@ -50,14 +52,15 @@ impl Drop for Host {
     }
 }
 
-fn a_host(named: &str, answering: Answering) -> Host {
-    let at = somewhere(named);
-    let listening = UnixListener::bind(&at).expect("nowhere to listen");
+fn a_host(named: &str, answering: Answering) -> Result<Host, Box<dyn Error>> {
+    let at = somewhere(named)?;
+    let listening = UnixListener::bind(&at)?;
     let (say, heard) = channel();
 
     let serving = std::thread::spawn(move || {
-        let (asking, _) = listening.accept().expect("no one asked");
-        let mut reading = BufReader::new(asking.try_clone().expect("no second hand on the socket"));
+        let (asking, _) = listening.accept()?;
+        let second_hand = asking.try_clone()?;
+        let mut reading = BufReader::new(second_hand);
         let mut line = String::new();
         let _ = reading.read_line(&mut line);
 
@@ -68,65 +71,86 @@ fn a_host(named: &str, answering: Answering) -> Host {
             Ok(None) | Err(_) => {}
         }
 
-        answering(&say, asking);
+        let Ok(()) = answering(&say, asking);
+
+        Ok(())
     });
 
-    Host { at, heard, serving: Some(serving) }
+    Ok(Host { at, heard, serving: Some(serving) })
 }
 
-type Answering = fn(&Sender<Request>, std::os::unix::net::UnixStream);
+type Answering = fn(&Sender<Request>, std::os::unix::net::UnixStream) -> Result<(), Never>;
 
-fn draws_and_is_closed(_say: &Sender<Request>, mut telling: std::os::unix::net::UnixStream) {
+fn draws_and_is_closed(_say: &Sender<Request>, mut telling: std::os::unix::net::UnixStream) -> Result<(), Never> {
     let _ = writeln!(telling, "drawn");
     let _ = telling.flush();
     let _ = writeln!(telling, "gone");
     let _ = telling.flush();
+
+    Ok(())
 }
 
-fn hangs_up_saying_nothing(_say: &Sender<Request>, telling: std::os::unix::net::UnixStream) {
+fn hangs_up_saying_nothing(_say: &Sender<Request>, telling: std::os::unix::net::UnixStream) -> Result<(), Never> {
     drop(telling);
+
+    Ok(())
 }
 
 #[test]
-fn a_panel_with_no_host_draws_itself() {
-    let at = somewhere("no one-is-listening");
+fn a_panel_with_no_host_draws_itself() -> Result<(), Box<dyn Error>> {
+    let at = somewhere("no one-is-listening")?;
+    let Ok(words) = arguments(&[]);
 
     assert_eq!(
-        handoff::stood_in_at(&at, "launcher", &arguments(&[])),
+        handoff::stood_in_at(&at, "launcher", &words),
         Ok(DrawnBy::Here),
         "a host that is down has to be a panel that is slower, not a button that does nothing"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_host_that_draws_it_is_a_panel_that_does_not() {
-    let host = a_host("draws", draws_and_is_closed);
+fn a_host_that_draws_it_is_a_panel_that_does_not() -> Result<(), Box<dyn Error>> {
+    let host = a_host("draws", draws_and_is_closed)?;
+    let Ok(words) = arguments(&["--keep"]);
 
     assert_eq!(
-        handoff::stood_in_at(&host.at, "launcher", &arguments(&["--keep"])),
+        handoff::stood_in_at(&host.at, "launcher", &words),
         Ok(DrawnBy::ByTheHost),
         "drawn twice is two menus over each other"
     );
+
+    Ok(())
 }
 
 #[test]
-fn what_was_typed_is_what_the_host_is_asked_for() {
-    let host = a_host("arguments", draws_and_is_closed);
-    let _ = handoff::stood_in_at(&host.at, "settings-panel", &arguments(&["Game Mode"]));
+fn what_was_typed_is_what_the_host_is_asked_for() -> Result<(), Box<dyn Error>> {
+    let host = a_host("arguments", draws_and_is_closed)?;
+    let Ok(words) = arguments(&["Game Mode"]);
 
-    let asked = host.heard.recv().expect("the host was told nothing");
+    let _ = handoff::stood_in_at(&host.at, "settings-panel", &words);
+    let asked = host.heard.recv().map_err(|_| "the host was told nothing")?;
 
     assert_eq!(asked.who, "settings-panel");
-    assert_eq!(asked.arguments, arguments(&["Game Mode"]), "the tab a bar icon asks for is one word");
+
+    let Ok(words) = arguments(&["Game Mode"]);
+
+    assert_eq!(asked.arguments, words, "the tab a bar icon asks for is one word");
+
+    Ok(())
 }
 
 #[test]
-fn a_host_that_goes_away_before_it_draws_leaves_the_panel_to_draw() {
-    let host = a_host("hangs-up", hangs_up_saying_nothing);
+fn a_host_that_goes_away_before_it_draws_leaves_the_panel_to_draw() -> Result<(), Box<dyn Error>> {
+    let host = a_host("hangs-up", hangs_up_saying_nothing)?;
+    let Ok(words) = arguments(&[]);
 
     assert_eq!(
-        handoff::stood_in_at(&host.at, "launcher", &arguments(&[])),
+        handoff::stood_in_at(&host.at, "launcher", &words),
         Ok(DrawnBy::Here),
         "a host that died between accepting and drawing is a press that answered nothing"
     );
+
+    Ok(())
 }

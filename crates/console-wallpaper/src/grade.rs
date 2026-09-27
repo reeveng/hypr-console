@@ -214,132 +214,138 @@ pub fn cube(ramp: &Ramp, how: &Grade, side: u32) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_core_number_conversion::whole_u8;
 
-    fn blossom(name: &str) -> Option<String> {
-        let colors = [
-            ("night", "110b12"),
-            ("ground", "231b26"),
-            ("panel", "372c3a"),
-            ("ash", "916f8d"),
-            ("soft", "cdb6c9"),
-            ("text", "ebdce7"),
-        ];
-        colors
-            .iter()
-            .find(|(held, _)| *held == name)
-            .map(|(_, code)| (*code).to_string())
+    const BLOSSOM: [(&str, &str); 6] = [
+        ("night", "110b12"),
+        ("ground", "231b26"),
+        ("panel", "372c3a"),
+        ("ash", "916f8d"),
+        ("soft", "cdb6c9"),
+        ("text", "ebdce7"),
+    ];
+
+    fn ramp() -> Result<Ramp, Unpainted> {
+        Ramp::read(&|name| {
+            BLOSSOM
+                .iter()
+                .find(|(held, _)| *held == name)
+                .map(|(_, code)| (*code).to_string())
+        })
     }
 
-    fn hex(rgb: [f64; 3]) -> String {
-        format!(
-            "{:02x}{:02x}{:02x}",
-            (rgb[0] * 255.0).round() as u8,
-            (rgb[1] * 255.0).round() as u8,
-            (rgb[2] * 255.0).round() as u8
-        )
+    fn hex(rgb: [f64; 3]) -> Result<String, Never> {
+        let [red, green, blue] = rgb.map(|channel| {
+            let Ok(byte) = whole_u8(channel * 255.0);
+
+            byte
+        });
+
+        Ok(format!("{red:02x}{green:02x}{blue:02x}"))
     }
 
-    fn ramp() -> Ramp {
-        Ramp::read(&blossom).expect("the ramp reads")
+    fn lab(code: &str) -> Result<Lab, Never> {
+        Lab::of(code)
     }
 
-    fn lab(code: &str) -> Lab {
-        let Ok(lab) = Lab::of(code);
+    fn graded(how: &Grade, rgb: [f64; 3]) -> Result<Lab, Unpainted> {
+        let ramp = ramp()?;
+        let Ok(done) = grade(&ramp, how, rgb);
+        let Ok(hex) = hex(done);
+        let Ok(lab) = lab(&hex);
 
-        lab
-    }
-
-    fn ends(ramp: &Ramp) -> (f64, f64) {
-        let Ok(ends) = ramp.ends();
-
-        ends
-    }
-
-    fn at(ramp: &Ramp, lightness: f64) -> Lab {
-        let Ok(found) = ramp.at(lightness);
-
-        found
-    }
-
-    fn graded(ramp: &Ramp, how: &Grade, rgb: [f64; 3]) -> [f64; 3] {
-        let Ok(done) = grade(ramp, how, rgb);
-
-        done
-    }
-
-    fn hue(lab: &Lab) -> f64 {
-        let Ok(hue) = lab.hue();
-
-        hue
+        Ok(lab)
     }
 
     #[test]
-    fn the_ramp_runs_from_the_darkest_ground_to_the_lightest_ink() {
-        let (dark, light) = ends(&ramp());
+    fn the_ramp_runs_from_the_darkest_ground_to_the_lightest_ink() -> Result<(), Unpainted> {
+        let ramp = ramp()?;
+        let Ok((dark, light)) = ramp.ends();
+        let Ok(night) = lab("110b12");
+        let Ok(text) = lab("ebdce7");
 
-        assert!((dark - lab("110b12").lightness).abs() < 1e-9);
-        assert!((light - lab("ebdce7").lightness).abs() < 1e-9);
+        assert!((dark - night.lightness).abs() < 1e-9);
+        assert!((light - text.lightness).abs() < 1e-9);
+
+        Ok(())
     }
 
     #[test]
-    fn a_lightness_the_ramp_holds_reads_as_the_color_it_holds_there() {
-        let panel = lab("372c3a");
-        let found = at(&ramp(), panel.lightness);
+    fn a_lightness_the_ramp_holds_reads_as_the_color_it_holds_there() -> Result<(), Unpainted> {
+        let ramp = ramp()?;
+        let Ok(panel) = lab("372c3a");
+        let Ok(found) = ramp.at(panel.lightness);
+
         assert!((found.a - panel.a).abs() < 1e-9);
         assert!((found.b - panel.b).abs() < 1e-9);
+
+        Ok(())
     }
 
-
     #[test]
-    fn keeping_all_of_a_color_and_pulling_none_leaves_its_color_alone() {
+    fn keeping_all_of_a_color_and_pulling_none_leaves_its_color_alone() -> Result<(), Unpainted> {
         let how = Grade { keep: 1.0, pull: 0.0, floor: 0.0, ceiling: 1.0 };
         let green = [0.227, 0.525, 0.329];
-        let was = lab("3a8654");
-        let done = graded(&ramp(), &how, green);
-        let is = lab(&hex(done));
-        assert!((hue(&was) - hue(&is)).abs() < 2.0, "{green:?} became {done:?}");
+        let Ok(was) = lab("3a8654");
+        let is = graded(&how, green)?;
+        let Ok(was_hue) = was.hue();
+        let Ok(is_hue) = is.hue();
+
+        assert!((was_hue - is_hue).abs() < 2.0, "{green:?} became {is:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_graded_picture_lands_inside_the_range_it_was_given() {
-        let (_, light) = ends(&ramp());
+    fn a_graded_picture_lands_inside_the_range_it_was_given() -> Result<(), Unpainted> {
+        let ramp = ramp()?;
+        let Ok((_, light)) = ramp.ends();
         let how = Grade::default();
         let (low, high) = (light * how.floor, light * how.ceiling);
 
         for rgb in [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.227, 0.525, 0.329]] {
-            let lightness = lab(&hex(graded(&ramp(), &how, rgb))).lightness;
+            let graded = graded(&how, rgb)?;
+            let lightness = graded.lightness;
+
             assert!(
                 lightness >= low - 0.01 && lightness <= high + 0.01,
                 "{rgb:?} graded to a lightness of {lightness}, outside {low}..{high}"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn dropping_a_color_and_pulling_it_over_lands_it_on_the_theme() {
+    fn dropping_a_color_and_pulling_it_over_lands_it_on_the_theme() -> Result<(), Unpainted> {
         let how = Grade { keep: 0.0, pull: 1.0, floor: 0.0, ceiling: 1.0 };
-        let done = graded(&ramp(), &how, [0.227, 0.525, 0.329]);
-        let landed = lab(&format!(
-            "{:02x}{:02x}{:02x}",
-            (done[0] * 255.0).round() as u8,
-            (done[1] * 255.0).round() as u8,
-            (done[2] * 255.0).round() as u8
-        ));
-        assert!(landed.a > 0.0, "a green pulled to plum stayed green: {done:?}");
-        assert!(landed.b < 0.0, "a green pulled to plum stayed green: {done:?}");
+        let landed = graded(&how, [0.227, 0.525, 0.329])?;
+
+        assert!(landed.a > 0.0, "a green pulled to plum stayed green: {landed:?}");
+        assert!(landed.b < 0.0, "a green pulled to plum stayed green: {landed:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_lowered_ceiling_takes_the_top_off_the_picture() {
+    fn a_lowered_ceiling_takes_the_top_off_the_picture() -> Result<(), Unpainted> {
         let how = Grade { keep: 1.0, pull: 0.0, floor: 0.0, ceiling: 0.6 };
-        let white = graded(&ramp(), &how, [1.0, 1.0, 1.0]);
+        let ramp = ramp()?;
+        let Ok(white) = grade(&ramp, &how, [1.0, 1.0, 1.0]);
+
         assert!(white.iter().all(|channel| *channel < 0.75), "{white:?} is still white");
+
+        Ok(())
     }
 
     #[test]
-    fn a_cube_holds_a_line_for_every_color_in_the_lattice() {
-        let Ok(written) = cube(&ramp(), &Grade::default(), 5);
+    fn a_cube_holds_a_line_for_every_color_in_the_lattice() -> Result<(), Unpainted> {
+        let ramp = ramp()?;
+        let Ok(written) = cube(&ramp, &Grade::default(), 5);
+        let Ok(colors) = console_core_number_conversion::fitted::<_, u32>(written.lines().filter(|line| !line.starts_with('#')).count());
 
-        assert_eq!(written.lines().filter(|line| !line.starts_with('#')).count(), 1 + 5 * 5 * 5);
+        assert_eq!(colors, 5_u32.pow(3).saturating_add(1));
+
+        Ok(())
     }
 }

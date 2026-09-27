@@ -53,7 +53,7 @@ pub enum Going {
 
 impl Going {
     pub fn of(arguments: &Arguments) -> Result<Self, Never> {
-        let Ok(given) = arguments.given(NOW);
+        let Ok(given) = arguments.flag(NOW);
 
         Ok(match given {
             Flag::Present => Going::Once,
@@ -263,42 +263,42 @@ mod tests {
 
     use super::*;
 
-    fn sky() -> Sky {
-        Sun::init(&Arguments::default()).state
+    enum Step {
+        Looked(f64, Covered),
+        Rendered(&'static str),
+        Event(WallpaperEvent),
     }
 
-    fn waking(effects: &[Effect<WallpaperEffect>]) -> Option<Duration> {
-        let Ok(waking) = wake(effects);
-
-        waking
+    fn sky() -> Result<Sky, Never> {
+        Ok(Sun::init(&Arguments::default()).state)
     }
 
-    fn chosen() -> Chosen {
-        Chosen {
-            moving: PathBuf::from("/pictures/rain.gif"),
-            still: Some(PathBuf::from("/pictures/rain.png")),
-        }
-    }
+    fn said(from: &Sky, steps: Vec<Step>) -> Result<Trace<Sky, WallpaperEvent, WallpaperEffect>, Never> {
+        let events: Vec<Event<WallpaperEvent>> = steps
+            .into_iter()
+            .map(|step| match step {
+                Step::Looked(seconds, covered) => WallpaperEvent::Looked {
+                    seconds,
+                    covered,
+                    chosen: Some(Chosen {
+                        moving: PathBuf::from("/pictures/rain.gif"),
+                        still: Some(PathBuf::from("/pictures/rain.png")),
+                    }),
+                },
+                Step::Rendered(at) => WallpaperEvent::Rendered { at: PathBuf::from(at), went: Rendered::Yes },
+                Step::Event(event) => event,
+            })
+            .map(Event::Custom)
+            .collect();
 
-    fn said(from: &Sky, heard: &[WallpaperEvent]) -> Trace<Sky, WallpaperEvent, WallpaperEffect> {
-        let events: Vec<Event<WallpaperEvent>> = heard.iter().cloned().map(Event::Custom).collect();
-
-        let Ok(said) = run_from::<Sun>(from, &events);
-
-        said
-    }
-
-    fn looked(seconds: f64, covered: Covered) -> WallpaperEvent {
-        WallpaperEvent::Looked { seconds, covered, chosen: Some(chosen()) }
-    }
-
-    fn painted(at: &str) -> WallpaperEvent {
-        WallpaperEvent::Rendered { at: PathBuf::from(at), went: Rendered::Yes }
+        run_from::<Sun>(from, &events)
     }
 
     #[test]
     fn the_still_one_goes_up_before_the_moving_one_the_first_time() {
-        let after = said(&sky(), &[looked(0.0, Covered::No)]);
+        let Ok(sky) = sky();
+
+        let Ok(after) = said(&sky, vec![Step::Looked(0.0, Covered::No)]);
 
         let Ok(effects) = after.effects();
 
@@ -317,24 +317,28 @@ mod tests {
 
     #[test]
     fn a_picture_already_up_is_not_put_up_again() {
-        let up = said(&sky(), &[
-            looked(0.0, Covered::No),
-            painted("/pictures/rain.png"),
-            painted("/pictures/rain.gif"),
+        let Ok(sky) = sky();
+
+        let Ok(up) = said(&sky, vec![
+            Step::Looked(0.0, Covered::No),
+            Step::Rendered("/pictures/rain.png"),
+            Step::Rendered("/pictures/rain.gif"),
         ]);
-        let again = said(&up.state, &[looked(1.0, Covered::No)]);
+        let Ok(again) = said(&up.state, vec![Step::Looked(1.0, Covered::No)]);
 
         assert_eq!(again.effects(), Ok(vec![Effect::Custom(WallpaperEffect::Again(LOOK_AGAIN))]));
     }
 
     #[test]
     fn something_in_front_of_it_does_not_put_it_away_at_once() {
-        let up = said(&sky(), &[
-            looked(0.0, Covered::No),
-            painted("/pictures/rain.png"),
-            painted("/pictures/rain.gif"),
+        let Ok(sky) = sky();
+
+        let Ok(up) = said(&sky, vec![
+            Step::Looked(0.0, Covered::No),
+            Step::Rendered("/pictures/rain.png"),
+            Step::Rendered("/pictures/rain.gif"),
         ]);
-        let covered = said(&up.state, &[looked(1.0, Covered::Yes)]);
+        let Ok(covered) = said(&up.state, vec![Step::Looked(1.0, Covered::Yes)]);
 
         let Ok(effects) = covered.effects();
 
@@ -347,28 +351,32 @@ mod tests {
 
     #[test]
     fn it_wakes_for_the_end_of_the_settling_rather_than_for_the_sun() {
-        let up = said(&sky(), &[looked(0.0, Covered::No), painted("/pictures/rain.gif")]);
-        let covered = said(&up.state, &[looked(1.0, Covered::Yes)]);
+        let Ok(sky) = sky();
+
+        let Ok(up) = said(&sky, vec![Step::Looked(0.0, Covered::No), Step::Rendered("/pictures/rain.gif")]);
+        let Ok(covered) = said(&up.state, vec![Step::Looked(1.0, Covered::Yes)]);
 
         let Ok(effects) = covered.effects();
 
-        assert_eq!(waking(&effects), Some(SETTLE));
+        assert_eq!(wake(&effects), Ok(Some(SETTLE)));
 
-        let later = said(&covered.state, &[looked(10.0, Covered::Yes)]);
+        let Ok(later) = said(&covered.state, vec![Step::Looked(10.0, Covered::Yes)]);
         let Ok(after) = later.effects();
 
-        assert_eq!(waking(&after), Some(Duration::from_secs_f64(6.0)));
+        assert_eq!(wake(&after), Ok(Some(Duration::from_secs_f64(6.0))));
     }
 
     #[test]
     fn once_it_has_settled_the_still_one_goes_up_and_it_sleeps_for_the_sun() {
-        let up = said(&sky(), &[
-            looked(0.0, Covered::No),
-            painted("/pictures/rain.png"),
-            painted("/pictures/rain.gif"),
+        let Ok(sky) = sky();
+
+        let Ok(up) = said(&sky, vec![
+            Step::Looked(0.0, Covered::No),
+            Step::Rendered("/pictures/rain.png"),
+            Step::Rendered("/pictures/rain.gif"),
         ]);
-        let covered = said(&up.state, &[looked(1.0, Covered::Yes)]);
-        let away = said(&covered.state, &[looked(17.0, Covered::Yes)]);
+        let Ok(covered) = said(&up.state, vec![Step::Looked(1.0, Covered::Yes)]);
+        let Ok(away) = said(&covered.state, vec![Step::Looked(17.0, Covered::Yes)]);
 
         let Ok(effects) = away.effects();
 
@@ -377,30 +385,34 @@ mod tests {
             !effects.iter().any(|effect| matches!(effect, Effect::Custom(WallpaperEffect::Refresh(_)))),
             "a still picture was refreshed, which is a moving one's word"
         );
-        assert_eq!(waking(&effects), Some(LOOK_AGAIN));
+        assert_eq!(wake(&effects), Ok(Some(LOOK_AGAIN)));
     }
 
     #[test]
     fn uncovering_it_starts_the_settling_over() {
-        let covered = said(&sky(), &[looked(0.0, Covered::Yes), looked(5.0, Covered::Yes)]);
+        let Ok(sky) = sky();
+
+        let Ok(covered) = said(&sky, vec![Step::Looked(0.0, Covered::Yes), Step::Looked(5.0, Covered::Yes)]);
 
         assert_eq!(covered.state.covered_since, Some(0.0));
 
-        let seen = said(&covered.state, &[looked(6.0, Covered::No)]);
+        let Ok(seen) = said(&covered.state, vec![Step::Looked(6.0, Covered::No)]);
 
         assert_eq!(seen.state.covered_since, None);
 
-        let again = said(&seen.state, &[looked(7.0, Covered::Yes)]);
+        let Ok(again) = said(&seen.state, vec![Step::Looked(7.0, Covered::Yes)]);
 
         assert_eq!(again.state.covered_since, Some(7.0));
     }
 
     #[test]
     fn a_wallpaper_that_would_not_take_is_tried_again_sooner() {
-        let after = said(&sky(), &[WallpaperEvent::Rendered {
+        let Ok(sky) = sky();
+
+        let Ok(after) = said(&sky, vec![Step::Event(WallpaperEvent::Rendered {
             at: PathBuf::from("/pictures/rain.gif"),
             went: Rendered::No,
-        }]);
+        })]);
 
         assert_eq!(after.effects(), Ok(vec![Effect::Custom(WallpaperEffect::Again(TRY_AGAIN))]));
         assert_eq!(after.state.showing, None);
@@ -411,27 +423,32 @@ mod tests {
         let Ok(arguments) = Arguments::of(&[NOW]);
 
         let once = Sun::init(&arguments).state;
-        let after = said(&once, &[looked(0.0, Covered::No)]);
+
+        let Ok(after) = said(&once, vec![Step::Looked(0.0, Covered::No)]);
         let Ok(effects) = after.effects();
 
         assert_eq!(effects.last(), Some(&Effect::Stop(Exit::Success)));
-        assert_eq!(waking(&effects), None);
+        assert_eq!(wake(&effects), Ok(None));
     }
 
     #[test]
     fn nothing_chosen_is_nothing_done_and_it_waits_for_the_sun() {
-        let after = said(&sky(), &[WallpaperEvent::Looked {
+        let Ok(sky) = sky();
+
+        let Ok(after) = said(&sky, vec![Step::Event(WallpaperEvent::Looked {
             seconds: 0.0,
             covered: Covered::No,
             chosen: None,
-        }]);
+        })]);
 
         assert_eq!(after.effects(), Ok(vec![Effect::Custom(WallpaperEffect::Again(LOOK_AGAIN))]));
     }
 
     #[test]
     fn what_the_sky_is_doing_only_ever_arrives_from_somewhere_else() {
-        let after = said(&sky(), &[WallpaperEvent::Weather(Some(Weather::Rain))]);
+        let Ok(sky) = sky();
+
+        let Ok(after) = said(&sky, vec![Step::Event(WallpaperEvent::Weather(Some(Weather::Rain)))]);
         let Ok(effects) = after.effects();
 
         assert_eq!(after.state.weather, Some(Weather::Rain));
@@ -440,14 +457,16 @@ mod tests {
 
     #[test]
     fn a_weather_nobody_could_ask_for_leaves_the_last_one_where_it_was() {
-        let after = said(&sky(), &[
-            WallpaperEvent::Weather(Some(Weather::Rain)),
-            WallpaperEvent::Weather(None),
+        let Ok(sky) = sky();
+
+        let Ok(after) = said(&sky, vec![
+            Step::Event(WallpaperEvent::Weather(Some(Weather::Rain))),
+            Step::Event(WallpaperEvent::Weather(None)),
         ]);
 
         assert_eq!(after.state.weather, Some(Weather::Rain));
 
-        let after = said(&after.state, &[WallpaperEvent::Weather(Some(Weather::Snow))]);
+        let Ok(after) = said(&after.state, vec![Step::Event(WallpaperEvent::Weather(Some(Weather::Snow)))]);
 
         assert_eq!(after.state.weather, Some(Weather::Snow));
     }

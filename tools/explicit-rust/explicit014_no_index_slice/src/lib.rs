@@ -6,7 +6,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::is_in_const_context;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT014: indexing and slicing are forbidden. `xs[i]` and `&s[a..b]`
@@ -24,21 +24,8 @@ dylint_linting::declare_late_lint! {
     "indexing and slicing are forbidden; ask with `get` and meet the `None`"
 }
 
-// Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
-// is true only for the harness build of a target -- the ordinary build of the
-// same library is linted as production, so nothing real is lost by skipping
-// this one.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl<'tcx> LateLintPass<'tcx> for Explicit014NoIndexSlice {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if !matches!(expr.kind, ExprKind::Index(..)) {
             return;
         }

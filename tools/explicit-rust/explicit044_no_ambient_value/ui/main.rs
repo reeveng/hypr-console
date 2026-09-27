@@ -29,6 +29,13 @@ fn moves_the_floor(at: &Path) {
     let _ = std::env::set_current_dir(at);
 }
 
+// BAD EXPLICIT044 — the machine's directory, and whatever an earlier run left
+// in it.
+fn somewhere_to_work() -> PathBuf {
+    //~v EXPLICIT044_NO_AMBIENT_VALUE
+    std::env::temp_dir().join("scratch")
+}
+
 // GOOD — the root is handed in and the path is joined to it.
 fn under(root: &Path, named: &str) -> PathBuf {
     root.join(named)
@@ -47,4 +54,5 @@ fn main() {
     let _ = STOPPING.load(Ordering::Relaxed);
     let _ = ASKED.get();
     let _ = NAMES.first();
+    let _ = somewhere_to_work();
 }

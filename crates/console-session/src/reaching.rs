@@ -53,7 +53,7 @@ pub fn in_session(whom: Whom<'_>, command: &str) -> Result<String, Never> {
 
     let inside = format!("{environment}; {command}");
 
-    let Ok(quoted) = quoted(&inside);
+    let Ok(quoted) = shell_quote(&inside);
     let Ok(runuser) = Program::Runuser.name();
     let Ok(shell) = Program::Sh.name();
 
@@ -62,14 +62,14 @@ pub fn in_session(whom: Whom<'_>, command: &str) -> Result<String, Never> {
 
 pub fn as_them(whom: Whom<'_>, command: &str) -> Result<String, Never> {
     let whom = whom.0;
-    let Ok(quoted) = quoted(command);
+    let Ok(quoted) = shell_quote(command);
     let Ok(runuser) = Program::Runuser.name();
     let Ok(shell) = Program::Sh.name();
 
     Ok(format!("{runuser} -u {whom} -- {shell} -c {quoted}"))
 }
 
-pub fn quoted(word: &str) -> Result<String, Never> {
+pub fn shell_quote(word: &str) -> Result<String, Never> {
     Ok(format!("'{}'", word.replace('\'', "'\\''")))
 }
 
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn a_quote_inside_a_command_does_not_end_the_command() {
-        let Ok(quoted) = quoted("say 'hello'");
+        let Ok(quoted) = shell_quote("say 'hello'");
 
         assert_eq!(quoted, "'say '\\''hello'\\'''");
     }

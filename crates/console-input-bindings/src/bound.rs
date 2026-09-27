@@ -84,7 +84,7 @@ impl Binding {
         Ok(Binding { on: Input::Pad, held: Vec::new(), pressed: button.to_string() })
     }
 
-    pub fn holding(on: Input, held: &[&str], pressed: &str) -> Result<Self, Never> {
+    pub fn chord(on: Input, held: &[&str], pressed: &str) -> Result<Self, Never> {
         Ok(Binding {
             on,
             held: held.iter().map(|word| (*word).to_string()).collect(),
@@ -92,7 +92,7 @@ impl Binding {
         })
     }
 
-    pub fn nothing() -> Result<Self, Never> {
+    pub fn unbound() -> Result<Self, Never> {
         Binding::pad(NOTHING)
     }
 
@@ -133,7 +133,7 @@ impl Binding {
 
         match said.is_empty() {
             true => {
-                let Ok(nothing) = Binding::nothing();
+                let Ok(nothing) = Binding::unbound();
 
                 return Ok(nothing);
             }
@@ -256,54 +256,59 @@ impl fmt::Display for Binding {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
+    use std::error::Error;
 
     #[test]
-    fn a_binding_is_read_the_way_it_is_written() {
-        let held = Binding::read("l2 + right-paddle-bottom").expect("a binding");
+    fn a_binding_is_read_the_way_it_is_written() -> Result<(), Box<dyn Error>> {
+        let held = Binding::read("l2 + right-paddle-bottom")?;
 
         assert_eq!(held.on, Input::Pad);
         assert_eq!(held.held, vec!["l2".to_string()]);
         assert_eq!(held.pressed, "right-paddle-bottom");
         assert_eq!(held.to_string(), "pad: l2 + right-paddle-bottom");
+
+        Ok(())
     }
 
     #[test]
-    fn a_button_on_its_own_holds_nothing() {
-        let alone = Binding::read("a").expect("a binding");
+    fn a_button_on_its_own_holds_nothing() -> Result<(), Box<dyn Error>> {
+        let alone = Binding::read("a")?;
 
-        assert_eq!(ok(alone.depth()), 0);
+        assert_eq!(alone.depth(), Ok(0));
         assert_eq!(alone.to_string(), "pad: a");
+
+        Ok(())
     }
 
     #[test]
-    fn a_paddle_can_be_held_the_way_a_trigger_can() {
-        let chord = Binding::read("left-paddle-top + right-paddle-top").expect("a binding");
+    fn a_paddle_can_be_held_the_way_a_trigger_can() -> Result<(), Box<dyn Error>> {
+        let chord = Binding::read("left-paddle-top + right-paddle-top")?;
 
         assert_eq!(chord.held, vec!["left-paddle-top".to_string()]);
-        assert_eq!(ok(chord.depth()), 1);
+        assert_eq!(chord.depth(), Ok(1));
+
+        Ok(())
     }
 
     #[test]
-    fn a_keyboard_binding_says_which_input_it_is_on() {
-        let chord = Binding::read("keyboard: super + i").expect("a binding");
+    fn a_keyboard_binding_says_which_input_it_is_on() -> Result<(), Box<dyn Error>> {
+        let chord = Binding::read("keyboard: super + i")?;
 
         assert_eq!(chord.on, Input::Keyboard);
         assert_eq!(chord.pressed, "i");
         assert_eq!(chord.to_string(), "keyboard: super + i");
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_with_nothing_on_it_says_so_rather_than_being_left_out() {
-        let none = Binding::read("").expect("a binding");
+    fn a_job_with_nothing_on_it_says_so_rather_than_being_left_out() -> Result<(), Box<dyn Error>> {
+        let none = Binding::read("")?;
 
         assert_eq!(none.played(), Ok(Played::ByNothing));
         assert_eq!(none.to_string(), NOTHING);
+
+        Ok(())
     }
 
     #[test]
@@ -333,29 +338,36 @@ mod tests {
 
     #[test]
     fn a_pad_button_is_not_a_key_and_a_key_is_not_a_pad_button() {
-        assert!(Binding::read("keyboard: left-paddle-top").is_err());
-        assert!(Binding::read("pad: super + i").is_err());
+        let paddle = Binding::read("keyboard: left-paddle-top");
+        let key = Binding::read("pad: super + i");
+
+        assert!(matches!(paddle, Err(Unbound::NoSuchKey(ref said)) if said == "left-paddle-top"), "{paddle:?}");
+        assert!(matches!(key, Err(Unbound::NotOnThisMachine(ref said)) if said == "i"), "{key:?}");
     }
 
     #[test]
-    fn a_chord_fits_only_while_what_it_holds_is_held() {
-        let chord = Binding::read("l2 + dpad-up").expect("a binding");
+    fn a_chord_fits_only_while_what_it_holds_is_held() -> Result<(), Box<dyn Error>> {
+        let chord = Binding::read("l2 + dpad-up")?;
 
         assert_eq!(chord.fits(Input::Pad, &["l2"], "dpad-up"), Ok(Fits::Yes));
         assert_eq!(chord.fits(Input::Pad, &[], "dpad-up"), Ok(Fits::No));
         assert_eq!(chord.fits(Input::Keyboard, &["l2"], "dpad-up"), Ok(Fits::No));
+
+        Ok(())
     }
 
     #[test]
-    fn something_else_held_does_not_stop_a_press_that_asks_for_nothing() {
-        let bare = Binding::read("left-paddle-top").expect("a binding");
+    fn something_else_held_does_not_stop_a_press_that_asks_for_nothing() -> Result<(), Box<dyn Error>> {
+        let bare = Binding::read("left-paddle-top")?;
 
         assert_eq!(bare.fits(Input::Pad, &["l2", "r2"], "left-paddle-top"), Ok(Fits::Yes));
+
+        Ok(())
     }
 
     #[test]
     fn a_job_on_no_button_fits_nothing() {
-        let Ok(none) = Binding::nothing();
+        let Ok(none) = Binding::unbound();
 
         assert_eq!(none.fits(Input::Pad, &[], ""), Ok(Fits::No));
     }

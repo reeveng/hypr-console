@@ -47,19 +47,22 @@
 //! is still called that. The walk that asks them is beside the crate rule
 //! itself.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error;
 use std::path::{Path, PathBuf};
+
+use console_core_never::Never;
 
 const FAMILY: &str = "console-core-";
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
+fn root() -> Result<PathBuf, std::io::Error> {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
 }
 
-fn manifests() -> BTreeMap<String, String> {
+fn manifests() -> Result<BTreeMap<String, String>, std::io::Error> {
     let mut held = BTreeMap::new();
-    let crates = std::fs::read_dir(root().join("crates")).expect("crates/");
+    let root = root()?;
+    let crates = std::fs::read_dir(root.join("crates"))?;
 
     for at in crates.flatten().map(|entry| entry.path()) {
         let manifest = at.join("Cargo.toml");
@@ -76,10 +79,10 @@ fn manifests() -> BTreeMap<String, String> {
         }
     }
 
-    held
+    Ok(held)
 }
 
-fn depends_on(said: &str) -> Vec<String> {
+fn depends_on(said: &str) -> Result<Vec<String>, Never> {
     let mut found = Vec::new();
     let mut inside = false;
 
@@ -89,7 +92,10 @@ fn depends_on(said: &str) -> Vec<String> {
             false => match inside {
                 true => match line.split_whitespace().next() {
                     Some(named) => {
-                        let named = named.split('.').next().unwrap_or(named);
+                        let named = match named.split_once('.') {
+                            Some((named, _key)) => named,
+                            None => named,
+                        };
 
                         match named.starts_with("console-") {
                             true => found.push(named.to_string()),
@@ -103,17 +109,20 @@ fn depends_on(said: &str) -> Vec<String> {
         }
     }
 
-    found
+    Ok(found)
 }
 
 #[test]
-fn a_core_crate_depends_on_nothing_but_the_core() {
-    let reaching: Vec<String> = manifests()
+fn a_core_crate_depends_on_nothing_but_the_core() -> Result<(), Box<dyn Error>> {
+    let held = manifests()?;
+
+    let reaching: Vec<String> = held
         .iter()
         .filter(|(named, _)| named.starts_with(FAMILY))
         .flat_map(|(named, said)| {
-            depends_on(said)
-                .into_iter()
+            let Ok(on) = depends_on(said);
+
+            on.into_iter()
                 .filter(|on| !on.starts_with(FAMILY))
                 .map(move |on| format!("{named} -> {on}"))
         })
@@ -123,15 +132,19 @@ fn a_core_crate_depends_on_nothing_but_the_core() {
         reaching.is_empty(),
         "a core crate is the bottom of the tree and reaches down into nothing: {reaching:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn every_crate_in_the_tree_says_what_family_it_is_in() {
-    let held = manifests();
+fn every_crate_in_the_tree_says_what_family_it_is_in() -> Result<(), Box<dyn Error>> {
+    let held = manifests()?;
     let strange: Vec<&String> =
         held.keys().filter(|named| !named.starts_with("console-")).collect();
 
     assert!(strange.is_empty(), "every crate here is a console-*: {strange:?}");
+
+    Ok(())
 }
 
 const SHELVES: [&str; 15] = [
@@ -144,43 +157,51 @@ const MECHANISMS: [&str; 18] = [
     "manager", "mgr", "module", "modules", "provider", "registry", "service", "services", "wrapper",
 ];
 
-fn named_with(denied: &[&str]) -> Vec<String> {
-    let held = manifests();
+fn named_with(denied: &[&str]) -> Result<Vec<String>, std::io::Error> {
+    let held = manifests()?;
+    let denied: BTreeSet<&str> = denied.iter().copied().collect();
 
-    held.keys()
+    let named = held
+        .keys()
         .flat_map(|named| {
             named
                 .split('-')
-                .filter(|word| denied.contains(word))
+                .filter(|word| denied.contains(*word))
                 .map(|word| format!("{named}, for {word}"))
                 .collect::<Vec<String>>()
         })
-        .collect()
+        .collect();
+
+    Ok(named)
 }
 
 #[test]
-fn nothing_here_is_a_shelf() {
-    let shelved = named_with(&SHELVES);
+fn nothing_here_is_a_shelf() -> Result<(), Box<dyn Error>> {
+    let shelved = named_with(&SHELVES)?;
 
     assert!(
         shelved.is_empty(),
         "a crate that would be a shelf does not get created, it gets a job: {shelved:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn no_crate_is_named_for_the_mechanism_it_happens_to_be() {
-    let mechanical = named_with(&MECHANISMS);
+fn no_crate_is_named_for_the_mechanism_it_happens_to_be() -> Result<(), Box<dyn Error>> {
+    let mechanical = named_with(&MECHANISMS)?;
 
     assert!(
         mechanical.is_empty(),
         "a word that names the mechanism is a word the name does not need: {mechanical:?}"
     );
+
+    Ok(())
 }
 
 const MACHINE: [&str; 3] = ["std::fs", "std::env", "std::process"];
 
-const EDGES: [(&str, &str); 7] = [
+const EDGES: [(&str, &str); 8] = [
     ("console-core-atomic-writes", "the file writer EXPLICIT040 sends every write through"),
     ("console-core-external-programs", "the one list of programs this desktop did not write"),
     ("console-core-internal-programs", "the other list, and where a staged binary is found"),
@@ -188,21 +209,27 @@ const EDGES: [(&str, &str); 7] = [
     ("console-core-localization", "where the locale variables are read, once"),
     ("console-core-color", "where the palette beside the running program is read, once"),
     ("console-core-temporary-directories", "an empty directory of this process's own, made once"),
+    ("console-core-directory-listing", "everything under a directory, walked once for the whole tree"),
 ];
 
 #[test]
-fn a_core_crate_reaches_the_machine_only_where_it_is_the_edge() {
-    let allowed: Vec<&str> = EDGES.iter().map(|(named, _why)| *named).collect();
+fn a_core_crate_reaches_the_machine_only_where_it_is_the_edge() -> Result<(), Box<dyn Error>> {
+    let allowed: BTreeSet<&str> = EDGES.iter().map(|(named, _why)| *named).collect();
+    let held = manifests()?;
+    let root = root()?;
 
-    let reaching: Vec<String> = manifests()
+    let reaching: Vec<String> = held
         .keys()
         .filter(|named| named.starts_with(FAMILY))
         .filter(|named| !allowed.contains(&named.as_str()))
         .flat_map(|named| {
-            console_repository::sources::under(&root().join("crates").join(named).join("src"))
+            console_repository::sources::under(&root.join("crates").join(named).join("src"))
                 .into_iter()
                 .flatten()
-                .filter_map(|at| std::fs::read_to_string(&at).ok().map(|said| (at, said)))
+                .filter_map(|at| match std::fs::read_to_string(&at) {
+                    Ok(said) => Some((at, said)),
+                    Err(_unreadable_is_not_reaching) => None,
+                })
                 .flat_map(move |(at, said)| {
                     MACHINE
                         .iter()
@@ -217,21 +244,27 @@ fn a_core_crate_reaches_the_machine_only_where_it_is_the_edge() {
         reaching.is_empty(),
         "a core crate is arithmetic, and the machine is asked by the crate that owns the question: {reaching:?}"
     );
+
+    Ok(())
 }
 
 #[test]
-fn every_edge_named_here_is_still_a_core_crate_that_reaches() {
-    let held = manifests();
+fn every_edge_named_here_is_still_a_core_crate_that_reaches() -> Result<(), Box<dyn Error>> {
+    let held = manifests()?;
+    let root = root()?;
 
     let stale: Vec<String> = EDGES
         .iter()
         .filter(|(named, _why)| {
             let gone = !held.contains_key(*named);
 
-            let quiet = console_repository::sources::under(&root().join("crates").join(named).join("src"))
+            let quiet = console_repository::sources::under(&root.join("crates").join(named).join("src"))
                 .into_iter()
                 .flatten()
-                .filter_map(|at| std::fs::read_to_string(at).ok())
+                .filter_map(|at| match std::fs::read_to_string(at) {
+                    Ok(said) => Some(said),
+                    Err(_unreadable_is_quiet) => None,
+                })
                 .all(|said| MACHINE.iter().all(|reach| !said.contains(reach)));
 
             gone || quiet
@@ -243,4 +276,6 @@ fn every_edge_named_here_is_still_a_core_crate_that_reaches() {
         stale.is_empty(),
         "an edge that no longer reaches is a line to delete rather than a permission to keep: {stale:?}"
     );
+
+    Ok(())
 }

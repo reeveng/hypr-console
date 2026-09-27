@@ -51,7 +51,7 @@ impl Shared {
         Ok(Shared { held, at, long })
     }
 
-    pub fn held(&self) -> Result<&OwnedFd, Never> {
+    pub fn descriptor(&self) -> Result<&OwnedFd, Never> {
         Ok(&self.held)
     }
 
@@ -80,13 +80,11 @@ impl Drop for Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
-    fn what_is_written_is_what_is_read_back() {
-        let mut shared = match Shared::of(64) {
-            Ok(shared) => shared,
-            Err(why) => panic!("no shared memory for a test: {why}"),
-        };
+    fn what_is_written_is_what_is_read_back() -> Result<(), Box<dyn Error>> {
+        let mut shared = Shared::of(64).map_err(|why| format!("no shared memory for a test: {why}"))?;
         let Ok(pixels) = shared.pixels();
 
         pixels.fill(0xab);
@@ -94,16 +92,17 @@ mod tests {
         let Ok(again) = shared.pixels();
 
         assert!(again.iter().all(|byte| *byte == 0xab));
+
+        Ok(())
     }
 
     #[test]
-    fn the_mapping_is_as_long_as_it_was_asked_for() {
-        let mut shared = match Shared::of(4096) {
-            Ok(shared) => shared,
-            Err(why) => panic!("no shared memory for a test: {why}"),
-        };
+    fn the_mapping_is_as_long_as_it_was_asked_for() -> Result<(), Box<dyn Error>> {
+        let mut shared = Shared::of(4096).map_err(|why| format!("no shared memory for a test: {why}"))?;
         let Ok(pixels) = shared.pixels();
 
         assert_eq!(pixels.len(), 4096);
+
+        Ok(())
     }
 }

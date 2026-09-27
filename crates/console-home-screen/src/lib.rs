@@ -20,7 +20,11 @@
 //! answers the empty square that asks for one. All three are held to what this
 //! says.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use console_core_atomic_writes::Stored;
+use console_screen::Shape as Standing;
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -35,13 +39,128 @@ pub use shape::{Shape, Square, square};
 
 pub const NAMED: &str = "home";
 
-pub fn file(home: &std::path::Path) -> Result<std::path::PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::State.ours_under(home);
+pub const NAMED_TALLER: &str = "home-taller";
 
-    Ok(ours.join(NAMED))
+pub fn file(home: &Path, standing: Standing) -> Result<PathBuf, Never> {
+    let Ok(ours) = console_core_places::Base::State.application_under(home);
+
+    Ok(ours.join(match standing {
+        Standing::Wider => NAMED,
+        Standing::Taller => NAMED_TALLER,
+    }))
 }
 
-pub const OURS: [&str; 5] = ["Files", "Music", "Download", "Notifications", "Buttons"];
+pub fn kept(home: &Path, standing: Standing) -> Result<Stored, Never> {
+    let Ok(at) = file(home, standing);
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    match held {
+        Stored::Absent => {
+            let Ok(other) = standing.other();
+            let Ok(there) = file(home, other);
+
+            console_core_atomic_writes::read(&there)
+        }
+        Stored::Text(_) | Stored::Failed(_) => Ok(held),
+    }
+}
+
+#[derive(Debug)]
+pub enum Unkept {
+    Unread(PathBuf, String),
+    Unwritten(PathBuf, console_core_atomic_writes::Unwritten),
+}
+
+impl std::fmt::Display for Unkept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unkept::Unread(at, fault) => write!(f, "{}: {fault}", at.display()),
+            Unkept::Unwritten(at, fault) => write!(f, "{}: {fault}", at.display()),
+        }
+    }
+}
+
+impl std::error::Error for Unkept {}
+
+pub fn keep(home: &Path, standing: Standing, layout: &HomeScreen) -> Result<(), Unkept> {
+    let Ok(at) = file(home, standing);
+
+    written(&at, layout)?;
+
+    let Ok(other) = standing.other();
+    let Ok(there) = file(home, other);
+    let Ok(held) = console_core_atomic_writes::read(&there);
+
+    let theirs = match held {
+        Stored::Text(said) => {
+            let Ok(theirs) = HomeScreen::read(&said);
+
+            theirs
+        }
+        Stored::Absent => return Ok(()),
+        Stored::Failed(fault) => return Err(Unkept::Unread(there, fault)),
+    };
+
+    let grid = grid(home, other)?;
+    let Ok(followed) = theirs.followed(layout, grid);
+
+    match followed == theirs {
+        true => Ok(()),
+        false => written(&there, &followed),
+    }
+}
+
+fn written(at: &Path, layout: &HomeScreen) -> Result<(), Unkept> {
+    let Ok(said) = layout.serialize();
+
+    match std::fs::read_to_string(at).is_ok_and(|before| before == said) {
+        true => return Ok(()),
+        false => {},
+    }
+
+    match at.parent() {
+        Some(above) => {
+            let _ = std::fs::create_dir_all(above);
+        }
+        None => {},
+    }
+
+    console_core_atomic_writes::whole(at, said.as_bytes()).map_err(|fault| Unkept::Unwritten(at.to_path_buf(), fault))
+}
+
+pub fn grid(home: &Path, standing: Standing) -> Result<Shape, Unkept> {
+    let Ok(at) = shape::at(home, standing);
+    let Ok(held) = console_core_atomic_writes::read(&at);
+
+    match held {
+        Stored::Text(said) => {
+            let Ok(grid) = Shape::read(&said, standing);
+
+            Ok(grid)
+        }
+        Stored::Absent => {
+            let Ok(grid) = Shape::usual(standing);
+
+            Ok(grid)
+        }
+        Stored::Failed(fault) => Err(Unkept::Unread(at, fault)),
+    }
+}
+
+pub fn standing() -> Result<Standing, console_compositor::HyprctlError> {
+    let found = console_screen::here()?;
+
+    Ok(match found {
+        Some(screen) => {
+            let Ok(shape) = screen.shape();
+
+            shape
+        }
+        None => Standing::Wider,
+    })
+}
+
+pub const APPLICATION: [&str; 5] = ["Files", "Music", "Download", "Notifications", "Buttons"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Spot {
@@ -60,7 +179,7 @@ impl Spot {
         })
     }
 
-    pub fn said(self) -> Result<String, Never> {
+    pub fn serialize(self) -> Result<String, Never> {
         Ok(format!("{}.{}.{}", self.pane, self.row, self.column))
     }
 
@@ -154,7 +273,7 @@ pub enum Touch {
     Travelled,
 }
 
-pub fn touched(from: (f64, f64), to: (f64, f64)) -> Result<Touch, Never> {
+pub fn classify_touch(from: (f64, f64), to: (f64, f64)) -> Result<Touch, Never> {
     Ok(match (to.0 - from.0).hypot(to.1 - from.1) <= DRIFT {
         true => Touch::Pressed,
         false => Touch::Travelled,
@@ -213,8 +332,8 @@ pub enum LongPress {
     NotYet,
 }
 
-pub fn held(since: std::time::Duration, from: (f64, f64), at: (f64, f64)) -> Result<LongPress, Never> {
-    let travelled = touched(from, at)?;
+pub fn long_press(since: std::time::Duration, from: (f64, f64), at: (f64, f64)) -> Result<LongPress, Never> {
+    let travelled = classify_touch(from, at)?;
 
     Ok(match (travelled, since >= HELD) {
         (Touch::Pressed, true) => LongPress::LongEnough,
@@ -281,7 +400,7 @@ impl HomeScreen {
         Ok(HomeScreen { placed })
     }
 
-    pub fn written(&self) -> Result<String, Never> {
+    pub fn serialize(&self) -> Result<String, Never> {
         Ok(self
             .placed
             .iter()
@@ -340,8 +459,8 @@ impl HomeScreen {
 
     pub fn first(order: &[String], shape: Shape) -> Result<HomeScreen, Never> {
         let mut home = HomeScreen::default();
-        let ours = OURS.iter().map(|said| said.to_string());
-        let rest = order.iter().filter(|name| !OURS.contains(&name.as_str())).cloned();
+        let ours = APPLICATION.iter().map(|said| said.to_string());
+        let rest = order.iter().filter(|name| !APPLICATION.contains(&name.as_str())).cloned();
         #[cfg_attr(
             dylint_lib = "explicit028_no_search_in_a_loop",
             allow(
@@ -413,7 +532,28 @@ impl HomeScreen {
         Ok(())
     }
 
-    pub fn holding(&self) -> Result<Holding, Never> {
+    pub fn followed(&self, leading: &HomeScreen, shape: Shape) -> Result<HomeScreen, Never> {
+        let wanted: BTreeSet<&str> = leading.placed.values().map(String::as_str).collect();
+        let mut home = HomeScreen {
+            placed: self
+                .placed
+                .iter()
+                .filter(|(_, name)| wanted.contains(name.as_str()))
+                .map(|(spot, name)| (*spot, name.clone()))
+                .collect(),
+        };
+        let held: BTreeSet<String> = home.placed.values().cloned().collect();
+
+        for name in leading.placed.values().filter(|name| !held.contains(name.as_str())) {
+            let spot = home.first_free(shape)?;
+
+            home.place(spot, name)?;
+        }
+
+        Ok(home)
+    }
+
+    pub fn occupancy(&self) -> Result<Holding, Never> {
         Ok(match self.placed.is_empty() {
             true => Holding::None,
             false => Holding::Some,
@@ -431,18 +571,27 @@ pub enum Holding {
 mod tests {
     use super::*;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(answer) = answer;
+    fn count(home: &HomeScreen) -> Result<u32, std::num::TryFromIntError> {
+        let Ok(every) = home.every();
 
-        answer
+        u32::try_from(every.count())
+    }
+
+    fn all_on(home: &HomeScreen, shape: Shape) -> Result<On, Never> {
+        let Ok(mut every) = home.every();
+
+        match every.all(|(spot, _)| spot.on_the_grid(shape) == Ok(On::TheGrid)) {
+            true => Ok(On::TheGrid),
+            false => Ok(On::None),
+        }
     }
 
     const GRID: Shape = Shape::USUAL;
 
     #[test]
     fn a_bare_square_is_only_offered_the_picker_by_a_button() {
-        assert_eq!(ok(on_a_bare_square(Reached::ByButton)), Bare::Chooses);
-        assert_eq!(ok(on_a_bare_square(Reached::ByTouch)), Bare::Waits);
+        assert_eq!(on_a_bare_square(Reached::ByButton), Ok(Bare::Chooses));
+        assert_eq!(on_a_bare_square(Reached::ByTouch), Ok(Bare::Waits));
     }
 
     #[test]
@@ -454,13 +603,15 @@ mod tests {
         ];
 
         for spot in squares {
-            assert_eq!(ok(Spot::read(&ok(spot.said()))), Some(spot), "{spot:?}");
+            let Ok(said) = spot.serialize();
+
+            assert_eq!(Spot::read(&said), Ok(Some(spot)), "{spot:?}");
         }
 
-        assert_eq!(ok(Spot::read("0.1")), None, "three numbers or nothing");
-        assert_eq!(ok(Spot::read("0.1.2.3")), None, "three numbers or nothing");
-        assert_eq!(ok(Spot::read("zero.one.two")), None, "numbers, not words");
-        assert_eq!(ok(Spot::read("")), None, "nothing is not a square");
+        assert_eq!(Spot::read("0.1"), Ok(None), "three numbers or nothing");
+        assert_eq!(Spot::read("0.1.2.3"), Ok(None), "three numbers or nothing");
+        assert_eq!(Spot::read("zero.one.two"), Ok(None), "numbers, not words");
+        assert_eq!(Spot::read(""), Ok(None), "nothing is not a square");
     }
 
     const COLUMNS: u32 = GRID.columns;
@@ -469,34 +620,34 @@ mod tests {
     #[test]
     fn the_dpad_walks_the_squares_and_falls_off_neither_end() {
         let middle = Spot { pane: 1, row: 1, column: 2 };
-        assert_eq!(ok(moved(middle, Way::Up, 3, GRID)), Spot { pane: 1, row: 0, column: 2 });
-        assert_eq!(ok(moved(middle, Way::Down, 3, GRID)), Spot { pane: 1, row: 2, column: 2 });
-        assert_eq!(ok(moved(middle, Way::Left, 3, GRID)), Spot { pane: 1, row: 1, column: 1 });
-        assert_eq!(ok(moved(middle, Way::Right, 3, GRID)), Spot { pane: 1, row: 1, column: 3 });
+        assert_eq!(moved(middle, Way::Up, 3, GRID), Ok(Spot { pane: 1, row: 0, column: 2 }));
+        assert_eq!(moved(middle, Way::Down, 3, GRID), Ok(Spot { pane: 1, row: 2, column: 2 }));
+        assert_eq!(moved(middle, Way::Left, 3, GRID), Ok(Spot { pane: 1, row: 1, column: 1 }));
+        assert_eq!(moved(middle, Way::Right, 3, GRID), Ok(Spot { pane: 1, row: 1, column: 3 }));
 
         let top = Spot { pane: 0, row: 0, column: 0 };
-        assert_eq!(ok(moved(top, Way::Up, 3, GRID)), top, "there is nothing above the first row");
-        assert_eq!(ok(moved(top, Way::Left, 3, GRID)), top, "nor before the first pane");
+        assert_eq!(moved(top, Way::Up, 3, GRID), Ok(top), "there is nothing above the first row");
+        assert_eq!(moved(top, Way::Left, 3, GRID), Ok(top), "nor before the first pane");
 
-        let last = Spot { pane: 2, row: ROWS - 1, column: COLUMNS - 1 };
-        assert_eq!(ok(moved(last, Way::Down, 3, GRID)), last);
-        assert_eq!(ok(moved(last, Way::Right, 3, GRID)), last, "the panes end where the caller said");
+        let last = Spot { pane: 2, row: ROWS.saturating_sub(1), column: COLUMNS.saturating_sub(1) };
+        assert_eq!(moved(last, Way::Down, 3, GRID), Ok(last));
+        assert_eq!(moved(last, Way::Right, 3, GRID), Ok(last), "the panes end where the caller said");
     }
 
     #[test]
     fn walking_off_the_side_of_a_pane_is_how_the_next_one_is_reached() {
-        let last = Spot { pane: 0, row: 1, column: COLUMNS - 1 };
+        let last = Spot { pane: 0, row: 1, column: COLUMNS.saturating_sub(1) };
         let first = Spot { pane: 1, row: 1, column: 0 };
 
-        assert_eq!(ok(moved(last, Way::Right, 2, GRID)), first);
-        assert_eq!(ok(moved(first, Way::Left, 2, GRID)), last);
+        assert_eq!(moved(last, Way::Right, 2, GRID), Ok(first));
+        assert_eq!(moved(first, Way::Left, 2, GRID), Ok(last));
     }
 
     #[test]
     fn a_full_hand_is_offered_the_pane_past_the_end_and_an_empty_one_is_not() {
-        let edge = Spot { pane: 1, row: 0, column: COLUMNS - 1 };
-        assert_eq!(ok(moved(edge, Way::Right, 2, GRID)), edge);
-        assert_eq!(ok(moved(edge, Way::Right, 3, GRID)), Spot { pane: 2, row: 0, column: 0 });
+        let edge = Spot { pane: 1, row: 0, column: COLUMNS.saturating_sub(1) };
+        assert_eq!(moved(edge, Way::Right, 2, GRID), Ok(edge));
+        assert_eq!(moved(edge, Way::Right, 3, GRID), Ok(Spot { pane: 2, row: 0, column: 0 }));
     }
 
     #[test]
@@ -504,89 +655,90 @@ mod tests {
         let third = Spot { pane: 0, row: 2, column: 3 };
         let last = Spot { pane: 1, row: 0, column: 0 };
 
-        assert_eq!(ok(paned(third, Along::After, 2)), Spot { pane: 1, row: 2, column: 3 });
-        assert_eq!(ok(paned(third, Along::Before, 2)), third);
-        assert_eq!(ok(paned(last, Along::After, 2)), last);
+        assert_eq!(paned(third, Along::After, 2), Ok(Spot { pane: 1, row: 2, column: 3 }));
+        assert_eq!(paned(third, Along::Before, 2), Ok(third));
+        assert_eq!(paned(last, Along::After, 2), Ok(last));
     }
 
     #[test]
     fn a_finger_drawn_across_the_squares_turns_the_pane_it_was_drawn_away_from() {
-        assert_eq!(ok(flicked((400.0, 300.0), (200.0, 310.0))), Flick::Across(Along::After));
-        assert_eq!(ok(flicked((200.0, 300.0), (400.0, 290.0))), Flick::Across(Along::Before));
+        assert_eq!(flicked((400.0, 300.0), (200.0, 310.0)), Ok(Flick::Across(Along::After)));
+        assert_eq!(flicked((200.0, 300.0), (400.0, 290.0)), Ok(Flick::Across(Along::Before)));
     }
 
     #[test]
     fn a_finger_drawn_up_the_screen_is_not_a_pane_and_a_short_one_is_neither() {
-        assert_eq!(ok(flicked((400.0, 500.0), (410.0, 300.0))), Flick::Upward);
-        assert_eq!(ok(flicked((400.0, 500.0), (430.0, 480.0))), Flick::Nowhere);
-        assert_eq!(ok(flicked((400.0, 300.0), (410.0, 500.0))), Flick::Nowhere, "downward");
+        assert_eq!(flicked((400.0, 500.0), (410.0, 300.0)), Ok(Flick::Upward));
+        assert_eq!(flicked((400.0, 500.0), (430.0, 480.0)), Ok(Flick::Nowhere));
+        assert_eq!(flicked((400.0, 300.0), (410.0, 500.0)), Ok(Flick::Nowhere), "downward");
     }
 
     #[test]
     fn a_finger_held_still_long_enough_is_a_hold_and_one_that_wandered_off_is_not() {
         let still = (100.0, 100.0);
 
-        assert_eq!(ok(held(HELD, still, still)), LongPress::LongEnough);
-        assert_eq!(ok(held(HELD / 2, still, still)), LongPress::NotYet);
-        assert_eq!(ok(held(HELD, still, (400.0, 100.0))), LongPress::NotYet);
+        assert_eq!(long_press(HELD, still, still), Ok(LongPress::LongEnough));
+        assert_eq!(long_press(HELD / 2, still, still), Ok(LongPress::NotYet));
+        assert_eq!(long_press(HELD, still, (400.0, 100.0)), Ok(LongPress::NotYet));
     }
 
     #[test]
     fn a_finger_that_travelled_pressed_nothing() {
-        assert_eq!(ok(touched((100.0, 100.0), (100.0, 100.0))), Touch::Pressed);
-        assert_eq!(ok(touched((100.0, 100.0), (108.0, 94.0))), Touch::Pressed, "a thumb wanders");
-        assert_eq!(ok(touched((100.0, 100.0), (400.0, 108.0))), Touch::Travelled, "a pane, sideways");
-        assert_eq!(ok(touched((100.0, 300.0), (112.0, 40.0))), Touch::Travelled, "the menu, upwards");
+        assert_eq!(classify_touch((100.0, 100.0), (100.0, 100.0)), Ok(Touch::Pressed));
+        assert_eq!(classify_touch((100.0, 100.0), (108.0, 94.0)), Ok(Touch::Pressed), "a thumb wanders");
+        assert_eq!(classify_touch((100.0, 100.0), (400.0, 108.0)), Ok(Touch::Travelled), "a pane, sideways");
+        assert_eq!(classify_touch((100.0, 300.0), (112.0, 40.0)), Ok(Touch::Travelled), "the menu, upwards");
     }
 
     #[test]
     fn a_square_arriving_under_a_still_pointer_is_not_the_pointer_moving() {
-        assert_eq!(ok(nudged((100.0, 100.0), (100.0, 100.0))), Moved::NotAtAll, "the same place");
-        assert_eq!(ok(nudged((100.0, 100.0), (100.2, 100.2))), Moved::NotAtAll, "a rounding");
-        assert_eq!(ok(nudged((100.0, 100.0), (101.0, 100.0))), Moved::Somewhere, "a pixel across");
-        assert_eq!(ok(nudged((100.0, 100.0), (100.0, 99.0))), Moved::Somewhere, "a pixel up");
+        assert_eq!(nudged((100.0, 100.0), (100.0, 100.0)), Ok(Moved::NotAtAll), "the same place");
+        assert_eq!(nudged((100.0, 100.0), (100.2, 100.2)), Ok(Moved::NotAtAll), "a rounding");
+        assert_eq!(nudged((100.0, 100.0), (101.0, 100.0)), Ok(Moved::Somewhere), "a pixel across");
+        assert_eq!(nudged((100.0, 100.0), (100.0, 99.0)), Ok(Moved::Somewhere), "a pixel up");
     }
 
     #[test]
     fn what_is_placed_is_what_is_written_down_and_read_back() {
         let mut home = HomeScreen::default();
-        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
-        ok(home.place(Spot { pane: 2, row: 1, column: 4 }, "Steam"));
+        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 0 }, "Files");
+        let Ok(()) = home.place(Spot { pane: 2, row: 1, column: 4 }, "Steam");
 
-        assert_eq!(ok(home.written()), "0\t0\t0\tFiles\n2\t1\t4\tSteam\n");
-        assert_eq!(ok(HomeScreen::read(&ok(home.written()))), home);
-        assert_eq!(ok(home.at(Spot { pane: 2, row: 1, column: 4 })), Some("Steam"));
-        assert_eq!(ok(home.at(Spot { pane: 2, row: 1, column: 3 })), None);
+        assert_eq!(home.serialize(), Ok("0\t0\t0\tFiles\n2\t1\t4\tSteam\n".to_string()));
+
+        let Ok(written) = home.serialize();
+
+        assert_eq!(HomeScreen::read(&written), Ok(home.clone()));
+        assert_eq!(home.at(Spot { pane: 2, row: 1, column: 4 }), Ok(Some("Steam")));
+        assert_eq!(home.at(Spot { pane: 2, row: 1, column: 3 }), Ok(None));
     }
 
     #[test]
     fn a_name_with_spaces_in_it_survives_the_writing_down() {
-        let home = ok(HomeScreen::read("1\t0\t2\tText Editor\n"));
-        assert_eq!(ok(home.at(Spot { pane: 1, row: 0, column: 2 })), Some("Text Editor"));
+        let Ok(home) = HomeScreen::read("1\t0\t2\tText Editor\n");
+        assert_eq!(home.at(Spot { pane: 1, row: 0, column: 2 }), Ok(Some("Text Editor")));
     }
 
     #[test]
     fn a_line_that_is_not_a_placement_is_not_a_placement() {
-        let home = ok(HomeScreen::read("\nnonsense\n0\t0\n0\t0\t0\t\nx\ty\tz\tFiles\n0\t0\t0\tFiles\n"));
-        assert_eq!(ok(home.every()).count(), 1);
-        assert_eq!(ok(home.at(Spot::FIRST)), Some("Files"));
+        let Ok(home) = HomeScreen::read("\nnonsense\n0\t0\n0\t0\t0\t\nx\ty\tz\tFiles\n0\t0\t0\tFiles\n");
+        assert_eq!(count(&home), Ok(1));
+        assert_eq!(home.at(Spot::FIRST), Ok(Some("Files")));
     }
 
     #[test]
     fn a_square_this_grid_does_not_have_is_moved_onto_it_rather_than_dropped() {
-        let home = ok(HomeScreen::read(&format!("0\t0\t{COLUMNS}\tFiles\n0\t{ROWS}\t0\tSteam\n")));
+        let Ok(home) = HomeScreen::read(&format!("0\t0\t{COLUMNS}\tFiles\n0\t{ROWS}\t0\tSteam\n"));
 
-        assert_eq!(ok(home.holding()), Holding::Some, "nothing is thrown away by reading");
+        assert_eq!(home.occupancy(), Ok(Holding::Some), "nothing is thrown away by reading");
 
-        let fitted = ok(home.fitted(GRID));
-        let names: Vec<&str> = ok(fitted.every()).map(|(_, name)| name).collect();
+        let Ok(fitted) = home.fitted(GRID);
+        let Ok(every) = fitted.every();
+        let names: Vec<&str> = every.map(|(_, name)| name).collect();
 
         assert_eq!(names.len(), 2, "{names:?}");
         assert!(names.contains(&"Files") && names.contains(&"Steam"), "{names:?}");
-        assert!(
-            ok(fitted.every()).all(|(spot, _)| ok(spot.on_the_grid(GRID)) == On::TheGrid),
-            "something is still off the grid"
-        );
+        assert_eq!(all_on(&fitted, GRID), Ok(On::TheGrid), "something is still off the grid");
     }
 
     #[test]
@@ -595,109 +747,121 @@ mod tests {
 
         for row in 0..GRID.rows {
             for column in 0..GRID.columns {
-                ok(home.place(Spot { pane: 0, row, column }, &format!("{row}-{column}")));
+                let Ok(()) = home.place(Spot { pane: 0, row, column }, &format!("{row}-{column}"));
             }
         }
 
-        let narrow = ok(GRID.with_columns(3));
-        let fitted = ok(home.fitted(narrow));
+        let Ok(narrow) = GRID.with_columns(3);
+        let Ok(fitted) = home.fitted(narrow);
 
-        assert_eq!(ok(fitted.every()).count(), ok(home.every()).count(), "something was folded over");
-        assert!(ok(fitted.every()).all(|(spot, _)| ok(spot.on_the_grid(narrow)) == On::TheGrid));
-        assert!(ok(fitted.panes()) > 1, "fifteen things do not fit on nine squares");
+        let Ok(panes) = fitted.panes();
+
+        assert_eq!(count(&fitted), count(&home), "something was folded over");
+        assert_eq!(all_on(&fitted, narrow), Ok(On::TheGrid));
+        assert!(panes > 1, "fifteen things do not fit on nine squares");
     }
 
     #[test]
     fn a_grid_nothing_is_off_leaves_every_square_where_it_was() {
         let mut home = HomeScreen::default();
-        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
-        ok(home.place(Spot { pane: 1, row: 2, column: 4 }, "Steam"));
+        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 0 }, "Files");
+        let Ok(()) = home.place(Spot { pane: 1, row: 2, column: 4 }, "Steam");
 
-        assert_eq!(ok(home.fitted(GRID)), home);
+        assert_eq!(home.fitted(GRID), Ok(home));
     }
 
     #[test]
     fn a_far_pane_in_the_file_is_a_home_screen_with_that_many_panes() {
-        let home = ok(HomeScreen::read("7\t0\t0\tSteam\n"));
-        assert_eq!(ok(home.at(Spot { pane: 7, row: 0, column: 0 })), Some("Steam"));
-        assert_eq!(ok(home.panes()), 8);
+        let Ok(home) = HomeScreen::read("7\t0\t0\tSteam\n");
+        assert_eq!(home.at(Spot { pane: 7, row: 0, column: 0 }), Ok(Some("Steam")));
+        assert_eq!(home.panes(), Ok(8));
     }
 
     #[test]
     fn there_are_as_many_panes_as_what_is_placed_reaches() {
         let mut home = HomeScreen::default();
-        assert_eq!(ok(home.panes()), 1, "an empty home screen is one pane of room");
+        assert_eq!(home.panes(), Ok(1), "an empty home screen is one pane of room");
 
-        ok(home.place(Spot { pane: 2, row: 1, column: 1 }, "Steam"));
-        ok(home.place(Spot { pane: 0, row: 0, column: 0 }, "Files"));
-        assert_eq!(ok(home.panes()), 3);
+        let Ok(()) = home.place(Spot { pane: 2, row: 1, column: 1 }, "Steam");
+        let Ok(()) = home.place(Spot { pane: 0, row: 0, column: 0 }, "Files");
+        assert_eq!(home.panes(), Ok(3));
 
-        ok(home.forget("Files"));
-        assert_eq!(ok(home.panes()), 3, "an emptied middle pane is still a place");
+        let Ok(()) = home.forget("Files");
+        assert_eq!(home.panes(), Ok(3), "an emptied middle pane is still a place");
 
-        ok(home.forget("Steam"));
-        assert_eq!(ok(home.panes()), 1, "the far panes go when the last thing on them does");
+        let Ok(()) = home.forget("Steam");
+        assert_eq!(home.panes(), Ok(1), "the far panes go when the last thing on them does");
     }
 
     #[test]
     fn a_machine_that_has_never_had_one_opens_on_what_it_uses_most() {
         let order: Vec<String> =
             ["Aether", "Files", "Music", "Steam"].iter().map(|said| said.to_string()).collect();
-        let home = ok(HomeScreen::first(&order, GRID));
+        let Ok(home) = HomeScreen::first(&order, GRID);
 
-        assert_eq!(ok(home.at(Spot::FIRST)), Some("Files"), "the desktop's own come first");
-        assert_eq!(ok(home.at(Spot { pane: 0, row: 0, column: 1 })), Some("Music"));
+        assert_eq!(home.at(Spot::FIRST), Ok(Some("Files")), "the desktop's own come first");
+        assert_eq!(home.at(Spot { pane: 0, row: 0, column: 1 }), Ok(Some("Music")));
+
         let third = Spot { pane: 0, row: 0, column: 2 };
 
-        assert_eq!(ok(home.at(third)), Some("Aether"), "and the rest in their own order");
-        assert_eq!(ok(home.at(Spot { pane: 0, row: 0, column: 3 })), Some("Steam"));
-        assert_eq!(ok(home.every()).count(), 4);
+        assert_eq!(home.at(third), Ok(Some("Aether")), "and the rest in their own order");
+        assert_eq!(home.at(Spot { pane: 0, row: 0, column: 3 }), Ok(Some("Steam")));
+        assert_eq!(count(&home), Ok(4));
     }
 
     #[test]
     fn one_of_ours_that_is_not_installed_leaves_no_hole() {
         let order: Vec<String> = vec!["Music".to_string(), "Steam".to_string()];
-        let home = ok(HomeScreen::first(&order, GRID));
+        let Ok(home) = HomeScreen::first(&order, GRID);
 
-        assert_eq!(ok(home.at(Spot::FIRST)), Some("Music"));
-        assert_eq!(ok(home.at(Spot { pane: 0, row: 0, column: 1 })), Some("Steam"));
-        assert_eq!(ok(home.every()).count(), 2);
+        assert_eq!(home.at(Spot::FIRST), Ok(Some("Music")));
+        assert_eq!(home.at(Spot { pane: 0, row: 0, column: 1 }), Ok(Some("Steam")));
+        assert_eq!(count(&home), Ok(2));
     }
 
     #[test]
     fn the_first_pane_is_as_full_as_it_gets_and_no_fuller() {
         let order: Vec<String> = (0..100).map(|at| format!("App {at}")).collect();
-        let home = ok(HomeScreen::first(&order, GRID));
+        let Ok(home) = HomeScreen::first(&order, GRID);
 
-        assert_eq!(u32::try_from(ok(home.every()).count()).unwrap(), ROWS * COLUMNS);
-        assert!(ok(home.every()).all(|(spot, _)| spot.pane == 0));
+        let Ok(every) = home.every();
+        let panes: Vec<u32> = every.map(|(spot, _)| spot.pane).collect();
+
+        assert_eq!(u32::try_from(panes.len()), Ok(ROWS.saturating_mul(COLUMNS)));
+        assert!(panes.iter().all(|pane| *pane == 0));
     }
 
     #[test]
     fn what_is_on_the_home_screen_is_kept_where_state_is_kept() {
         assert_eq!(
-            ok(file(std::path::Path::new("/home/someone"))),
-            std::path::PathBuf::from("/home/someone/.local/state/console/home")
+            file(std::path::Path::new("/home/someone"), Standing::Wider),
+            Ok(std::path::PathBuf::from("/home/someone/.local/state/console/home"))
+        );
+        assert_eq!(
+            file(std::path::Path::new("/home/someone"), Standing::Taller),
+            Ok(std::path::PathBuf::from("/home/someone/.local/state/console/home-taller"))
         );
     }
 
     #[test]
     fn the_first_free_square_is_the_first_one_reading_across() {
         let mut home = HomeScreen::default();
-        assert_eq!(ok(home.first_free(GRID)), Spot::FIRST);
+        assert_eq!(home.first_free(GRID), Ok(Spot::FIRST));
 
-        ok(home.place(Spot::FIRST, "Files"));
-        assert_eq!(ok(home.first_free(GRID)), Spot { pane: 0, row: 0, column: 1 });
+        let Ok(()) = home.place(Spot::FIRST, "Files");
+        assert_eq!(home.first_free(GRID), Ok(Spot { pane: 0, row: 0, column: 1 }));
 
-        for (at, name) in (0..2 * ROWS * COLUMNS).map(|at| (at, format!("App {at}"))) {
-            let pane = at / (ROWS * COLUMNS);
-            let left = at % (ROWS * COLUMNS);
-            ok(home.place(Spot { pane, row: left / COLUMNS, column: left % COLUMNS }, &name));
+        let pane_of = ROWS.saturating_mul(COLUMNS);
+
+        for (at, name) in (0..pane_of.saturating_mul(2)).map(|at| (at, format!("App {at}"))) {
+            let pane = at.div_euclid(pane_of);
+            let left = at.rem_euclid(pane_of);
+            let Ok(()) = home.place(Spot { pane, row: left.div_euclid(COLUMNS), column: left.rem_euclid(COLUMNS) }, &name);
         }
 
         assert_eq!(
-            ok(home.first_free(GRID)),
-            Spot { pane: 2, row: 0, column: 0 },
+            home.first_free(GRID),
+            Ok(Spot { pane: 2, row: 0, column: 0 }),
             "every pane full is answered with a fresh one"
         );
     }
@@ -705,22 +869,22 @@ mod tests {
     #[test]
     fn an_application_is_found_by_name_and_taken_off_by_name() {
         let mut home = HomeScreen::default();
-        ok(home.place(Spot { pane: 1, row: 2, column: 3 }, "Steam"));
+        let Ok(()) = home.place(Spot { pane: 1, row: 2, column: 3 }, "Steam");
 
-        assert_eq!(ok(home.where_("Steam")), Some(Spot { pane: 1, row: 2, column: 3 }));
-        assert_eq!(ok(home.where_("Files")), None);
+        assert_eq!(home.where_("Steam"), Ok(Some(Spot { pane: 1, row: 2, column: 3 })));
+        assert_eq!(home.where_("Files"), Ok(None));
 
-        ok(home.forget("Steam"));
-        assert_eq!(ok(home.where_("Steam")), None);
-        assert_eq!(ok(home.holding()), Holding::None);
+        let Ok(()) = home.forget("Steam");
+        assert_eq!(home.where_("Steam"), Ok(None));
+        assert_eq!(home.occupancy(), Ok(Holding::None));
     }
 
     #[test]
     fn what_is_taken_off_is_off() {
-        let mut home = ok(HomeScreen::first(&["Files".to_string()], GRID));
-        ok(home.remove(Spot::FIRST));
+        let Ok(mut home) = HomeScreen::first(&["Files".to_string()], GRID);
+        let Ok(()) = home.remove(Spot::FIRST);
 
-        assert_eq!(ok(home.holding()), Holding::None);
-        assert_eq!(ok(home.written()), "");
+        assert_eq!(home.occupancy(), Ok(Holding::None));
+        assert_eq!(home.serialize(), Ok("".to_string()));
     }
 }

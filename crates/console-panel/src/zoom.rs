@@ -85,7 +85,7 @@ impl Zoom {
         })
     }
 
-    pub fn placed(self, pixels: Size<u32>, room: Size<u32>) -> Result<Placed, Never> {
+    pub fn place(self, pixels: Size<u32>, room: Size<u32>) -> Result<Placed, Never> {
         let Ok(fit) = fits(pixels, room);
         let scale = fit * self.by;
         let (wide, tall) = (f64::from(pixels.width), f64::from(pixels.height));
@@ -127,19 +127,11 @@ mod tests {
 
     const ROOM: Size<u32> = Size { width: 1000, height: 500 };
 
-    fn photograph() -> Size<u32> {
-        Size { width: 4000, height: 2000 }
-    }
-
-    fn placed(zoom: Zoom, pixels: Size<u32>) -> Placed {
-        let Ok(placed) = zoom.placed(pixels, ROOM);
-
-        placed
-    }
+    const PHOTOGRAPH: Size<u32> = Size { width: 4000, height: 2000 };
 
     #[test]
     fn the_whole_of_a_picture_is_on_the_screen_before_anything_is_pressed() {
-        let whole = placed(Zoom::default(), photograph());
+        let Ok(whole) = Zoom::default().place(PHOTOGRAPH, ROOM);
 
         assert_eq!(whole.from, Point { x: 0.0, y: 0.0 });
         assert_eq!(whole.seen, Size { width: 4000.0, height: 2000.0 });
@@ -149,7 +141,7 @@ mod tests {
     #[test]
     fn twice_as_close_is_half_as_much_of_it_from_the_middle() {
         let Ok(closer) = Zoom::default().times(STEP);
-        let close = placed(closer, photograph());
+        let Ok(close) = closer.place(PHOTOGRAPH, ROOM);
 
         assert_eq!(close.seen, Size { width: 2000.0, height: 1000.0 });
         assert_eq!(close.from, Point { x: 1000.0, y: 500.0 });
@@ -173,7 +165,7 @@ mod tests {
 
         for across in [-2.0, 0.0, 0.3, 0.5, 1.0, 3.0] {
             let zoom = Zoom { looking: Point { x: across, y: across }, ..closer };
-            let seen = placed(zoom, photograph());
+            let Ok(seen) = zoom.place(PHOTOGRAPH, ROOM);
 
             assert!(seen.from.x >= 0.0 && seen.from.y >= 0.0, "{seen:?}");
             assert!(seen.from.x + seen.seen.width <= 4000.0, "{seen:?}");
@@ -184,7 +176,7 @@ mod tests {
     #[test]
     fn a_picture_narrower_than_the_room_sits_in_the_middle_of_it() {
         let tall = Size { width: 100, height: 500 };
-        let whole = placed(Zoom::default(), tall);
+        let Ok(whole) = Zoom::default().place(tall, ROOM);
 
         assert_eq!(whole.size, Size { width: 100.0, height: 500.0 });
         assert_eq!(whole.at, Point { x: 450.0, y: 0.0 });

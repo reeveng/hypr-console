@@ -43,7 +43,7 @@ impl Thing {
         Ok(level)
     }
 
-    pub fn said(&self) -> Result<String, Never> {
+    pub fn display_name(&self) -> Result<String, Never> {
         for key in ["application.name", "media.name", "node.name"] {
             match self.properties.get(key).and_then(|value| value.as_str()) {
                 Some(said) => match said.is_empty() {
@@ -81,30 +81,6 @@ pub fn one(things: &[Thing], index: i64) -> Result<Option<&Thing>, Never> {
 mod tests {
     use super::*;
 
-    fn read(json: &str) -> Vec<Thing> {
-        let Ok(things) = super::read(json);
-
-        things
-    }
-
-    fn level(thing: &Thing) -> i32 {
-        let Ok(level) = thing.level();
-
-        level
-    }
-
-    fn said(thing: &Thing) -> String {
-        let Ok(said) = thing.said();
-
-        said
-    }
-
-    fn speakers(sinks: &[Thing], default: &str) -> Option<Thing> {
-        let Ok(speakers) = super::speakers(sinks, default);
-
-        speakers
-    }
-
     const SAID: &str = r#"[
       {"index": 43, "name": "alsa_output.pci", "mute": false,
        "volume": {"front-left": {"value_percent": "40%"},
@@ -114,38 +90,71 @@ mod tests {
        "properties": {"application.name": "Firefox", "media.name": "a video"}}
     ]"#;
 
-    #[test]
-    fn a_volume_reported_per_channel_is_one_number() {
-        assert_eq!(level(&read(SAID)[0]), 40);
+    const TWO: &str = "pactl said two things";
+
+    fn both() -> Result<Option<(Thing, Thing)>, Never> {
+        let Ok(things) = read(SAID);
+
+        Ok(match things.as_slice() {
+            [sink, stream] => Some((sink.clone(), stream.clone())),
+            _other => None,
+        })
     }
 
     #[test]
-    fn a_thing_saying_nothing_about_its_volume_is_at_nothing() {
-        assert_eq!(level(&read(SAID)[1]), 0);
+    fn a_volume_reported_per_channel_is_one_number() -> Result<(), &'static str> {
+        let Ok(both) = both();
+        let (sink, _stream) = both.ok_or(TWO)?;
+
+        assert_eq!(sink.level(), Ok(40));
+
+        Ok(())
     }
 
     #[test]
-    fn a_stream_is_called_what_its_own_application_calls_it() {
-        assert_eq!(said(&read(SAID)[1]), "Firefox");
-        assert_eq!(said(&read(SAID)[0]), "alsa_output.pci");
+    fn a_thing_saying_nothing_about_its_volume_is_at_nothing() -> Result<(), &'static str> {
+        let Ok(both) = both();
+        let (_sink, stream) = both.ok_or(TWO)?;
+
+        assert_eq!(stream.level(), Ok(0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_stream_is_called_what_its_own_application_calls_it() -> Result<(), &'static str> {
+        let Ok(both) = both();
+        let (sink, stream) = both.ok_or(TWO)?;
+
+        assert_eq!(stream.display_name(), Ok("Firefox".to_string()));
+        assert_eq!(sink.display_name(), Ok("alsa_output.pci".to_string()));
+
+        Ok(())
     }
 
     #[test]
     fn a_stream_that_names_itself_nothing_is_still_a_row() {
-        assert_eq!(said(&Thing::default()), "Something");
+        assert_eq!(Thing::default().display_name(), Ok("Something".to_string()));
     }
 
     #[test]
     fn the_speakers_are_the_default_sink_where_there_is_one() {
-        let sinks = read(SAID);
-        assert_eq!(speakers(&sinks, "bluez").expect("a sink").index, 44);
-        assert_eq!(speakers(&sinks, "gone").expect("a sink").index, 43, "the first there is");
-        assert!(speakers(&[], "gone").is_none());
+        let Ok(sinks) = read(SAID);
+        let Ok(chosen) = speakers(&sinks, "bluez");
+        let Ok(first) = speakers(&sinks, "gone");
+        let Ok(none) = speakers(&[], "gone");
+
+        assert_eq!(chosen.map(|sink| sink.index), Some(44));
+        assert_eq!(first.map(|sink| sink.index), Some(43), "the first there is");
+        assert!(none.is_none());
     }
 
     #[test]
     fn nothing_pactl_says_is_ever_a_reason_to_fail() {
-        assert!(read("").is_empty());
-        assert!(read("Connection refused").is_empty());
+        let Ok(empty) = read("");
+        let Ok(refused) = read("Connection refused");
+
+        assert!(empty.is_empty());
+        assert!(refused.is_empty());
     }
 }

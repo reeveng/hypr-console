@@ -32,7 +32,7 @@ impl Arguments {
         Ok(self.words.first().map(String::as_str))
     }
 
-    pub fn given(&self, word: &str) -> Result<Flag, Never> {
+    pub fn flag(&self, word: &str) -> Result<Flag, Never> {
         Ok(match self.words.iter().any(|given| given == word) {
             true => Flag::Present,
             false => Flag::Absent,

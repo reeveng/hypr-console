@@ -86,7 +86,7 @@ pub fn places(zones: &[String], region: &str) -> Result<Vec<Place>, Never> {
     Ok(kept)
 }
 
-pub fn chosen(said: &str) -> Result<Option<String>, Never> {
+pub fn parse_zone(said: &str) -> Result<Option<String>, Never> {
     let zone = said.trim();
 
     Ok(match zone.is_empty() {
@@ -108,22 +108,22 @@ Europe/London
 UTC
 ";
 
-    fn zones() -> Vec<String> {
-        let Ok(zones) = super::zones(SAID);
-
-        zones
+    fn zones() -> Result<Vec<String>, Never> {
+        super::zones(SAID)
     }
 
     #[test]
     fn the_parts_of_the_world_are_the_first_walk_and_they_are_in_order() {
-        let Ok(regions) = regions(&zones());
+        let Ok(zones) = zones();
+        let Ok(regions) = regions(&zones);
 
         assert_eq!(regions, ["America", "Asia", "Europe", "UTC"]);
     }
 
     #[test]
     fn a_part_of_the_world_holds_the_places_in_it_and_nothing_else() {
-        let Ok(places) = places(&zones(), "Europe");
+        let Ok(zones) = zones();
+        let Ok(places) = places(&zones, "Europe");
         let says: Vec<String> = places.into_iter().map(|place| place.says).collect();
 
         assert_eq!(says, ["Amsterdam", "London"]);
@@ -131,7 +131,8 @@ UTC
 
     #[test]
     fn a_zone_with_a_country_inside_it_keeps_the_country_in_the_words() {
-        let Ok(places) = places(&zones(), "America");
+        let Ok(zones) = zones();
+        let Ok(places) = places(&zones, "America");
         let says: Vec<String> = places.into_iter().map(|place| place.says).collect();
 
         assert_eq!(says, ["Argentina / Buenos Aires", "New York"]);
@@ -139,14 +140,15 @@ UTC
 
     #[test]
     fn the_one_that_is_a_zone_and_not_a_place_is_still_reachable() {
-        let Ok(places) = places(&zones(), "UTC");
+        let Ok(zones) = zones();
+        let Ok(places) = places(&zones, "UTC");
 
         assert_eq!(places, vec![Place { zone: "UTC".to_string(), says: "UTC".to_string() }]);
     }
 
     #[test]
     fn a_machine_that_will_not_say_where_it_is_is_not_a_machine_in_greenwich() {
-        assert_eq!(chosen("Europe/Amsterdam\n"), Ok(Some("Europe/Amsterdam".to_string())));
-        assert_eq!(chosen("   \n"), Ok(None));
+        assert_eq!(parse_zone("Europe/Amsterdam\n"), Ok(Some("Europe/Amsterdam".to_string())));
+        assert_eq!(parse_zone("   \n"), Ok(None));
     }
 }

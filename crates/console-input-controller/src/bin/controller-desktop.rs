@@ -60,11 +60,13 @@ use console_input_controller::actions::{self, Table};
 use console_input_bindings::moved::Rebound;
 use console_input_controller::binds::{self, KeyBinding};
 use console_core_atomic_writes::Stored;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_program_contract::Topic;
 use console_compositor::events::CompositorEvent;
 use console_input_controller::mode::{Woken, Mode};
 use console_input_controller::reading::{From, POLL, Ranges, Wake};
+use console_input_gamepad::axis::Range;
 use console_input_controller::turning::{Closed, Plugged, READ, Took, Turning};
 
 #[derive(Debug)]
@@ -107,7 +109,7 @@ impl std::convert::From<console_onscreen::Error> for Unscrolled {
 }
 
 fn main() -> std::process::ExitCode {
-    let mut out = match published() {
+    let out = match published() {
         Ok(out) => out,
         Err(fault) => {
             eprintln!("controller-desktop: {fault}");
@@ -125,8 +127,8 @@ fn main() -> std::process::ExitCode {
 
     let ringing = Arc::new(ringing);
 
-    let mut machine = Machine::default();
-    let Ok(told) = told();
+    let machine = Machine::default();
+    let Ok(told) = device_paths();
     let Ok(mut turning) = Turning::pointed_at(told);
 
     let Ok(home) = console_core_places::home();
@@ -140,17 +142,14 @@ fn main() -> std::process::ExitCode {
 
     let Ok(()) = turning.held.using(was);
     let Ok(()) = saying.using(was);
-    let Ok(()) = settled();
+    let Ok(()) = settle_language();
 
     match bound.look(&mut turning) {
         Ok(()) => {},
         Err(fault) => eprintln!("controller-desktop: {fault}"),
     }
 
-    let mut holding: Vec<(From, String)> = Vec::new();
-    let mut running: Vec<Detached> = Vec::new();
-
-    let Ok(watched) = watching();
+    let Ok(watched) = subscribe();
     let Ok(changed) = rung_on(watched, &ringing);
     let Ok(reloads) = reloading();
     let Ok(reloaded) = rung_on(reloads, &ringing);
@@ -163,103 +162,148 @@ fn main() -> std::process::ExitCode {
         Err(fault) => eprintln!("controller-desktop: {fault}"),
     }
 
-    let mut hurrying = Backoff::default();
-    let mut said_the_watcher_went = false;
+    let Ok(was_awake) = Woken::detect();
+    let desktop = Desktop {
+        out,
+        machine,
+        turning,
+        bound,
+        holding: Vec::new(),
+        running: Vec::new(),
+        hurrying: Backoff::default(),
+        watcher: Watcher::Subscriber,
+        was_awake,
+    };
+    let heard = Context { changed: &changed, reloaded: &reloaded, saying: &saying, listening: &listening };
 
-    let Ok(mut was_awake) = Woken::asked();
+    match console_core_iteration::iterate(desktop, |desktop| turned(desktop, &heard)) {
+        Ok(ended) => ended,
+        Err(endless) => {
+            eprintln!("controller-desktop: {endless}");
 
-    loop {
-        let word = match changed.try_recv() {
-            Ok(()) => Event::Came,
-            Err(TryRecvError::Empty) => Event::None,
-            Err(TryRecvError::Disconnected) => Event::Closed,
-        };
-
-        match word == Event::Closed && !said_the_watcher_went {
-            true => {
-                eprintln!("controller-desktop: the watcher on the compositor has ended; what is in front of you will not be asked again");
-                said_the_watcher_went = true;
-            }
-            false => {},
-        }
-
-        let Ok(awake) = Woken::asked();
-
-        let woke = awake != was_awake;
-        was_awake = awake;
-
-        match word == Event::Came || woke {
-            true => {
-                while let Ok(()) = changed.try_recv() {}
-
-                match look(&mut turning) {
-                    Ok(letting_go) => {
-                        for what in &letting_go {
-                            let Ok(started) = done(what, &mut out, &saying);
-
-                            running.extend(started);
-                        }
-                    }
-                    Err(fault) => eprintln!("controller-desktop: {fault}"),
-                }
-            }
-            false => {},
-        }
-
-        match bound.look(&mut turning) {
-            Ok(()) => {},
-            Err(fault) => eprintln!("controller-desktop: {fault}"),
-        }
-
-        let read = match reloaded.try_recv() {
-            Ok(()) => Event::Came,
-            Err(TryRecvError::Empty) => Event::None,
-            Err(TryRecvError::Disconnected) => Event::Closed,
-        };
-
-        match read {
-            Event::Came => {
-                while let Ok(()) = reloaded.try_recv() {}
-
-                let Ok(()) = bound.again();
-            }
-            Event::None | Event::Closed => {},
-        }
-
-        let Ok(()) = turned(Turn {
-            turning: &mut turning,
-            machine: &mut machine,
-            hurrying: &mut hurrying,
-            out: &mut out,
-            saying: &saying,
-            running: &mut running,
-        });
-
-        let Ok(()) = hurrying.settle(Instant::now());
-        let Ok(still) = console_program_lifetime::reaped(running);
-
-        running = still;
-        let Ok(()) = say_what_changed(&mut holding, &turning);
-        let Ok(wake) = turning.wake();
-        let Ok(hurried) = hurrying.on();
-
-        let Ok(wake) = match hurried {
-            Boost::On => wake.sooner(Wake::Within(POLL)),
-            Boost::Off => Ok(wake),
-        };
-
-        match waited(wake, &machine, &listening) {
-            Ok(Plugging::Some) => {
-                let Ok(()) = turning.hunt_now();
-            }
-            Ok(Plugging::None) => {},
-            Err(fault) => {
-                eprintln!("controller-desktop: {fault}");
-
-                return std::process::ExitCode::FAILURE;
-            }
+            std::process::ExitCode::FAILURE
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Watcher {
+    Subscriber,
+    Gone,
+}
+
+struct Desktop {
+    out: VirtualDevice,
+    machine: Machine,
+    turning: Turning,
+    bound: Bound,
+    holding: Vec<(From, String)>,
+    running: Vec<Detached>,
+    hurrying: Backoff,
+    watcher: Watcher,
+    was_awake: Woken,
+}
+
+struct Context<'a> {
+    changed: &'a Receiver<()>,
+    reloaded: &'a Receiver<()>,
+    saying: &'a Sender,
+    listening: &'a Subscription,
+}
+
+fn turned(mut desktop: Desktop, heard: &Context<'_>) -> Result<Step<Desktop, std::process::ExitCode>, Never> {
+    let word = match heard.changed.try_recv() {
+        Ok(()) => Event::Came,
+        Err(TryRecvError::Empty) => Event::None,
+        Err(TryRecvError::Disconnected) => Event::Closed,
+    };
+
+    match (word, desktop.watcher) {
+        (Event::Closed, Watcher::Subscriber) => {
+            eprintln!("controller-desktop: the watcher on the compositor has ended; what is in front of you will not be asked again");
+            desktop.watcher = Watcher::Gone;
+        }
+        (Event::Closed, Watcher::Gone) | (Event::Came | Event::None, _) => {},
+    }
+
+    let Ok(awake) = Woken::detect();
+
+    let woke = awake != desktop.was_awake;
+    desktop.was_awake = awake;
+
+    match word == Event::Came || woke {
+        true => {
+            heard.changed.try_iter().for_each(|()| {});
+
+            match look(&mut desktop.turning) {
+                Ok(letting_go) => {
+                    for what in &letting_go {
+                        let Ok(started) = perform(what, &mut desktop.out, heard.saying);
+
+                        desktop.running.extend(started);
+                    }
+                }
+                Err(fault) => eprintln!("controller-desktop: {fault}"),
+            }
+        }
+        false => {},
+    }
+
+    match desktop.bound.look(&mut desktop.turning) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("controller-desktop: {fault}"),
+    }
+
+    let read = match heard.reloaded.try_recv() {
+        Ok(()) => Event::Came,
+        Err(TryRecvError::Empty) => Event::None,
+        Err(TryRecvError::Disconnected) => Event::Closed,
+    };
+
+    match read {
+        Event::Came => {
+            heard.reloaded.try_iter().for_each(|()| {});
+
+            let Ok(()) = desktop.bound.again();
+        }
+        Event::None | Event::Closed => {},
+    }
+
+    let Ok(()) = handle_turn(Turn {
+        turning: &mut desktop.turning,
+        machine: &mut desktop.machine,
+        hurrying: &mut desktop.hurrying,
+        out: &mut desktop.out,
+        saying: heard.saying,
+        running: &mut desktop.running,
+    });
+
+    let Ok(()) = desktop.hurrying.settle(Instant::now());
+    let Ok(still) = console_program_lifetime::reap(std::mem::take(&mut desktop.running));
+
+    desktop.running = still;
+    let Ok(()) = say_what_changed(&mut desktop.holding, &desktop.turning);
+    let Ok(wake) = desktop.turning.wake();
+    let Ok(hurried) = desktop.hurrying.on();
+
+    let Ok(wake) = match hurried {
+        Boost::On => wake.sooner(Wake::Within(POLL)),
+        Boost::Off => Ok(wake),
+    };
+
+    Ok(match wait(wake, &desktop.machine, heard.listening) {
+        Ok(Plugging::Some) => {
+            let Ok(()) = desktop.turning.hunt_now();
+
+            Step::Again(desktop)
+        }
+        Ok(Plugging::None) => Step::Again(desktop),
+        Err(fault) => {
+            eprintln!("controller-desktop: {fault}");
+
+            Step::Halt(std::process::ExitCode::FAILURE)
+        }
+    })
 }
 
 struct Subscription {
@@ -273,7 +317,7 @@ enum Plugging {
     None,
 }
 
-fn waited(wake: Wake, machine: &Machine, listening: &Subscription) -> Result<Plugging, Unscrolled> {
+fn wait(wake: Wake, machine: &Machine, listening: &Subscription) -> Result<Plugging, Unscrolled> {
     let patience = match wake {
         Wake::OnInput => None,
         Wake::Within(seconds) => {
@@ -311,16 +355,18 @@ fn waited(wake: Wake, machine: &Machine, listening: &Subscription) -> Result<Plu
 }
 
 fn emptied(from: &OwnedFd) -> Result<Plugging, Never> {
-    let mut room = [0_u8; 4096];
-    let mut heard = Plugging::None;
+    let ended = console_core_iteration::iterate(([0_u8; 4096], Plugging::None), |(mut room, heard)| {
+        Ok(match rustix::io::read(from, &mut room) {
+            Ok(0) => Step::Halt(heard),
+            Err(_the_read_failed) => Step::Halt(heard),
+            Ok(_) => Step::Again((room, Plugging::Some)),
+        })
+    });
 
-    loop {
-        match rustix::io::read(from, &mut room) {
-            Ok(0) => return Ok(heard),
-            Err(_the_read_failed) => return Ok(heard),
-            Ok(_) => heard = Plugging::Some,
-        }
-    }
+    Ok(match ended {
+        Ok(heard) => heard,
+        Err(_endless) => Plugging::None,
+    })
 }
 
 fn plugging(bindings: Option<&Path>) -> Result<Option<OwnedFd>, Never> {
@@ -383,7 +429,7 @@ struct Turn<'a> {
     running: &'a mut Vec<Detached>,
 }
 
-fn turned(turn: Turn<'_>) -> Result<(), Never> {
+fn handle_turn(turn: Turn<'_>) -> Result<(), Never> {
     let Ok(mut waiting) = console_response_times::Waiting::here(Wait {
         who: "controller",
         what: "press",
@@ -398,11 +444,11 @@ fn turned(turn: Turn<'_>) -> Result<(), Never> {
     for what in decided {
         match &what {
             Effect::Run(arguments) => {
-                let Ok(()) = turn.hurrying.asked(Instant::now());
+                let Ok(()) = turn.hurrying.boost(Instant::now());
 
                 match (what_for, arguments.split_first()) {
                     (Decided::None | Decided::Some, Some((program, _))) => {
-                        let Ok(()) = waiting.named(Note { name: "starting", said: program });
+                        let Ok(()) = waiting.add_note(Note { name: "starting", said: program });
                     }
                     (Decided::ToStart, _) | (_, None) => {},
                 }
@@ -418,7 +464,7 @@ fn turned(turn: Turn<'_>) -> Result<(), Never> {
             }
         }
 
-        let Ok(started) = done(&what, turn.out, turn.saying);
+        let Ok(started) = perform(&what, turn.out, turn.saying);
 
         turn.running.extend(started);
     }
@@ -427,7 +473,7 @@ fn turned(turn: Turn<'_>) -> Result<(), Never> {
 
     match what_for {
         Decided::ToStart => {
-            let Ok(()) = waiting.done();
+            let Ok(()) = waiting.finish();
         }
         Decided::Some => {
             let Ok(()) = waiting.done_if_felt();
@@ -481,7 +527,7 @@ impl Bound {
     }
 
     fn hand_over(&mut self, table: &Table) -> Result<(), Never> {
-        let Ok(wanted) = binds::wanted(table);
+        let Ok(wanted) = binds::desired_binds(table);
 
         self.give(wanted)
     }
@@ -493,7 +539,7 @@ impl Bound {
     }
 
     fn give(&mut self, wanted: Vec<KeyBinding>) -> Result<(), Never> {
-        let Ok(holding) = binds::holding();
+        let Ok(holding) = binds::current_binds();
 
         match &holding {
             binds::Holding::These(_) => {},
@@ -502,7 +548,7 @@ impl Bound {
             }
         }
 
-        let Ok(standing) = binds::standing(&wanted, &holding);
+        let Ok(standing) = binds::compare(&wanted, &holding);
 
         match standing.missing {
             0 => {},
@@ -520,8 +566,8 @@ impl Bound {
             ),
         }
 
-        let Ok(sent) = binds::sent(&wanted, &self.handed, &holding);
-        let Ok(went) = binds::told(&sent);
+        let Ok(sent) = binds::commands_to_send(&wanted, &self.handed, &holding);
+        let Ok(went) = binds::send(&sent);
 
         match went {
             binds::Went::Through => {},
@@ -584,7 +630,7 @@ impl Bound {
 
         match console_input_bindings::moved::Tasks::read(&said) {
             Ok(jobs) => {
-                let Ok(moved) = jobs.moved();
+                let Ok(moved) = jobs.rebound();
 
                 match moved {
                     Rebound::Some => {
@@ -608,7 +654,7 @@ impl Bound {
     }
 }
 
-fn watching() -> Result<Receiver<()>, Never> {
+fn subscribe() -> Result<Receiver<()>, Never> {
     let (say, heard) = channel();
     let Ok(()) = console_events::again::layers(say);
 
@@ -653,7 +699,7 @@ fn closing() -> Result<(), Never> {
     threads::let_go(std::thread::spawn(move || {
         let Ok(received) = subscriber.received();
         let Ok(open) = open_now();
-        let Ok(mut placed) = console_input_controller::closing::placed(&open);
+        let Ok(mut placed) = console_input_controller::closing::workspaces_by_window(&open);
 
         for event in received.iter() {
             let stirred = match &event {
@@ -684,13 +730,13 @@ fn closing() -> Result<(), Never> {
                         None => {},
                     }
 
-                    let Ok(now) = console_input_controller::closing::placed(&open);
+                    let Ok(now) = console_input_controller::closing::workspaces_by_window(&open);
 
                     placed = now;
                 }
                 CompositorEvent::WindowOpened(_) | CompositorEvent::WindowMoved => {
                     let Ok(open) = open_now();
-                    let Ok(now) = console_input_controller::closing::placed(&open);
+                    let Ok(now) = console_input_controller::closing::workspaces_by_window(&open);
 
                     placed = now;
                 }
@@ -710,13 +756,8 @@ fn closing() -> Result<(), Never> {
 }
 
 fn open_now() -> Result<Vec<console_compositor::Window>, Never> {
-    Ok(match console_compositor::query(console_compositor::Query::Clients) {
-        Ok(console_compositor::Answer::Clients(open)) => open,
-        Ok(other) => {
-            eprintln!("controller-desktop: hyprctl answered {other:?} when asked for windows");
-
-            Vec::new()
-        }
+    Ok(match console_compositor::ask(console_compositor::Clients) {
+        Ok(open) => open,
         Err(fault) => {
             eprintln!("controller-desktop: {fault}");
 
@@ -726,18 +767,17 @@ fn open_now() -> Result<Vec<console_compositor::Window>, Never> {
 }
 
 fn front_now() -> Result<Option<i64>, Never> {
-    Ok(match console_compositor::query(console_compositor::Query::ActiveWorkspace) {
-        Ok(console_compositor::Answer::ActiveWorkspace(front)) => front.map(|workspace| workspace.id),
-        Ok(_not_what_was_asked) => None,
+    Ok(match console_compositor::ask(console_compositor::ActiveWorkspace) {
+        Ok(front) => front.map(|workspace| workspace.id),
         Err(_the_compositor_would_not_say_which_one_is_in_front) => None,
     })
 }
 
 fn look(turning: &mut Turning) -> Result<Vec<Effect>, Unscrolled> {
     let screens = console_onscreen::screens()?;
-    let Ok(awake) = Woken::asked();
+    let Ok(awake) = Woken::detect();
 
-    let Ok(mode) = Mode::seen(&screens, awake);
+    let Ok(mode) = Mode::detect(&screens, awake);
     let Ok(now_in) = turning.held.now_in(mode);
 
     Ok(now_in)
@@ -802,15 +842,13 @@ impl Plugged for Machine {
             Err(_the_device_went_away) => {},
         }
 
-        let widest = [AbsoluteAxisCode::ABS_RX, AbsoluteAxisCode::ABS_RY]
+        let reported = [AbsoluteAxisCode::ABS_RX, AbsoluteAxisCode::ABS_RY]
             .iter()
             .filter_map(|axis| told.get(&axis.0))
-            .map(|(low, high)| low.abs().max(high.abs()))
-            .max()
-            .filter(|span| *span > 0);
+            .find(|(low, high)| high > low);
 
-        let stick = match widest {
-            Some(stick) => stick,
+        let stick = match reported {
+            Some((low, high)) => Range { low: *low, high: *high },
             None => Ranges::default().stick,
         };
 
@@ -847,11 +885,11 @@ impl Plugged for Machine {
     }
 }
 
-fn told() -> Result<BTreeMap<From, String>, Never> {
+fn device_paths() -> Result<BTreeMap<From, String>, Never> {
     let mut out = BTreeMap::new();
 
     for which in READ {
-        let Ok(told) = which.told();
+        let Ok(told) = which.path_from_environment();
 
         match told {
             Some(path) => {
@@ -868,7 +906,7 @@ fn say_what_changed(
     holding: &mut Vec<(From, String)>,
     turning: &Turning,
 ) -> Result<(), Never> {
-    let Ok(now) = turning.holding();
+    let Ok(now) = turning.open_devices();
 
     let was: BTreeSet<&str> = holding.iter().map(|(_, at)| at.as_str()).collect();
     let is: BTreeSet<&str> = now.iter().map(|(_, at)| at.as_str()).collect();
@@ -918,7 +956,7 @@ fn published() -> Result<VirtualDevice, Unscrolled> {
     VirtualDevice::create(&setup).map_err(Unscrolled::Unbuilt)
 }
 
-fn done(
+fn perform(
     what: &Effect,
     out: &mut VirtualDevice,
     saying: &Sender,
@@ -963,7 +1001,7 @@ fn done(
             }
         }
         Effect::Tell(said) => {
-            match console_onscreen::telling(*said) {
+            match console_onscreen::send_to_home(*said) {
                 Ok(()) => {},
                 Err(fault) => eprintln!("controller-desktop: the home screen was not told: {fault}"),
             }
@@ -990,9 +1028,9 @@ fn reconnected(back: Reconnected) -> Result<(), Never> {
 
     let Ok(mut waiting) = console_response_times::Waiting::here(Wait { who: "controller", what: "reconnected" });
     let Ok(()) = waiting.taking("gone", back.gone);
-    let Ok(()) = waiting.named(Note { name: "device", said: device });
+    let Ok(()) = waiting.add_note(Note { name: "device", said: device });
 
-    waiting.done()
+    waiting.finish()
 }
 
 struct Sender {
@@ -1019,7 +1057,7 @@ impl Sender {
     }
 }
 
-fn settled() -> Result<(), Never> {
+fn settle_language() -> Result<(), Never> {
     let named = console_input_language::NAMED;
     let mut starting = Command::new(named);
 

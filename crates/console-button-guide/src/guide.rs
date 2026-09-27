@@ -77,7 +77,7 @@ impl Section {
     }
 }
 
-pub fn said(button: &str) -> Result<String, Never> {
+pub fn button_label(button: &str) -> Result<String, Never> {
     let said = match button.strip_prefix("dpad-") {
         Some(way) => format!("d-pad {way}"),
         None => button.replace('-', " "),
@@ -117,7 +117,7 @@ fn line(job: &Task, bound: &[Binding], on: Input, held: &[String]) -> Result<Opt
             played == Played::ByAPress && one.on == on && one.held == held
         })
         .map(|one| {
-            let Ok(said) = said(&one.pressed);
+            let Ok(said) = button_label(&one.pressed);
 
             said
         })
@@ -160,11 +160,11 @@ fn chords(table: &Table, on: Input) -> Result<Vec<Vec<String>>, Never> {
     Ok(found)
 }
 
-fn titled(held: &[String]) -> Result<String, Never> {
+fn chord_title(held: &[String]) -> Result<String, Never> {
     let mut words: Vec<String> = Vec::new();
 
     for word in held {
-        let Ok(said) = said(word);
+        let Ok(said) = button_label(word);
 
         words.push(said);
     }
@@ -172,7 +172,7 @@ fn titled(held: &[String]) -> Result<String, Never> {
     Ok(words.join(" + "))
 }
 
-fn typed(table: &Table) -> Result<Vec<Line>, Never> {
+fn keyboard_lines(table: &Table) -> Result<Vec<Line>, Never> {
     let Ok(chords) = chords(table, Input::Keyboard);
     let mut every: Vec<Line> = Vec::new();
 
@@ -182,7 +182,7 @@ fn typed(table: &Table) -> Result<Vec<Line>, Never> {
         match held.is_empty() {
             true => {},
             false => {
-                let Ok(said) = titled(&held);
+                let Ok(said) = chord_title(&held);
 
                 for line in &mut lines {
                     line.button = format!("{said} + {}", line.button);
@@ -233,7 +233,7 @@ fn on_the_pad(
     rest: &[(&str, &str)],
 ) -> Result<Vec<Line>, Never> {
     let Ok(mut bound) = lines(table, Input::Pad, &[], wanted);
-    let Ok(rest) = written(rest);
+    let Ok(rest) = lines_from(rest);
 
     bound.extend(rest);
 
@@ -304,7 +304,7 @@ fn home(table: &Table) -> Result<Vec<Line>, Never> {
 fn files() -> Result<Vec<Line>, Never> {
     let Ok(what_can_be_done) = what_can_be_done();
 
-    written(&[
+    lines_from(&[
         ("L1 / R1", "Home or an external drive"),
         ("A", "open"),
         ("B", "enclosing folder"),
@@ -325,14 +325,14 @@ pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
 
     for held in chords {
         let Ok(under) = lines(table, Input::Pad, &held, |_| true);
-        let Ok(title) = titled(&held);
+        let Ok(title) = chord_title(&held);
         let Ok(section) = Section::of(&title, under);
 
         every.push(section);
     }
 
     let Ok(reference) = reference(table);
-    let Ok(shortcuts) = typed(table);
+    let Ok(shortcuts) = keyboard_lines(table);
     let Ok(typed) = Section::of(TYPED, shortcuts);
 
     every.extend(reference);
@@ -344,7 +344,7 @@ pub fn sections(table: &Table) -> Result<Vec<Section>, Never> {
 pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {
     let Ok(menus) = menus(table);
     let Ok(home) = home(table);
-    let Ok(keyboard) = written(&[
+    let Ok(keyboard) = lines_from(&[
         ("X", "hide the keyboard"),
         ("A", "press the selected key"),
         ("B", "backspace"),
@@ -355,7 +355,7 @@ pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {
         ("Stick press", "press the selected key"),
     ]);
     let Ok(files) = files();
-    let Ok(music) = written(&[
+    let Ok(music) = lines_from(&[
         ("A", "play a song or folder"),
         ("Y", "show in Files to rename or delete"),
         ("Typing", "search songs, artists or albums"),
@@ -363,7 +363,7 @@ pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {
         ("Shuffle", "under the song playing"),
         ("Repeat One", "under the song playing"),
     ]);
-    let Ok(browser) = written(&[
+    let Ok(browser) = lines_from(&[
         ("Y", "show link hints"),
         ("D-pad", "move between links"),
         ("A", "open the selected link"),
@@ -373,7 +373,7 @@ pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {
         ("A new tab", "opens with the address bar selected"),
         ("X", "show the keyboard"),
     ]);
-    let Ok(steam) = written(&[
+    let Ok(steam) = lines_from(&[
         ("Legion left", "open the Steam menu"),
         ("Legion left, held", "return to the desktop"),
         ("Everything else", "passed straight to the game"),
@@ -398,7 +398,7 @@ pub fn reference(table: &Table) -> Result<Vec<Section>, Never> {
     Ok(every)
 }
 
-fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
+fn lines_from(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
     Ok(said
         .iter()
         .map(|(button, does)| Line {
@@ -410,46 +410,48 @@ fn written(said: &[(&str, &str)]) -> Result<Vec<Line>, Never> {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use super::*;
     use console_input_bindings::moved::Tasks;
 
-    fn ours() -> Table {
+    fn our_sections() -> Result<Vec<Section>, Never> {
         let Ok(table) = Table::ours();
 
-        table
+        super::sections(&table)
     }
 
-    fn moved(said: &Tasks) -> Table {
-        let Ok(table) = Table::of(said);
+    fn sections_read(said: &str) -> Result<Vec<Section>, Box<dyn Error>> {
+        let tasks = Tasks::read(said)?;
+        let Ok(table) = Table::of(&tasks);
+        let Ok(sections) = super::sections(&table);
 
-        table
+        Ok(sections)
     }
 
-    fn sections(table: &Table) -> Vec<Section> {
-        let Ok(sections) = super::sections(table);
-
-        sections
+    fn section<'a>(every: &'a [Section], title: &str) -> Result<Option<&'a Section>, Never> {
+        Ok(every.iter().find(|section| section.title == title))
     }
 
-    fn section<'a>(every: &'a [Section], title: &str) -> &'a Section {
-        every.iter().find(|section| section.title == title).expect("a section")
-    }
+    fn does<'a>(every: &'a [Section], (title, button): (&str, &str)) -> Result<Option<&'a str>, Never> {
+        let Ok(section) = section(every, title);
 
-    fn line<'a>(section: &'a Section, button: &str) -> &'a Line {
-        section.lines.iter().find(|line| line.button == button).expect("a line")
+        Ok(section
+            .and_then(|section| section.lines.iter().find(|line| line.button == button))
+            .map(|line| line.does.as_str()))
     }
 
     #[test]
     fn what_a_trigger_held_makes_of_a_button_comes_from_the_table() {
-        let every = sections(&ours());
-        let held = section(&every, "L2");
-        assert_eq!(line(held, "D-pad up").does, "volume up");
-        assert_eq!(line(held, "Right paddle bottom").does, "take a screenshot");
+        let Ok(every) = our_sections();
+
+        assert_eq!(does(&every, ("L2", "D-pad up")), Ok(Some("volume up")));
+        assert_eq!(does(&every, ("L2", "Right paddle bottom")), Ok(Some("take a screenshot")));
     }
 
     #[test]
     fn the_guide_opens_on_the_hand_that_was_last_used_and_hides_neither() {
-        let every = sections(&ours());
+        let Ok(every) = our_sections();
 
         assert_eq!(opens_on(Input::Pad, Mode::Desktop), Ok(DOABLE));
         assert_eq!(opens_on(Input::Keyboard, Mode::Desktop), Ok(TYPED));
@@ -478,7 +480,7 @@ mod tests {
 
     #[test]
     fn every_tab_the_front_can_open_on_is_a_page_with_something_on_it() {
-        let every = sections(&ours());
+        let Ok(every) = our_sections();
 
         for title in [MENUS, KEYBOARD, HOME_SCREEN] {
             assert!(
@@ -490,57 +492,65 @@ mod tests {
 
     #[test]
     fn a_chord_no_one_has_put_anything_on_is_not_a_heading() {
-        let every = sections(&ours());
+        let Ok(every) = our_sections();
 
         assert!(!every.iter().any(|section| section.title == "R2"));
         assert!(!every.iter().any(|section| section.title == "L2 + R2"));
     }
 
     #[test]
-    fn a_job_someone_moved_is_named_where_they_moved_it() {
-        let said = Tasks::read("[jobs]\nscreenshot = \"r2 + a\"\n").expect("a table");
-        let every = sections(&moved(&said));
+    fn a_job_someone_moved_is_named_where_they_moved_it() -> Result<(), Box<dyn Error>> {
+        let every = sections_read("[jobs]\nscreenshot = \"r2 + a\"\n")?;
+        let Ok(held) = section(&every, "L2");
+        let held = held.ok_or("a section for L2")?;
 
-        assert_eq!(line(section(&every, "R2"), "A").does, "take a screenshot");
+        assert_eq!(does(&every, ("R2", "A")), Ok(Some("take a screenshot")));
         assert!(
-            !section(&every, "L2").lines.iter().any(|line| line.does == "take a screenshot"),
+            !held.lines.iter().any(|line| line.does == "take a screenshot"),
             "the screenshot is still where it was"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_chord_of_two_buttons_is_a_heading_of_its_own() {
-        let said = Tasks::read("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")
-            .expect("a table");
-        let every = sections(&moved(&said));
+    fn a_chord_of_two_buttons_is_a_heading_of_its_own() -> Result<(), Box<dyn Error>> {
+        let every = sections_read("[jobs]\nmenu = \"left-paddle-bottom + right-paddle-top\"\n")?;
 
-        assert_eq!(line(section(&every, "Left paddle bottom"), "Right paddle top").does, "open the menu");
+        assert_eq!(does(&every, ("Left paddle bottom", "Right paddle top")), Ok(Some("open the menu")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_job_with_no_button_is_not_something_to_press() {
-        let said = Tasks::read("[jobs]\nmenu = \"\"\n").expect("a table");
-        let every = sections(&moved(&said));
-        assert!(!section(&every, DOABLE).lines.iter().any(|line| line.does == "open the menu"));
+    fn a_job_with_no_button_is_not_something_to_press() -> Result<(), Box<dyn Error>> {
+        let every = sections_read("[jobs]\nmenu = \"\"\n")?;
+        let Ok(doable) = section(&every, DOABLE);
+        let doable = doable.ok_or("a section of what can be done")?;
+
+        assert!(!doable.lines.iter().any(|line| line.does == "open the menu"));
+
+        Ok(())
     }
 
     #[test]
     fn two_buttons_that_do_one_thing_are_one_line() {
-        let every = sections(&ours());
-        assert_eq!(line(section(&every, DOABLE), "X / Keyboard").does, "show or hide the keyboard");
+        let Ok(every) = our_sections();
+
+        assert_eq!(does(&every, (DOABLE, "X / Keyboard")), Ok(Some("show or hide the keyboard")));
     }
 
     #[test]
     fn a_button_is_said_the_way_it_is_spoken() {
-        assert_eq!(said("dpad-up"), Ok("D-pad up".to_string()));
-        assert_eq!(said("right-paddle-bottom"), Ok("Right paddle bottom".to_string()));
-        assert_eq!(said("l1"), Ok("L1".to_string()));
-        assert_eq!(said("legion-right"), Ok("Legion right".to_string()));
+        assert_eq!(button_label("dpad-up"), Ok(String::from("D-pad up")));
+        assert_eq!(button_label("right-paddle-bottom"), Ok(String::from("Right paddle bottom")));
+        assert_eq!(button_label("l1"), Ok(String::from("L1")));
+        assert_eq!(button_label("legion-right"), Ok(String::from("Legion right")));
     }
 
     #[test]
     fn the_guide_holds_together_with_nothing_read_off_the_machine() {
-        let sections = sections(&ours());
+        let Ok(sections) = our_sections();
 
         assert_eq!(sections.first().map(|section| section.title.as_str()), Some(DOABLE));
         assert!(
@@ -551,17 +561,18 @@ mod tests {
 
     #[test]
     fn what_a_keyboard_reaches_is_a_section_read_off_the_same_table() {
-        let every = sections(&ours());
-        let typed = section(&every, TYPED);
+        let Ok(every) = our_sections();
 
-        assert_eq!(line(typed, "Super + I").does, "open Settings");
-        assert_eq!(line(typed, "Super + Shift + F").does, "full screen on or off");
-        assert_eq!(line(typed, "Print").does, "take a screenshot");
+        assert_eq!(does(&every, (TYPED, "Super + I")), Ok(Some("open Settings")));
+        assert_eq!(does(&every, (TYPED, "Super + Shift + F")), Ok(Some("full screen on or off")));
+        assert_eq!(does(&every, (TYPED, "Print")), Ok(Some("take a screenshot")));
     }
 
     #[test]
     fn nothing_is_answered_twice_in_one_section() {
-        for section in sections(&ours()) {
+        let Ok(every) = our_sections();
+
+        for section in every {
             let mut said: Vec<&str> = section.lines.iter().map(|line| line.button.as_str()).collect();
             said.sort_unstable();
             let mut once = said.clone();
@@ -571,20 +582,25 @@ mod tests {
     }
 
     #[test]
-    fn the_guide_names_every_deed_the_files_offer() {
-        let sections = sections(&ours());
-        let files = section(&sections, "Files");
-        let said = &line(files, "Y").does;
+    fn the_guide_names_every_deed_the_files_offer() -> Result<(), &'static str> {
+        let Ok(every) = our_sections();
+        let Ok(said) = does(&every, ("Files", "Y"));
+        let said = said.ok_or("the files say what Y does")?;
+
         for deed in doing::EVERY {
             let Ok(says) = FileAction::says(deed);
 
             assert!(said.contains(says), "the guide does not name {says}");
         }
+
+        Ok(())
     }
 
     #[test]
     fn every_section_is_named() {
-        for section in sections(&ours()) {
+        let Ok(every) = our_sections();
+
+        for section in every {
             assert!(!section.title.is_empty());
         }
     }

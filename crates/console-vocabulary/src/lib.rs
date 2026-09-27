@@ -130,7 +130,7 @@ impl Measured {
     }
 }
 
-pub fn measured(counted: &Counted, norm: &Norm) -> Result<Vec<Measured>, Never> {
+pub fn measure(counted: &Counted, norm: &Norm) -> Result<Vec<Measured>, Never> {
     let Ok(where_to_look) = index(WHERE_TO_LOOK);
     let mut found: Vec<Measured> = counted
         .words

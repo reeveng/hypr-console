@@ -77,7 +77,7 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -86,17 +86,18 @@ use console_bus::messages::Message;
 use console_bus::connection::{Bus, NameRequestResult, Receiver, Sender};
 use console_core_color::palette::WearingError;
 use console_core_geometry::{Point, Size};
+use console_core_iteration::Step;
 use console_core_never::Never;
-use console_draw_painting::{Frame, Lines, Run, at_most, measured, onto};
+use console_draw_painting::{Frame, Lines, Run, at_most, measure_text, onto};
 use console_draw_surface::standing::{
     Anchor, Closed, Keyboard, Margin, Room, Under, Wanted,
 };
 use console_draw_surface::scale::Scale;
 use console_draw_surface::{SurfaceError, PointerEvent, Surface};
-use console_notifications::reading::written;
+use console_notifications::reading::serialize;
 use console_notifications::saying::Expiry;
 use console_notifications::serving::{
-    self, Armed, Modified, Closed as NotificationClosed, Holding, Turn, Why, going,
+    self, Armed, Modified, Closed as NotificationClosed, Holding, Turn, Why, closed_signals,
 };
 use console_notifications::showing::{self, Measured, CardContent, Stack, Wearing};
 
@@ -158,7 +159,7 @@ fn main() -> ExitCode {
 
 fn answering() -> Result<(), Cannot> {
     let mut bus = Bus::session()?;
-    let got = bus.taking(serving::NOTIFICATIONS)?;
+    let got = bus.request_name(serving::NOTIFICATIONS)?;
 
     match got {
         NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
@@ -167,10 +168,10 @@ fn answering() -> Result<(), Cannot> {
 
     let wearing = Wearing::worn()?;
     let mut surface = Surface::connect()?;
-    let Ok((hearing, saying)) = bus.apart();
-    let queue = listening(hearing)?;
+    let Ok((hearing, saying)) = bus.split();
+    let queue = spawn_listener(hearing)?;
 
-    standing(&mut surface, &queue, &saying, &wearing)
+    run(&mut surface, &queue, &saying, &wearing)
 }
 
 struct Queue {
@@ -185,7 +186,7 @@ enum Ended {
     No,
 }
 
-fn listening(hearing: Receiver) -> Result<Queue, Cannot> {
+fn spawn_listener(hearing: Receiver) -> Result<Queue, Cannot> {
     let woken = console_waiting::woken::pipe().map_err(Cannot::Pipe)?;
     let (reading, writing) = (woken.waiting, woken.saying);
     let heard = Arc::new(Mutex::new(VecDeque::new()));
@@ -194,11 +195,8 @@ fn listening(hearing: Receiver) -> Result<Queue, Cannot> {
     let over = Arc::clone(&ended);
 
     let reading_the_bus = std::thread::spawn(move || {
-            let mut hearing = hearing;
-            let mut writing = writing;
-
-            loop {
-                let message = match hearing.heard() {
+            let _ended = console_core_iteration::iterate((hearing, writing), |(mut hearing, mut writing)| {
+                let message = match hearing.receive() {
                     Ok(message) => message,
                     Err(why) => {
                         eprintln!("console-notify: {why}");
@@ -210,20 +208,20 @@ fn listening(hearing: Receiver) -> Result<Queue, Cannot> {
 
                         let _ = writing.write_all(&[1]);
 
-                        return;
+                        return Ok(Step::Halt(()));
                     }
                 };
 
                 match held.lock() {
                     Ok(mut held) => held.push_back(message),
-                    Err(_the_lock_is_poisoned) => return,
+                    Err(_the_lock_is_poisoned) => return Ok(Step::Halt(())),
                 }
 
-                match writing.write_all(&[1]) {
-                    Ok(()) => {}
-                    Err(_no_one_is_listening) => return,
-                }
-            }
+                Ok(match writing.write_all(&[1]) {
+                    Ok(()) => Step::Again((hearing, writing)),
+                    Err(_no_one_is_listening) => Step::Halt(()),
+                })
+            });
     });
     let Ok(()) = console_program_lifetime::threads::let_go(reading_the_bus);
 
@@ -242,62 +240,89 @@ struct Rendered {
     scale: Scale,
 }
 
-fn asking(surface: &Surface, stack: &Stack) -> Result<Rendered, Never> {
+fn snapshot(surface: &Surface, stack: &Stack) -> Result<Rendered, Never> {
     let Ok(logical) = surface.logical();
     let Ok(scale) = surface.scale();
 
     Ok(Rendered { stack: stack.clone(), logical, scale })
 }
 
-fn standing(
+fn run(
     surface: &mut Surface,
     queue: &Queue,
     saying: &Sender,
     wearing: &Wearing,
 ) -> Result<(), Cannot> {
-    let mut holding = Holding::default();
-    let mut waiting: Vec<Waiting> = Vec::new();
-    let woken = queue.woken.as_fd();
-    let mut drew: Option<Rendered> = None;
+    let running = Running { surface, holding: Holding::default(), waiting: Vec::new(), drew: None };
+    let asked = Context { queue, saying, wearing, woken: queue.woken.as_fd() };
 
-    loop {
-        let Ok(()) = drained(queue, &mut holding, saying, &mut waiting);
-        let Ok(()) = ran_out(&mut holding, saying, &mut waiting);
+    match console_core_iteration::iterate(running, |running| turned(running, &asked)) {
+        Ok(ended) => ended,
+        Err(endless) => {
+            eprintln!("console-notify: {endless}");
 
-        let Ok(stack) = shown(&holding, wearing);
-        let Ok(wanted) = asking(surface, &stack);
-
-        match drew.as_ref() == Some(&wanted) {
-            true => {}
-            false => {
-                drawn(surface, &stack)?;
-
-                let Ok(after) = asking(surface, &stack);
-
-                drew = Some(after);
-            }
-        }
-
-        let Ok(closed) = surface.closed();
-
-        match closed {
-            Closed::Yes => return Ok(()),
-            Closed::No => {}
-        }
-
-        let Ok(until) = soonest(&waiting);
-
-        surface.wait(&[woken], until).map_err(Cannot::Compositor)?;
-
-        let Ok(()) = touched(surface, &stack, &mut holding, saying);
-
-        let Ok(ended) = ending(queue);
-
-        match ended {
-            Ended::Yes => return Ok(()),
-            Ended::No => {}
+            Ok(())
         }
     }
+}
+
+struct Running<'a> {
+    surface: &'a mut Surface,
+    holding: Holding,
+    waiting: Vec<Waiting>,
+    drew: Option<Rendered>,
+}
+
+struct Context<'a> {
+    queue: &'a Queue,
+    saying: &'a Sender,
+    wearing: &'a Wearing,
+    woken: BorrowedFd<'a>,
+}
+
+fn turned<'a>(mut running: Running<'a>, asked: &Context<'_>) -> Result<Step<Running<'a>, Result<(), Cannot>>, Never> {
+    let Ok(()) = drain_queue(asked.queue, &mut running.holding, asked.saying, &mut running.waiting);
+    let Ok(()) = ran_out(&mut running.holding, asked.saying, &mut running.waiting);
+
+    let Ok(stack) = shown(&running.holding, asked.wearing);
+    let Ok(wanted) = snapshot(running.surface, &stack);
+
+    match running.drew.as_ref() == Some(&wanted) {
+        true => {}
+        false => {
+            match draw(running.surface, &stack) {
+                Ok(()) => {}
+                Err(fault) => return Ok(Step::Halt(Err(fault))),
+            }
+
+            let Ok(after) = snapshot(running.surface, &stack);
+
+            running.drew = Some(after);
+        }
+    }
+
+    let Ok(closed) = running.surface.closed();
+
+    match closed {
+        Closed::Yes => return Ok(Step::Halt(Ok(()))),
+        Closed::No => {}
+    }
+
+    let Ok(until) = soonest(&running.waiting);
+
+    match running.surface.wait(&[asked.woken], until) {
+        Ok(()) => {}
+        Err(fault) => return Ok(Step::Halt(Err(Cannot::Compositor(fault)))),
+    }
+
+    let Ok(()) = handle_pointer(running.surface, &stack, &mut running.holding, asked.saying);
+
+    let Ok(ended) = ending(asked.queue);
+
+    Ok(match ended {
+        Ended::Yes => Step::Halt(Ok(())),
+        Ended::No => Step::Again(running),
+    })
 }
 
 fn ending(queue: &Queue) -> Result<Ended, Never> {
@@ -307,36 +332,35 @@ fn ending(queue: &Queue) -> Result<Ended, Never> {
     })
 }
 
-fn drained(
+fn drain_queue(
     queue: &Queue,
     holding: &mut Holding,
     saying: &Sender,
     waiting: &mut Vec<Waiting>,
 ) -> Result<(), Never> {
-    let Ok(()) = console_waiting::woken::drained(&queue.woken);
+    let Ok(()) = console_waiting::woken::drain(&queue.woken);
 
-    loop {
-        let message = match queue.heard.lock() {
-            Ok(mut held) => held.pop_front(),
-            Err(_the_lock_is_poisoned) => None,
-        };
-        let message = match message {
-            Some(message) => message,
-            None => return Ok(()),
-        };
-        let Ok(turn) = serving::heard(holding, &message);
-        let Ok(()) = turned(&turn, saying, waiting);
+    let messages = std::iter::from_fn(|| match queue.heard.lock() {
+        Ok(mut held) => held.pop_front(),
+        Err(_the_lock_is_poisoned) => None,
+    });
+
+    for message in messages {
+        let Ok(turn) = serving::handle_message(holding, &message);
+        let Ok(()) = apply_turn(&turn, saying, waiting);
 
         match turn.changed {
             Modified::Yes => {
-                let Ok(()) = kept(holding);
+                let Ok(()) = save_inbox(holding);
             }
             Modified::No => {}
         }
     }
+
+    Ok(())
 }
 
-fn turned(turn: &Turn, saying: &Sender, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
+fn apply_turn(turn: &Turn, saying: &Sender, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
     for closed in &turn.closed {
         let _ = saying.say(closed);
     }
@@ -412,13 +436,13 @@ fn ran_out(
         match ran_out {
             NotificationClosed::No => {}
             NotificationClosed::Yes => {
-                let Ok(said) = going(&[armed.id], Why::RanOut);
+                let Ok(said) = closed_signals(&[armed.id], Why::RanOut);
 
                 for closed in &said {
                     let _ = saying.say(closed);
                 }
 
-                let Ok(()) = kept(holding);
+                let Ok(()) = save_inbox(holding);
             }
         }
     }
@@ -457,7 +481,7 @@ fn clipped(words: Text<'_>) -> Result<Clipped, Never> {
 }
 
 fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
-    let Ok(showing) = holding.showing();
+    let Ok(showing) = holding.visible();
     let Ok(most) = console_core_number_conversion::index(showing::MOST);
     let mut said = Vec::new();
 
@@ -495,12 +519,12 @@ fn sized(words: &Clipped) -> Result<Measured, Never> {
     let Ok(body_weight) = showing::BODY.weight();
     let Ok(inner) = showing::x();
     let Ok(inner) = console_core_number_conversion::fitted::<i32, u32>(inner);
-    let Ok(summary) = measured(Run { said: &words.summary, weight: summary_weight, width: inner }, &summary_font);
+    let Ok(summary) = measure_text(Run { said: &words.summary, weight: summary_weight, width: inner }, &summary_font);
 
     let body = match words.body.is_empty() {
         true => None,
         false => {
-            let Ok(body) = measured(Run { said: &words.body, weight: body_weight, width: inner }, &body_font);
+            let Ok(body) = measure_text(Run { said: &words.body, weight: body_weight, width: inner }, &body_font);
 
             Some(body)
         }
@@ -509,7 +533,7 @@ fn sized(words: &Clipped) -> Result<Measured, Never> {
     Ok(Measured { summary, body })
 }
 
-fn drawn(surface: &mut Surface, stack: &Stack) -> Result<(), Cannot> {
+fn draw(surface: &mut Surface, stack: &Stack) -> Result<(), Cannot> {
     match stack.touching.is_empty() {
         true => {
             let Ok(()) = surface.hide();
@@ -545,7 +569,7 @@ fn drawn(surface: &mut Surface, stack: &Stack) -> Result<(), Cannot> {
     Ok(())
 }
 
-fn touched(
+fn handle_pointer(
     surface: &mut Surface,
     stack: &Stack,
     holding: &mut Holding,
@@ -579,21 +603,21 @@ fn dismissed(id: u32, holding: &mut Holding, saying: &Sender) -> Result<(), Neve
     match closed {
         NotificationClosed::No => Ok(()),
         NotificationClosed::Yes => {
-            let Ok(said) = going(&[id], Why::Dismissed);
+            let Ok(said) = closed_signals(&[id], Why::Dismissed);
 
             for going in &said {
                 let _ = saying.say(going);
             }
 
-            kept(holding)
+            save_inbox(holding)
         }
     }
 }
 
-fn kept(holding: &Holding) -> Result<(), Never> {
-    let Ok(at) = serving::kept();
-    let Ok(whole) = serving::keeping(holding);
-    let Ok(said) = written(&whole);
+fn save_inbox(holding: &Holding) -> Result<(), Never> {
+    let Ok(at) = serving::inbox_path();
+    let Ok(whole) = serving::to_inbox(holding);
+    let Ok(said) = serialize(&whole);
 
     let where_it_goes = match at.parent() {
         Some(where_it_goes) => where_it_goes,
@@ -625,13 +649,13 @@ mod tests {
 
     const SCREEN_TALL: u32 = 480;
 
-    fn stacked(summary: &str, body: &str) -> u32 {
-        let Ok(words) = clipped(Text { summary, body });
-        let Ok(measure) = sized(&words);
+    fn stacked(words: Text<'_>) -> Result<u32, Never> {
+        let Ok(clipped) = clipped(words);
+        let Ok(measure) = sized(&clipped);
         let Ok(tall) = showing::height(&measure, None);
-        let gaps = u32::try_from(showing::BETWEEN * 2 + showing::DOWN).unwrap();
+        let Ok(gaps) = console_core_number_conversion::fitted::<i32, u32>(showing::BETWEEN.saturating_mul(2).saturating_add(showing::DOWN));
 
-        tall * showing::MOST + gaps
+        Ok(tall.saturating_mul(showing::MOST).saturating_add(gaps))
     }
 
     #[test]
@@ -639,8 +663,11 @@ mod tests {
         let words = "Meditations of the Emperor ".repeat(400);
         let unbroken = "x".repeat(8000);
 
-        assert!(stacked(&words, &words) <= SCREEN_TALL, "{} is past the foot of the screen", stacked(&words, &words));
-        assert!(stacked(&unbroken, &unbroken) <= SCREEN_TALL, "a word with no space in it is cut the same");
+        let Ok(worded) = stacked(Text { summary: &words, body: &words });
+        let Ok(unbroken) = stacked(Text { summary: &unbroken, body: &unbroken });
+
+        assert!(worded <= SCREEN_TALL, "{worded} is past the foot of the screen");
+        assert!(unbroken <= SCREEN_TALL, "a word with no space in it is cut the same");
     }
 
     #[test]

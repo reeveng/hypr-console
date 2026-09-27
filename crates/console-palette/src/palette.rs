@@ -9,6 +9,7 @@
 
 use indexmap::IndexMap;
 use console_core_color::{self as color, Floor, Short};
+use console_core_iteration::Step;
 use console_core_never::Never;
 
 use crate::configuration::Color;
@@ -66,52 +67,65 @@ fn settle<'a>(
     first: Palette,
     all: Vec<&'a String>,
 ) -> Result<Palette, Short> {
-    let mut done = first;
-    let mut pending = all;
+    let settled = console_core_iteration::iterate((first, all), |(done, pending)| {
+        Ok(match pending.is_empty() {
+            true => Step::Halt(Ok(done)),
+            false => match settled_round(declared, done, pending) {
+                Ok(next) => Step::Again(next),
+                Err(fault) => Step::Halt(Err(fault)),
+            },
+        })
+    });
 
-    while !pending.is_empty() {
-        let (ready, waiting): (Vec<&String>, Vec<&String>) = pending
-            .into_iter()
-            .partition(|name| match declared.get(*name) {
-                Some(color) => {
-                    let Ok(mut waits) = waits_on(color);
+    match settled {
+        Ok(settled) => settled,
+        Err(endless) => Err(Short(endless.to_string())),
+    }
+}
 
-                    waits.all(|other| {
-                        let Ok(held) = done.get(other);
+fn settled_round<'a>(
+    declared: &'a IndexMap<String, Color>,
+    done: Palette,
+    pending: Vec<&'a String>,
+) -> Result<(Palette, Vec<&'a String>), Short> {
+    let (ready, waiting): (Vec<&String>, Vec<&String>) = pending
+        .into_iter()
+        .partition(|name| match declared.get(*name) {
+            Some(color) => {
+                let Ok(mut waits) = waits_on(color);
 
-                        held.is_some()
-                    })
-                }
-                None => true,
-            });
+                waits.all(|other| {
+                    let Ok(held) = done.get(other);
 
-        match ready.is_empty() {
-            true => {
-                let mut names: Vec<&str> = waiting.iter().map(|name| name.as_str()).collect();
-                names.sort_unstable();
-                return Err(Short(format!("these colors wait on each other: {names:?}")));
+                    held.is_some()
+                })
             }
-            false => {},
+            None => true,
+        });
+
+    match ready.is_empty() {
+        true => {
+            let mut names: Vec<&str> = waiting.iter().map(|name| name.as_str()).collect();
+            names.sort_unstable();
+            return Err(Short(format!("these colors wait on each other: {names:?}")));
         }
-
-        let settled = ready.into_iter().try_fold(done, |done, name| {
-            let color = match declared.get(name) {
-                Some(color) => color,
-                None => return Err(Short(format!("no color called {name} is declared"))),
-            };
-
-            let code = solve(color, &done)?;
-
-            let Ok(done) = done.with(name, code);
-
-            Ok::<_, Short>(done)
-        })?;
-
-        done = settled;
-        pending = waiting;
+        false => {},
     }
 
-    Ok(done)
+    let settled = ready.into_iter().try_fold(done, |done, name| {
+        let color = match declared.get(name) {
+            Some(color) => color,
+            None => return Err(Short(format!("no color called {name} is declared"))),
+        };
+
+        let code = solve(color, &done)?;
+
+        let Ok(done) = done.with(name, code);
+
+        Ok::<_, Short>(done)
+    })?;
+
+    Ok((settled, waiting))
 }
 
 fn waits_on(color: &Color) -> Result<impl Iterator<Item = &str>, Never> {
@@ -207,91 +221,106 @@ fn settle_until_it_carries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn hexcode(lightness: f64, chroma: f64, hue: f64) -> String {
-        let Ok(code) = color::hexcode(color::Oklch { lightness, chroma, hue });
-
-        code
-    }
-
-    fn contrast(ink: &str, ground: &str) -> f64 {
-        let Ok(contrast) = color::contrast(color::HexColor(ink), color::Ground(ground));
-
-        contrast
-    }
-
-    fn lightness_contrast(ink: &str, ground: &str) -> f64 {
-        let Ok(lightness_contrast) = color::lightness_contrast(color::HexColor(ink), color::Ground(ground));
-
-        lightness_contrast
-    }
-
-    fn declared(body: &str) -> IndexMap<String, Color> {
-        toml::from_str(body).expect("the fixture parses")
+    fn declared(body: &str) -> Result<IndexMap<String, Color>, toml::de::Error> {
+        toml::from_str(body)
     }
 
     const NIGHT: &str = "[night]\nhue = 318\nchroma = 0.018\nlightness = 0.16\n";
     const NIGHT_CODE: &str = "110b12";
 
     #[test]
-    fn a_color_with_no_floor_sits_where_it_asked_to() {
-        let got = resolve(&declared(NIGHT)).expect("nothing to wait on");
-        assert_eq!(got.must("night").expect("a declared color"), hexcode(0.16, 0.018, 318.0).as_str());
+    fn a_color_with_no_floor_sits_where_it_asked_to() -> Result<(), Box<dyn Error>> {
+        let declared = declared(NIGHT)?;
+        let got = resolve(&declared)?;
+        let night = got.must("night")?;
+        let Ok(hexcode) = color::hexcode(color::Oklch { lightness: 0.16, chroma: 0.018, hue: 318.0 });
+
+        assert_eq!(night, hexcode.as_str());
+
+        Ok(())
     }
 
     #[test]
-    fn a_floor_lifts_a_color_to_where_it_can_be_read() {
+    fn a_floor_lifts_a_color_to_where_it_can_be_read() -> Result<(), Box<dyn Error>> {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.0\n\
              least = {{ on = [\"night\"], ratio = 10.0, lightness_contrast = 75.0 }}\n"
-        ));
-        let got = resolve(&two).expect("night comes first");
-        let (text, night) = (got.must("text").expect("a declared color"), got.must("night").expect("a declared color"));
-        assert!(contrast(text, night) >= 10.0);
-        assert!(lightness_contrast(text, night).abs() >= 75.0);
+        ))?;
+        let got = resolve(&two)?;
+        let text = got.must("text")?;
+        let night = got.must("night")?;
+        let Ok(ratio) = color::contrast(color::HexColor(text), color::Ground(night));
+        let Ok(lightness_contrast) = color::lightness_contrast(color::HexColor(text), color::Ground(night));
+
+        assert!(ratio >= 10.0);
+        assert!(lightness_contrast.abs() >= 75.0);
+
+        Ok(())
     }
 
     #[test]
-    fn a_floor_never_lowers_a_color_that_already_clears_it() {
+    fn a_floor_never_lowers_a_color_that_already_clears_it() -> Result<(), Box<dyn Error>> {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.98\n\
              least = {{ on = [\"night\"], ratio = 4.5, lightness_contrast = 45.0 }}\n"
-        ));
-        let got = resolve(&two).expect("night comes first");
-        assert_eq!(got.must("text").expect("a declared color"), hexcode(0.98, 0.022, 335.0).as_str());
+        ))?;
+        let got = resolve(&two)?;
+        let text = got.must("text")?;
+        let Ok(hexcode) = color::hexcode(color::Oklch { lightness: 0.98, chroma: 0.022, hue: 335.0 });
+
+        assert_eq!(text, hexcode.as_str());
+
+        Ok(())
     }
 
     #[test]
-    fn a_color_that_carries_ink_is_lifted_until_the_ink_clears() {
+    fn a_color_that_carries_ink_is_lifted_until_the_ink_clears() -> Result<(), Box<dyn Error>> {
         let two = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.5\n\
              least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 75.0, \
              carries = [\"night\"], carries_ratio = 7.0, carries_lightness_contrast = 75.0 }}\n"
-        ));
-        let got = resolve(&two).expect("night comes first");
-        let (pink, night) = (got.must("pink").expect("a declared color"), got.must("night").expect("a declared color"));
-        assert!(contrast(pink, night) >= 7.0);
-        assert!(lightness_contrast(night, pink) >= 75.0);
+        ))?;
+        let got = resolve(&two)?;
+        let pink = got.must("pink")?;
+        let night = got.must("night")?;
+        let Ok(ratio) = color::contrast(color::HexColor(pink), color::Ground(night));
+        let Ok(lightness_contrast) = color::lightness_contrast(color::HexColor(night), color::Ground(pink));
+
+        assert!(ratio >= 7.0);
+        assert!(lightness_contrast >= 75.0);
+
+        Ok(())
     }
 
     #[test]
-    fn colors_are_solved_in_whatever_order_their_floors_need() {
+    fn colors_are_solved_in_whatever_order_their_floors_need() -> Result<(), Box<dyn Error>> {
         let two = declared(&format!(
             "[text]\nhue = 335\nchroma = 0.022\n\
              least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 75.0 }}\n{NIGHT}"
-        ));
-        let got = resolve(&two).expect("the second pass settles text");
-        assert!(contrast(got.must("text").expect("a declared color"), got.must("night").expect("a declared color")) >= 7.0);
+        ))?;
+        let got = resolve(&two)?;
+        let text = got.must("text")?;
+        let night = got.must("night")?;
+        let Ok(ratio) = color::contrast(color::HexColor(text), color::Ground(night));
+
+        assert!(ratio >= 7.0);
+
+        Ok(())
     }
 
     #[test]
-    fn a_cycle_is_named_rather_than_looped_over() {
+    fn a_cycle_is_named_rather_than_looped_over() -> Result<(), Box<dyn Error>> {
         let two = declared(
             "[one]\nhue = 0\nchroma = 0.05\nleast = { on = [\"two\"], ratio = 7.0, lightness_contrast = 75.0 }\n\
              [two]\nhue = 0\nchroma = 0.05\nleast = { on = [\"one\"], ratio = 7.0, lightness_contrast = 75.0 }\n",
-        );
+        )?;
+
         let fault = resolve(&two).expect_err("neither can go first");
         assert!(fault.0.contains("one") && fault.0.contains("two"), "{}", fault.0);
+
+        Ok(())
     }
 
     #[test]
@@ -307,44 +336,52 @@ mod tests {
     }
 
     #[test]
-    fn a_floor_given_in_only_one_measure_is_refused_rather_than_guessed() {
+    fn a_floor_given_in_only_one_measure_is_refused_rather_than_guessed() -> Result<(), Box<dyn Error>> {
         let two = declared(&format!(
             "{NIGHT}[text]\nhue = 335\nchroma = 0.022\nlightness = 0.0\n\
              least = {{ on = [\"night\"], ratio = 10.0 }}\n"
-        ));
+        ))?;
         let fault = resolve(&two).expect_err("half a floor is not a floor");
+
         assert!(fault.0.contains("both measures"), "{}", fault.0);
+
+        Ok(())
     }
 
     #[test]
-    fn the_lightness_contrast_lifts_a_color_the_ratio_alone_would_have_left_where_it_was() {
+    fn the_lightness_contrast_lifts_a_color_the_ratio_alone_would_have_left_where_it_was() -> Result<(), Box<dyn Error>> {
         let ratio_only = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.72\n\
              least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 0.0 }}\n"
-        ));
+        ))?;
         let both = declared(&format!(
             "{NIGHT}[pink]\nhue = 342\nchroma = 0.105\nlightness = 0.72\n\
              least = {{ on = [\"night\"], ratio = 7.0, lightness_contrast = 75.0 }}\n"
-        ));
-        let (loose, tight) = (
-            resolve(&ratio_only).expect("night comes first"),
-            resolve(&both).expect("night comes first"),
-        );
-        let (loose, tight) = (
-            loose.must("pink").expect("a declared color").to_owned(),
-            tight.must("pink").expect("a declared color").to_owned(),
-        );
-        let night = NIGHT_CODE;
-        assert!(contrast(&loose, night) >= 7.0, "the ratio alone is already clear");
-        assert!(lightness_contrast(&loose, night).abs() < 75.0, "and the Contrast alone is not");
+        ))?;
+        let loose = resolve(&ratio_only)?;
+        let tight = resolve(&both)?;
+        let loose = loose.must("pink")?;
+        let tight = tight.must("pink")?;
+        let Ok(loose_ratio) = color::contrast(color::HexColor(loose), color::Ground(NIGHT_CODE));
+        let Ok(loose_lightness_contrast) = color::lightness_contrast(color::HexColor(loose), color::Ground(NIGHT_CODE));
+        let Ok(tight_lightness_contrast) = color::lightness_contrast(color::HexColor(tight), color::Ground(NIGHT_CODE));
+
+        assert!(loose_ratio >= 7.0, "the ratio alone is already clear");
+        assert!(loose_lightness_contrast.abs() < 75.0, "and the Contrast alone is not");
         assert_ne!(loose, tight, "so asking for both has to move it");
-        assert!(lightness_contrast(&tight, night).abs() >= 75.0);
+        assert!(tight_lightness_contrast.abs() >= 75.0);
+
+        Ok(())
     }
 
     #[test]
-    fn asking_for_a_color_no_one_declared_says_which_one() {
+    fn asking_for_a_color_no_one_declared_says_which_one() -> Result<(), Box<dyn Error>> {
         let palette: Palette = [("pink".to_string(), "ffb0c8".to_string())].into_iter().collect();
+        let pink = palette.must("pink")?;
+
         assert_eq!(palette.get("mauve"), Ok(None));
-        assert_eq!(palette.must("pink").expect("a declared color"), "ffb0c8");
+        assert_eq!(pink, "ffb0c8");
+
+        Ok(())
     }
 }

@@ -12,22 +12,23 @@ use console_settings::learned::{Band, Levels, band};
 use console_settings::light::Lit;
 use console_settings::screen::{BRIGHTEST, DARKEST};
 
-fn taught(pairs: &[(i64, i64)]) -> Levels {
-    let Ok(nothing) = Levels::nothing();
+use console_core_never::Never;
 
-    pairs.iter().fold(nothing, |levels, (raw, level)| {
+fn taught(pairs: &[(i64, i64)]) -> Result<Levels, Never> {
+    let Ok(nothing) = Levels::empty();
+
+    Ok(pairs.iter().fold(nothing, |levels, (raw, level)| {
         let Ok(band) = band(Lit(*raw));
         let Ok(taught) = levels.taught(band, *level);
 
         taught
-    })
+    }))
 }
 
-fn asked(levels: &Levels, raw: i64) -> Option<i64> {
+fn level_for(levels: &Levels, raw: i64) -> Result<Option<i64>, Never> {
     let Ok(band) = band(Lit(raw));
-    let Ok(asked) = levels.asked(band);
 
-    asked
+    levels.level_for(band)
 }
 
 #[test]
@@ -52,23 +53,23 @@ fn a_reading_that_barely_moves_stays_in_its_band() {
 
 #[test]
 fn a_machine_that_was_never_taught_answers_nothing() {
-    let Ok(nothing) = Levels::nothing();
+    let Ok(nothing) = Levels::empty();
 
-    assert_eq!(asked(&nothing, 400), None);
+    assert_eq!(level_for(&nothing, 400), Ok(None));
 }
 
 #[test]
 fn a_band_taught_once_answers_what_it_was_told() {
-    let levels = taught(&[(400, 500)]);
+    let Ok(levels) = taught(&[(400, 500)]);
 
-    assert_eq!(asked(&levels, 400), Some(500));
+    assert_eq!(level_for(&levels, 400), Ok(Some(500)));
 }
 
 #[test]
 fn a_second_press_moves_the_band_rather_than_replacing_it() {
-    let levels = taught(&[(400, 500), (400, 900)]);
+    let Ok(levels) = taught(&[(400, 500), (400, 900)]);
 
-    let held = asked(&levels, 400);
+    let Ok(held) = level_for(&levels, 400);
 
     assert_ne!(held, Some(900));
     assert!(held > Some(500));
@@ -76,10 +77,10 @@ fn a_second_press_moves_the_band_rather_than_replacing_it() {
 
 #[test]
 fn between_two_taught_bands_it_climbs() {
-    let levels = taught(&[(1, 100), (20000, 900)]);
+    let Ok(levels) = taught(&[(1, 100), (20000, 900)]);
 
-    let dim = asked(&levels, 20);
-    let middling = asked(&levels, 2000);
+    let Ok(dim) = level_for(&levels, 20);
+    let Ok(middling) = level_for(&levels, 2000);
 
     assert!(dim > Some(100));
     assert!(middling > dim);
@@ -88,25 +89,25 @@ fn between_two_taught_bands_it_climbs() {
 
 #[test]
 fn outside_what_it_knows_it_holds_the_nearest() {
-    let levels = taught(&[(400, 500)]);
+    let Ok(levels) = taught(&[(400, 500)]);
 
-    assert_eq!(asked(&levels, 0), Some(500));
-    assert_eq!(asked(&levels, 30000), Some(500));
+    assert_eq!(level_for(&levels, 0), Ok(Some(500)));
+    assert_eq!(level_for(&levels, 30000), Ok(Some(500)));
 }
 
 #[test]
 fn a_level_is_never_past_what_this_panel_can_show() {
-    let levels = taught(&[(400, 100000), (0, -5000)]);
+    let Ok(levels) = taught(&[(400, 100000), (0, -5000)]);
 
-    assert_eq!(asked(&levels, 400), Some(BRIGHTEST));
-    assert_eq!(asked(&levels, 0), Some(DARKEST));
+    assert_eq!(level_for(&levels, 400), Ok(Some(BRIGHTEST)));
+    assert_eq!(level_for(&levels, 0), Ok(Some(DARKEST)));
 }
 
 #[test]
 fn what_is_written_down_reads_back_the_same() {
-    let levels = taught(&[(1, 200), (400, 500), (20000, 900)]);
+    let Ok(levels) = taught(&[(1, 200), (400, 500), (20000, 900)]);
 
-    let Ok(written) = levels.written();
+    let Ok(written) = levels.serialize();
     let Ok(again) = Levels::read(&written);
 
     assert_eq!(again, levels);
@@ -116,6 +117,6 @@ fn what_is_written_down_reads_back_the_same() {
 fn a_file_somebody_has_been_editing_loses_only_the_line_they_broke() {
     let Ok(read) = Levels::read("3 400\nnonsense\n\n99 500\n5 600\n");
 
-    assert_eq!(read.asked(Band(3)), Ok(Some(400)));
-    assert_eq!(read.asked(Band(5)), Ok(Some(600)));
+    assert_eq!(read.level_for(Band(3)), Ok(Some(400)));
+    assert_eq!(read.level_for(Band(5)), Ok(Some(600)));
 }

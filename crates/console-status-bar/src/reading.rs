@@ -24,7 +24,7 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, whole_u32};
 use console_panel::door::Up;
-use console_panel::running::said;
+use console_panel::running::run_output;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tone {
@@ -66,7 +66,7 @@ pub enum StatusItem {
 }
 
 impl StatusItem {
-    pub fn named(word: &str) -> Result<Option<Self>, Never> {
+    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
         Ok(match word {
             "battery" => Some(StatusItem::Battery),
             "bluetooth" => Some(StatusItem::Bluetooth),
@@ -85,19 +85,19 @@ impl StatusItem {
             },
             StatusItem::Bluetooth => {
                 let asked = &["--system", "--json=short", "call", BLUEZ, "/", MANAGER, "GetManagedObjects"];
-                let Ok(managed) = said(Program::Busctl, asked);
+                let Ok(managed) = run_output(Program::Busctl, asked);
 
                 bluetooth(&managed)
             },
             StatusItem::Network => {
                 let asked = &["-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"];
                 let Ok(wifi) = wifi();
-                let Ok(devices) = said(Program::Nmcli, asked);
+                let Ok(devices) = run_output(Program::Nmcli, asked);
 
                 network(Readings { devices: &devices, wifi: &wifi })
             },
             StatusItem::Sound => {
-                let Ok(level) = said(Program::Wpctl, &["get-volume", "@DEFAULT_AUDIO_SINK@"]);
+                let Ok(level) = run_output(Program::Wpctl, &["get-volume", "@DEFAULT_AUDIO_SINK@"]);
 
                 sound(&level)
             },
@@ -176,7 +176,7 @@ pub fn battery(said: &str) -> Result<Reading, Never> {
     };
 
     let filling = reading.filling;
-    let Ok(level) = stepped(&LEVELS, charge);
+    let Ok(level) = icon_for(&LEVELS, charge);
 
     let icon = match filling {
         Filling::Yes => CHARGING,
@@ -228,7 +228,7 @@ const NO_ICON: &str = "";
 
 const NOTHING_HEARD: u32 = 0;
 
-fn stepped(icons: &[&'static str], percent: u32) -> Result<&'static str, Never> {
+fn icon_for(icons: &[&'static str], percent: u32) -> Result<&'static str, Never> {
     let Ok(many) = fitted::<_, u32>(icons.len());
     let last = many.saturating_sub(1);
     let Ok(at) = index(percent.min(100).saturating_mul(last) / A_WHOLE);
@@ -246,8 +246,8 @@ pub fn bluetooth(managed: &str) -> Result<Reading, Never> {
         Ok(read) => read,
         Err(_nothing_answered) => serde_json::Value::Null,
     };
-    let Ok(powered) = holding(&read, Property { interface: ADAPTER, property: "Powered" });
-    let Ok(connected) = holding(&read, Property { interface: DEVICE, property: "Connected" });
+    let Ok(powered) = property_value(&read, Property { interface: ADAPTER, property: "Powered" });
+    let Ok(connected) = property_value(&read, Property { interface: DEVICE, property: "Connected" });
 
     match (powered, connected) {
         (0, _) => Reading::new("\u{f00b2}", Tone::Secondary),
@@ -262,7 +262,7 @@ struct Property<'a> {
     property: &'a str,
 }
 
-fn holding(read: &serde_json::Value, held: Property<'_>) -> Result<u32, Never> {
+fn property_value(read: &serde_json::Value, held: Property<'_>) -> Result<u32, Never> {
     let objects = match read.get("data").and_then(|data| data.get(0)).and_then(serde_json::Value::as_object) {
         Some(objects) => objects,
         None => return Ok(0),
@@ -284,7 +284,7 @@ fn holding(read: &serde_json::Value, held: Property<'_>) -> Result<u32, Never> {
 }
 
 fn wifi() -> Result<String, Never> {
-    said(Program::Nmcli, &["-t", "-f", "IN-USE,SIGNAL", "device", "wifi", "list", "--rescan", "no"])
+    run_output(Program::Nmcli, &["-t", "-f", "IN-USE,SIGNAL", "device", "wifi", "list", "--rescan", "no"])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,7 +325,7 @@ pub fn network(asked: Readings<'_>) -> Result<Reading, Never> {
                 None => NOTHING_HEARD,
             };
 
-            let Ok(bars) = stepped(&BARS, strength);
+            let Ok(bars) = icon_for(&BARS, strength);
 
             return Reading::new(bars, Tone::Plain);
         }
@@ -379,27 +379,10 @@ pub fn sound(said: &str) -> Result<Reading, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn saying(icon: &str, tone: Tone) -> Reading {
-        Reading { icon: icon.to_string(), beside: None, tone }
-    }
-
-    fn line(reading: &Reading, open: Up) -> String {
-        let Ok(said) = super::line(reading, open);
-
-        said
-    }
-
-    fn battery(said: &str) -> Reading {
-        let Ok(reading) = super::battery(said);
-
-        reading
-    }
-
-    fn bluetooth(managed: &str) -> Reading {
-        let Ok(reading) = super::bluetooth(managed);
-
-        reading
+    fn plain_reading(icon: &str, tone: Tone) -> Result<Reading, Never> {
+        Ok(Reading { icon: String::from(icon), beside: None, tone })
     }
 
     const ADAPTER_OFF: &str = r#"{"type":"a{oa{sa{sv}}}","data":[{"/org/bluez":{"org.bluez.AgentManager1":{}},"/org/bluez/hci0":{"org.bluez.Adapter1":{"Name":{"type":"s","data":"laptop"},"Powered":{"type":"b","data":false},"PowerState":{"type":"s","data":"off"}}}}]}"#;
@@ -410,94 +393,130 @@ mod tests {
 
     const TWO_CONNECTED: &str = r#"{"type":"a{oa{sa{sv}}}","data":[{"/org/bluez/hci0":{"org.bluez.Adapter1":{"Powered":{"type":"b","data":true}}},"/org/bluez/hci0/dev_AC_80_0A_12_34_56":{"org.bluez.Device1":{"Connected":{"type":"b","data":true}}},"/org/bluez/hci0/dev_5C_E7_1D_AA_BB_CC":{"org.bluez.Device1":{"Connected":{"type":"b","data":true}}}}]}"#;
 
-    fn network(asked: Readings<'_>) -> Reading {
-        let Ok(reading) = super::network(asked);
+    fn json(said: &str) -> Result<serde_json::Value, Box<dyn Error>> {
+        let held = serde_json::from_str(said)?;
 
-        reading
+        Ok(held)
     }
 
-    fn sound(said: &str) -> Reading {
-        let Ok(reading) = super::sound(said);
+    fn worn(said: &str) -> Result<Vec<String>, Box<dyn Error>> {
+        let held = json(said)?;
+        let classes = held.get("class").and_then(serde_json::Value::as_array).ok_or("a list of classes")?;
+        let mut worn = Vec::new();
 
-        reading
-    }
+        for name in classes {
+            let name = name.as_str().ok_or("a name")?;
 
-    fn held(said: &str) -> serde_json::Value {
-        serde_json::from_str(said).expect("json")
-    }
+            worn.push(String::from(name));
+        }
 
-    fn worn(said: &str) -> Vec<String> {
-        held(said)["class"]
-            .as_array()
-            .expect("a list of classes")
-            .iter()
-            .map(|name| name.as_str().expect("a name").to_string())
-            .collect()
+        Ok(worn)
     }
 
     #[test]
-    fn a_reading_with_nothing_to_say_about_itself_carries_no_class() {
-        let said = line(&saying("64%", Tone::Plain), Up::NotThere);
-        assert!(held(&said).get("class").is_none());
+    fn a_reading_with_nothing_to_say_about_itself_carries_no_class() -> Result<(), Box<dyn Error>> {
+        let Ok(reading) = plain_reading("64%", Tone::Plain);
+        let Ok(said) = line(&reading, Up::NotThere);
+        let held = json(&said)?;
+
+        assert!(held.get("class").is_none());
+
+        Ok(())
     }
 
     #[test]
-    fn the_tab_in_front_is_the_only_thing_that_lights_it() {
-        assert_eq!(worn(&line(&saying("64%", Tone::Plain), Up::OnScreen)), ["open"]);
+    fn the_tab_in_front_is_the_only_thing_that_lights_it() -> Result<(), Box<dyn Error>> {
+        let Ok(reading) = plain_reading("64%", Tone::Plain);
+        let Ok(said) = line(&reading, Up::OnScreen);
+        let worn = worn(&said)?;
+
+        assert_eq!(worn, ["open"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_reading_that_says_something_says_it_beside_being_open() {
-        assert_eq!(worn(&line(&saying("x", Tone::Secondary), Up::OnScreen)), ["secondary", "open"]);
-        assert_eq!(worn(&line(&saying("x", Tone::Secondary), Up::NotThere)), ["secondary"]);
+    fn a_reading_that_says_something_says_it_beside_being_open() -> Result<(), Box<dyn Error>> {
+        let Ok(reading) = plain_reading("x", Tone::Secondary);
+        let Ok(open) = line(&reading, Up::OnScreen);
+        let Ok(shut) = line(&reading, Up::NotThere);
+        let open = worn(&open)?;
+        let shut = worn(&shut)?;
+
+        assert_eq!(open, ["secondary", "open"]);
+        assert_eq!(shut, ["secondary"]);
+
+        Ok(())
     }
 
     #[test]
-    fn every_class_is_one_name_and_never_a_line_of_words() {
+    fn every_class_is_one_name_and_never_a_line_of_words() -> Result<(), Box<dyn Error>> {
         for tone in [Tone::Plain, Tone::Secondary, Tone::Pressed, Tone::Low, Tone::Error, Tone::Well] {
-            for open in [Up::OnScreen, Up::NotThere] {
-                let said = line(&saying("x", tone), open);
-                let list = match held(&said).get("class").cloned() {
+            'opens: for open in [Up::OnScreen, Up::NotThere] {
+                let Ok(reading) = plain_reading("x", tone);
+                let Ok(said) = line(&reading, open);
+                let held = json(&said)?;
+
+                let list = match held.get("class").cloned() {
                     Some(list) => list,
-                    None => continue,
+                    None => continue 'opens,
                 };
+                let worn = worn(&said)?;
+
                 assert!(list.is_array(), "{said} writes the classes as {list}");
-                for name in worn(&said) {
+
+                for name in worn {
                     assert!(!name.contains(char::is_whitespace), "{said} wears {name:?}");
                     assert!(!name.is_empty(), "{said} wears an empty class");
                 }
             }
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_text_is_written_as_json_rather_than_pasted_in() {
-        let said = line(&saying(r#"a "quoted" \ name"#, Tone::Plain), Up::NotThere);
-        assert_eq!(held(&said)["text"], r#"a "quoted" \ name"#);
+    fn the_text_is_written_as_json_rather_than_pasted_in() -> Result<(), Box<dyn Error>> {
+        let Ok(reading) = plain_reading(r#"a "quoted" \ name"#, Tone::Plain);
+        let Ok(said) = line(&reading, Up::NotThere);
+        let held = json(&said)?;
+
+        assert_eq!(held.get("text").and_then(serde_json::Value::as_str), Some(r#"a "quoted" \ name"#));
+
+        Ok(())
     }
 
     #[test]
-    fn a_reading_with_something_beside_it_says_both_and_nothing_else_does() {
-        let charge = battery("64 unplugged Discharging");
-        let said = line(&charge, Up::NotThere);
-        let text = held(&said)["text"].as_str().expect("a reading").to_string();
+    fn a_reading_with_something_beside_it_says_both_and_nothing_else_does() -> Result<(), Box<dyn Error>> {
+        let Ok(charge) = battery("64 unplugged Discharging");
+        let Ok(said) = line(&charge, Up::NotThere);
+        let held = json(&said)?;
+        let text = held.get("text").and_then(serde_json::Value::as_str).ok_or("a reading")?;
+        let Ok(volume) = sound("Volume: 0.35");
 
         assert!(text.starts_with(&charge.icon), "{text} does not start with its icon");
         assert!(text.contains("64%"), "{text} does not carry the charge");
-        assert_eq!(sound("Volume: 0.35").beside, None);
+        assert_eq!(volume.beside, None);
+
+        Ok(())
     }
 
     #[test]
     fn a_battery_on_the_mains_says_so() {
-        assert_eq!(battery("95 plugged Charging").tone, Tone::Well);
-        assert_eq!(battery("95 unplugged Discharging").tone, Tone::Plain);
-        assert_eq!(battery("8 unplugged Discharging").tone, Tone::Error);
-        assert_eq!(battery("20 unplugged Discharging").tone, Tone::Low);
+        let Ok(plugged) = battery("95 plugged Charging");
+        let Ok(full) = battery("95 unplugged Discharging");
+        let Ok(empty) = battery("8 unplugged Discharging");
+        let Ok(low) = battery("20 unplugged Discharging");
+
+        assert_eq!(plugged.tone, Tone::Well);
+        assert_eq!(full.tone, Tone::Plain);
+        assert_eq!(empty.tone, Tone::Error);
+        assert_eq!(low.tone, Tone::Low);
     }
 
     #[test]
     fn a_battery_held_at_a_limit_is_drawn_as_a_machine_on_the_cable() {
-        let held = battery("78 plugged Not charging");
+        let Ok(held) = battery("78 plugged Not charging");
 
         assert_eq!(held.tone, Tone::Well, "a plugged-in device was drawn as one running flat");
         assert_eq!(held.icon, PLUGGED, "{} does not say the cable is in", held.icon);
@@ -509,114 +528,159 @@ mod tests {
 
     #[test]
     fn a_battery_nothing_answered_for_is_not_drawn_as_full() {
-        let reading = battery("");
+        let Ok(reading) = battery("");
+
         assert_eq!(reading.icon, NO_BATTERY);
-        assert!(!reading.beside.unwrap_or_default().contains('%'));
+        assert!(!reading.beside.is_some_and(|beside| beside.contains('%')));
     }
 
-    fn drawn(reading: &Reading) -> u32 {
-        let beside = reading.beside.clone().unwrap_or_default();
+    fn width(reading: &Reading) -> Result<u32, Never> {
+        let Ok(icon) = fitted::<_, u32>(reading.icon.chars().count());
 
-        u32::try_from(reading.icon.chars().count().saturating_add(beside.chars().count())).unwrap()
+        let beside = match &reading.beside {
+            Some(beside) => fitted::<_, u32>(beside.chars().count()),
+            None => Ok(0),
+        };
+        let Ok(beside) = beside;
+
+        Ok(icon.saturating_add(beside))
     }
 
     #[test]
     fn no_reading_is_a_different_width_for_saying_a_different_thing() {
         let one_width = |item: &str, said: Vec<Reading>| {
-            let widths: std::collections::BTreeSet<u32> = said.iter().map(drawn).collect();
+            let widths: std::collections::BTreeSet<u32> = said
+                .iter()
+                .map(|reading| {
+                    let Ok(wide) = width(reading);
+
+                    wide
+                })
+                .collect();
             assert_eq!(widths.len(), 1, "{item} is drawn {widths:?} wide: {said:?}");
         };
 
-        let mut charges = vec![battery("")];
+        let Ok(unanswered) = battery("");
+        let mut charges = vec![unanswered];
+
         for charge in 0..=100 {
-            charges.push(battery(&format!("{charge} Discharging")));
-            charges.push(battery(&format!("{charge} Charging")));
+            let Ok(discharging) = battery(&format!("{charge} Discharging"));
+            let Ok(charging) = battery(&format!("{charge} Charging"));
+
+            charges.push(discharging);
+            charges.push(charging);
         }
+
         one_width("the battery", charges);
 
-        let mut volumes = vec![sound(""), sound("Volume: 0.35 [MUTED]")];
-        for step in 0..=100 {
-            volumes.push(sound(&format!("Volume: {}.{:02}", step / 100, step % 100)));
+        let Ok(silent) = sound("");
+        let Ok(muted) = sound("Volume: 0.35 [MUTED]");
+        let mut volumes = vec![silent, muted];
+
+        for step in 0_u32..=100 {
+            let Ok(volume) = sound(&format!("Volume: {}.{:02}", step.div_euclid(100), step.rem_euclid(100)));
+
+            volumes.push(volume);
         }
+
         one_width("the sound", volumes);
 
-        let mut networks =
-            vec![
-                network(Readings { devices: "wifi:disconnected:", wifi: "" }),
-                network(Readings { devices: "ethernet:connected:wired", wifi: "" }),
-            ];
+        let Ok(disconnected) = network(Readings { devices: "wifi:disconnected:", wifi: "" });
+        let Ok(wired) = network(Readings { devices: "ethernet:connected:wired", wifi: "" });
+        let mut networks = vec![disconnected, wired];
+
         for strength in 0..=100 {
-            networks.push(network(Readings { devices: DEVICES, wifi: &format!("*:{strength}") }));
+            let Ok(wireless) = network(Readings { devices: DEVICES, wifi: &format!("*:{strength}") });
+
+            networks.push(wireless);
         }
+
         one_width("the network", networks);
 
-        one_width("bluetooth", vec![
-            bluetooth(ADAPTER_OFF),
-            bluetooth(ADAPTER_ON),
-            bluetooth(ONE_CONNECTED),
-            bluetooth(TWO_CONNECTED),
-        ]);
+        let Ok(off) = bluetooth(ADAPTER_OFF);
+        let Ok(on) = bluetooth(ADAPTER_ON);
+        let Ok(one) = bluetooth(ONE_CONNECTED);
+        let Ok(two) = bluetooth(TWO_CONNECTED);
+
+        one_width("bluetooth", vec![off, on, one, two]);
     }
 
     #[test]
     fn the_ramp_holds_every_charge() {
         for charge in 0..=100 {
-            let reading = battery(&format!("{charge} Discharging"));
+            let Ok(reading) = battery(&format!("{charge} Discharging"));
+
             assert!(LEVELS.contains(&reading.icon.as_str()), "{charge}");
         }
     }
 
     #[test]
     fn bluetooth_that_is_off_is_not_bluetooth_with_nothing_on_it() {
-        assert_eq!(bluetooth(ADAPTER_OFF).tone, Tone::Secondary);
-        assert_eq!(bluetooth(ADAPTER_ON).tone, Tone::Plain);
-        assert_ne!(bluetooth(ADAPTER_ON).icon, bluetooth(ONE_CONNECTED).icon);
-        assert_eq!(bluetooth(ONE_CONNECTED).icon, bluetooth(TWO_CONNECTED).icon);
+        let Ok(off) = bluetooth(ADAPTER_OFF);
+        let Ok(on) = bluetooth(ADAPTER_ON);
+        let Ok(one) = bluetooth(ONE_CONNECTED);
+        let Ok(two) = bluetooth(TWO_CONNECTED);
+
+        assert_eq!(off.tone, Tone::Secondary);
+        assert_eq!(on.tone, Tone::Plain);
+        assert_ne!(on.icon, one.icon);
+        assert_eq!(one.icon, two.icon);
     }
 
     #[test]
     fn a_paired_device_that_is_not_here_is_not_a_connection() {
-        assert_eq!(bluetooth(ADAPTER_ON).icon, "\u{f00af}");
+        let Ok(on) = bluetooth(ADAPTER_ON);
+
+        assert_eq!(on.icon, "\u{f00af}");
     }
 
     #[test]
     fn bluetooth_nobody_answered_for_is_drawn_as_off() {
-        assert_eq!(bluetooth("").tone, Tone::Secondary);
-        assert_eq!(bluetooth("Call failed: The name org.bluez was not provided").tone, Tone::Secondary);
+        let Ok(silent) = bluetooth("");
+        let Ok(failed) = bluetooth("Call failed: The name org.bluez was not provided");
+
+        assert_eq!(silent.tone, Tone::Secondary);
+        assert_eq!(failed.tone, Tone::Secondary);
     }
 
     const DEVICES: &str = "wifi:connected:home\nethernet:unavailable:\nloopback:connected:lo";
 
     #[test]
     fn the_wireless_this_machine_is_on_is_the_one_with_the_star() {
-        let reading = network(Readings { devices: DEVICES, wifi: "*:72\n :41\n :12" });
+        let Ok(reading) = network(Readings { devices: DEVICES, wifi: "*:72\n :41\n :12" });
+
         assert_eq!(reading.tone, Tone::Plain);
-        assert_eq!(reading.icon, BARS[2]);
+        assert_eq!(Some(&reading.icon.as_str()), BARS.get(2));
     }
 
     #[test]
     fn every_strength_lands_on_a_bar_and_the_ends_are_not_the_same_bar() {
+        let Ok(faint) = network(Readings { devices: DEVICES, wifi: "*:5" });
+        let Ok(strong) = network(Readings { devices: DEVICES, wifi: "*:95" });
+
         for strength in 0..=100 {
-            let reading = network(Readings { devices: DEVICES, wifi: &format!("*:{strength}") });
+            let Ok(reading) = network(Readings { devices: DEVICES, wifi: &format!("*:{strength}") });
+
             assert!(BARS.contains(&reading.icon.as_str()), "{strength}: {:?}", reading.icon);
         }
-        assert_ne!(
-            network(Readings { devices: DEVICES, wifi: "*:5" }).icon,
-            network(Readings { devices: DEVICES, wifi: "*:95" }).icon
-        );
+
+        assert_ne!(faint.icon, strong.icon);
     }
 
     #[test]
     fn a_strength_that_cannot_be_read_is_the_faintest_bar() {
-        assert_eq!(network(Readings { devices: DEVICES, wifi: "*:" }).icon, BARS[0]);
-        assert_eq!(network(Readings { devices: DEVICES, wifi: "" }).icon, BARS[0]);
+        let Ok(unread) = network(Readings { devices: DEVICES, wifi: "*:" });
+        let Ok(unsaid) = network(Readings { devices: DEVICES, wifi: "" });
+
+        assert_eq!(Some(&unread.icon.as_str()), BARS.first());
+        assert_eq!(Some(&unsaid.icon.as_str()), BARS.first());
     }
 
     #[test]
     fn a_cable_is_not_a_wireless_and_neither_is_nothing() {
         let both = "ethernet:connected:wired\nwifi:disconnected:";
-        let wired = network(Readings { devices: both, wifi: "" });
-        let nothing = network(Readings { devices: "wifi:disconnected:", wifi: "" });
+        let Ok(wired) = network(Readings { devices: both, wifi: "" });
+        let Ok(nothing) = network(Readings { devices: "wifi:disconnected:", wifi: "" });
 
         assert_eq!(wired.tone, Tone::Plain);
         assert_eq!(nothing.tone, Tone::Secondary);
@@ -625,36 +689,47 @@ mod tests {
 
     #[test]
     fn the_loopback_is_not_a_network() {
-        assert_eq!(network(Readings { devices: "loopback:connected:lo", wifi: "" }).tone, Tone::Secondary);
+        let Ok(reading) = network(Readings { devices: "loopback:connected:lo", wifi: "" });
+
+        assert_eq!(reading.tone, Tone::Secondary);
     }
 
     #[test]
     fn a_muted_sink_says_so_whatever_its_volume_is() {
-        assert_eq!(sound("Volume: 0.35 [MUTED]").tone, Tone::Secondary);
-        assert_eq!(sound("Volume: 0.35").tone, Tone::Plain);
+        let Ok(muted) = sound("Volume: 0.35 [MUTED]");
+        let Ok(heard) = sound("Volume: 0.35");
+
+        assert_eq!(muted.tone, Tone::Secondary);
+        assert_eq!(heard.tone, Tone::Plain);
     }
 
     #[test]
     fn a_volume_of_nothing_is_drawn_as_the_silence_it_is() {
-        let nothing = sound("Volume: 0.00");
+        let Ok(nothing) = sound("Volume: 0.00");
+        let Ok(muted) = sound("Volume: 0.35 [MUTED]");
+
         assert_eq!(nothing.icon, SILENT, "it reading {:?}", nothing.icon);
-        assert_eq!(nothing.tone, sound("Volume: 0.35 [MUTED]").tone);
+        assert_eq!(nothing.tone, muted.tone);
     }
 
     #[test]
     fn the_quietest_reading_that_is_not_silence_is_not_drawn_as_silence() {
-        assert_ne!(sound("Volume: 0.01").icon, SILENT);
+        let Ok(quietest) = sound("Volume: 0.01");
+
+        assert_ne!(quietest.icon, SILENT);
     }
 
     #[test]
     fn the_volume_is_read_as_a_share_and_drawn_as_one_of_three_marks() {
-        let quiet = sound("Volume: 0.15").icon;
-        let middling = sound("Volume: 0.50").icon;
-        let loud = sound("Volume: 1.00").icon;
-        for said in [&quiet, &middling, &loud] {
+        let Ok(quiet) = sound("Volume: 0.15");
+        let Ok(middling) = sound("Volume: 0.50");
+        let Ok(loud) = sound("Volume: 1.00");
+
+        for said in [&quiet.icon, &middling.icon, &loud.icon] {
             assert!(!said.contains('%'), "the number is back on the bar: {said:?}");
         }
-        assert_ne!(quiet, middling);
-        assert_ne!(middling, loud);
+
+        assert_ne!(quiet.icon, middling.icon);
+        assert_ne!(middling.icon, loud.icon);
     }
 }

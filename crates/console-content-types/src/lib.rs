@@ -30,6 +30,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::Stored;
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 
 pub const GLOBS: &str = "/usr/share/mime/globs2";
@@ -236,10 +237,10 @@ fn parsed(said: &str) -> Result<Table, TableError> {
 
         match (wild, ending) {
             (false, _) => {
-                let Ok(()) = kept(&mut table.named, glob.to_string(), found);
+                let Ok(()) = insert_heaviest(&mut table.named, glob.to_string(), found);
             },
             (true, Some(ending)) => {
-                let Ok(()) = kept(&mut table.ending, format!(".{ending}"), found);
+                let Ok(()) = insert_heaviest(&mut table.ending, format!(".{ending}"), found);
             },
             (true, None) => {
                 let Ok(read) = Glob::read(glob);
@@ -252,7 +253,7 @@ fn parsed(said: &str) -> Result<Table, TableError> {
     Ok(table)
 }
 
-fn kept(into: &mut BTreeMap<String, Pattern>, key: String, found: Pattern) -> Result<(), Never> {
+fn insert_heaviest(into: &mut BTreeMap<String, Pattern>, key: String, found: Pattern) -> Result<(), Never> {
     let had = into.get(&key).map(|had| had.weight);
 
     match had {
@@ -292,10 +293,7 @@ struct Glob {
 
 impl Glob {
     fn read(written: &str) -> Result<Glob, Never> {
-        let mut letters = written.chars();
-        let mut tokens = Vec::new();
-
-        loop {
+        let read = iterate((written.chars(), Vec::new()), |(mut letters, mut tokens)| {
             let token = match letters.next() {
                 Some('*') => Token::Any,
                 Some('?') => Token::One,
@@ -309,88 +307,118 @@ impl Glob {
                     None => Token::Unclosed,
                 },
                 Some(letter) => Token::Letter(letter),
-                None => break,
+                None => return Ok(Step::Halt(tokens)),
             };
 
             tokens.push(token);
-        }
 
-        Ok(Glob { tokens })
+            Ok(Step::Again((letters, tokens)))
+        });
+
+        Ok(Glob {
+            tokens: match read {
+                Ok(tokens) => tokens,
+                Err(Endless) => Vec::new(),
+            },
+        })
     }
 
     fn matches(&self, said: &str) -> Result<Matched, Never> {
         let said: Vec<char> = said.chars().collect();
-        let mut at: (&[Token], &[char]) = (&self.tokens, &said);
-        let mut last_any = None;
+        let start = Place { at: (&self.tokens, &said), last_any: None };
 
-        while let Some((letter, letters_after)) = at.1.split_first() {
-            let (token, tokens_after) = match at.0.split_first() {
-                Some((token, tokens_after)) => (Some(token), tokens_after),
-                None => (None, at.0),
-            };
+        let answered = iterate(start, Place::step);
 
-            let fits = match token {
-                Some(Token::Any) => {
-                    at = (tokens_after, at.1);
-                    last_any = Some(at);
-                    continue;
-                },
-                Some(Token::One) => Matched::Yes,
-                Some(Token::Letter(one)) => match one == letter {
+        Ok(match answered {
+            Ok(answer) => answer,
+            Err(Endless) => Matched::No,
+        })
+    }
+}
+
+type Along<'a> = (&'a [Token], &'a [char]);
+
+#[derive(Debug, Clone, Copy)]
+struct Place<'a> {
+    at: Along<'a>,
+    last_any: Option<Along<'a>>,
+}
+
+impl<'a> Place<'a> {
+    fn step(self) -> Result<Step<Place<'a>, Matched>, Never> {
+        let Place { at, last_any } = self;
+
+        let (letter, letters_after) = match at.1.split_first() {
+            Some(split) => split,
+            None => {
+                return Ok(Step::Halt(match at.0.iter().all(|token| *token == Token::Any) {
                     true => Matched::Yes,
                     false => Matched::No,
-                },
-                Some(Token::Class(held)) => {
-                    let Ok(inside) = one_of(held, *letter);
+                }));
+            },
+        };
 
-                    inside
-                },
-                Some(Token::Unclosed) | None => Matched::No,
-            };
+        let (token, tokens_after) = match at.0.split_first() {
+            Some((token, tokens_after)) => (Some(token), tokens_after),
+            None => (None, at.0),
+        };
 
-            match (fits, last_any) {
-                (Matched::Yes, _) => at = (tokens_after, letters_after),
-                (Matched::No, Some((after, from))) => {
-                    let from_next = match from.split_first() {
-                        Some((_, from_next)) => from_next,
-                        None => from,
-                    };
+        let fits = match token {
+            Some(Token::Any) => {
+                let at = (tokens_after, at.1);
 
-                    at = (after, from_next);
-                    last_any = Some(at);
-                },
-                (Matched::No, None) => return Ok(Matched::No),
-            }
-        }
+                return Ok(Step::Again(Place { at, last_any: Some(at) }));
+            },
+            Some(Token::One) => Matched::Yes,
+            Some(Token::Letter(one)) => match one == letter {
+                true => Matched::Yes,
+                false => Matched::No,
+            },
+            Some(Token::Class(held)) => {
+                let Ok(inside) = one_of(held, *letter);
 
-        Ok(match at.0.iter().all(|token| *token == Token::Any) {
-            true => Matched::Yes,
-            false => Matched::No,
+                inside
+            },
+            Some(Token::Unclosed) | None => Matched::No,
+        };
+
+        Ok(match (fits, last_any) {
+            (Matched::Yes, _) => Step::Again(Place { at: (tokens_after, letters_after), last_any }),
+            (Matched::No, Some((after, from))) => {
+                let from_next = match from.split_first() {
+                    Some((_, from_next)) => from_next,
+                    None => from,
+                };
+                let at = (after, from_next);
+
+                Step::Again(Place { at, last_any: Some(at) })
+            },
+            (Matched::No, None) => Step::Halt(Matched::No),
         })
     }
 }
 
 fn one_of(held: &[char], letter: char) -> Result<Matched, Never> {
-    let mut rest = held;
+    let inside = std::iter::successors(Some(held), |rest| match rest {
+        [] => None,
+        [_, '-', _, after @ ..] | [_, after @ ..] => Some(after),
+    })
+    .any(|rest| match rest {
+        [] => false,
+        [first, '-', last, ..] => *first <= letter && letter <= *last,
+        [one, ..] => *one == letter,
+    });
 
-    loop {
-        match rest {
-            [] => return Ok(Matched::No),
-            [first, '-', last, after @ ..] => match *first <= letter && letter <= *last {
-                true => return Ok(Matched::Yes),
-                false => rest = after,
-            },
-            [one, after @ ..] => match *one == letter {
-                true => return Ok(Matched::Yes),
-                false => rest = after,
-            },
-        }
-    }
+    Ok(match inside {
+        true => Matched::Yes,
+        false => Matched::No,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const SAID: &str = "# a head\n\
         50:image/jpeg:*.jpg\n\
@@ -403,55 +431,67 @@ mod tests {
         60:application/x-sharedlib:*.so.[0-9]*\n\
         50:text/x-scons:sconscript.*\n";
 
-    fn table() -> Table {
-        parsed(SAID).expect("the table this test wrote")
+    fn table() -> Result<Table, TableError> {
+        parsed(SAID)
     }
 
     #[test]
-    fn an_ending_says_what_a_photograph_is() {
-        let table = table();
+    fn an_ending_says_what_a_photograph_is() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("beach.jpg"), Ok(Some("image/jpeg")));
         assert_eq!(table.of("beach.jpeg"), Ok(Some("image/jpeg")));
+
+        Ok(())
     }
 
     #[test]
-    fn the_longest_ending_wins_so_an_archive_is_not_its_wrapper() {
-        let table = table();
+    fn the_longest_ending_wins_so_an_archive_is_not_its_wrapper() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("console.tar.gz"), Ok(Some("application/x-compressed-tar")));
         assert_eq!(table.of("console.gz"), Ok(Some("application/gzip")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_name_that_is_the_whole_pattern_beats_an_ending() {
-        let table = table();
+    fn a_name_that_is_the_whole_pattern_beats_an_ending() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("makefile"), Ok(Some("text/x-makefile")));
         assert_eq!(table.of("Makefile"), Ok(Some("text/x-makefile")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_case_sensitive_pattern_is_the_one_that_tells_two_languages_apart() {
-        let table = table();
+    fn a_case_sensitive_pattern_is_the_one_that_tells_two_languages_apart() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("main.c"), Ok(Some("text/x-csrc")));
         assert_eq!(table.of("main.C"), Ok(Some("text/x-c++src")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_photograph_shouted_is_still_a_photograph() {
-        let table = table();
+    fn a_photograph_shouted_is_still_a_photograph() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("BEACH.JPG"), Ok(Some("image/jpeg")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_pattern_that_is_neither_a_name_nor_an_ending_is_still_matched() {
-        let table = table();
+    fn a_pattern_that_is_neither_a_name_nor_an_ending_is_still_matched() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("libc.so.6"), Ok(Some("application/x-sharedlib")));
         assert_eq!(table.of("sconscript.build"), Ok(Some("text/x-scons")));
+
+        Ok(())
     }
 
     #[test]
@@ -473,22 +513,19 @@ mod tests {
     }
 
     #[test]
-    fn a_name_nothing_in_the_table_knows_is_nothing_rather_than_a_guess() {
-        let table = table();
+    fn a_name_nothing_in_the_table_knows_is_nothing_rather_than_a_guess() -> Result<(), Box<dyn Error>> {
+        let table = table()?;
 
         assert_eq!(table.of("notes"), Ok(None));
         assert_eq!(table.of("beach.jpgx"), Ok(None));
         assert_eq!(of(&table, Path::new("/home/someone/notes")), Ok(String::new()));
+
+        Ok(())
     }
 
     #[test]
-    fn the_table_the_machine_carries_is_the_one_a_folder_is_read_with() {
-        let here = Table::here();
-
-        let here = match here {
-            Ok(here) => here,
-            Err(why) => panic!("{why}"),
-        };
+    fn the_table_the_machine_carries_is_the_one_a_folder_is_read_with() -> Result<(), Box<dyn Error>> {
+        let here = Table::here()?;
 
         assert_eq!(here.of("beach.jpg"), Ok(Some("image/jpeg")));
         assert_eq!(here.of("song.flac"), Ok(Some("audio/flac")));
@@ -498,5 +535,7 @@ mod tests {
             matches!(film, Ok(Some(said)) if said.starts_with("video/") && said.ends_with("matroska")),
             "a film is a film whichever of the two names this machine's table keeps: {film:?}"
         );
+
+        Ok(())
     }
 }

@@ -6,7 +6,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::ast::Attribute;
-use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
+use rustc_lint::{EarlyContext, EarlyLintPass};
 use rustc_span::sym;
 
 dylint_linting::declare_early_lint! {
@@ -23,21 +23,8 @@ dylint_linting::declare_early_lint! {
     "an `allow` with no `reason` is a rule waived in silence"
 }
 
-// Tests are exempt. A test that panics is a test that fails, which is what a
-// test is for, and `as` in a fixture is arithmetic no one ships. `opts.test`
-// is true only for the harness build of a target -- the ordinary build of the
-// same library is linted as production, so nothing real is lost by skipping
-// this one.
-fn is_test_build(cx: &EarlyContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 impl EarlyLintPass for Explicit018AllowWithReason {
     fn check_attribute(&mut self, cx: &EarlyContext<'_>, attr: &Attribute) {
-        if is_test_build(cx) {
-            return;
-        }
-
         // A derive writes allows of its own; those are the derive author's.
         if attr.span.from_expansion() {
             return;

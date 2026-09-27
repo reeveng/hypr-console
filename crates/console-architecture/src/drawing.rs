@@ -77,7 +77,7 @@ impl Drawing {
         Ok(())
     }
 
-    fn ordering(&mut self, ends: Ends<'_>, label: &str) -> Result<(), Never> {
+    fn add_ordering(&mut self, ends: Ends<'_>, label: &str) -> Result<(), Never> {
         let _ = self.edges.insert(Edge {
             from: String::from(ends.from),
             to: String::from(ends.to),
@@ -88,7 +88,7 @@ impl Drawing {
         Ok(())
     }
 
-    fn written(&self) -> Result<String, Never> {
+    fn to_dot(&self) -> Result<String, Never> {
         let mut out = String::from(HEAD);
 
         for (id, attributes) in &self.nodes {
@@ -132,7 +132,7 @@ fn unit(drawing: &mut Drawing, unit: &Unit, architecture: &Architecture) -> Resu
         false => "solid",
     };
     let Ok(()) = drawing.node(Node { id: id.clone(), attributes: format!("label={:?}, shape=box, style={style}", unit.name) });
-    let Ok(started) = unit.started();
+    let Ok(started) = unit.exec_start();
 
     match started {
         Some(Started::InternalProgram(binary)) => match binaries.get(&binary) {
@@ -154,11 +154,11 @@ fn unit(drawing: &mut Drawing, unit: &Unit, architecture: &Architecture) -> Resu
         None => {}
     }
 
-    let Ok(ordered) = unit.ordered();
+    let Ok(ordered) = unit.orderings();
 
     for (other, said) in ordered {
         let Ok(to) = unit_id(&other);
-        let Ok(()) = drawing.ordering(Ends { from: &id, to: &to }, said);
+        let Ok(()) = drawing.add_ordering(Ends { from: &id, to: &to }, said);
     }
 
     let Ok(triggers) = unit.triggers();
@@ -248,7 +248,7 @@ fn fact(drawing: &mut Drawing, fact: &Fact) -> Result<(), Never> {
 
 fn packages(drawing: &mut Drawing, architecture: &Architecture) -> Result<(), Never> {
     let Ok(timers) = facts::packages(&architecture.facts, Kind::Timer);
-    let Ok(subscribed) = facts::subscribed(&architecture.facts);
+    let Ok(subscribed) = facts::subscriptions(&architecture.facts);
 
     for one in &architecture.facts {
         let Ok(()) = fact(drawing, one);
@@ -290,7 +290,7 @@ fn packages(drawing: &mut Drawing, architecture: &Architecture) -> Result<(), Ne
     Ok(())
 }
 
-pub fn drawn(architecture: &Architecture) -> Result<String, Never> {
+pub fn draw(architecture: &Architecture) -> Result<String, Never> {
     let mut drawing = Drawing::default();
 
     for one in &architecture.units {
@@ -299,5 +299,5 @@ pub fn drawn(architecture: &Architecture) -> Result<String, Never> {
 
     let Ok(()) = packages(&mut drawing, architecture);
 
-    drawing.written()
+    drawing.to_dot()
 }

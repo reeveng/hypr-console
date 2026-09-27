@@ -134,7 +134,7 @@ fn entry(book: &library::Book, covers: &Path) -> Result<CatalogEntry, Never> {
 }
 
 fn write_cover(covers: &Path, book: &library::Book, cover: CoverImage<'_>) -> Result<Option<PathBuf>, Never> {
-    let Ok(ending) = open::ending(cover.name);
+    let Ok(ending) = open::extension(cover.name);
     let at = covers.join(format!("{}.{ending}", book.name));
 
     Ok(match console_core_atomic_writes::whole(&at, cover.bytes) {

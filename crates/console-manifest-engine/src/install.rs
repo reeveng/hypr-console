@@ -18,7 +18,7 @@ use crate::manifest::Written;
 use crate::settled::Settled;
 
 
-pub const USER: &str = "@user@";
+pub use console_manifest_migrations::USER;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct User<'a>(pub &'a str);
@@ -142,7 +142,7 @@ pub fn owner_of(live: &str, user: User<'_>) -> Result<String, Never> {
     })
 }
 
-pub fn holding(live: &str) -> Result<Vec<PathBuf>, Never> {
+pub fn parent_directories(live: &str) -> Result<Vec<PathBuf>, Never> {
     let mut directories: Vec<PathBuf> = Path::new(live)
         .parent()
         .into_iter()
@@ -159,127 +159,90 @@ pub fn holding(live: &str) -> Result<Vec<PathBuf>, Never> {
 mod tests {
     use super::*;
 
-    fn source_of(source: &Path, live: &str) -> PathBuf {
-        let Ok(at) = super::source_of(source, live);
+    type Failure = Box<dyn std::error::Error>;
 
-        at
-    }
+    const SOMEONE: &str = "ada";
 
-    fn state(source: &Path, live: &str, user: &str, written: Written) -> State {
-        let Ok(state) = super::state(source, live, User(user), written);
-
-        state
-    }
-
-    fn owner_of(live: &str, user: &str) -> String {
-        let Ok(owner) = super::owner_of(live, User(user));
-
-        owner
-    }
-
-    fn on_machine(live: &str, user: &str) -> String {
-        let Ok(on) = super::on_machine(live, User(user));
-
-        on
-    }
-
-    fn as_declared(live: &str, user: &str) -> String {
-        let Ok(declared) = super::as_declared(live, User(user));
-
-        declared
-    }
-
-    fn content_on_machine(held: &[u8], user: &str, live: &str) -> Vec<u8> {
-        let Ok(content) = super::content_on_machine(held, User(user), live);
-
-        content
-    }
-
-    fn content_as_declared(held: &[u8], user: &str) -> Vec<u8> {
-        let Ok(content) = super::content_as_declared(held, User(user));
-
-        content
-    }
-
-    fn holding(live: &str) -> Vec<PathBuf> {
-        let Ok(holding) = super::holding(live);
-
-        holding
-    }
-
+    const LIVING_HERE: User<'static> = User(SOMEONE);
 
     #[test]
     fn a_source_path_is_the_live_path_under_the_tree() {
         let source = Path::new("/etc/console/files");
+
         assert_eq!(
             source_of(source, "/usr/local/bin/launcher"),
-            Path::new("/etc/console/files/usr/local/bin/launcher")
+            Ok(PathBuf::from("/etc/console/files/usr/local/bin/launcher"))
         );
     }
 
-    const SOMEONE: &str = "ada";
-
-    #[test]
-    fn a_file_no_one_here_may_read_is_not_a_file_that_is_missing() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let here = std::env::temp_dir().join(format!("console-shut-{}", std::process::id()));
-        let live = here.join("live/console");
+    fn laid_out((here, live): (&Path, &Path), held: (&[u8], &[u8])) -> Result<PathBuf, Failure> {
         let source = here.join("files");
-        std::fs::create_dir_all(source_of(&source, &live.to_string_lossy()).parent().expect("a parent"))
-            .expect("the source");
-        std::fs::write(source_of(&source, &live.to_string_lossy()), b"what it should be\n")
-            .expect("the source");
-        std::fs::create_dir_all(here.join("live")).expect("somewhere live");
-        std::fs::write(&live, b"what it should be\n").expect("the live file");
+        let Ok(at) = source_of(&source, &live.to_string_lossy());
+        let above = at.parent().ok_or("a source with a directory above it")?;
+        let (should_be, is) = held;
 
-        let said = state(&source, &live.to_string_lossy(), SOMEONE, Written::Always);
-        assert_eq!(said, State::Ok, "the same file, while it can be read");
+        std::fs::create_dir_all(above)?;
+        console_core_atomic_writes::whole(&at, should_be)?;
+        std::fs::create_dir_all(here.join("live"))?;
+        console_core_atomic_writes::whole(live, is)?;
 
-        std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o000))
-            .expect("shut");
-        let shut = std::fs::read(&live).is_err();
-        let said = state(&source, &live.to_string_lossy(), SOMEONE, Written::Always);
-        std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o755)).ok();
-        std::fs::remove_dir_all(&here).ok();
-
-        match !shut {
-            true => return,
-            false => {},
-        }
-
-        assert_eq!(said, State::Unreadable, "a file that cannot be read is not a file that is gone");
-        assert_ne!(said, State::Missing);
+        Ok(source)
     }
 
     #[test]
-    fn a_file_written_once_is_installed_when_it_is_gone_and_never_compared() {
-        let here = std::env::temp_dir().join(format!("console-once-{}", std::process::id()));
-        let live = here.join("live/bar.css");
-        let source = here.join("files");
-        let at = live.to_string_lossy().to_string();
-        std::fs::create_dir_all(source_of(&source, &at).parent().expect("a parent"))
-            .expect("the source");
-        std::fs::write(source_of(&source, &at), b"what it starts as\n").expect("the source");
-        std::fs::create_dir_all(here.join("live")).expect("somewhere live");
-        std::fs::write(&live, b"what the login wrote instead\n").expect("the live file");
+    fn a_file_no_one_here_may_read_is_not_a_file_that_is_missing() -> Result<(), Failure> {
+        use std::os::unix::fs::PermissionsExt;
 
-        assert_eq!(state(&source, &at, SOMEONE, Written::Always), State::Differs);
+        let here = console_core_temporary_directories::fresh("shut")?;
+        let live = here.join("live/console");
+        let source = laid_out((&here, &live), (b"what it should be\n", b"what it should be\n"))?;
+        let at = live.to_string_lossy().to_string();
+
+        assert_eq!(state(&source, &at, LIVING_HERE, Written::Always), Ok(State::Ok), "the same file, while it can be read");
+
+        std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o000))?;
+
+        let shut = std::fs::read(&live).map_err(|fault| fault.kind());
+        let said = state(&source, &at, LIVING_HERE, Written::Always);
+        let _ = std::fs::set_permissions(here.join("live"), std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&here);
+
+        match shut {
+            Ok(_read_anyway_as_root) => return Ok(()),
+            Err(_refused) => {},
+        }
+
+        assert_eq!(said, Ok(State::Unreadable), "a file that cannot be read is not a file that is gone");
+        assert_ne!(said, Ok(State::Missing));
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_written_once_is_installed_when_it_is_gone_and_never_compared() -> Result<(), Failure> {
+        let here = console_core_temporary_directories::fresh("once")?;
+        let live = here.join("live/bar.css");
+        let source = laid_out((&here, &live), (b"what it starts as\n", b"what the login wrote instead\n"))?;
+        let at = live.to_string_lossy().to_string();
+
+        assert_eq!(state(&source, &at, LIVING_HERE, Written::Always), Ok(State::Differs));
         assert_eq!(
-            state(&source, &at, SOMEONE, Written::Once),
-            State::WrittenOnce,
+            state(&source, &at, LIVING_HERE, Written::Once),
+            Ok(State::WrittenOnce),
             "a file something else on the machine writes was read as drift"
         );
 
-        std::fs::remove_file(&live).expect("the live file goes");
+        std::fs::remove_file(&live)?;
 
         assert_eq!(
-            state(&source, &at, SOMEONE, Written::Once),
-            State::Missing,
+            state(&source, &at, LIVING_HERE, Written::Once),
+            Ok(State::Missing),
             "nothing would have put it back"
         );
 
-        std::fs::remove_dir_all(&here).ok();
+        let _ = std::fs::remove_dir_all(&here);
+
+        Ok(())
     }
 
     #[test]
@@ -293,93 +256,106 @@ mod tests {
 
     #[test]
     fn a_file_in_a_home_belongs_to_whoever_lives_there() {
-        assert_eq!(owner_of("/home/@user@/.config/console/hypr/hyprland.lua", SOMEONE), SOMEONE);
-        assert_eq!(owner_of("/home/ada/.config/console/hypr/hyprland.lua", SOMEONE), SOMEONE);
-        assert_eq!(owner_of("/etc/systemd/user/console.target", SOMEONE), "root");
-        assert_eq!(owner_of("/home/adam/.bashrc", SOMEONE), "root");
-        assert_eq!(owner_of("/home/someone/.bashrc", SOMEONE), "root");
+        let whoever = Ok(SOMEONE.to_string());
+        let root = Ok("root".to_string());
+
+        assert_eq!(owner_of("/home/@user@/.config/console/hypr/hyprland.lua", LIVING_HERE), whoever);
+        assert_eq!(owner_of("/home/ada/.config/console/hypr/hyprland.lua", LIVING_HERE), whoever);
+        assert_eq!(owner_of("/etc/systemd/user/console.target", LIVING_HERE), root);
+        assert_eq!(owner_of("/home/adam/.bashrc", LIVING_HERE), root);
+        assert_eq!(owner_of("/home/someone/.bashrc", LIVING_HERE), root);
     }
 
     #[test]
     fn the_mark_is_filled_in_when_a_path_reaches_the_machine() {
         assert_eq!(
-            on_machine("/home/@user@/.config/console/hypr/hyprland.lua", SOMEONE),
-            "/home/ada/.config/console/hypr/hyprland.lua"
+            on_machine("/home/@user@/.config/console/hypr/hyprland.lua", LIVING_HERE),
+            Ok("/home/ada/.config/console/hypr/hyprland.lua".to_string())
         );
-        assert_eq!(on_machine("/etc/pamac.conf", SOMEONE), "/etc/pamac.conf");
+        assert_eq!(on_machine("/etc/pamac.conf", LIVING_HERE), Ok("/etc/pamac.conf".to_string()));
     }
 
     #[test]
     fn a_path_someone_typed_is_taken_back_to_the_mark() {
         assert_eq!(
-            as_declared("/home/ada/.config/console/hypr/hyprland.lua", SOMEONE),
-            "/home/@user@/.config/console/hypr/hyprland.lua"
+            as_declared("/home/ada/.config/console/hypr/hyprland.lua", LIVING_HERE),
+            Ok("/home/@user@/.config/console/hypr/hyprland.lua".to_string())
         );
-        assert_eq!(as_declared("/etc/pamac.conf", SOMEONE), "/etc/pamac.conf");
+        assert_eq!(as_declared("/etc/pamac.conf", LIVING_HERE), Ok("/etc/pamac.conf".to_string()));
     }
 
     #[test]
     fn a_path_taken_to_the_machine_and_back_is_the_path_it_was() {
         let declared = "/home/@user@/.librewolf/console/user.js";
-        assert_eq!(as_declared(&on_machine(declared, SOMEONE), SOMEONE), declared);
+        let Ok(there) = on_machine(declared, LIVING_HERE);
+
+        assert_eq!(as_declared(&there, LIVING_HERE), Ok(declared.to_string()));
     }
 
     #[test]
     fn the_mark_is_filled_in_inside_a_file_as_well_as_in_its_name() {
         let held = b"@user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n";
+
         assert_eq!(
-            content_on_machine(held, SOMEONE, "/etc/sudoers.d/console"),
-            b"ada ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n".to_vec()
+            content_on_machine(held, LIVING_HERE, "/etc/sudoers.d/console"),
+            Ok(b"ada ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n".to_vec())
         );
     }
 
     #[test]
     fn nothing_but_the_mark_is_filled_in() {
         let held = b"    source_event:\n      gamepad:\n        button: LeftPaddle1\n";
+
         for live in ["/etc/inputplumber/profiles/game.yaml", "/usr/local/bin/keyboard-toggle"] {
-            assert_eq!(content_on_machine(held, SOMEONE, live), held.to_vec());
+            assert_eq!(content_on_machine(held, LIVING_HERE, live), Ok(held.to_vec()));
         }
     }
 
     #[test]
     fn a_file_saved_off_the_machine_carries_the_mark_and_not_a_name() {
         let held = b"ada ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n";
+
         assert_eq!(
-            content_as_declared(held, SOMEONE),
-            b"@user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n".to_vec()
+            content_as_declared(held, LIVING_HERE),
+            Ok(b"@user@ ALL=(root) NOPASSWD: /usr/local/bin/console-engine\n".to_vec())
         );
     }
 
     #[test]
     fn what_is_not_text_is_carried_through_untouched() {
         let held = [0x7f, b'E', b'L', b'F', 0xff, 0xfe];
-        assert_eq!(
-            content_on_machine(&held, SOMEONE, "/usr/local/bin/launcher"),
-            held.to_vec()
-        );
-        assert_eq!(content_as_declared(&held, SOMEONE), held.to_vec());
+
+        assert_eq!(content_on_machine(&held, LIVING_HERE, "/usr/local/bin/launcher"), Ok(held.to_vec()));
+        assert_eq!(content_as_declared(&held, LIVING_HERE), Ok(held.to_vec()));
     }
 
     #[test]
     fn a_file_names_every_directory_it_sits_inside() {
         assert_eq!(
-            holding("/home/ada/.librewolf/console/chrome/userChrome.css"),
-            [
-                Path::new("/home"),
-                Path::new("/home/ada"),
-                Path::new("/home/ada/.librewolf"),
-                Path::new("/home/ada/.librewolf/console"),
-                Path::new("/home/ada/.librewolf/console/chrome"),
-            ]
+            parent_directories("/home/ada/.librewolf/console/chrome/userChrome.css"),
+            Ok(vec![
+                PathBuf::from("/home"),
+                PathBuf::from("/home/ada"),
+                PathBuf::from("/home/ada/.librewolf"),
+                PathBuf::from("/home/ada/.librewolf/console"),
+                PathBuf::from("/home/ada/.librewolf/console/chrome"),
+            ])
         );
-        assert_eq!(holding("/etc/pamac.conf"), [Path::new("/etc")]);
+        assert_eq!(parent_directories("/etc/pamac.conf"), Ok(vec![PathBuf::from("/etc")]));
     }
 
     #[test]
     fn a_directory_made_inside_a_home_belongs_to_whoever_lives_there() {
-        let made = holding("/home/ada/.librewolf/console/chrome/userChrome.css");
-        let owners: Vec<String> =
-            made.iter().map(|directory| owner_of(&directory.to_string_lossy(), SOMEONE)).collect();
+        let Ok(made) = parent_directories("/home/ada/.librewolf/console/chrome/userChrome.css");
+        let owners: Vec<String> = made
+            .iter()
+            .map(|directory| {
+                let Ok(owner) = owner_of(&directory.to_string_lossy(), LIVING_HERE);
+
+                owner
+            })
+            .collect();
+
         assert_eq!(owners, ["root", "root", SOMEONE, SOMEONE, SOMEONE]);
     }
 }

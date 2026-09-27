@@ -186,7 +186,7 @@ pub fn choice_rows(
 
     match opening.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("Nothing here opens these");
+            let Ok(row) = Row::placeholder("Nothing here opens these");
 
             rows.push(row);
 
@@ -217,6 +217,8 @@ mod tests {
     use console_panel::page::{Heading, Active};
     use super::*;
 
+    const A_ROW: &str = "a row the list was to have";
+
     fn nothing(_: &Kind, _: &Application) -> Result<Handler, Never> {
         Handler::and_stay(|_| ())
     }
@@ -225,33 +227,8 @@ mod tests {
         Handler::and_stay(|_| ())
     }
 
-    fn choices(set: &str) -> Vec<Row> {
-        let Ok(rows) =
-            choice_rows(&KINDS[0], &applications(), &|_| Ok(set.to_string()), |_| (), nothing);
-
-        rows
-    }
-
-    fn defaults(now: &dyn Fn(&str) -> Result<String, Never>) -> Vec<Row> {
-        let Ok(rows) = defaults_rows(&applications(), now, opens);
-
-        rows
-    }
-
-    fn now(row: &Row) -> Active {
-        let Ok(now) = row.now();
-
-        now
-    }
-
-    fn heading(row: &Row) -> Heading {
-        let Ok(heading) = row.heading();
-
-        heading
-    }
-
-    fn applications() -> Vec<Application> {
-        vec![
+    fn applications() -> Result<Vec<Application>, Never> {
+        Ok(vec![
             Application {
                 id: "librewolf.desktop".to_string(),
                 says: "LibreWolf".to_string(),
@@ -262,44 +239,71 @@ mod tests {
                 says: "Chromium".to_string(),
                 opens: vec!["x-scheme-handler/https".to_string()],
             },
-        ]
+        ])
     }
 
-    fn says(rows: &[Row]) -> Vec<&str> {
-        rows.iter().map(|row| row.says.as_str()).collect()
+    fn choices(kind: &'static Kind, set: &str) -> Result<Vec<Row>, Never> {
+        let Ok(applications) = applications();
+
+        choice_rows(kind, &applications, &|_| Ok(set.to_string()), |_| (), nothing)
+    }
+
+    const LINKS_FIRST: &str = "the kinds start with links";
+
+    fn links(set: &str) -> Result<Option<Vec<Row>>, Never> {
+        Ok(KINDS.first().map(|links| {
+            let Ok(rows) = choices(links, set);
+
+            rows
+        }))
+    }
+
+    fn defaults(now: &dyn Fn(&str) -> Result<String, Never>) -> Result<Vec<Row>, Never> {
+        let Ok(applications) = applications();
+
+        defaults_rows(&applications, now, opens)
+    }
+
+    fn says(rows: &[Row]) -> Result<Vec<&str>, Never> {
+        Ok(rows.iter().map(|row| row.says.as_str()).collect())
     }
 
     #[test]
-    fn a_desktop_file_gives_its_name_and_what_it_opens() {
-        let read = application(
+    fn a_desktop_file_gives_its_name_and_what_it_opens() -> Result<(), &'static str> {
+        let Ok(read) = application(
             "librewolf.desktop",
             DesktopFilePath(
                 "[Desktop Entry]\nType=Application\nName=LibreWolf\n\
                  MimeType=text/html;image/png;\n",
             ),
-        )
-        .expect("the reading")
-        .expect("an application");
+        );
+        let read = read.ok_or("an application")?;
+
         assert_eq!(read.says, "LibreWolf");
         assert_eq!(read.opens_a("image/png"), Ok(Opens::It));
         assert_eq!(read.opens_a("video/mp4"), Ok(Opens::Not));
+
+        Ok(())
     }
 
     #[test]
-    fn only_the_first_group_of_a_desktop_file_is_read() {
-        let read = application(
+    fn only_the_first_group_of_a_desktop_file_is_read() -> Result<(), &'static str> {
+        let Ok(read) = application(
             "librewolf.desktop",
             DesktopFilePath("[Desktop Entry]\nType=Application\nName=LibreWolf\n\
              [Desktop Effect new-private-window]\nName=New Private Window\n"),
-        )
-        .expect("the reading")
-        .expect("an application");
+        );
+        let read = read.ok_or("an application")?;
+
         assert_eq!(read.says, "LibreWolf");
+
+        Ok(())
     }
 
     #[test]
     fn a_file_that_asks_not_to_be_shown_is_not_offered() {
         let hidden = "[Desktop Entry]\nType=Application\nName=A helper\nNoDisplay=true\n";
+
         assert_eq!(application("helper.desktop", DesktopFilePath(hidden)), Ok(None));
     }
 
@@ -317,51 +321,75 @@ mod tests {
     }
 
     #[test]
-    fn the_program_in_effect_is_the_one_marked() {
-        let rows = choices("chromium.desktop");
-        let chromium = rows.iter().find(|row| row.says == "Chromium").expect("a row");
-        let librewolf = rows.iter().find(|row| row.says == "LibreWolf").expect("a row");
-        assert_eq!(now(chromium), Active::Yes);
-        assert_eq!(now(librewolf), Active::No);
+    fn the_program_in_effect_is_the_one_marked() -> Result<(), &'static str> {
+        let Ok(rows) = links("chromium.desktop");
+        let rows = rows.ok_or(LINKS_FIRST)?;
+        let chromium = rows.iter().find(|row| row.says == "Chromium").ok_or(A_ROW)?;
+        let librewolf = rows.iter().find(|row| row.says == "LibreWolf").ok_or(A_ROW)?;
+
+        assert_eq!(chromium.now(), Ok(Active::Yes));
+        assert_eq!(librewolf.now(), Ok(Active::No));
+
+        Ok(())
     }
 
     #[test]
     fn every_kind_is_a_row_of_the_tab_in_the_order_it_is_written_down() {
-        let rows = defaults(&|_| Ok(String::new()));
-        assert_eq!(says(&rows), ["Links", "Pictures", "Video", "Music", "Folders", "Text"]);
+        let Ok(rows) = defaults(&|_| Ok(String::new()));
+
+        assert_eq!(says(&rows), Ok(vec!["Links", "Pictures", "Video", "Music", "Folders", "Text"]));
     }
 
     #[test]
     fn every_setting_says_that_it_opens_onto_something() {
-        let rows = defaults(&|_| Ok(String::new()));
+        let Ok(rows) = defaults(&|_| Ok(String::new()));
+
         assert!(rows.iter().all(|row| row.opens), "a setting that does not say it opens");
     }
 
     #[test]
-    fn a_setting_reads_as_the_name_of_what_it_is_set_to() {
-        let rows = defaults(&|_| Ok("librewolf.desktop".to_string()));
-        assert_eq!(rows[0].aside, "LibreWolf");
+    fn a_setting_reads_as_the_name_of_what_it_is_set_to() -> Result<(), &'static str> {
+        let Ok(rows) = defaults(&|_| Ok("librewolf.desktop".to_string()));
+        let first = rows.first().ok_or(A_ROW)?;
+
+        assert_eq!(first.aside, "LibreWolf");
+
+        Ok(())
     }
 
     #[test]
-    fn a_setting_pointed_at_a_program_that_is_gone_says_nothing() {
-        let rows = defaults(&|_| Ok("dolphin.desktop".to_string()));
-        assert_eq!(rows[0].aside, "");
+    fn a_setting_pointed_at_a_program_that_is_gone_says_nothing() -> Result<(), &'static str> {
+        let Ok(rows) = defaults(&|_| Ok("dolphin.desktop".to_string()));
+        let first = rows.first().ok_or(A_ROW)?;
+
+        assert_eq!(first.aside, "");
+
+        Ok(())
     }
 
     #[test]
-    fn a_list_under_a_setting_is_the_way_back_and_then_what_it_is_about() {
-        let rows = choices("");
+    fn a_list_under_a_setting_is_the_way_back_and_then_what_it_is_about() -> Result<(), &'static str> {
+        let Ok(rows) = links("");
+        let rows = rows.ok_or(LINKS_FIRST)?;
         let Ok(configuration) = configuration();
-        assert!(rows[0].says.ends_with(&configuration), "{:?} is not the way back", rows[0].says);
-        assert_eq!(rows[1].says, "Links");
-        assert_eq!(heading(&rows[1]), Heading::Yes, "the kind is read rather than chosen");
+        let back = rows.first().ok_or(A_ROW)?;
+        let named = rows.get(1).ok_or(A_ROW)?;
+
+        assert!(back.says.ends_with(&configuration), "{:?} is not the way back", back.says);
+        assert_eq!(named.says, "Links");
+        assert_eq!(named.heading(), Ok(Heading::Yes), "the kind is read rather than chosen");
+
+        Ok(())
     }
 
     #[test]
-    fn a_kind_nothing_opens_says_so_on_its_own_list() {
-        let Ok(rows) =
-            choice_rows(&KINDS[3], &applications(), &|_| Ok(String::new()), |_| (), nothing);
-        assert_eq!(says(&rows)[1..], ["Music", "Nothing here opens these"]);
+    fn a_kind_nothing_opens_says_so_on_its_own_list() -> Result<(), &'static str> {
+        let music = KINDS.get(3).ok_or("the kinds hold music fourth")?;
+        let Ok(rows) = choices(music, "");
+        let Ok(said) = says(&rows);
+
+        assert_eq!(said.get(1..), Some(["Music", "Nothing here opens these"].as_slice()));
+
+        Ok(())
     }
 }

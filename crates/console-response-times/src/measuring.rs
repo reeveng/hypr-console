@@ -51,7 +51,7 @@ pub fn read(said: Option<&str>) -> Result<Measuring, Never> {
     }
 }
 
-pub fn chosen() -> Result<Measuring, Never> {
+pub fn current() -> Result<Measuring, Never> {
     let told = console_defaults::setting(SETTING)?;
 
     read(told.as_deref())

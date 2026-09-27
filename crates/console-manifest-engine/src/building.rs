@@ -70,49 +70,45 @@ pub fn far(steps: f64) -> Result<f64, Never> {
 mod tests {
     use super::*;
 
-    fn names(line: &str) -> Names {
-        let Ok(names) = names_a_crate(line);
-
-        names
-    }
-
-    fn along(steps: f64) -> f64 {
-        let Ok(far) = far(steps);
-
-        far
-    }
 
     #[test]
     fn the_line_that_says_a_crate_has_been_started_is_the_one_that_is_counted() {
         assert_eq!(
-            names("   Compiling console-panel v0.1.0 (/etc/console/crates/console-panel)"),
-            Names::ACrate("console-panel".to_string())
+            names_a_crate("   Compiling console-panel v0.1.0 (/etc/console/crates/console-panel)"),
+            Ok(Names::ACrate("console-panel".to_string()))
         );
-        assert_eq!(names("Compiling serde v1.0.0"), Names::ACrate("serde".to_string()));
+        assert_eq!(names_a_crate("Compiling serde v1.0.0"),
+            Ok(Names::ACrate("serde".to_string())));
         assert_eq!(
-            names("    Finished `release` profile [optimized] target(s) in 4m 12s"),
-            Names::SomethingElse
+            names_a_crate("    Finished `release` profile [optimized] target(s) in 4m 12s"),
+            Ok(Names::SomethingElse)
         );
-        assert_eq!(names("   Compiling"), Names::SomethingElse, "the word alone names no crate");
-        assert_eq!(names("warning: unused import: `std::fmt`"), Names::SomethingElse);
-        assert_eq!(names(""), Names::SomethingElse);
+        assert_eq!(names_a_crate("   Compiling"),
+            Ok(Names::SomethingElse), "the word alone names no crate");
+        assert_eq!(names_a_crate("warning: unused import: `std::fmt`"),
+            Ok(Names::SomethingElse));
+        assert_eq!(names_a_crate(""),
+            Ok(Names::SomethingElse));
     }
 
     #[test]
     fn a_crate_started_in_color_is_the_same_crate() {
         assert_eq!(
-            names("\u{1b}[0m\u{1b}[1m\u{1b}[32m   Compiling\u{1b}[0m console-panel v0.1.0"),
-            Names::ACrate("console-panel".to_string()),
+            names_a_crate("\u{1b}[0m\u{1b}[1m\u{1b}[32m   Compiling\u{1b}[0m console-panel v0.1.0"),
+            Ok(Names::ACrate("console-panel".to_string())),
             "cargo colors its own output and the line stopped being read"
         );
     }
 
     #[test]
     fn every_crate_moves_it_forward() {
-        let mut before = along(0.0);
+        let Ok(mut before) = far(0.0);
+
         assert_eq!(before, 0.0);
+
         for seen in 1..200 {
-            let now = along(f64::from(seen));
+            let Ok(now) = far(f64::from(seen));
+
             assert!(now > before, "crate {seen} did not move it: {before} to {now}");
             before = now;
         }
@@ -120,23 +116,32 @@ mod tests {
 
     #[test]
     fn silence_moves_it_too() {
-        let quiet = along(4.0 + A_TICK * 30.0);
-        assert!(quiet > along(4.0), "a minute of silence left the strip where it was");
+        let Ok(quiet) = far(4.0 + A_TICK * 30.0);
+        let Ok(four_crates) = far(4.0);
+        let Ok(thirty_more) = far(4.0 + 30.0);
+
+        assert!(quiet > four_crates, "a minute of silence left the strip where it was");
         assert!(
-            quiet < along(4.0 + 30.0),
+            quiet < thirty_more,
             "a minute of silence was counted as a minute of crates"
         );
     }
 
     #[test]
     fn it_never_reaches_the_end_of_the_stage_on_its_own() {
-        assert!(along(1_000_000.0) < 1.0);
-        assert!(along(60.0) < 0.8, "it spends its last quarter too early");
+        let Ok(a_million) = far(1_000_000.0);
+        let Ok(sixty) = far(60.0);
+
+        assert!(a_million < 1.0);
+        assert!(sixty < 0.8, "it spends its last quarter too early");
     }
 
     #[test]
     fn the_first_crates_move_it_visibly() {
-        assert!(along(5.0) > 0.15, "five crates in and the strip has hardly moved");
-        assert!((along(20.0) - 0.5).abs() < 0.01);
+        let Ok(five) = far(5.0);
+        let Ok(twenty) = far(20.0);
+
+        assert!(five > 0.15, "five crates in and the strip has hardly moved");
+        assert!((twenty - 0.5).abs() < 0.01);
     }
 }

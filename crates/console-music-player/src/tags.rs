@@ -56,7 +56,7 @@ pub enum Tagged {
 }
 
 impl Tags {
-    pub fn anything(&self) -> Result<Tagged, Never> {
+    pub fn tagged(&self) -> Result<Tagged, Never> {
         Ok(match self.title.is_empty() && self.artist.is_empty() && self.rest.is_empty() {
             true => Tagged::None,
             false => Tagged::Some,
@@ -64,7 +64,7 @@ impl Tags {
     }
 }
 
-pub fn asking(path: &Path) -> Result<Vec<String>, Never> {
+pub fn ffprobe_arguments(path: &Path) -> Result<Vec<String>, Never> {
     let word = |said: &str| said.to_string();
 
     Ok(vec![
@@ -92,7 +92,7 @@ pub fn playing(path: &Path) -> Result<Playing, Never> {
 }
 
 fn ffprobe(path: &Path) -> Result<String, Never> {
-    let Ok(arguments) = asking(path);
+    let Ok(arguments) = ffprobe_arguments(path);
     let Ok(mut asking) = Program::Ffprobe.command();
 
     asking.args(&arguments);
@@ -286,8 +286,8 @@ fn cut(said: &str, to: u32) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn an_opus() -> String {
-        serde_json::json!({
+    fn an_opus() -> Result<String, Never> {
+        Ok(serde_json::json!({
             "streams": [
                 {
                     "codec_type": "audio",
@@ -303,11 +303,11 @@ mod tests {
             ],
             "format": { }
         })
-        .to_string()
+        .to_string())
     }
 
-    fn an_mp3() -> String {
-        serde_json::json!({
+    fn an_mp3() -> Result<String, Never> {
+        Ok(serde_json::json!({
             "streams": [
                 { "codec_type": "audio", "tags": { "encoder": "Lavc58.13" } },
                 {
@@ -324,14 +324,15 @@ mod tests {
                 }
             }
         })
-        .to_string()
+        .to_string())
     }
 
     #[test]
     fn a_song_that_keeps_its_tags_in_the_stream_is_read_the_same_as_one_that_does_not() {
-        let Ok(opus) = read(&an_opus());
-
-        let Ok(mp3) = read(&an_mp3());
+        let Ok(opus_said) = an_opus();
+        let Ok(opus) = read(&opus_said);
+        let Ok(mp3_said) = an_mp3();
+        let Ok(mp3) = read(&mp3_said);
 
         assert_eq!(opus.title, "505");
         assert_eq!(opus.artist, "Arctic Monkeys");
@@ -351,14 +352,15 @@ mod tests {
         let Ok(tags) = read(&tagless.to_string());
 
         assert_eq!(tags, Tags::default());
-        assert_eq!(tags.anything(), Ok(Tagged::None));
+        assert_eq!(tags.tagged(), Ok(Tagged::None));
     }
 
     #[test]
     fn the_rest_is_what_is_about_the_music() {
-        let Ok(opus) = read(&an_opus());
-
-        let Ok(mp3) = read(&an_mp3());
+        let Ok(opus_said) = an_opus();
+        let Ok(opus) = read(&opus_said);
+        let Ok(mp3_said) = an_mp3();
+        let Ok(mp3) = read(&mp3_said);
 
         assert_eq!(opus.rest, format!("Favourite Worst Nightmare{BETWEEN}20141225"));
         assert_eq!(mp3.rest, "20110705");
@@ -399,9 +401,9 @@ mod tests {
 
     #[test]
     fn a_name_ffprobe_would_read_as_a_flag_is_handed_to_it_as_a_file() {
-        let Ok(arguments) = asking(Path::new("/home/x/-Rain.opus"));
+        let Ok(arguments) = ffprobe_arguments(Path::new("/home/x/-Rain.opus"));
 
-        assert_eq!(arguments.last().unwrap(), "/home/x/-Rain.opus");
-        assert_eq!(arguments[arguments.len() - 2], "-i");
+        assert_eq!(arguments.last().map(String::as_str), Some("/home/x/-Rain.opus"));
+        assert_eq!(arguments.iter().rev().nth(1).map(String::as_str), Some("-i"));
     }
 }

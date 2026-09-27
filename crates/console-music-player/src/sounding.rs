@@ -85,13 +85,14 @@
 
 use console_awake::{InhibitResult, InhibitReason, Staying};
 use console_core_external_programs::Program;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::Float;
 use console_program_lifetime::{BoundToParent, alongside};
 use console_response_times::{Wait, Waiting};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ChildStdin, ChildStdout, Stdio};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 
@@ -219,7 +220,7 @@ impl Sounding {
     }
 
     fn taking(&self, song: &Path, from: f64, tempo: Tempo, wanted: Wanted) -> Result<(), Never> {
-        let Ok(mut state) = held(&self.telling.state);
+        let Ok(mut state) = lock(&self.telling.state);
 
         state.job = Task {
             song: Some(song.to_path_buf()),
@@ -237,7 +238,7 @@ impl Sounding {
     }
 
     pub fn seek(&self, to: f64) -> Result<(), Never> {
-        let Ok(state) = held(&self.telling.state);
+        let Ok(state) = lock(&self.telling.state);
         let song = state.job.song.clone();
         let tempo = state.job.tempo;
 
@@ -250,7 +251,7 @@ impl Sounding {
     }
 
     pub fn wanting(&self, wanted: Wanted) -> Result<(), Never> {
-        let Ok(mut state) = held(&self.telling.state);
+        let Ok(mut state) = lock(&self.telling.state);
 
         state.wanted = wanted;
 
@@ -266,13 +267,13 @@ impl Sounding {
     }
 
     fn minding(&self, wanted: Wanted) -> Result<(), Never> {
-        let Ok(mut awake) = held(&self.awake);
+        let Ok(mut awake) = lock(&self.awake);
 
         match wanted {
             Wanted::Playing => match *awake {
                 Some(_) => {}
                 None => {
-                    let Ok(asked) = console_awake::taking(InhibitReason::FromSleeping);
+                    let Ok(asked) = console_awake::inhibit(InhibitReason::FromSleeping);
 
                     match asked {
                         InhibitResult::Acquired(staying) => *awake = Some(staying),
@@ -286,22 +287,22 @@ impl Sounding {
         Ok(())
     }
 
-    pub fn wanted(&self) -> Result<Wanted, Never> {
-        let Ok(state) = held(&self.telling.state);
+    pub fn desired(&self) -> Result<Wanted, Never> {
+        let Ok(state) = lock(&self.telling.state);
 
         Ok(state.wanted)
     }
 
     pub fn song(&self) -> Result<Option<PathBuf>, Never> {
-        let Ok(state) = held(&self.telling.state);
+        let Ok(state) = lock(&self.telling.state);
 
         Ok(state.job.song.clone())
     }
 
     pub fn position(&self) -> Result<f64, Never> {
-        let Ok(state) = held(&self.telling.state);
+        let Ok(state) = lock(&self.telling.state);
         let Ok(ahead) = ahead(state.wanted);
-        let Ok(got) = heard(&state, ahead);
+        let Ok(got) = played_position(&state, ahead);
 
         Ok(got)
     }
@@ -314,7 +315,7 @@ fn ahead(wanted: Wanted) -> Result<f64, Never> {
     })
 }
 
-fn heard(state: &State, ahead: f64) -> Result<f64, Never> {
+fn played_position(state: &State, ahead: f64) -> Result<f64, Never> {
     let Ok(written) = state.written.float();
     let Ok(a_second) = A_SECOND.float();
     let carried = (written / a_second - ahead) * state.job.tempo.0;
@@ -322,7 +323,7 @@ fn heard(state: &State, ahead: f64) -> Result<f64, Never> {
     Ok((state.job.from + carried).max(state.job.from).max(0.0))
 }
 
-fn held<T>(what: &Mutex<T>) -> Result<MutexGuard<'_, T>, Never> {
+fn lock<T>(what: &Mutex<T>) -> Result<MutexGuard<'_, T>, Never> {
     Ok(match what.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
@@ -330,8 +331,8 @@ fn held<T>(what: &Mutex<T>) -> Result<MutexGuard<'_, T>, Never> {
 }
 
 fn pumping(telling: &Arc<Playback>, progress: &dyn Fn(Progress) -> Result<(), Never>) -> Result<(), Never> {
-    loop {
-        let Ok(job) = waited(telling);
+    let pumped = console_core_iteration::iterate((), |()| {
+        let Ok(job) = wait_for_task(telling);
 
         match job.song.clone() {
             None => {},
@@ -340,36 +341,40 @@ fn pumping(telling: &Arc<Playback>, progress: &dyn Fn(Progress) -> Result<(), Ne
 
                 match reached {
                     Reached::End => {
-                        let Ok(()) = done(telling, job.turn);
+                        let Ok(()) = mark_ended(telling, job.turn);
 
                         let Ok(()) = progress(Progress::Ended);
                     },
                     Reached::PlayerState => {
-                        let Ok(()) = holding(telling);
+                        let Ok(()) = rebase_position(telling);
                     },
                     Reached::Requested => {},
                 }
             },
         }
+
+        Ok(Step::<(), Never>::Again(()))
+    });
+
+    match pumped {
+        Ok(never) => match never {},
+        Err(_endless) => Ok(()),
     }
 }
 
-fn waited(telling: &Arc<Playback>) -> Result<Task, Never> {
-    let Ok(mut state) = held(&telling.state);
+fn wait_for_task(telling: &Arc<Playback>) -> Result<Task, Never> {
+    let Ok(state) = lock(&telling.state);
 
-    loop {
-        let Ok(ready) = ready(&state);
+    let state = match telling.woken.wait_while(state, |state| {
+        let Ok(ready) = ready(state);
 
-        match ready {
-            Ready::Yes => return Ok(state.job.clone()),
-            Ready::No => {
-                state = match telling.woken.wait(state) {
-                    Ok(state) => state,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-            },
-        }
-    }
+        ready == Ready::No
+    }) {
+        Ok(state) => state,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    Ok(state.job.clone())
 }
 
 fn ready(state: &State) -> Result<Ready, Never> {
@@ -385,9 +390,9 @@ fn ready(state: &State) -> Result<Ready, Never> {
     })
 }
 
-fn holding(telling: &Arc<Playback>) -> Result<(), Never> {
-    let Ok(mut state) = held(&telling.state);
-    let Ok(got) = heard(&state, AHEAD);
+fn rebase_position(telling: &Arc<Playback>) -> Result<(), Never> {
+    let Ok(mut state) = lock(&telling.state);
+    let Ok(got) = played_position(&state, AHEAD);
 
     state.job.from = got;
     state.written = 0;
@@ -395,8 +400,8 @@ fn holding(telling: &Arc<Playback>) -> Result<(), Never> {
     Ok(())
 }
 
-fn done(telling: &Arc<Playback>, turn: u64) -> Result<(), Never> {
-    let Ok(mut state) = held(&telling.state);
+fn mark_ended(telling: &Arc<Playback>, turn: u64) -> Result<(), Never> {
+    let Ok(mut state) = lock(&telling.state);
 
     state.ended = Some(turn);
 
@@ -425,69 +430,89 @@ fn one(
         None => return Ok(Reached::Requested),
     };
 
-    let Ok(out) = decoding.reading();
-    let Ok(into) = playing.writing();
+    let Ok(out) = decoding.take_stdout();
+    let Ok(into) = playing.take_stdin();
 
-    let mut out = match out {
+    let out = match out {
         Some(out) => out,
         None => return Ok(Reached::Requested),
     };
 
-    let mut into = match into {
+    let into = match into {
         Some(into) => into,
         None => return Ok(Reached::Requested),
     };
 
     let Ok(()) = waiting.mark("sink");
     let Ok(chunk) = console_core_number_conversion::index(CHUNK);
-    let mut buffer = vec![0; chunk];
-    let mut sounded = Some(waiting);
+    let pouring = Pouring { out, into, buffer: vec![0; chunk], sounded: Some(waiting) };
 
-    loop {
-        let Ok(carry) = carrying_on(telling, job.turn);
+    let poured = console_core_iteration::iterate(pouring, |pouring| poured(telling, job.turn, progress, pouring));
 
-        match carry {
-            Payload::Stop => return Ok(Reached::Requested),
-            Payload::Hold => return Ok(Reached::PlayerState),
-            Payload::On => {},
-        }
+    Ok(match poured {
+        Ok(reached) => reached,
+        Err(_endless) => Reached::Requested,
+    })
+}
 
-        let carried = match out.read(&mut buffer) {
-            Ok(0) => return Ok(Reached::End),
-            Ok(read) => match buffer.get(..read) {
-                Some(carried) => carried,
-                None => return Ok(Reached::Requested),
-            },
-            Err(_the_decoder_has_gone) => return Ok(Reached::Requested),
-        };
+struct Pouring {
+    out: ChildStdout,
+    into: ChildStdin,
+    buffer: Vec<u8>,
+    sounded: Option<Waiting>,
+}
 
-        match into.write_all(carried) {
-            Ok(()) => {},
-            Err(_the_sink_has_gone) => return Ok(Reached::Requested),
-        }
+fn poured(
+    telling: &Arc<Playback>,
+    turn: u64,
+    progress: &dyn Fn(Progress) -> Result<(), Never>,
+    mut pouring: Pouring,
+) -> Result<Step<Pouring, Reached>, Never> {
+    let Ok(carry) = carrying_on(telling, turn);
 
-        let Ok(read) = console_core_number_conversion::fitted::<_, u64>(carried.len());
-        let Ok(crossed) = wrote(telling, read);
-
-        match crossed {
-            Crossed::ASecond => {
-                let Ok(()) = progress(Progress::ASecondPlayed);
-            },
-            Crossed::None => {},
-        }
-
-        match sounded.take() {
-            Some(mut waiting) => {
-                let Ok(()) = waiting.mark("first");
-                let Ok(()) = waiting.done_if_felt();
-            }
-            None => {},
-        }
+    match carry {
+        Payload::Stop => return Ok(Step::Halt(Reached::Requested)),
+        Payload::Hold => return Ok(Step::Halt(Reached::PlayerState)),
+        Payload::On => {},
     }
+
+    let carried = match pouring.out.read(&mut pouring.buffer) {
+        Ok(0) => return Ok(Step::Halt(Reached::End)),
+        Ok(read) => match pouring.buffer.get(..read) {
+            Some(carried) => carried,
+            None => return Ok(Step::Halt(Reached::Requested)),
+        },
+        Err(_the_decoder_has_gone) => return Ok(Step::Halt(Reached::Requested)),
+    };
+
+    match pouring.into.write_all(carried) {
+        Ok(()) => {},
+        Err(_the_sink_has_gone) => return Ok(Step::Halt(Reached::Requested)),
+    }
+
+    let Ok(read) = console_core_number_conversion::fitted::<_, u64>(carried.len());
+    let Ok(crossed) = wrote(telling, read);
+
+    match crossed {
+        Crossed::ASecond => {
+            let Ok(()) = progress(Progress::ASecondPlayed);
+        },
+        Crossed::None => {},
+    }
+
+    match pouring.sounded.take() {
+        Some(mut waiting) => {
+            let Ok(()) = waiting.mark("first");
+            let Ok(()) = waiting.done_if_felt();
+        }
+        None => {},
+    }
+
+    Ok(Step::Again(pouring))
 }
 
 fn wrote(telling: &Arc<Playback>, read: u64) -> Result<Crossed, Never> {
-    let Ok(mut state) = held(&telling.state);
+    let Ok(mut state) = lock(&telling.state);
     let before = state.written.checked_div(A_SECOND);
 
     state.written = state.written.saturating_add(read);
@@ -499,7 +524,7 @@ fn wrote(telling: &Arc<Playback>, read: u64) -> Result<Crossed, Never> {
 }
 
 fn carrying_on(telling: &Arc<Playback>, turn: u64) -> Result<Payload, Never> {
-    let Ok(state) = held(&telling.state);
+    let Ok(state) = lock(&telling.state);
 
     match state.job.turn == turn {
         true => {},
@@ -559,8 +584,8 @@ fn sink() -> Result<Option<BoundToParent>, Never> {
 mod tests {
     use super::*;
 
-    fn at(from: f64, wanted: Wanted, written: u64) -> Arc<Playback> {
-        Arc::new(Playback {
+    fn at(from: f64, wanted: Wanted, written: u64) -> Result<Arc<Playback>, Never> {
+        Ok(Arc::new(Playback {
             state: Mutex::new(State {
                 job: Task { song: Some(PathBuf::from("a-song.flac")), from, tempo: Tempo::default(), turn: 1 },
                 wanted,
@@ -568,12 +593,12 @@ mod tests {
                 ended: None,
             }),
             woken: Condvar::new(),
-        })
+        }))
     }
 
     #[test]
     fn a_write_that_carries_the_song_past_a_whole_second_says_so_and_one_within_it_does_not() {
-        let telling = at(0.0, Wanted::Playing, A_SECOND - 10);
+        let Ok(telling) = at(0.0, Wanted::Playing, A_SECOND.saturating_sub(10));
 
         assert_eq!(wrote(&telling, 5), Ok(Crossed::None));
         assert_eq!(wrote(&telling, 10), Ok(Crossed::ASecond));
@@ -582,7 +607,7 @@ mod tests {
 
     #[test]
     fn a_pause_stops_carrying_rather_than_standing_there_holding_the_pipe() {
-        let telling = at(0.0, Wanted::Paused, 0);
+        let Ok(telling) = at(0.0, Wanted::Paused, 0);
         let Ok(carry) = carrying_on(&telling, 1);
 
         assert_eq!(carry, Payload::Hold);
@@ -590,9 +615,9 @@ mod tests {
 
     #[test]
     fn what_is_kept_at_a_pause_is_what_was_heard_and_not_what_was_written() {
-        let telling = at(30.0, Wanted::Paused, A_SECOND * 10);
-        let Ok(()) = holding(&telling);
-        let Ok(state) = held(&telling.state);
+        let Ok(telling) = at(30.0, Wanted::Paused, A_SECOND.saturating_mul(10));
+        let Ok(()) = rebase_position(&telling);
+        let Ok(state) = lock(&telling.state);
 
         assert!((state.job.from - (40.0 - AHEAD)).abs() < 0.001, "{}", state.job.from);
         assert_eq!(state.written, 0);
@@ -600,7 +625,8 @@ mod tests {
 
     #[test]
     fn a_paused_position_is_the_offset_itself_rather_than_a_third_of_a_second_before_it() {
-        let sounding = Sounding { telling: at(30.0, Wanted::Paused, 0), awake: Mutex::new(None) };
+        let Ok(telling) = at(30.0, Wanted::Paused, 0);
+        let sounding = Sounding { telling, awake: Mutex::new(None) };
         let Ok(where_it_is) = sounding.position();
 
         assert!((where_it_is - 30.0).abs() < 0.001, "{where_it_is}");
@@ -608,23 +634,23 @@ mod tests {
 
     #[test]
     fn pausing_twice_over_does_not_walk_back_through_the_song() {
-        let telling = at(30.0, Wanted::Paused, A_SECOND * 10);
-        let Ok(()) = holding(&telling);
-        let Ok(state) = held(&telling.state);
+        let Ok(telling) = at(30.0, Wanted::Paused, A_SECOND.saturating_mul(10));
+        let Ok(()) = rebase_position(&telling);
+        let Ok(state) = lock(&telling.state);
         let once = state.job.from;
 
         drop(state);
 
-        let Ok(()) = holding(&telling);
-        let Ok(state) = held(&telling.state);
+        let Ok(()) = rebase_position(&telling);
+        let Ok(state) = lock(&telling.state);
 
         assert!((state.job.from - once).abs() < 0.001, "{once} then {}", state.job.from);
     }
 
     #[test]
     fn a_playing_position_still_stands_where_the_speaker_is() {
-        let sounding =
-            Sounding { telling: at(30.0, Wanted::Playing, A_SECOND * 10), awake: Mutex::new(None) };
+        let Ok(telling) = at(30.0, Wanted::Playing, A_SECOND.saturating_mul(10));
+        let sounding = Sounding { telling, awake: Mutex::new(None) };
         let Ok(where_it_is) = sounding.position();
 
         assert!((where_it_is - (40.0 - AHEAD)).abs() < 0.001, "{where_it_is}");
@@ -632,8 +658,8 @@ mod tests {
 
     #[test]
     fn at_twice_the_speed_a_second_heard_is_two_seconds_of_the_film() {
-        let telling = at(30.0, Wanted::Playing, A_SECOND * 10);
-        let Ok(mut state) = held(&telling.state);
+        let Ok(telling) = at(30.0, Wanted::Playing, A_SECOND.saturating_mul(10));
+        let Ok(mut state) = lock(&telling.state);
 
         state.job.tempo = Tempo(2.0);
         drop(state);

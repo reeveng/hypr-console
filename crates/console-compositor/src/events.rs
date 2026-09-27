@@ -66,7 +66,7 @@ const CARRYING_NO_ADDRESS: [(&str, CompositorEvent); 9] = [
     ("configreloaded>>", CompositorEvent::ConfigurationReloaded),
 ];
 
-pub fn addressed(said: &str) -> Result<String, Never> {
+pub fn address_of(said: &str) -> Result<String, Never> {
     let first = match said.split(',').next() {
         Some(first) => first.trim(),
         None => said.trim(),
@@ -89,17 +89,17 @@ pub fn read(line: &str) -> Result<CompositorEvent, Never> {
     let line = line.trim();
 
     match line.strip_prefix(OPENED) {
-        Some(said) => return addressed(said).map(CompositorEvent::WindowOpened),
+        Some(said) => return address_of(said).map(CompositorEvent::WindowOpened),
         None => {},
     }
 
     match line.strip_prefix(CLOSED) {
-        Some(said) => return addressed(said).map(CompositorEvent::WindowClosed),
+        Some(said) => return address_of(said).map(CompositorEvent::WindowClosed),
         None => {},
     }
 
     match line.strip_prefix(RENAMED_WITH_TITLE) {
-        Some(said) => return addressed(said).map(CompositorEvent::WindowRenamed),
+        Some(said) => return address_of(said).map(CompositorEvent::WindowRenamed),
         None => {},
     }
 
@@ -125,8 +125,8 @@ mod tests {
 
     #[test]
     fn the_event_socket_leaves_off_the_zero_x_that_hyprctl_answers_with() {
-        let Ok(bare) = addressed("5634f2a0");
-        let Ok(already) = addressed("0x5634f2a0");
+        let Ok(bare) = address_of("5634f2a0");
+        let Ok(already) = address_of("0x5634f2a0");
 
         assert_eq!(bare, "0x5634f2a0", "a saved window is matched by an address hyprctl spelled");
         assert_eq!(already, "0x5634f2a0");

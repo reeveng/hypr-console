@@ -61,7 +61,7 @@ use console_core_never::Never;
 use console_notifications::saying::{Notification, Content};
 use console_notifications::serving;
 use console_notifications::showing;
-use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, seen};
+use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, expect_ready};
 use console_test_stages::desktop::Desktop;
 use console_test_stages::device::{Device, PATIENCE, Ready, Outcome};
 use console_test_stages::palette::palette;
@@ -91,7 +91,7 @@ pub const TOUCHED: Check = Check {
     about: "Touching a notification card takes it off the screen.",
     feature: "notifications",
     since: "2026-09-10",
-    bodies: &[Body::Desktop(touched)],
+    bodies: &[Body::Desktop(dismiss_by_touch)],
 };
 
 const SUMMARY: &str = "A card on the screen";
@@ -153,7 +153,7 @@ fn card(stage: &mut Desktop) -> CheckResult {
         (true, true) | (false, true) | (false, false) => Ready::NotYet,
     };
 
-    seen(drawn, || {
+    expect_ready(drawn, || {
         format!(
             "a notification was raised, so {} across and {} down is inside the card and should \
              be its own #{panel}, and {OUT} across on the same row is beside it and should not \
@@ -165,7 +165,7 @@ fn card(stage: &mut Desktop) -> CheckResult {
 
 const PRESS: i32 = 12;
 
-fn touched(stage: &mut Desktop) -> CheckResult {
+fn dismiss_by_touch(stage: &mut Desktop) -> CheckResult {
     stage.notifying()?;
 
     let Ok(raising) = raising();
@@ -188,7 +188,7 @@ fn touched(stage: &mut Desktop) -> CheckResult {
         false => Ready::Yes,
     };
 
-    seen(gone, || {
+    expect_ready(gone, || {
         format!(
             "the card was touched {across} across and {down} down inside its own surface, so \
              nothing should be standing at {} across and {} down afterwards. What is there \
@@ -207,7 +207,7 @@ fn came_up(stage: &mut Device) -> Result<Ready, Never> {
     })
 }
 
-fn went(stage: &mut Device) -> Result<Ready, Never> {
+fn closed_state(stage: &mut Device) -> Result<Ready, Never> {
     let Ok(up) = came_up(stage);
 
     up.flipped()
@@ -238,7 +238,7 @@ fn on_the_device(stage: &mut Device) -> CheckResult {
     let Ok(notification) = Notification::new(Content { summary: SUMMARY, body: RAISED_HERE });
     let Ok(notification) = notification.urgent();
     let Ok(notification) = notification.staying();
-    let Ok(_id) = watching::said(stage, &notification);
+    let Ok(_id) = watching::notify(stage, &notification);
     let Ok(up) = stage.until(came_up, PATIENCE);
 
     match up {
@@ -278,7 +278,7 @@ fn on_the_device(stage: &mut Device) -> CheckResult {
 
     stage.click_in(showing::WHO, (across, down))?;
 
-    let Ok(away) = stage.until(went, PATIENCE);
+    let Ok(away) = stage.until(closed_state, PATIENCE);
     let Ok(()) = stage.again();
     let after = stage.color(at)?;
 
@@ -287,7 +287,7 @@ fn on_the_device(stage: &mut Device) -> CheckResult {
         (false, _, _) | (_, Outcome::RanOut, _) | (_, _, true) => Ready::NotYet,
     };
 
-    seen(drawn, || {
+    expect_ready(drawn, || {
         format!(
             "a notification was raised on the device, so {} across and {} down is inside the \
              card the compositor says is there and should be its own #{panel}, and touching it \

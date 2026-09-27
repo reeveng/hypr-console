@@ -64,6 +64,7 @@ use console_core_color::Oklch;
 use console_core_color::palette::Wearing;
 use console_core_fonts::{EM, TextStyle};
 use console_core_geometry::{Point, Size};
+use console_core_iteration::Step as Stepped;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_core_shapes::{
@@ -194,7 +195,7 @@ enum Filled {
 fn sized_as(said: &str, weight: Weight, style: TextStyle) -> Result<Size<u32>, Never> {
     let Ok(font) = font(style);
 
-    painting::measured(Run { said, weight, width: ANYTHING_WIDE }, &font)
+    painting::measure_text(Run { said, weight, width: ANYTHING_WIDE }, &font)
 }
 
 fn weight_of(row: &Row) -> Result<Weight, Never> {
@@ -210,10 +211,10 @@ fn measure_tabs(pages: &[Page], wide: u32) -> Result<Vec<MeasuredTab>, Never> {
 
     for page in pages {
         let run = Run { said: &page.title, weight: Weight::Plain, width: wide };
-        let title = painting::measured(run, &font)?;
+        let title = painting::measure_text(run, &font)?;
 
         let run = Run { said: &page.title, weight: Weight::Bold, width: wide };
-        let chosen = painting::measured(run, &font)?;
+        let chosen = painting::measure_text(run, &font)?;
 
         measured.push(MeasuredTab { title, chosen });
     }
@@ -229,10 +230,10 @@ fn measure_rows(rows: &[Row], wide: u32) -> Result<Vec<MeasuredRow>, Never> {
     for row in rows {
         let weight = weight_of(row)?;
         let says_run = Run { said: &row.says, weight, width: wide };
-        let says = painting::measured(says_run, &row_font)?;
+        let says = painting::measure_text(says_run, &row_font)?;
 
         let aside_run = Run { said: &row.aside, weight: Weight::Plain, width: wide };
-        let aside = painting::measured(aside_run, &aside_font)?;
+        let aside = painting::measure_text(aside_run, &aside_font)?;
 
         let Ok((less, more)) = crate::page::ends_of(row);
         let less = sized_as(less, Weight::Bold, TextStyle::Body)?;
@@ -255,7 +256,7 @@ fn measure_rows(rows: &[Row], wide: u32) -> Result<Vec<MeasuredRow>, Never> {
                     let Ok(glyph) = icon.glyph();
                     let run = Run { said: glyph, weight: Weight::Plain, width: wide };
 
-                    painting::measured(run, &glyph_font)?
+                    painting::measure_text(run, &glyph_font)?
                 },
                 crate::page::Face::Swatch(_) => NO_ROOM,
                 crate::page::Face::Written(says) => sized_as(says, Weight::Plain, TextStyle::Title)?,
@@ -370,7 +371,7 @@ pub(crate) enum Owner {
 }
 
 impl Lands {
-    fn named(self) -> Result<(&'static str, Owner), Never> {
+    fn label_and_owner(self) -> Result<(&'static str, Owner), Never> {
         Ok(match self {
             Lands::Row(at) => ("press", Owner::Row(at)),
             Lands::Answer(_) => ("answer", Owner::Card),
@@ -784,7 +785,7 @@ fn asked_for(rows: &[Row]) -> Result<(), Never> {
         }
     }
 
-    let Ok(missing) = crate::pictures::missing(&wanted);
+    let Ok(missing) = crate::pictures::missing_pictures(&wanted);
 
     crate::pictures::make(&missing)
 }
@@ -814,7 +815,7 @@ fn sharper_room(room: Size<u32>, zoom: crate::zoom::Zoom) -> Result<Size<u32>, N
 }
 
 fn zoomed_in(moving: &Moving, pixels: Pixels, zoom: crate::zoom::Zoom) -> Result<console_core_shapes::Cropped, Never> {
-    let Ok(placed) = zoom.placed(Size { width: pixels.width, height: pixels.height }, moving.room);
+    let Ok(placed) = zoom.place(Size { width: pixels.width, height: pixels.height }, moving.room);
     let Ok(across) = toward_zero_i32(placed.at.x);
     let Ok(down) = toward_zero_i32(placed.at.y);
     let Ok(wide) = console_core_number_conversion::toward_zero_u32(placed.size.width);
@@ -829,8 +830,8 @@ fn zoomed_in(moving: &Moving, pixels: Pixels, zoom: crate::zoom::Zoom) -> Result
     })
 }
 
-fn placed(moving: &Moving, pixels: Pixels) -> Result<ShapePicture, Never> {
-    let Ok(size) = console_pictures::fitted(Size { width: pixels.width, height: pixels.height }, moving.room);
+fn place_picture(moving: &Moving, pixels: Pixels) -> Result<ShapePicture, Never> {
+    let Ok(size) = console_pictures::fit_within(Size { width: pixels.width, height: pixels.height }, moving.room);
     let Ok(spare_wide) = fitted::<u32, i32>(moving.room.width.saturating_sub(size.width));
     let Ok(spare_tall) = fitted::<u32, i32>(moving.room.height.saturating_sub(size.height));
 
@@ -853,7 +854,7 @@ fn stirred(state: &State) -> Result<WakeOutcome, Never> {
     })
 }
 
-fn waited(
+fn wait_for_frame(
     surface: &mut Surface,
     panelled: &Panelled,
     logical: Size<u32>,
@@ -863,7 +864,7 @@ fn waited(
     let Ok(waking) = crate::frames::waking();
     let also: Vec<std::os::fd::BorrowedFd<'_>> = waking.into_iter().collect();
     let _ = surface.wait(&also, None);
-    let Ok(woken) = crate::frames::woken();
+    let Ok(woken) = crate::frames::wake_state();
 
     match woken.rows {
         crate::frames::FrameReceived::Yes => stale = Stale::Yes,
@@ -900,7 +901,7 @@ fn repainted(surface: &mut Surface, moving: &Moving, logical: Size<u32>) -> Resu
         None => return Ok(Visible::Yes),
     };
 
-    let Ok(picture) = placed(moving, pixels);
+    let Ok(picture) = place_picture(moving, pixels);
     let part = Part { at: picture.at, size: picture.size };
     let points = Size { width: logical.width, height: logical.height };
     let drawing = [Shape::Picture(picture)];
@@ -1086,7 +1087,7 @@ fn row_shapes(
 
             match (now, standing.zoom.zoomed()) {
                 (Some(pixels), Ok(crate::zoom::Zoomed::Whole)) => {
-                    let Ok(picture) = placed(&moving, pixels);
+                    let Ok(picture) = place_picture(&moving, pixels);
 
                     shapes.push(Shape::Picture(picture));
                 },
@@ -1311,10 +1312,10 @@ const BIG: u32 = (EM * 4).unsigned_abs();
 const BIG_GLYPH: u32 = (EM * 2).unsigned_abs();
 
 fn measured_in(said: &str, weight: Weight, face: &Font) -> Result<Size<u32>, Never> {
-    painting::measured(Run { said, weight, width: ANYTHING_WIDE }, face)
+    painting::measure_text(Run { said, weight, width: ANYTHING_WIDE }, face)
 }
 
-fn written(said: &str, at: Point<i32>, weight: Weight, face: Font, ink: Oklch) -> Result<(Shape, Size<u32>), Never> {
+fn text_shape(said: &str, at: Point<i32>, weight: Weight, face: Font, ink: Oklch) -> Result<(Shape, Size<u32>), Never> {
     let Ok(measured) = measured_in(said, weight, &face);
 
     Ok((
@@ -1350,10 +1351,10 @@ fn headline_shapes(
     let bottom = within.at.y.saturating_add(box_tall).saturating_sub(INSIDE_A_ROW);
 
     let Ok(title_face) = font(TextStyle::Title);
-    let Ok((title, title_said)) = written(&headline.title, Point { x: left, y: top }, Weight::Bold, title_face, wearing.text);
+    let Ok((title, title_said)) = text_shape(&headline.title, Point { x: left, y: top }, Weight::Bold, title_face, wearing.text);
     let Ok(title_tall) = fitted::<u32, i32>(title_said.height);
     let Ok(subtitle_face) = font(TextStyle::Footnote);
-    let Ok((subtitle, _)) = written(&headline.subtitle, Point { x: left, y: top.saturating_add(title_tall) }, Weight::Plain, subtitle_face, wearing.soft);
+    let Ok((subtitle, _)) = text_shape(&headline.subtitle, Point { x: left, y: top.saturating_add(title_tall) }, Weight::Plain, subtitle_face, wearing.soft);
 
     shapes.push(title);
     shapes.push(subtitle);
@@ -1363,7 +1364,7 @@ fn headline_shapes(
     let Ok(big_tall) = fitted::<u32, i32>(big_said.height);
     let Ok(big_wide) = fitted::<u32, i32>(big_said.width);
     let big_top = bottom.saturating_sub(big_tall);
-    let Ok((big, _)) = written(&headline.big, Point { x: left, y: big_top }, Weight::Plain, big_face, wearing.text);
+    let Ok((big, _)) = text_shape(&headline.big, Point { x: left, y: big_top }, Weight::Plain, big_face, wearing.text);
 
     shapes.push(big);
 
@@ -1387,9 +1388,9 @@ fn headline_shapes(
     let line = Band { top: block_top, height: line_tall };
     let Ok(glyph_down) = middle(line, glyph_said);
     let Ok(says_down) = middle(line, says_said);
-    let Ok((glyph, _)) = written(glyph, Point { x: beside, y: glyph_down }, Weight::Plain, glyph_face, wearing.pink);
-    let Ok((says, _)) = written(&headline.says, Point { x: words, y: says_down }, Weight::Bold, says_face, wearing.text);
-    let Ok((aside, _)) = written(&headline.aside, Point { x: words, y: block_top.saturating_add(line_tall) }, Weight::Plain, aside_face, wearing.soft);
+    let Ok((glyph, _)) = text_shape(glyph, Point { x: beside, y: glyph_down }, Weight::Plain, glyph_face, wearing.pink);
+    let Ok((says, _)) = text_shape(&headline.says, Point { x: words, y: says_down }, Weight::Bold, says_face, wearing.text);
+    let Ok((aside, _)) = text_shape(&headline.aside, Point { x: words, y: block_top.saturating_add(line_tall) }, Weight::Plain, aside_face, wearing.soft);
 
     shapes.push(glyph);
     shapes.push(says);
@@ -1413,7 +1414,7 @@ fn headline_shapes(
 
             match now {
                 Some(pixels) => {
-                    let Ok(picture) = placed(&moving, pixels);
+                    let Ok(picture) = place_picture(&moving, pixels);
 
                     shapes.push(Shape::Picture(picture));
                 },
@@ -1453,9 +1454,9 @@ fn trailing_headline_shapes(headline: &crate::page::Headline, band: Band, card: 
     let Ok(big_tall) = fitted::<u32, i32>(big_said.height);
     let Ok(big_wide) = fitted::<u32, i32>(big_said.width);
     let big_top = rule_at.saturating_sub(INSIDE_A_ROW).saturating_sub(big_tall);
-    let Ok((big, _)) = written(&headline.big, Point { x: end.saturating_sub(big_wide), y: big_top }, Weight::Plain, big_face, wearing.text);
+    let Ok((big, _)) = text_shape(&headline.big, Point { x: end.saturating_sub(big_wide), y: big_top }, Weight::Plain, big_face, wearing.text);
     let title_top = big_top.saturating_add(big_tall).saturating_sub(title_tall);
-    let Ok((title, _)) = written(&headline.title, Point { x: left.saturating_add(strip::GAP), y: title_top }, Weight::Plain, title_face, wearing.soft);
+    let Ok((title, _)) = text_shape(&headline.title, Point { x: left.saturating_add(strip::GAP), y: title_top }, Weight::Plain, title_face, wearing.soft);
 
     Ok(Panelled { shapes: vec![title, big, Shape::Panel(rule)], touching: Vec::new(), moving: None })
 }
@@ -1670,8 +1671,8 @@ fn cell_shapes(row: &Row, measured_row: &MeasuredRow, band: Band, span: Span, in
                 let start = from.saturating_add(each.saturating_sub(whole).max(0).saturating_div(2));
                 let Ok(glyph_down) = middle(band, glyph_said);
                 let Ok(said_down) = middle(band, said);
-                let Ok((drawn_glyph, _)) = written(glyph, Point { x: start, y: glyph_down }, Weight::Plain, glyph_face, inked.wearing.pink);
-                let Ok((drawn_said, _)) = written(&cell.says, Point { x: start.saturating_add(glyph_wide).saturating_add(gap), y: said_down }, inked.weight, face.clone(), inked.ink);
+                let Ok((drawn_glyph, _)) = text_shape(glyph, Point { x: start, y: glyph_down }, Weight::Plain, glyph_face, inked.wearing.pink);
+                let Ok((drawn_said, _)) = text_shape(&cell.says, Point { x: start.saturating_add(glyph_wide).saturating_add(gap), y: said_down }, inked.weight, face.clone(), inked.ink);
 
                 shapes.push(drawn_glyph);
                 shapes.push(drawn_said);
@@ -2089,7 +2090,7 @@ pub(crate) fn what_it_drew(
     let mut on_rows: BTreeMap<u32, Vec<description::Spot>> = BTreeMap::new();
 
     for touching in &panelled.touching {
-        let Ok((name, whose)) = touching.lands.named();
+        let Ok((name, whose)) = touching.lands.label_and_owner();
         let Ok(across) = fitted::<u32, i32>(touching.panel.size.width);
         let Ok(down) = fitted::<u32, i32>(touching.panel.size.height);
 
@@ -2167,6 +2168,7 @@ pub(crate) fn what_it_drew(
         room,
         spots: card,
         lines,
+        presses: 0,
     })
 }
 
@@ -2203,7 +2205,7 @@ pub(crate) fn shapes(
     }));
 
     let Ok(many) = fitted(state.pages.len());
-    let Ok(run) = strip::showing(strip::Tabs {
+    let Ok(run) = strip::visible_range(strip::Tabs {
         many,
         here: state.here,
         from: state.from_tab,
@@ -2584,7 +2586,7 @@ pub(crate) fn stepped_onto(meaning: Meaning, before: Option<u32>, state: &State)
     })
 }
 
-pub(crate) fn told(state: &mut State, meaning: Meaning, rows: &[Row]) -> Result<Outcome, Never> {
+pub(crate) fn apply_meaning(state: &mut State, meaning: Meaning, rows: &[Row]) -> Result<Outcome, Never> {
     match (state.leaving, meaning) {
         (Leaving::Standing, Meaning::Choose) => return Ok(Outcome::Closing),
         (Leaving::Standing, Meaning::Step(_) | Meaning::Nudge(_) | Meaning::More) => {
@@ -2700,7 +2702,7 @@ pub(crate) fn told(state: &mut State, meaning: Meaning, rows: &[Row]) -> Result<
                 }
                 Nudged::None => Outcome::None,
                 Nudged::Level => {
-                    let Ok(moved) = leveled(rows, at, step);
+                    let Ok(moved) = nudge_level(rows, at, step);
 
                     moved
                 }
@@ -3013,7 +3015,7 @@ fn pressed_here(
         (Meaning::None, Driving::Question) => {
             match key {
                 Keysym::Return | Keysym::KP_Enter => {
-                    let Ok(()) = answered(state);
+                    let Ok(()) = submit_answer(state);
 
                     return Ok(Gone::Staying);
                 }
@@ -3057,7 +3059,7 @@ fn pressed_here(
         (Some(_), _) | (None, Some(_)) => return Ok(Gone::Staying),
     }
 
-    let Ok(told) = told(state, meaning, rows);
+    let Ok(told) = apply_meaning(state, meaning, rows);
 
     carried_out(state, rows, told)
 }
@@ -3090,7 +3092,7 @@ fn stood_on(state: &mut State, which: u32) -> Result<(), Never> {
     Ok(())
 }
 
-fn leveled(rows: &[Row], at: u32, step: i32) -> Result<Outcome, Never> {
+fn nudge_level(rows: &[Row], at: u32, step: i32) -> Result<Outcome, Never> {
     let Ok(row) = nth(rows, at);
     let level = row.and_then(|row| row.level.clone());
 
@@ -3139,7 +3141,7 @@ fn took(state: &mut State, at: u32) -> Result<(), Never> {
     Ok(())
 }
 
-fn answered(state: &mut State) -> Result<(), Never> {
+fn submit_answer(state: &mut State) -> Result<(), Never> {
     let asking = match state.asking.take() {
         Some(asking) => asking,
         None => return Ok(()),
@@ -3365,7 +3367,7 @@ pub fn run(
     let handle = thread::spawn(move || {
         let Ok(()) = crate::opening::handed(handed);
         let gone = while_it_is_up;
-        let drawn = serve(&who, build, start.as_deref(), Framing::Card, shut, Reported { front: None, first_frame: Some(first_frame), tells });
+        let drawn = serve(&who, build, start.as_deref(), Framing::Card, shut, Reported { front: None, first_frame: Some(first_frame), tells, presses: 0, told_presses: 0 });
 
         drop(gone);
 
@@ -3383,15 +3385,15 @@ pub fn show(build: crate::card::Build, _column: i32, start: Option<&str>) -> Res
 
     let Ok(tells) = description::where_to();
 
-    serve(&whose, build, start, Framing::Card, Arc::new(AtomicBool::new(false)), Reported { front: None, first_frame: None, tells })
+    serve(&whose, build, start, Framing::Card, Arc::new(AtomicBool::new(false)), Reported { front: None, first_frame: None, tells, presses: 0, told_presses: 0 })
 }
 
 pub fn app(who: &str, card: crate::card::Card) -> Result<(), Never> {
     let crate::card::Card { build, column: _, start, done } = card;
-    let Ok(()) = crate::whose::named(who);
+    let Ok(()) = crate::whose::set_owner(who);
     let Ok(()) = crate::opening::started(who);
     let Ok(tells) = description::where_to();
-    let Ok(()) = serve(who, build, start.as_deref(), Framing::Screen, Arc::new(AtomicBool::new(false)), Reported { front: None, first_frame: None, tells });
+    let Ok(()) = serve(who, build, start.as_deref(), Framing::Screen, Arc::new(AtomicBool::new(false)), Reported { front: None, first_frame: None, tells, presses: 0, told_presses: 0 });
 
     done()
 }
@@ -3399,7 +3401,7 @@ pub fn app(who: &str, card: crate::card::Card) -> Result<(), Never> {
 pub fn drawn_here(who: &str, card: crate::card::Card) -> Result<(), Never> {
     let crate::card::Card { build, column, start, done } = card;
 
-    let Ok(()) = crate::whose::named(who);
+    let Ok(()) = crate::whose::set_owner(who);
     let Ok(()) = show(build, column, start.as_deref());
 
     done()
@@ -3499,7 +3501,7 @@ fn scroll_room(state: &State, card: &Card) -> Result<i32, Never> {
         .saturating_sub(sought_tall))
 }
 
-fn touched(touching: &[HitRegion], hit: Point<i32>) -> Result<Option<Lands>, Never> {
+fn hit_test(touching: &[HitRegion], hit: Point<i32>) -> Result<Option<Lands>, Never> {
     for touching in touching {
         let covers = touching.panel.covers(hit)?;
 
@@ -3512,7 +3514,7 @@ fn touched(touching: &[HitRegion], hit: Point<i32>) -> Result<Option<Lands>, Nev
     Ok(None)
 }
 
-fn watched(watching: &mut Option<(u32, BoundToParent)>, state: &State) -> Result<(), Never> {
+fn sync_watch(watching: &mut Option<(u32, BoundToParent)>, state: &State) -> Result<(), Never> {
     let already = watching.as_ref().map(|(on, _)| *on);
 
     match already == Some(state.here) {
@@ -3567,13 +3569,13 @@ impl InFront {
     }
 
     fn follow(&mut self, state: &State, page: Option<&Page>) -> Result<(), Never> {
-        let Ok(()) = watched(&mut self.watching, state);
+        let Ok(()) = sync_watch(&mut self.watching, state);
 
         listened(&self.subscriptions, &self.now, page)
     }
 }
 
-fn held(listening: &Mutex<Option<Subscription>>) -> Result<MutexGuard<'_, Option<Subscription>>, Never> {
+fn lock(listening: &Mutex<Option<Subscription>>) -> Result<MutexGuard<'_, Option<Subscription>>, Never> {
     Ok(match listening.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
@@ -3586,7 +3588,7 @@ fn listened(
     page: Option<&Page>,
 ) -> Result<(), Never> {
     let wanted = page.and_then(|page| page.listens.clone());
-    let Ok(mut listening) = held(listening);
+    let Ok(mut listening) = lock(listening);
 
     match wanted.as_ref().map(|one| &one.topic) == listening.as_ref().map(|one| &one.topic) {
         true => return Ok(()),
@@ -3619,7 +3621,7 @@ fn forwarded(received: mpsc::Receiver<Received>, listening: Weak<Mutex<Option<Su
                 Some(now) => now,
                 None => return,
             };
-            let Ok(held) = held(&now);
+            let Ok(held) = lock(&now);
             let Ok(worth) = worth(&event, held.as_ref());
 
             match worth {
@@ -3683,31 +3685,30 @@ fn first_look(reading: &Reading, rows: &[Row], look: FirstLook<'_>) -> Result<Lo
     }
 
     let Ok(deadline) = crate::frames::deadline(look.until);
-    let mut woken = crate::frames::Woken::default();
-
-    loop {
-        let Ok(heard) = crate::frames::woken();
-        let Ok(both) = woken.and(heard);
-
-        woken = both;
+    let looked = console_core_iteration::iterate(crate::frames::Woken::default(), |woken| {
+        let Ok(heard) = crate::frames::wake_state();
+        let Ok(woken) = woken.and(heard);
 
         match (reading.arrived.try_recv(), look.shut.load(Ordering::Relaxed)) {
             (Err(mpsc::TryRecvError::Empty), false) => {},
             (Err(mpsc::TryRecvError::Empty), true) => {
-                return Ok(Looked { heard: Err(mpsc::TryRecvError::Empty), woken: Some(woken) });
+                return Ok(Stepped::Halt(Looked { heard: Err(mpsc::TryRecvError::Empty), woken: Some(woken) }));
             }
-            (landed, _) => return Ok(Looked { heard: landed, woken: Some(woken) }),
+            (landed, _) => return Ok(Stepped::Halt(Looked { heard: landed, woken: Some(woken) })),
         }
 
         let Ok(listened) = crate::frames::listened(deadline.as_ref());
 
-        match listened {
-            crate::frames::Listened::Notified => {},
-            crate::frames::Listened::RanOut => {
-                return Ok(Looked { heard: reading.arrived.try_recv(), woken: Some(woken) });
-            }
-        }
-    }
+        Ok(match listened {
+            crate::frames::Listened::Notified => Stepped::Again(woken),
+            crate::frames::Listened::RanOut => Stepped::Halt(Looked { heard: reading.arrived.try_recv(), woken: Some(woken) }),
+        })
+    });
+
+    Ok(match looked {
+        Ok(looked) => looked,
+        Err(_endless) => Looked { heard: reading.arrived.try_recv(), woken: None },
+    })
 }
 
 fn meanwhile(page: Option<&Page>) -> Result<Vec<Row>, Never> {
@@ -3759,7 +3760,7 @@ fn finger_down(state: &State, panelled: &Panelled, at: (f64, f64)) -> Result<Dow
 
     let Ok(across_at) = toward_zero_i32(at.0);
     let Ok(down_at) = toward_zero_i32(at.1);
-    let Ok(lands) = touched(&panelled.touching, Point { x: across_at, y: down_at });
+    let Ok(lands) = hit_test(&panelled.touching, Point { x: across_at, y: down_at });
     let Ok(pans) = panning(state, panelled.moving.as_ref(), Point { x: across_at, y: down_at });
 
     Ok(Down::Touched(Touch { from: at, scroll: state.scroll, dragged: Dragged::No, lands, pans }))
@@ -3832,7 +3833,7 @@ fn tapped(state: &mut State, lands: Option<Lands>, hit: Point<i32>, card: &Card)
             state.at = Some(row);
             state.beside = Beside::No;
 
-            let Ok(_moved) = leveled(&rows, row, step);
+            let Ok(_moved) = nudge_level(&rows, row, step);
 
             Gone::Staying
         }
@@ -3856,7 +3857,7 @@ fn tapped(state: &mut State, lands: Option<Lands>, hit: Point<i32>, card: &Card)
             state.at = Some(row);
             state.beside = Beside::No;
 
-            let Ok(fraction) = crate::page::Track { from, width: wide }.landed(hit.x);
+            let Ok(fraction) = crate::page::Track { from, width: wide }.fraction_at(hit.x);
             let Ok(()) = sought(state, &rows, row, fraction);
 
             Gone::Staying
@@ -3867,14 +3868,14 @@ fn tapped(state: &mut State, lands: Option<Lands>, hit: Point<i32>, card: &Card)
             Gone::Staying
         }
         Some(Lands::More(step)) => {
-            let Ok(_turned) = told(state, Meaning::Tab(step), &rows);
+            let Ok(_turned) = apply_meaning(state, Meaning::Tab(step), &rows);
 
             Gone::Staying
         }
         Some(Lands::Back) => {
             state.leaving = Leaving::No;
 
-            let Ok(said) = told(state, Meaning::Close, &rows);
+            let Ok(said) = apply_meaning(state, Meaning::Close, &rows);
             let Ok(gone) = carried_out(state, &rows, said);
 
             gone
@@ -3891,7 +3892,7 @@ fn tapped(state: &mut State, lands: Option<Lands>, hit: Point<i32>, card: &Card)
                     Gone::Staying
                 }
                 (Covers::Yes, None, None) => {
-                    let Ok(said) = told(state, Meaning::Close, &rows);
+                    let Ok(said) = apply_meaning(state, Meaning::Close, &rows);
                     let Ok(gone) = carried_out(state, &rows, said);
 
                     gone
@@ -3945,13 +3946,25 @@ fn first_drawn(rows: &[Row]) -> Result<(), Never> {
     let Ok(()) = crate::opening::counted("rows", many);
     let Ok(()) = crate::opening::mark("frame");
 
-    crate::opening::done()
+    crate::opening::finish()
 }
 
 struct Reported {
     front: Option<String>,
     first_frame: Option<mpsc::Sender<()>>,
     tells: Option<String>,
+    presses: u64,
+    told_presses: u64,
+}
+
+fn tell(state: &State, panelled: &Panelled, room: (i32, i32), reported: &mut Reported) -> Result<(), Never> {
+    let Ok(told) = what_it_drew(state, panelled, &state.rows, room);
+    let told = description::Description { presses: reported.presses, ..told };
+    let Ok(()) = description::wrote(&told, reported.tells.as_deref());
+
+    reported.told_presses = reported.presses;
+
+    Ok(())
 }
 
 fn in_front(page: Option<&Page>, reported: &mut Reported) -> Result<(), Never> {
@@ -3960,7 +3973,7 @@ fn in_front(page: Option<&Page>, reported: &mut Reported) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    match console_onscreen::saying(&page.title) {
+    match console_onscreen::write_tab(&page.title) {
         Ok(()) => reported.front = Some(page.title.clone()),
         Err(fault) => eprintln!("console-panel: the tab in front could not be written down: {fault}"),
     }
@@ -3976,7 +3989,7 @@ fn serving(
     shut: Arc<AtomicBool>,
     reported: &mut Reported,
 ) -> Result<(), Never> {
-    let Ok(()) = crate::whose::named(who);
+    let Ok(()) = crate::whose::set_owner(who);
 
     let Ok(pages) = built(build);
     let wearing = match Wearing::worn() {
@@ -3997,7 +4010,7 @@ fn serving(
         }
     };
 
-    let Ok(mut state) = opened_on(pages, start, framing);
+    let Ok(state) = opened_on(pages, start, framing);
 
     let Ok(wanted) = covering();
 
@@ -4012,490 +4025,542 @@ fn serving(
 
     let Ok(()) = crate::opening::mark("surface");
     let marks_measured = measure_marks()?;
-    let mut drew: Option<Vec<Shape>> = None;
-    let Ok(mut front) = InFront::none();
-    let mut rows_of: Option<u32> = None;
-    let mut asked: Option<Reading> = None;
-    let mut stale = Stale::No;
-    let mut dirty = Dirty::Yes;
-    let mut sized_for: Option<Size<u32>> = None;
-    let mut measured_tabs: Vec<MeasuredTab> = Vec::new();
-    let mut measured_rows: Vec<MeasuredRow> = Vec::new();
-    let mut fits: u32 = 1;
-    let mut panelled = Panelled { shapes: Vec::new(), touching: Vec::new(), moving: None };
-    let mut finger: Option<Touch> = None;
-
-    loop {
-        match shut.load(Ordering::Relaxed) {
-            true => {
-                break;
-            }
-            false => {}
-        }
-
-        let logical = match surface.logical() {
-            Ok(Some(logical)) => logical,
-            Ok(None) => {
-                let Ok(waking) = crate::frames::waking();
-                let also: Vec<std::os::fd::BorrowedFd<'_>> = waking.into_iter().collect();
-                let _ = surface.wait(&also, None);
-                let Ok(woken) = crate::frames::woken();
-
-                match woken.rows {
-                    crate::frames::FrameReceived::Yes => stale = Stale::Yes,
-                    crate::frames::FrameReceived::No => {},
-                }
-
-                dirty = Dirty::Yes;
-
-                continue;
-            }
-            Err(_) => return Ok(()),
-        };
-
-        let Ok(surface_size) = sized(logical);
-        let Ok(card) = card_taking(&mut surface, &surface_size, state.opened, state.framing);
-        let card_wide_u32 = fitted::<i32, u32>(card.width)?;
-
-        match sized_for == Some(logical) {
-            true => {},
-            false => {
-                let Ok(spent) = spent();
-                let room = strip::room(strip::Card { width: card.width, spent })?;
-
-                let Ok(tabs) = measure_tabs(&state.pages, card_wide_u32);
-                let Ok(cell) = widest_tab(&tabs);
-                let Ok(fitting_tabs) = strip::fits(room, cell);
-                let Ok(rows) = measure_rows(&state.rows, card_wide_u32);
-
-                measured_tabs = tabs;
-                fits = fitting_tabs;
-                measured_rows = rows;
-                sized_for = Some(logical);
-                dirty = Dirty::Yes;
-            }
-        }
-
-        let Ok(page) = nth(&state.pages, state.here);
-        let Ok(()) = front.follow(&state, page);
-
-        match rows_of == Some(state.here) {
-            true => {},
-            false => {
-                let Ok(()) = in_front(page, reported);
-                let Ok(first) = meanwhile(page);
-
-                state.rows = first;
-
-                let Ok(rows) = measure_rows(&state.rows, card_wide_u32);
-
-                measured_rows = rows;
-                rows_of = Some(state.here);
-                stale = Stale::Yes;
-                dirty = Dirty::Yes;
-            }
-        }
-
-        match (stale, page) {
-            (Stale::Yes, Some(page)) => {
-                let Ok(started) = reading(page, state.here);
-
-                asked = Some(started);
-                stale = Stale::No;
-            }
-            (Stale::Yes, None) | (Stale::No, _) => {},
-        }
-
-        let arrived = asked.as_ref().map(|reading| {
-            let Ok(looked) = first_look(reading, &state.rows, FirstLook { shut: &shut, until: FIRST_LOOK });
-
-            (reading.here, looked)
-        });
-
-        let arrived = match arrived {
-            Some((here, Looked { heard, woken })) => {
-                match woken.map(|woken| woken.rows) {
-                    Some(crate::frames::FrameReceived::Yes) => stale = Stale::Yes,
-                    Some(crate::frames::FrameReceived::No) | None => {},
-                }
-
-                match woken {
-                    Some(_what_the_first_look_heard_is_drawn_whole) => dirty = Dirty::Yes,
-                    None => {},
-                }
-
-                Some((here, heard))
-            }
-            None => None,
-        };
-
-        match arrived {
-            Some((here, Ok(read))) => {
-                asked = None;
-
-                match here == state.here {
-                    true => {
-                        state.rows = read;
-
-                        let Ok(()) = asked_for(&state.rows);
-
-                        let Ok(rows) = measure_rows(&state.rows, card_wide_u32);
-
-                        measured_rows = rows;
-
-                        let Ok(many) = fitted::<_, u32>(state.rows.len());
-
-                        match state.at.is_some_and(|at| at >= many) {
-                            true => state.at = None,
-                            false => {},
-                        }
-
-                        dirty = Dirty::Yes;
-                    }
-                    false => {},
-                }
-            }
-            Some((_, Err(mpsc::TryRecvError::Disconnected))) => asked = None,
-            Some((_, Err(mpsc::TryRecvError::Empty))) | None => {},
-        }
-
-        match (state.at, state.rows.is_empty()) {
-            (None, false) => {
-                let Ok(first) = walked(&state.rows, BEFORE_THE_FIRST_ROW, Step(1));
-                let Ok(landed) = fitted::<i32, u32>(first.max(0));
-
-                state.at = Some(landed);
-            }
-            (None, true) | (Some(_), _) => {},
-        }
-
-        let Ok(room) = scroll_room(&state, &card);
-
-        match dirty {
-            Dirty::No => {},
-            Dirty::Yes => {
-                match finger.as_ref().map(|finger| finger.dragged) {
-                    Some(Dragged::Yes) => {},
-                    Some(Dragged::No) | None => {
-                        let Ok(down_to) = scrolled(state.at, Viewport { room, y: state.scroll });
-
-                        state.scroll = down_to;
-                    }
-                }
-
-                let measured = measured_now(&state, &measured_tabs, &measured_rows, marks_measured)?;
-
-                let Ok(drawn) = shapes(&state, &card, fits, &measured, &wearing);
-
-                panelled = drawn;
-                state.shown = panelled.moving.clone();
-
-                match drew.as_ref() == Some(&panelled.shapes) {
-                    true => {},
-                    false => {
-                        let _ = surface.resize(logical);
-
-                        let points = Size { width: logical.width, height: logical.height };
-                        let drawing = &panelled.shapes;
-
-                        let _ = surface.draw(|pixels, device, _scale| {
-                            let frame = Frame { device, points };
-                            let _ = painting::onto(pixels, frame, drawing);
-
-                            Ok(())
-                        });
-
-                        match reported.first_frame.take() {
-                            Some(first_frame) => {
-                                let _ = first_frame.send(());
-                            }
-                            None => {},
-                        }
-
-                        let Ok(()) = first_drawn(&state.rows);
-
-                        let Ok(told) = what_it_drew(
-                            &state,
-                            &panelled,
-                            &state.rows,
-                            (surface_size.width, surface_size.height),
-                        );
-                        let Ok(()) = description::wrote(&told, reported.tells.as_deref());
-
-                        drew = Some(panelled.shapes.clone());
-                    }
-                }
-
-                dirty = Dirty::No;
-            }
-        }
-
-        let Ok((now_dirty, now_stale)) = waited(&mut surface, &panelled, logical, (dirty, stale));
-
-        (dirty, stale) = (now_dirty, now_stale);
-
-        let pressed = surface.keyboard_events()?;
-
-        'pressed: for event in pressed {
-            match event {
-                KeyboardEvent::Down { key } => {
-                    dirty = Dirty::Yes;
-
-                    let Ok(stirred) = stirred(&state);
-
-                    match stirred {
-                        WakeOutcome::Woke => {
-                            stale = Stale::Yes;
-
-                            continue 'pressed;
-                        },
-                        WakeOutcome::AlreadyAwake => {},
-                    }
-
-                    let rows = state.rows.clone();
-                    let Ok(driving) = driving(&state);
-                    let Ok(meaning) = keys::meaning(key, driving);
-                    let before = state.at;
-                    let Ok(gone) = pressed_here(&mut state, &rows, key, meaning, driving);
-
-                    match gone {
-                        Gone::Closing => return Ok(()),
-                        Gone::Staying => {},
-                    }
-
-                    let Ok(landed) = stepped_onto(meaning, before, &state);
-
-                    match landed {
-                        Some(row) => {
-                            let Ok(effects) = SoundEffects::chosen();
-                            let Ok(root) = Degree::climbing(row);
-                            let Ok(cue) = Sound::Step.cue();
-
-                            match effects {
-                                SoundEffects::On => match console_sound_effects::play(&cue, root) {
-                                    Ok(()) => {},
-                                    Err(fault) => eprintln!("console-panel: a step went unheard: {fault}"),
-                                },
-                                SoundEffects::Off => {},
-                            }
-                        }
-                        None => {},
-                    }
-
-                    match meaning {
-                        Meaning::Step(_) | Meaning::Tab(_) | Meaning::Close | Meaning::Abandon => {},
-                        Meaning::None | Meaning::Choose | Meaning::More | Meaning::Nudge(_) => {
-                            stale = Stale::Yes;
-                        }
-                    }
-                }
-            }
-        }
-
-        let pointer_events = surface.pointer_events()?;
-
-        for event in pointer_events {
-            match event {
-                PointerEvent::Down { at } => {
-                    let Ok(down) = finger_down(&state, &panelled, at);
-
-                    finger = match down {
-                        Down::Woke => {
-                            stale = Stale::Yes;
-                            dirty = Dirty::Yes;
-
-                            None
-                        },
-                        Down::Touched(held) => Some(held),
-                    };
-                }
-                PointerEvent::Moved { at } => match finger.as_mut() {
-                    Some(held) => {
-                        let by = at.1 - held.from.1;
-
-                        match (held.dragged, by.abs() >= DRAGGED) {
-                            (Dragged::No, false) => {},
-                            (Dragged::Yes, _) | (Dragged::No, true) => {
-                                held.dragged = Dragged::Yes;
-
-                                match &held.pans {
-                                    Some((still, zoom, seen)) => {
-                                        let Ok(panned) =
-                                            zoom.panned(Point { x: at.0 - held.from.0, y: by }, *seen);
-
-                                        state.zoom = Some((still.clone(), panned));
-                                    }
-                                    None => {
-                                        let Ok(by) = toward_zero_i32(by);
-                                        let Ok(()) =
-                                            scrolled_to(&mut state, Viewport { room, y: held.scroll.saturating_sub(by) });
-                                    }
-                                }
-
-                                dirty = Dirty::Yes;
-                            }
-                        }
-                    }
-                    None => {
-                        let Ok(across_at) = toward_zero_i32(at.0);
-                        let Ok(down_at) = toward_zero_i32(at.1);
-                        let Ok(lands) = touched(&panelled.touching, Point { x: across_at, y: down_at });
-
-                        match (lands, state.leaving) {
-                            (Some(Lands::Row(row)), Leaving::No) => match state.at == Some(row) {
-                                true => {},
-                                false => {
-                                    let Ok(many) = fitted::<_, u32>(state.rows.len());
-                                    let Ok(found) = nth(&state.rows, row);
-                                    let Ok(heading) = match found {
-                                        Some(found) => found.heading(),
-                                        None => Ok(Heading::Yes),
-                                    };
-
-                                    match (row < many, heading) {
-                                        (true, Heading::No) => {
-                                            state.at = Some(row);
-                                            state.beside = Beside::No;
-                                            dirty = Dirty::Yes;
-                                        }
-                                        (true, Heading::Yes) | (false, _) => {},
-                                    }
-                                }
-                            },
-                            (Some(_) | None, _) => {},
-                        }
-                    }
-                },
-                PointerEvent::Scrolled { by } => {
-                    let Ok(by) = toward_zero_i32(by * f64::from(fitting::ROW) / A_NOTCH);
-                    let down_to = state.scroll.saturating_add(by);
-                    let Ok(()) = scrolled_to(&mut state, Viewport { room, y: down_to });
-
-                    dirty = Dirty::Yes;
-                }
-                PointerEvent::Pinched { by } => {
-                    match finger.as_mut() {
-                        Some(held) => {
-                            held.dragged = Dragged::Yes;
-                            held.pans = None;
-                        }
-                        None => {},
-                    }
-
-                    let rows = state.rows.clone();
-                    let Ok(()) = zoomed_to(&mut state, &rows, |was| match was.times(by) {
-                        Ok(zoom) => zoom,
-                    });
-
-                    dirty = Dirty::Yes;
-                }
-                PointerEvent::Up => {
-                    let lifted = finger.take();
-
-                    match lifted {
-                        Some(Touch { from, dragged: Dragged::No, lands, scroll: _, pans: _ }) => {
-                            let Ok(across_at) = toward_zero_i32(from.0);
-                            let Ok(down_at) = toward_zero_i32(from.1);
-                            let Ok(gone) =
-                                tapped(&mut state, lands, Point { x: across_at, y: down_at }, &card);
-
-                            match gone {
-                                Gone::Closing => return Ok(()),
-                                Gone::Staying => {},
-                            }
-
-                            match lands {
-                                Some(Lands::Tab(_) | Lands::More(_) | Lands::Back) | None => {},
-                                Some(
-                                    Lands::Row(_)
-                                    | Lands::Answer(_)
-                                    | Lands::Nudge { .. }
-                                    | Lands::Else(_)
-                                    | Lands::ButtonPress { .. }
-                                    | Lands::Seek { .. },
-                                ) => {
-                                    stale = Stale::Yes;
-                                }
-                            }
-
-                            dirty = Dirty::Yes;
-                        }
-                        Some(Touch { dragged: Dragged::Yes, .. }) | None => {},
-                    }
-                }
-                PointerEvent::Left => {
-                    finger = None;
-                }
-            }
-        }
+    let turning = Turning {
+        surface,
+        state,
+        drew: None,
+        front: match InFront::none() {
+            Ok(front) => front,
+        },
+        rows_of: None,
+        asked: None,
+        stale: Stale::No,
+        dirty: Dirty::Yes,
+        sized_for: None,
+        measured_tabs: Vec::new(),
+        measured_rows: Vec::new(),
+        fits: 1,
+        panelled: Panelled { shapes: Vec::new(), touching: Vec::new(), moving: None },
+        finger: None,
+        reported,
+    };
+    let still = Still { shut: &shut, wearing: &wearing, marks_measured };
+
+    match console_core_iteration::iterate(turning, |turning| turned(turning, still)) {
+        Ok(()) => {},
+        Err(_endless) => {},
     }
 
     Ok(())
 }
 
+struct Turning<'a> {
+    surface: Surface,
+    state: State,
+    drew: Option<Vec<Shape>>,
+    front: InFront,
+    rows_of: Option<u32>,
+    asked: Option<Reading>,
+    stale: Stale,
+    dirty: Dirty,
+    sized_for: Option<Size<u32>>,
+    measured_tabs: Vec<MeasuredTab>,
+    measured_rows: Vec<MeasuredRow>,
+    fits: u32,
+    panelled: Panelled,
+    finger: Option<Touch>,
+    reported: &'a mut Reported,
+}
+
+#[derive(Clone, Copy)]
+struct Still<'a> {
+    shut: &'a AtomicBool,
+    wearing: &'a Wearing,
+    marks_measured: MeasuredMarks,
+}
+
+fn turned<'a>(turning: Turning<'a>, still: Still<'_>) -> Result<Stepped<Turning<'a>, ()>, Never> {
+    let Still { shut, wearing, marks_measured } = still;
+    let Turning {
+        mut surface,
+        mut state,
+        mut drew,
+        mut front,
+        mut rows_of,
+        mut asked,
+        mut stale,
+        mut dirty,
+        mut sized_for,
+        mut measured_tabs,
+        mut measured_rows,
+        mut fits,
+        mut panelled,
+        mut finger,
+        reported,
+    } = turning;
+
+    match shut.load(Ordering::Relaxed) {
+        true => return Ok(Stepped::Halt(())),
+        false => {}
+    }
+
+    let logical = match surface.logical() {
+        Ok(Some(logical)) => logical,
+        Ok(None) => {
+            let Ok(waking) = crate::frames::waking();
+            let also: Vec<std::os::fd::BorrowedFd<'_>> = waking.into_iter().collect();
+            let _ = surface.wait(&also, None);
+            let Ok(woken) = crate::frames::wake_state();
+
+            match woken.rows {
+                crate::frames::FrameReceived::Yes => stale = Stale::Yes,
+                crate::frames::FrameReceived::No => {},
+            }
+
+            dirty = Dirty::Yes;
+
+            return Ok(Stepped::Again(Turning {
+                surface, state, drew, front, rows_of, asked, stale, dirty, sized_for, measured_tabs, measured_rows, fits, panelled, finger, reported,
+            }));
+        }
+        Err(_) => return Ok(Stepped::Halt(())),
+    };
+
+    let Ok(surface_size) = sized(logical);
+    let Ok(card) = card_taking(&mut surface, &surface_size, state.opened, state.framing);
+    let card_wide_u32 = fitted::<i32, u32>(card.width)?;
+
+    match sized_for == Some(logical) {
+        true => {},
+        false => {
+            let Ok(spent) = spent();
+            let room = strip::room(strip::Card { width: card.width, spent })?;
+
+            let Ok(tabs) = measure_tabs(&state.pages, card_wide_u32);
+            let Ok(cell) = widest_tab(&tabs);
+            let Ok(fitting_tabs) = strip::fits(room, cell);
+            let Ok(rows) = measure_rows(&state.rows, card_wide_u32);
+
+            measured_tabs = tabs;
+            fits = fitting_tabs;
+            measured_rows = rows;
+            sized_for = Some(logical);
+            dirty = Dirty::Yes;
+        }
+    }
+
+    let Ok(page) = nth(&state.pages, state.here);
+    let Ok(()) = front.follow(&state, page);
+
+    match rows_of == Some(state.here) {
+        true => {},
+        false => {
+            let Ok(()) = in_front(page, reported);
+            let Ok(first) = meanwhile(page);
+
+            state.rows = first;
+
+            let Ok(rows) = measure_rows(&state.rows, card_wide_u32);
+
+            measured_rows = rows;
+            rows_of = Some(state.here);
+            stale = Stale::Yes;
+            dirty = Dirty::Yes;
+        }
+    }
+
+    match (stale, page) {
+        (Stale::Yes, Some(page)) => {
+            let Ok(started) = reading(page, state.here);
+
+            asked = Some(started);
+            stale = Stale::No;
+        }
+        (Stale::Yes, None) | (Stale::No, _) => {},
+    }
+
+    let arrived = asked.as_ref().map(|reading| {
+        let Ok(looked) = first_look(reading, &state.rows, FirstLook { shut, until: FIRST_LOOK });
+
+        (reading.here, looked)
+    });
+
+    let arrived = match arrived {
+        Some((here, Looked { heard, woken })) => {
+            match woken.map(|woken| woken.rows) {
+                Some(crate::frames::FrameReceived::Yes) => stale = Stale::Yes,
+                Some(crate::frames::FrameReceived::No) | None => {},
+            }
+
+            match woken {
+                Some(_what_the_first_look_heard_is_drawn_whole) => dirty = Dirty::Yes,
+                None => {},
+            }
+
+            Some((here, heard))
+        }
+        None => None,
+    };
+
+    match arrived {
+        Some((here, Ok(read))) => {
+            asked = None;
+
+            match here == state.here {
+                true => {
+                    state.rows = read;
+
+                    let Ok(()) = asked_for(&state.rows);
+
+                    let Ok(rows) = measure_rows(&state.rows, card_wide_u32);
+
+                    measured_rows = rows;
+
+                    let Ok(many) = fitted::<_, u32>(state.rows.len());
+
+                    match state.at.is_some_and(|at| at >= many) {
+                        true => state.at = None,
+                        false => {},
+                    }
+
+                    dirty = Dirty::Yes;
+                }
+                false => {},
+            }
+        }
+        Some((_, Err(mpsc::TryRecvError::Disconnected))) => asked = None,
+        Some((_, Err(mpsc::TryRecvError::Empty))) | None => {},
+    }
+
+    match (state.at, state.rows.is_empty()) {
+        (None, false) => {
+            let Ok(first) = walked(&state.rows, BEFORE_THE_FIRST_ROW, Step(1));
+            let Ok(landed) = fitted::<i32, u32>(first.max(0));
+
+            state.at = Some(landed);
+        }
+        (None, true) | (Some(_), _) => {},
+    }
+
+    let Ok(room) = scroll_room(&state, &card);
+
+    match dirty {
+        Dirty::No => {},
+        Dirty::Yes => {
+            match finger.as_ref().map(|finger| finger.dragged) {
+                Some(Dragged::Yes) => {},
+                Some(Dragged::No) | None => {
+                    let Ok(down_to) = scrolled(state.at, Viewport { room, y: state.scroll });
+
+                    state.scroll = down_to;
+                }
+            }
+
+            let measured = measured_now(&state, &measured_tabs, &measured_rows, marks_measured)?;
+
+            let Ok(drawn) = shapes(&state, &card, fits, &measured, wearing);
+
+            panelled = drawn;
+            state.shown = panelled.moving.clone();
+
+            let drawn_size = (surface_size.width, surface_size.height);
+
+            match (drew.as_ref() == Some(&panelled.shapes), reported.presses == reported.told_presses) {
+                (true, true) => {},
+                (true, false) => {
+                    let Ok(()) = tell(&state, &panelled, drawn_size, reported);
+                },
+                (false, true | false) => {
+                    let _ = surface.resize(logical);
+
+                    let points = Size { width: logical.width, height: logical.height };
+                    let drawing = &panelled.shapes;
+
+                    let _ = surface.draw(|pixels, device, _scale| {
+                        let frame = Frame { device, points };
+                        let _ = painting::onto(pixels, frame, drawing);
+
+                        Ok(())
+                    });
+
+                    match reported.first_frame.take() {
+                        Some(first_frame) => {
+                            let _ = first_frame.send(());
+                        }
+                        None => {},
+                    }
+
+                    let Ok(()) = first_drawn(&state.rows);
+
+                    let Ok(()) = tell(&state, &panelled, drawn_size, reported);
+
+                    drew = Some(panelled.shapes.clone());
+                }
+            }
+
+            dirty = Dirty::No;
+        }
+    }
+
+    let Ok((now_dirty, now_stale)) = wait_for_frame(&mut surface, &panelled, logical, (dirty, stale));
+
+    (dirty, stale) = (now_dirty, now_stale);
+
+    let pressed = surface.keyboard_events()?;
+
+    'pressed: for event in pressed {
+        match event {
+            KeyboardEvent::Down { key } => {
+                dirty = Dirty::Yes;
+                reported.presses = reported.presses.saturating_add(1);
+
+                let Ok(stirred) = stirred(&state);
+
+                match stirred {
+                    WakeOutcome::Woke => {
+                        stale = Stale::Yes;
+
+                        continue 'pressed;
+                    },
+                    WakeOutcome::AlreadyAwake => {},
+                }
+
+                let rows = state.rows.clone();
+                let Ok(driving) = driving(&state);
+                let Ok(meaning) = keys::meaning(key, driving);
+                let before = state.at;
+                let Ok(gone) = pressed_here(&mut state, &rows, key, meaning, driving);
+
+                match gone {
+                    Gone::Closing => return Ok(Stepped::Halt(())),
+                    Gone::Staying => {},
+                }
+
+                let Ok(landed) = stepped_onto(meaning, before, &state);
+
+                match landed {
+                    Some(row) => {
+                        let Ok(effects) = SoundEffects::current();
+                        let Ok(root) = Degree::degree_at(row);
+                        let Ok(cue) = Sound::Step.cue();
+
+                        match effects {
+                            SoundEffects::On => match console_sound_effects::play(&cue, root) {
+                                Ok(()) => {},
+                                Err(fault) => eprintln!("console-panel: a step went unheard: {fault}"),
+                            },
+                            SoundEffects::Off => {},
+                        }
+                    }
+                    None => {},
+                }
+
+                match meaning {
+                    Meaning::Step(_) | Meaning::Tab(_) | Meaning::Close | Meaning::Abandon => {},
+                    Meaning::None | Meaning::Choose | Meaning::More | Meaning::Nudge(_) => {
+                        stale = Stale::Yes;
+                    }
+                }
+            }
+        }
+    }
+
+    let pointer_events = surface.pointer_events()?;
+
+    for event in pointer_events {
+        match event {
+            PointerEvent::Down { at } => {
+                let Ok(down) = finger_down(&state, &panelled, at);
+
+                finger = match down {
+                    Down::Woke => {
+                        stale = Stale::Yes;
+                        dirty = Dirty::Yes;
+
+                        None
+                    },
+                    Down::Touched(held) => Some(held),
+                };
+            }
+            PointerEvent::Moved { at } => match finger.as_mut() {
+                Some(held) => {
+                    let by = at.1 - held.from.1;
+
+                    match (held.dragged, by.abs() >= DRAGGED) {
+                        (Dragged::No, false) => {},
+                        (Dragged::Yes, _) | (Dragged::No, true) => {
+                            held.dragged = Dragged::Yes;
+
+                            match &held.pans {
+                                Some((still, zoom, seen)) => {
+                                    let Ok(panned) =
+                                        zoom.panned(Point { x: at.0 - held.from.0, y: by }, *seen);
+
+                                    state.zoom = Some((still.clone(), panned));
+                                }
+                                None => {
+                                    let Ok(by) = toward_zero_i32(by);
+                                    let Ok(()) =
+                                        scrolled_to(&mut state, Viewport { room, y: held.scroll.saturating_sub(by) });
+                                }
+                            }
+
+                            dirty = Dirty::Yes;
+                        }
+                    }
+                }
+                None => {
+                    let Ok(across_at) = toward_zero_i32(at.0);
+                    let Ok(down_at) = toward_zero_i32(at.1);
+                    let Ok(lands) = hit_test(&panelled.touching, Point { x: across_at, y: down_at });
+
+                    match (lands, state.leaving) {
+                        (Some(Lands::Row(row)), Leaving::No) => match state.at == Some(row) {
+                            true => {},
+                            false => {
+                                let Ok(many) = fitted::<_, u32>(state.rows.len());
+                                let Ok(found) = nth(&state.rows, row);
+                                let Ok(heading) = match found {
+                                    Some(found) => found.heading(),
+                                    None => Ok(Heading::Yes),
+                                };
+
+                                match (row < many, heading) {
+                                    (true, Heading::No) => {
+                                        state.at = Some(row);
+                                        state.beside = Beside::No;
+                                        dirty = Dirty::Yes;
+                                    }
+                                    (true, Heading::Yes) | (false, _) => {},
+                                }
+                            }
+                        },
+                        (Some(_) | None, _) => {},
+                    }
+                }
+            },
+            PointerEvent::Scrolled { by } => {
+                let Ok(by) = toward_zero_i32(by * f64::from(fitting::ROW) / A_NOTCH);
+                let down_to = state.scroll.saturating_add(by);
+                let Ok(()) = scrolled_to(&mut state, Viewport { room, y: down_to });
+
+                dirty = Dirty::Yes;
+            }
+            PointerEvent::Pinched { by } => {
+                match finger.as_mut() {
+                    Some(held) => {
+                        held.dragged = Dragged::Yes;
+                        held.pans = None;
+                    }
+                    None => {},
+                }
+
+                let rows = state.rows.clone();
+                let Ok(()) = zoomed_to(&mut state, &rows, |was| match was.times(by) {
+                    Ok(zoom) => zoom,
+                });
+
+                dirty = Dirty::Yes;
+            }
+            PointerEvent::Up => {
+                let lifted = finger.take();
+
+                match lifted {
+                    Some(Touch { from, dragged: Dragged::No, lands, scroll: _, pans: _ }) => {
+                        reported.presses = reported.presses.saturating_add(1);
+
+                        let Ok(across_at) = toward_zero_i32(from.0);
+                        let Ok(down_at) = toward_zero_i32(from.1);
+                        let Ok(gone) =
+                            tapped(&mut state, lands, Point { x: across_at, y: down_at }, &card);
+
+                        match gone {
+                            Gone::Closing => return Ok(Stepped::Halt(())),
+                            Gone::Staying => {},
+                        }
+
+                        match lands {
+                            Some(Lands::Tab(_) | Lands::More(_) | Lands::Back) | None => {},
+                            Some(
+                                Lands::Row(_)
+                                | Lands::Answer(_)
+                                | Lands::Nudge { .. }
+                                | Lands::Else(_)
+                                | Lands::ButtonPress { .. }
+                                | Lands::Seek { .. },
+                            ) => {
+                                stale = Stale::Yes;
+                            }
+                        }
+
+                        dirty = Dirty::Yes;
+                    }
+                    Some(Touch { dragged: Dragged::Yes, .. }) | None => {},
+                }
+            }
+            PointerEvent::Left => {
+                finger = None;
+            }
+        }
+    }
+
+    Ok(Stepped::Again(Turning {
+        surface, state, drew, front, rows_of, asked, stale, dirty, sized_for, measured_tabs, measured_rows, fits, panelled, finger, reported,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use console_core_color::palette::{self, Wearing};
     use console_core_never::Never;
 
     use crate::page::{Aside, Handler, Page, Picture, Row, Rows};
-    use console_core_number_conversion::fitted;
+    use console_core_number_conversion::{fitted, index};
     use console_core_shapes::{Clip, Shape};
+    use std::path::PathBuf;
     use std::time::Duration;
     use super::stage;
-    use crate::shape;
     use crate::surface::{HitRegion, Panelled, what_it_drew};
 
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex};
 
+    type Failure = Box<dyn std::error::Error>;
+
     const NOTHING_TAKEN: u32 = u32::MAX;
+
+    const SAMPLE_PALETTE: &str = "edge=333333\nfill=222222\nground=111111\nnight=0a0a0a\npanel=1a1a1a\npink=ffb0d0\ncoral=ff6b6b\nsoft=999999\ntext=eeeeee";
+
+    const SCREEN: super::SurfaceSize = super::SurfaceSize { width: 1024, height: 640 };
 
     use super::{
         beside_the_words, carried_out, driving, measure_rows, measure_tabs, pressed_here, scrolled,
-        shapes, stepped_onto, told, typed_into, wanted_of, Beside, Card, Driving, Gone, Keysym, Lands, Measured,
+        shapes, stepped_onto, apply_meaning, typed_into, wanted_of, Beside, Card, Driving, Gone, Keysym, Lands, Measured,
         Meaning, Opened, Path, State, Outcome, Typed, Viewport,
     };
 
-    fn wearing() -> Wearing {
-        let mut map = BTreeMap::new();
+    fn sample_palette() -> Result<Wearing, Failure> {
+        let Ok(spent) = palette::read(SAMPLE_PALETTE);
+        let wearing = Wearing::out_of(&spent)?;
 
-        map.insert("panel".into(), "1a1a1a".into());
-        map.insert("text".into(), "eeeeee".into());
-        map.insert("edge".into(), "333333".into());
-        map.insert("soft".into(), "999999".into());
-        map.insert("coral".into(), "ff6b6b".into());
-        map.insert("ground".into(), "111111".into());
-        map.insert("fill".into(), "222222".into());
-        map.insert("night".into(), "0a0a0a".into());
-        map.insert("pink".into(), "ffb0d0".into());
-
-        let Ok(spent_map) = palette::read(&mock_palette(&map));
-
-        Wearing::out_of(&spent_map).expect("wearing")
+        Ok(wearing)
     }
 
-    fn mock_palette(map: &BTreeMap<String, String>) -> String {
-        map.iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("\n")
+    fn held<T: Clone>(mutex: &Mutex<T>) -> Result<T, Never> {
+        Ok(match mutex.lock() {
+            Ok(held) => held.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        })
     }
 
-    fn the_handler(arguments: &[&str]) -> Handler {
-        let Ok(does) = Handler::run(arguments);
-
-        does
+    fn rows_start(card: &Card) -> Result<i32, Never> {
+        Ok(card.y.saturating_add(crate::fitting::STRIP).saturating_add(super::OVER_ROWS))
     }
 
-    fn rows_start(card: &Card) -> i32 {
-        card.y.saturating_add(crate::fitting::STRIP).saturating_add(super::OVER_ROWS)
-    }
+    fn highlighted_rows(panelled: &super::Panelled, card: &Card, wearing: &Wearing) -> Result<Vec<i32>, Never> {
+        let Ok(start) = rows_start(card);
 
-    fn highlighted_rows(panelled: &super::Panelled, card: &Card, wearing: &Wearing) -> Vec<i32> {
-        panelled
+        Ok(panelled
             .shapes
             .iter()
             .filter_map(|shape| match shape {
@@ -4508,33 +4573,30 @@ mod tests {
                 }
             })
             .filter(|panel| panel.fill == wearing.pink)
-            .filter(|panel| panel.at.y >= rows_start(card))
+            .filter(|panel| panel.at.y >= start)
             .map(|panel| panel.at.y)
-            .collect()
+            .collect())
     }
 
-    fn said_row(says: &str) -> Row {
-        let Ok(row) = Row::said(says, Aside(""));
-
-        row
+    fn said_row(says: &str) -> Result<Row, Never> {
+        Row::text(says, Aside(""))
     }
 
-    fn wide_of(card: &Card) -> u32 {
-        let Ok(wide) = console_core_number_conversion::fitted::<i32, u32>(card.width);
-
-        wide
+    fn wide_of(card: &Card) -> Result<u32, Never> {
+        console_core_number_conversion::fitted::<i32, u32>(card.width)
     }
 
-    fn fits_for(card: &Card) -> u32 {
+    fn fits_for(card: &Card) -> Result<u32, Never> {
         let Ok(room) = crate::strip::room(crate::strip::Card { width: card.width, spent: 0 });
-        let Ok(fits) = crate::strip::fits(room, crate::strip::Cell(80));
 
-        fits
+        crate::strip::fits(room, crate::strip::Cell(80))
     }
 
-    fn state_of(pages: Vec<Page>) -> State {
-        State {
-            rows: first_rows(&pages),
+    fn state_of(pages: Vec<Page>) -> Result<State, Never> {
+        let Ok(rows) = first_rows(&pages);
+
+        Ok(State {
+            rows,
             leaving: super::Leaving::No,
             pages,
             here: 0,
@@ -4552,177 +4614,158 @@ mod tests {
             shown: None,
             selected: Vec::new(),
             framing: super::Framing::Card,
-        }
+        })
     }
 
-    fn page(title: &str, says: &[&str]) -> Page {
+    fn page(title: &str, says: &[&str]) -> Result<Page, Never> {
         let rows: Vec<Row> = says
             .iter()
-            .map(|text| Row::said(text, Aside("")).expect("row"))
+            .map(|text| {
+                let Ok(row) = Row::text(text, Aside(""));
+
+                row
+            })
             .collect();
 
-        Page::new(title, Rows::Fixed(rows)).expect("page")
+        Page::new(title, Rows::Fixed(rows))
     }
 
-    fn measured_for(pages: &[Page], wide: u32) -> Measured {
-        let tabs = measure_tabs(pages, wide).expect("tabs");
+    fn measured_for(pages: &[Page], wide: u32) -> Result<Measured, Never> {
+        let Ok(tabs) = measure_tabs(pages, wide);
         let rows = match pages.first() {
             Some(page) => {
-                let rows = page.rows.read().expect("rows");
+                let Ok(rows) = page.rows.read();
+                let Ok(measured) = measure_rows(&rows, wide);
 
-                measure_rows(&rows, wide).expect("rows")
+                measured
             }
             None => Vec::new(),
         };
+        let Ok(marks) = super::measure_marks();
 
-        Measured {
+        Ok(Measured {
             tabs,
             rows,
-            marks: super::measure_marks().expect("marks"),
+            marks,
             typed: super::NO_ROOM,
             answers: Vec::new(),
             note: super::NO_ROOM,
-        }
+        })
     }
 
-    fn card_for(surface_wide: i32, surface_tall: i32) -> Card {
-        let Ok(wide) = shape::part_of(surface_wide);
-        let Ok(tall) = shape::tall_part_of(surface_tall);
-        let Ok(x) = console_core_number_conversion::fitted::<i32, i32>(
-            surface_wide.saturating_sub(wide).saturating_div(2),
-        );
-        let Ok(y) = console_core_number_conversion::fitted::<i32, i32>(
-            surface_tall.saturating_sub(tall).saturating_div(2),
-        );
-
-        Card { x, y, width: wide, height: tall }
+    fn card() -> Result<Card, Never> {
+        super::card_on(&SCREEN, Opened::No, super::Framing::Card)
     }
 
-    fn first_rows(pages: &[Page]) -> Vec<Row> {
+    fn first_rows(pages: &[Page]) -> Result<Vec<Row>, Never> {
         match pages.first() {
-            Some(page) => page.rows.read().expect("rows"),
-            None => Vec::new(),
+            Some(page) => page.rows.read(),
+            None => Ok(Vec::new()),
         }
     }
 
-    fn painted(state: &State, into: &std::path::Path) {
-        let Ok(spent) = palette::read(include_str!("../../../files/usr/local/lib/console/palette.sh"));
-        let wearing = Wearing::out_of(&spent).expect("the palette the device wears");
-        let card = card_for(1024, 640);
-        let measured_tabs = measure_tabs(&state.pages, wide_of(&card)).expect("tabs");
-        let measured_rows = measure_rows(&state.rows, wide_of(&card)).expect("rows");
-        let marks = super::measure_marks().expect("marks");
-        let measured = super::measured_now(state, &measured_tabs, &measured_rows, marks).expect("measured");
-        let Ok(panelled) = shapes(state, &card, fits_for(&card), &measured, &wearing);
-        let device = console_core_geometry::Size { width: 2560, height: 1600 };
-        let points = console_core_geometry::Size { width: 1024, height: 640 };
-        let mut pixels = vec![0; 2560 * 1600 * 4];
+    fn drawn(state: &State, card: &Card, wearing: &Wearing) -> Result<Panelled, Never> {
+        let Ok(wide) = wide_of(card);
+        let Ok(measured) = measured_for(&state.pages, wide);
+        let Ok(fits) = fits_for(card);
 
-        console_draw_painting::onto(&mut pixels, console_draw_painting::Frame { device, points }, &panelled.shapes)
-            .expect("the panel should draw");
-        std::fs::write(into, &pixels).expect("the picture");
+        shapes(state, card, fits, &measured, wearing)
     }
 
+    fn painted(state: &State, into: &std::path::Path) -> Result<(), Failure> {
+        let Ok(spent) = palette::read(include_str!("../../../files/usr/local/lib/console/palette.sh"));
+        let wearing = Wearing::out_of(&spent)?;
+        let Ok(card) = card();
+        let Ok(wide) = wide_of(&card);
+        let Ok(measured_tabs) = measure_tabs(&state.pages, wide);
+        let Ok(measured_rows) = measure_rows(&state.rows, wide);
+        let Ok(marks) = super::measure_marks();
+        let Ok(measured) = super::measured_now(state, &measured_tabs, &measured_rows, marks);
+        let Ok(fits) = fits_for(&card);
+        let Ok(panelled) = shapes(state, &card, fits, &measured, &wearing);
+        let device = console_core_geometry::Size { width: 2560_u32, height: 1600_u32 };
+        let points = console_core_geometry::Size { width: 1024_u32, height: 640_u32 };
+        let Ok(length) = index(device.width.saturating_mul(device.height).saturating_mul(4));
+        let mut pixels = vec![0; length];
+
+        console_draw_painting::onto(&mut pixels, console_draw_painting::Frame { device, points }, &panelled.shapes)?;
+        console_core_atomic_writes::whole(into, &pixels)?;
+
+        Ok(())
+    }
+
+    #[cfg_attr(
+        dylint_lib = "explicit026_env_read_once",
+        allow(explicit026_env_read_once, reason = "the picture is asked for by whoever runs this by hand, and nothing else reads the name")
+    )]
     #[test]
-    fn a_picture_of_a_panel_is_written_when_someone_asks_for_one() {
+    fn a_picture_of_a_panel_is_written_when_someone_asks_for_one() -> Result<(), Failure> {
         let into = match std::env::var("CONSOLE_PANEL_PICTURE") {
-            Ok(into) => std::path::PathBuf::from(into),
-            Err(_no_one_wants_to_look_at_one) => return,
+            Ok(into) => PathBuf::from(into),
+            Err(_no_one_wants_to_look_at_one) => return Ok(()),
         };
         let level: crate::page::Level = Arc::new(|_step| {});
-        let rows = vec![
-            Row::naming("Output", Aside("")).expect("row"),
-            Row::said("Volume", Aside("40%")).expect("row").leveled(Arc::clone(&level)).expect("row"),
-            Row::said("Speakers", Aside("In use")).expect("row"),
-            Row::said("Bluetooth", Aside("")).expect("row").opening().expect("row"),
-            Row::said("Ferry.jpg", Aside("2.1 MB")).expect("row").offering(|_showing| false).expect("row"),
-        ];
-        let tabs = vec![
-            Page::new("Sound", Rows::Fixed(rows.clone())).expect("page"),
-            Page::new("Network", Rows::Fixed(Vec::new())).expect("page"),
-            Page::new("Display", Rows::Fixed(Vec::new())).expect("page"),
-        ];
-        let mut state = state_of(tabs);
+        let Ok(output) = Row::naming("Output", Aside(""));
+        let Ok(volume) = Row::text("Volume", Aside("40%"));
+        let Ok(volume) = volume.with_level(Arc::clone(&level));
+        let Ok(speakers) = Row::text("Speakers", Aside("In use"));
+        let Ok(bluetooth) = Row::text("Bluetooth", Aside(""));
+        let Ok(bluetooth) = bluetooth.opening();
+        let Ok(ferry) = Row::text("Ferry.jpg", Aside("2.1 MB"));
+        let Ok(ferry) = ferry.offering(|_showing| false);
+        let rows = vec![output, volume, speakers, bluetooth, ferry];
+        let Ok(sound) = Page::new("Sound", Rows::Fixed(rows.clone()));
+        let Ok(network) = Page::new("Network", Rows::Fixed(Vec::new()));
+        let Ok(display) = Page::new("Display", Rows::Fixed(Vec::new()));
+        let Ok(mut state) = state_of(vec![sound, network, display]);
 
         state.at = Some(1);
-        painted(&state, &into.join("tabs.bgra"));
+        painted(&state, &into.join("tabs.bgra"))?;
 
-        let single = vec![Page::new("Downloads", Rows::Fixed(rows.clone())).expect("page")];
-        let mut state = state_of(single);
+        let Ok(single) = Page::new("Downloads", Rows::Fixed(rows.clone()));
+        let Ok(mut state) = state_of(vec![single]);
 
         state.at = Some(4);
         state.beside = Beside::Yes;
-        painted(&state, &into.join("single.bgra"));
+        painted(&state, &into.join("single.bgra"))?;
 
-        let sought = Page::new("Menu", Rows::Fixed(rows)).expect("page");
-        let sought = sought.searching("Type to narrow the list", |_showing, _word| {}).expect("page");
-        let mut state = state_of(vec![sought]);
+        let Ok(sought) = Page::new("Menu", Rows::Fixed(rows));
+        let Ok(sought) = sought.searching("Type to narrow the list", |_showing, _word| {});
+        let Ok(mut state) = state_of(vec![sought]);
 
         state.typed = "fir".to_string();
         state.at = Some(2);
-        painted(&state, &into.join("search.bgra"));
+        painted(&state, &into.join("search.bgra"))?;
+
+        Ok(())
     }
 
     #[test]
-    fn every_visible_row_gets_a_touching_entry() {
-        let pages = vec![page("test", &["alpha", "bravo", "charlie"])];
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let measured = measured_for(&pages, card.width as u32);
-        let fits = crate::strip::fits(
-            crate::strip::room(crate::strip::Card { width: card.width, spent: 0 }).expect("room"),
-            crate::strip::Cell(80),
-        )
-        .expect("fits");
-
-        let state = State {
-            rows: first_rows(&pages),
-            leaving: super::Leaving::No,
-            pages,
-            here: 0,
-            at: None,
-            opened: Opened::No,
-            from_tab: 0,
-            scroll: 0,
-            note: None,
-            typed: String::new(),
-            beside: Beside::No,
-            asking: None,
-            sure: None,
-            pressing: None,
-            zoom: None,
-            shown: None,
-            selected: Vec::new(),
-            framing: super::Framing::Card,
-        };
-
-        let panelled = shapes(
-            &state,
-            &card,
-            fits,
-            &measured,
-            &wearing,
-        )
-        .expect("shapes");
-
+    fn every_visible_row_gets_a_touching_entry() -> Result<(), Failure> {
+        let Ok(test) = page("test", &["alpha", "bravo", "charlie"]);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![test]);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let Ok(rows) = landing_on_rows(&panelled);
 
         assert_eq!(rows.len(), 3, "one touching per row");
+
+        Ok(())
     }
 
     #[test]
-    fn a_row_scrolled_half_out_of_view_is_drawn_and_cut_at_the_edge() {
+    fn a_row_scrolled_half_out_of_view_is_drawn_and_cut_at_the_edge() -> Result<(), Failure> {
         let says: Vec<String> = (0..30).map(|n| format!("row {n}")).collect();
         let said: Vec<&str> = says.iter().map(String::as_str).collect();
-        let pages = vec![page("test", &said)];
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let measured = measured_for(&pages, wide_of(&card));
-        let mut state = state_of(pages);
+        let Ok(test) = page("test", &said);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![test]);
 
-        state.scroll = crate::fitting::ROW / 2;
+        state.scroll = crate::fitting::ROW.saturating_div(2);
 
-        let panelled = shapes(&state, &card, fits_for(&card), &measured, &wearing).expect("shapes");
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let drawn: Vec<&str> = panelled
             .shapes
             .iter()
@@ -4747,235 +4790,147 @@ mod tests {
             Clip::To { at, .. } => Some(at.y),
             Clip::Lifted => None,
         });
+        let Ok(start) = rows_start(&card);
 
-        assert_eq!(first_top, Some(rows_start(&card)), "the rows are cut to the list: {clips:?}");
+        assert_eq!(first_top, Some(start), "the rows are cut to the list: {clips:?}");
         assert_eq!(clips.last(), Some(&&Clip::Lifted), "the clip is lifted before whatever stands over the rows");
 
         let Ok(rows) = landing_on_rows(&panelled);
-        let card_bottom = card.y + card.height;
+        let card_bottom = card.y.saturating_add(card.height);
 
         for row in &rows {
             let top = row.panel.at.y;
-            let bottom = top + row.panel.size.height as i32;
+            let Ok(tall) = fitted::<u32, i32>(row.panel.size.height);
+            let bottom = top.saturating_add(tall);
 
-            assert!(top >= rows_start(&card) && bottom <= card_bottom, "a row cut by the edge answers a finger: {top}..{bottom}");
+            assert!(top >= start && bottom <= card_bottom, "a row cut by the edge answers a finger: {top}..{bottom}");
         }
 
         let Ok(rows_drawn) = fitted::<_, u32>(drawn.iter().filter(|said| said.starts_with("row ")).count());
         let Ok(rows_touched) = fitted::<_, u32>(rows.len());
 
-        assert_eq!(rows_drawn, rows_touched + 2, "the rows cut at the top and at the bottom are both drawn: {drawn:?}");
+        assert_eq!(rows_drawn, rows_touched.saturating_add(2), "the rows cut at the top and at the bottom are both drawn: {drawn:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn rows_are_placed_at_expected_positions() {
-        let pages = vec![page("test", &["one", "two", "three"])];
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let measured = measured_for(&pages, card.width as u32);
-        let fits = crate::strip::fits(
-            crate::strip::room(crate::strip::Card { width: card.width, spent: 0 }).expect("room"),
-            crate::strip::Cell(80),
-        )
-        .expect("fits");
-
-        let strip_tall = crate::fitting::STRIP;
-        let rows_start = card.y + strip_tall + 10;
+    fn rows_are_placed_at_expected_positions() -> Result<(), Failure> {
+        let Ok(test) = page("test", &["one", "two", "three"]);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let rows_start = card.y.saturating_add(crate::fitting::STRIP).saturating_add(10);
         let row_tall = crate::fitting::ROW;
-
-        let state = State {
-            rows: first_rows(&pages),
-            leaving: super::Leaving::No,
-            pages,
-            here: 0,
-            at: None,
-            opened: Opened::No,
-            from_tab: 0,
-            scroll: 0,
-            note: None,
-            typed: String::new(),
-            beside: Beside::No,
-            asking: None,
-            sure: None,
-            pressing: None,
-            zoom: None,
-            shown: None,
-            selected: Vec::new(),
-            framing: super::Framing::Card,
-        };
-
-        let panelled = shapes(
-            &state,
-            &card,
-            fits,
-            &measured,
-            &wearing,
-        )
-        .expect("shapes");
-
+        let Ok(state) = state_of(vec![test]);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let Ok(rows) = landing_on_rows(&panelled);
 
         for (index, touching) in rows.iter().enumerate() {
-            let expected_y = rows_start + console_core_number_conversion::fitted::<_, i32>(index).expect("an index").saturating_mul(row_tall);
+            let Ok(step) = console_core_number_conversion::fitted::<_, i32>(index);
+            let expected_y = rows_start.saturating_add(step.saturating_mul(row_tall));
 
             assert_eq!(
                 touching.panel.at.y, expected_y,
                 "row {index} should be at y={expected_y}"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn highlight_selects_the_right_row() {
-        let pages = vec![page("test", &["a", "b", "c"])];
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let measured = measured_for(&pages, card.width as u32);
-        let fits = crate::strip::fits(
-            crate::strip::room(crate::strip::Card { width: card.width, spent: 0 }).expect("room"),
-            crate::strip::Cell(80),
-        )
-        .expect("fits");
+    fn highlight_selects_the_right_row() -> Result<(), Failure> {
+        let Ok(test) = page("test", &["a", "b", "c"]);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![test]);
 
-        let state = State {
-            rows: first_rows(&pages),
-            leaving: super::Leaving::No,
-            pages,
-            here: 0,
-            at: Some(1),
-            opened: Opened::No,
-            from_tab: 0,
-            scroll: 0,
-            note: None,
-            typed: String::new(),
-            beside: Beside::No,
-            asking: None,
-            sure: None,
-            pressing: None,
-            zoom: None,
-            shown: None,
-            selected: Vec::new(),
-            framing: super::Framing::Card,
-        };
+        state.at = Some(1);
 
-        let panelled = shapes(
-            &state,
-            &card,
-            fits,
-            &measured,
-            &wearing,
-        )
-        .expect("shapes");
-
-        let highlights = highlighted_rows(&panelled, &card, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
+        let Ok(highlights) = highlighted_rows(&panelled, &card, &wearing);
 
         assert_eq!(highlights.len(), 1, "exactly one row is standing under the highlight");
 
-        let Some(under_the_second_row) = highlights.first() else {
-            panic!("the highlight was counted and then could not be found")
-        };
+        let under_the_second_row = highlights.first().ok_or("the highlight was counted and then could not be found")?;
+        let Ok(start) = rows_start(&card);
 
         assert_eq!(
             *under_the_second_row,
-            rows_start(&card)
+            start
                 .saturating_add(crate::fitting::ROW)
                 .saturating_add(super::BETWEEN_ROWS.saturating_div(2)),
             "the highlight is behind the row the pad is standing on"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn no_highlight_when_at_is_none() {
-        let pages = vec![page("test", &["x", "y"])];
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let measured = measured_for(&pages, card.width as u32);
-        let fits = crate::strip::fits(
-            crate::strip::room(crate::strip::Card { width: card.width, spent: 0 }).expect("room"),
-            crate::strip::Cell(80),
-        )
-        .expect("fits");
-
-        let state = State {
-            rows: first_rows(&pages),
-            leaving: super::Leaving::No,
-            pages,
-            here: 0,
-            at: None,
-            opened: Opened::No,
-            from_tab: 0,
-            scroll: 0,
-            note: None,
-            typed: String::new(),
-            beside: Beside::No,
-            asking: None,
-            sure: None,
-            pressing: None,
-            zoom: None,
-            shown: None,
-            selected: Vec::new(),
-            framing: super::Framing::Card,
-        };
-
-        let panelled = shapes(
-            &state,
-            &card,
-            fits,
-            &measured,
-            &wearing,
-        )
-        .expect("shapes");
+    fn no_highlight_when_at_is_none() -> Result<(), Failure> {
+        let Ok(test) = page("test", &["x", "y"]);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![test]);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
+        let Ok(highlights) = highlighted_rows(&panelled, &card, &wearing);
 
         assert_eq!(
-            highlighted_rows(&panelled, &card, &wearing).len(),
+            highlights.len(),
             0,
             "nothing is standing under a highlight until something is standing on a row"
         );
+
+        Ok(())
     }
 
     #[test]
     fn the_dpad_lands_on_a_row_that_does_something_and_steps_over_the_heading_over_it() {
-        let Ok(heading) = Row::nothing("Sound");
-        let Ok(first) = Row::new("Volume", Aside(""), the_handler(&["console-volume"]));
-        let Ok(second) = Row::new("Balance", Aside(""), the_handler(&["console-balance"]));
+        let Ok(heading) = Row::placeholder("Sound");
+        let Ok(volume) = Handler::run(&["console-volume"]);
+        let Ok(balance) = Handler::run(&["console-balance"]);
+        let Ok(first) = Row::new("Volume", Aside(""), volume);
+        let Ok(second) = Row::new("Balance", Aside(""), balance);
         let rows = vec![heading, first, second];
         let Ok(page) = Page::new("Settings", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
-        let Ok(down) = told(&mut state, Meaning::Step(1), &rows);
+        let Ok(down) = apply_meaning(&mut state, Meaning::Step(1), &rows);
 
         assert_eq!(down, Outcome::Redrawn);
         assert_eq!(state.at, Some(1), "the first press skips the heading");
 
-        let Ok(_again) = told(&mut state, Meaning::Step(1), &rows);
+        let Ok(_again) = apply_meaning(&mut state, Meaning::Step(1), &rows);
 
         assert_eq!(state.at, Some(2));
 
-        let Ok(_at_the_end) = told(&mut state, Meaning::Step(1), &rows);
+        let Ok(_at_the_end) = apply_meaning(&mut state, Meaning::Step(1), &rows);
 
         assert_eq!(state.at, Some(2), "the list does not wrap past its last row");
     }
 
     #[test]
     fn a_step_is_heard_only_when_it_lands_somewhere_else() {
-        let Ok(first) = Row::new("Volume", Aside(""), the_handler(&["console-volume"]));
-        let Ok(second) = Row::new("Balance", Aside(""), the_handler(&["console-balance"]));
+        let Ok(volume) = Handler::run(&["console-volume"]);
+        let Ok(balance) = Handler::run(&["console-balance"]);
+        let Ok(first) = Row::new("Volume", Aside(""), volume);
+        let Ok(second) = Row::new("Balance", Aside(""), balance);
         let rows = vec![first, second];
         let Ok(page) = Page::new("Settings", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
         let before = state.at;
-        let Ok(_down) = told(&mut state, Meaning::Step(1), &rows);
+        let Ok(_down) = apply_meaning(&mut state, Meaning::Step(1), &rows);
 
         assert_eq!(stepped_onto(Meaning::Step(1), before, &state), Ok(Some(0)));
 
         let before = state.at;
-        let Ok(_down) = told(&mut state, Meaning::Step(1), &rows);
+        let Ok(_down) = apply_meaning(&mut state, Meaning::Step(1), &rows);
 
         assert_eq!(stepped_onto(Meaning::Step(1), before, &state), Ok(Some(1)));
 
         let before = state.at;
-        let Ok(_at_the_end) = told(&mut state, Meaning::Step(1), &rows);
+        let Ok(_at_the_end) = apply_meaning(&mut state, Meaning::Step(1), &rows);
 
         assert_eq!(stepped_onto(Meaning::Step(1), before, &state), Ok(None), "the end of the list is silent");
         assert_eq!(stepped_onto(Meaning::Tab(1), Some(0), &state), Ok(None), "a tab is not a step");
@@ -4990,10 +4945,10 @@ mod tests {
         let Ok(row) = Row::new("Rename", Aside(""), does);
         let rows = vec![row];
         let Ok(page) = Page::new("Files", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
-        let Ok(_down) = told(&mut state, Meaning::Step(1), &rows);
-        let Ok(chose) = told(&mut state, Meaning::Choose, &rows);
+        let Ok(_down) = apply_meaning(&mut state, Meaning::Step(1), &rows);
+        let Ok(chose) = apply_meaning(&mut state, Meaning::Choose, &rows);
 
         assert_eq!(chose, Outcome::Chose(0));
 
@@ -5013,7 +4968,7 @@ mod tests {
         let rows = vec![row];
         let Ok(here) = Page::new("Files", Rows::Fixed(rows.clone()));
         let Ok(there) = Page::new("Places", Rows::Fixed(Vec::new()));
-        let mut state = state_of(vec![here, there]);
+        let Ok(mut state) = state_of(vec![here, there]);
 
         let Ok(_gone) = carried_out(&mut state, &rows, Outcome::Chose(0));
 
@@ -5023,30 +4978,33 @@ mod tests {
 
     #[test]
     fn b_over_a_picture_puts_the_picture_away_and_not_the_panel() {
-        let mut state = state_of(vec![page("One", &["a"])]);
+        let Ok(one) = page("One", &["a"]);
+        let Ok(mut state) = state_of(vec![one]);
 
         state.opened = Opened::Expanded;
 
-        let Ok(back) = told(&mut state, Meaning::Close, &[]);
+        let Ok(back) = apply_meaning(&mut state, Meaning::Close, &[]);
 
         assert_eq!(back, Outcome::Redrawn);
         assert_eq!(state.opened, Opened::No);
 
-        let Ok(away) = told(&mut state, Meaning::Close, &[]);
+        let Ok(away) = apply_meaning(&mut state, Meaning::Close, &[]);
 
         assert_eq!(away, Outcome::Closing, "the second press is the panel's");
     }
 
     #[test]
     fn b_puts_the_panel_away_and_the_shoulders_turn_the_page() {
-        let mut state = state_of(vec![page("One", &["a"]), page("Two", &["b"])]);
+        let Ok(one) = page("One", &["a"]);
+        let Ok(two) = page("Two", &["b"]);
+        let Ok(mut state) = state_of(vec![one, two]);
 
-        let Ok(along) = told(&mut state, Meaning::Tab(1), &[]);
+        let Ok(along) = apply_meaning(&mut state, Meaning::Tab(1), &[]);
 
         assert_eq!(along, Outcome::Redrawn);
         assert_eq!(state.here, 1);
 
-        let Ok(away) = told(&mut state, Meaning::Close, &[]);
+        let Ok(away) = apply_meaning(&mut state, Meaning::Close, &[]);
 
         assert_eq!(away, Outcome::Closing);
     }
@@ -5096,15 +5054,18 @@ mod tests {
         let Ok(plain) = Page::new("Settings", Rows::Fixed(Vec::new()));
         let Ok(sought) = Page::new("Menu", Rows::Fixed(Vec::new()));
         let Ok(sought) = sought.searching("Type to narrow the list", |_showing, _word| {});
+        let Ok(plain) = state_of(vec![plain]);
+        let Ok(sought) = state_of(vec![sought]);
 
-        assert_eq!(driving(&state_of(vec![plain])), Ok(Driving::Panel));
-        assert_eq!(driving(&state_of(vec![sought])), Ok(Driving::Search));
+        assert_eq!(driving(&plain), Ok(Driving::Panel));
+        assert_eq!(driving(&sought), Ok(Driving::Search));
     }
 
     #[test]
-    fn a_picture_being_looked_at_is_drawn_across_the_card_with_its_rows_still_under_it() {
+    fn a_picture_being_looked_at_is_drawn_across_the_card_with_its_rows_still_under_it() -> Result<(), Failure> {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let at = std::env::temp_dir().join(format!("console-panel-looked-at-{}.png", std::process::id()));
+        let folder = console_core_temporary_directories::fresh("panel-looked-at")?;
+        let at = folder.join("panel-looked-at.png");
         let Ok(mut making) = console_core_external_programs::Program::Ffmpeg.command();
         let made = making
             .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=400x300", "-frames:v", "1"])
@@ -5113,18 +5074,17 @@ mod tests {
 
         assert!(made.is_ok_and(|how| how.success()), "ffmpeg made no picture to look at");
 
-        let Ok(looked) = Row::showing(Picture::Showing(Some(at.clone())));
-        let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![looked, said_row("red.png"), said_row("1 of 3")]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
-        let patience = console_waiting::Schedule::of(Duration::from_secs(20)).expect("a patience");
+        let Ok(looked) = Row::picture(Picture::Showing(Some(at.clone())));
+        let Ok(name) = said_row("red.png");
+        let Ok(place) = said_row("1 of 3");
+        let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![looked, name, place]));
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
+        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
 
-        let Ok(drawn) = console_waiting::found(patience, || {
-            let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(looked_at) = console_waiting::until_some(patience, || {
+            let Ok(panelled) = drawn(&state, &card, &wearing);
 
             Ok(panelled.shapes.iter().find_map(|shape| match shape {
                 Shape::Picture(picture) => Some(picture.size),
@@ -5133,13 +5093,13 @@ mod tests {
         });
         let _ = std::fs::remove_file(&at);
 
-        let drawn = drawn.expect("the picture being looked at was never drawn");
+        let looked_at = looked_at.ok_or("the picture being looked at was never drawn")?;
         let Ok(row_tall) = fitted::<i32, u32>(crate::fitting::ROW);
 
-        assert!(drawn.height > row_tall.saturating_mul(3), "a picture looked at is drawn the size of a row: {drawn:?}");
-        assert!(drawn.width.saturating_mul(3).abs_diff(drawn.height.saturating_mul(4)) <= 4, "the picture is stretched: {drawn:?}");
+        assert!(looked_at.height > row_tall.saturating_mul(3), "a picture looked at is drawn the size of a row: {looked_at:?}");
+        assert!(looked_at.width.saturating_mul(3).abs_diff(looked_at.height.saturating_mul(4)) <= 4, "the picture is stretched: {looked_at:?}");
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let Ok(rows) = landing_on_rows(&panelled);
         let bottom = card.y.saturating_add(card.height);
 
@@ -5150,111 +5110,120 @@ mod tests {
 
             assert!(row.panel.at.y.saturating_add(tall) <= bottom, "a row fell off the card: {row:?}");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_film_on_the_card_says_where_its_frames_go_and_a_frame_of_any_shape_fits_there() {
+    fn a_film_on_the_card_says_where_its_frames_go_and_a_frame_of_any_shape_fits_there() -> Result<(), Failure> {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let Ok(playing) = Row::showing(Picture::Playing(Some("/nowhere/a-film.mkv".into())));
-        let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![playing, said_row("a-film.mkv")]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
+        let Ok(playing) = Row::picture(Picture::Playing(Some(PathBuf::from("/nowhere/a-film.mkv"))));
+        let Ok(name) = said_row("a-film.mkv");
+        let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![playing, name]));
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
-        let moving = panelled.moving.expect("a film on the card says where its frames go");
+        let Ok(panelled) = drawn(&state, &card, &wearing);
+        let moving = panelled.moving.ok_or("a film on the card says where its frames go")?;
         let Ok(row_tall) = fitted::<i32, u32>(crate::fitting::ROW);
 
         assert!(moving.room.height > row_tall.saturating_mul(3), "{moving:?}");
 
         for (wide, tall) in [(1920, 1080), (1080, 1920), (16, 16)] {
             let pixels = console_core_shapes::Pixels { width: wide, height: tall, stride: 4, bytes: std::sync::Arc::new(Vec::new()) };
-            let Ok(picture) = super::placed(&moving, pixels);
+            let Ok(picture) = super::place_picture(&moving, pixels);
             let Ok(room_right) = fitted::<u32, i32>(moving.room.width);
             let Ok(room_bottom) = fitted::<u32, i32>(moving.room.height);
             let Ok(right) = fitted::<u32, i32>(picture.size.width);
             let Ok(bottom) = fitted::<u32, i32>(picture.size.height);
 
             assert!(picture.at.x >= moving.at.x && picture.at.y >= moving.at.y, "{picture:?}");
-            assert!(picture.at.x + right <= moving.at.x + room_right, "{picture:?} spills out of {moving:?}");
-            assert!(picture.at.y + bottom <= moving.at.y + room_bottom, "{picture:?} spills out of {moving:?}");
             assert!(
-                (u64::from(picture.size.width) * u64::from(tall)).abs_diff(u64::from(picture.size.height) * u64::from(wide))
+                picture.at.x.saturating_add(right) <= moving.at.x.saturating_add(room_right),
+                "{picture:?} spills out of {moving:?}"
+            );
+            assert!(
+                picture.at.y.saturating_add(bottom) <= moving.at.y.saturating_add(room_bottom),
+                "{picture:?} spills out of {moving:?}"
+            );
+            assert!(
+                u64::from(picture.size.width)
+                    .saturating_mul(u64::from(tall))
+                    .abs_diff(u64::from(picture.size.height).saturating_mul(u64::from(wide)))
                     <= u64::from(wide.max(tall)),
                 "{wide}x{tall} drawn {:?}",
                 picture.size
             );
         }
+
+        Ok(())
     }
 
     #[test]
     fn only_a_page_that_opens_on_a_picture_gives_its_first_row_the_room() {
-        let Ok(looked) = Row::showing(Picture::Showing(None));
-        let Ok(playing) = Row::showing(Picture::Playing(None));
+        let Ok(looked) = Row::picture(Picture::Showing(None));
+        let Ok(playing) = Row::picture(Picture::Playing(None));
+        let Ok(a) = said_row("a");
+        let Ok(b) = said_row("b");
         let room = crate::fitting::ROW.saturating_mul(10);
 
-        assert_eq!(stage(&[looked, said_row("a"), said_row("b")], room), Ok(crate::fitting::ROW.saturating_mul(7)));
+        assert_eq!(stage(&[looked, a.clone(), b.clone()], room), Ok(crate::fitting::ROW.saturating_mul(7)));
         assert_eq!(stage(&[playing], room), Ok(crate::fitting::ROW.saturating_mul(9)));
-        assert_eq!(stage(&[said_row("a"), said_row("b")], room), Ok(0));
+        assert_eq!(stage(&[a, b], room), Ok(0));
         assert_eq!(stage(&[], room), Ok(0));
     }
 
     #[test]
-    fn the_line_to_type_in_stands_over_the_rows_and_pushes_them_down() {
-        let Ok(page) = Page::new("Menu", Rows::Fixed(vec![said_row("Aether")]));
+    fn the_line_to_type_in_stands_over_the_rows_and_pushes_them_down() -> Result<(), Failure> {
+        let Ok(aether) = said_row("Aether");
+        let Ok(page) = Page::new("Menu", Rows::Fixed(vec![aether]));
         let Ok(page) = page.searching("Type to narrow the list", |_showing, _word| {});
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
 
         let Ok(rows) = landing_on_rows(&panelled);
-
-        let Some(first) = rows.first() else {
-            panic!("a page with one row drew no row")
-        };
+        let first = rows.first().ok_or("a page with one row drew no row")?;
+        let Ok(start) = rows_start(&card);
 
         assert_eq!(
             first.panel.at.y,
-            rows_start(&card).saturating_add(crate::fitting::ROW),
+            start.saturating_add(crate::fitting::ROW),
             "the rows begin a line below where they would without one to type in"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_row_of_cells_draws_every_cell_and_lights_the_one_that_is_now() {
+    fn a_row_of_cells_draws_every_cell_and_lights_the_one_that_is_now() -> Result<(), Failure> {
         let Ok(before) = crate::page::Cell::new("8", crate::page::Active::No);
         let Ok(today) = crate::page::Cell::new("9", crate::page::Active::Yes);
         let Ok(row) = Row::celled(vec![before, today]);
         let Ok(page) = Page::new("Calendar", Rows::Fixed(vec![row]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let said: Vec<&super::Text> = panelled.shapes.iter().filter_map(|shape| match shape {
             super::Shape::Text(text) => Some(text),
             super::Shape::Panel(_) | super::Shape::Picture(_) | super::Shape::Cropped(_) | super::Shape::Line(_) | super::Shape::Clip(_) => None,
         }).collect();
-        let eight = said.iter().find(|text| text.said == "8").expect("the eighth was not drawn");
-        let nine = said.iter().find(|text| text.said == "9").expect("the ninth was not drawn");
+        let eight = said.iter().find(|text| text.said == "8").ok_or("the eighth was not drawn")?;
+        let nine = said.iter().find(|text| text.said == "9").ok_or("the ninth was not drawn")?;
 
         assert!(eight.at.x < nine.at.x, "the cells stand in the order they were given");
         assert_eq!(nine.ink, wearing.night, "today is not lit");
         assert_eq!(eight.ink, wearing.text);
+
+        Ok(())
     }
 
-    fn transport(taken: &Arc<std::sync::atomic::AtomicU32>) -> Row {
+    fn transport(taken: &Arc<std::sync::atomic::AtomicU32>) -> Result<Row, Never> {
         let presses: Vec<crate::page::ButtonPress> = [crate::icons::Icon::Previous, crate::icons::Icon::Play, crate::icons::Icon::Next]
             .into_iter()
             .zip(0u32..)
@@ -5267,29 +5236,29 @@ mod tests {
                 press
             })
             .collect();
-        let Ok(row) = Row::pressing(presses, 1);
 
-        row
+        Row::pressing(presses, 1)
     }
 
     #[test]
-    fn a_strip_of_buttons_draws_each_one_where_a_finger_can_press_it() {
+    fn a_strip_of_buttons_draws_each_one_where_a_finger_can_press_it() -> Result<(), Failure> {
         let taken = Arc::new(std::sync::atomic::AtomicU32::new(9));
-        let rows = vec![transport(&taken)];
+        let Ok(transport) = transport(&taken);
+        let rows = vec![transport];
         let Ok(page) = Page::new("Viewing", Rows::Fixed(rows.clone()));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let mut state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let presses: Vec<&HitRegion> =
             panelled.touching.iter().filter(|touching| matches!(touching.lands, Lands::ButtonPress { .. })).collect();
 
         assert_eq!(presses.len(), 3, "a transport with three buttons drew {} of them", presses.len());
-        assert!(presses.windows(2).all(|two| two[0].panel.at.x < two[1].panel.at.x), "the buttons stand in order");
+        assert!(
+            presses.iter().zip(presses.iter().skip(1)).all(|(one, next)| one.panel.at.x < next.panel.at.x),
+            "the buttons stand in order"
+        );
 
         let Ok(play) = crate::icons::Icon::Play.glyph();
         let drew_play = panelled.shapes.iter().any(|shape| match shape {
@@ -5299,27 +5268,27 @@ mod tests {
 
         assert!(drew_play, "nothing on the glass says where play is");
 
-        let Some(next) = presses.get(2) else { panic!("no third button") };
+        let next = presses.get(2).ok_or("no third button")?;
         let Ok(gone) = super::tapped(&mut state, Some(next.lands), next.panel.at, &card);
 
         assert_eq!(gone, Gone::Staying);
         assert_eq!(taken.load(std::sync::atomic::Ordering::SeqCst), 2, "a tap on next pressed something else");
+
+        Ok(())
     }
 
     #[test]
-    fn a_strip_of_buttons_stands_on_the_card_with_no_row_behind_it() {
+    fn a_strip_of_buttons_stands_on_the_card_with_no_row_behind_it() -> Result<(), Failure> {
         let taken = Arc::new(std::sync::atomic::AtomicU32::new(9));
-        let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![transport(&taken)]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let mut state = state_of(pages);
+        let Ok(transport) = transport(&taken);
+        let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![transport]));
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![page]);
 
         state.at = Some(0);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let Ok(button_wide) = fitted::<i32, u32>(super::PRESS_WIDE);
         let behind: Vec<&super::ShapePanel> = panelled
             .shapes
@@ -5333,9 +5302,11 @@ mod tests {
             .collect();
 
         assert!(behind.is_empty(), "the buttons sit on a row: {:?}", behind.iter().map(|panel| panel.size.width).collect::<Vec<_>>());
+
+        Ok(())
     }
 
-    fn keypad_page() -> Page {
+    fn keypad_page() -> Result<Page, Never> {
         let Ok(number) = Row::headline(
             Picture::None,
             crate::page::Headline { title: "12 +".to_string(), big: "34".to_string(), alignment: crate::page::Alignment::Trailing, ..crate::page::Headline::default() },
@@ -5346,7 +5317,7 @@ mod tests {
             let presses: Vec<crate::page::ButtonPress> = ["7", "8", "9", "+"]
                 .into_iter()
                 .map(|says| {
-                    let Ok(press) = crate::page::ButtonPress::written(says, crate::page::Active::No, |_| ());
+                    let Ok(press) = crate::page::ButtonPress::labelled(says, crate::page::Active::No, |_| ());
 
                     press
                 })
@@ -5356,20 +5327,16 @@ mod tests {
             rows.push(row);
         }
 
-        let Ok(page) = Page::new("Calculator", Rows::Fixed(rows));
-
-        page
+        Page::new("Calculator", Rows::Fixed(rows))
     }
 
     #[test]
-    fn a_row_of_written_keys_fills_the_card_from_edge_to_edge() {
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![keypad_page()];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+    fn a_row_of_written_keys_fills_the_card_from_edge_to_edge() -> Result<(), Failure> {
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(keypad) = keypad_page();
+        let Ok(state) = state_of(vec![keypad]);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let keys: Vec<&super::ShapePanel> = panelled
             .touching
             .iter()
@@ -5378,38 +5345,40 @@ mod tests {
             .collect();
         let Ok(left) = super::inside_left(&card);
         let Ok(right) = super::inside_right(&card);
-        let Some((first, last)) = keys.first().zip(keys.last()) else {
-            panic!("the keypad drew no keys");
-        };
+        let (first, last) = keys.first().zip(keys.last()).ok_or("the keypad drew no keys")?;
         let Ok(last_wide) = fitted::<u32, i32>(last.size.width);
         let reaches = last.at.x.saturating_add(last_wide);
 
         assert_eq!(keys.len(), 4);
         assert!(first.at.x.saturating_sub(left).abs() <= 4, "the first key stands at {}, off the edge at {left}", first.at.x);
         assert!(right.saturating_sub(reaches).abs() <= 4, "the last key ends at {reaches}, short of the edge at {right}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_trailing_headline_draws_its_number_at_the_right_and_under_the_title_strip() {
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![keypad_page()];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
-        let Some(number) = panelled.shapes.iter().find_map(|shape| match shape {
-            super::Shape::Text(text) => match text.said == "34" {
-                true => Some(text),
-                false => None,
-            },
-            super::Shape::Panel(_) | super::Shape::Picture(_) | super::Shape::Cropped(_) | super::Shape::Line(_) | super::Shape::Clip(_) => None,
-        }) else {
-            panic!("the number was not drawn");
-        };
-        let Some(key) = panelled.touching.iter().find(|region| matches!(region.lands, super::Lands::ButtonPress { row: 1, which: 0 })) else {
-            panic!("the keypad drew no keys");
-        };
+    fn a_trailing_headline_draws_its_number_at_the_right_and_under_the_title_strip() -> Result<(), Failure> {
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(keypad) = keypad_page();
+        let Ok(state) = state_of(vec![keypad]);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
+        let number = panelled
+            .shapes
+            .iter()
+            .find_map(|shape| match shape {
+                super::Shape::Text(text) => match text.said == "34" {
+                    true => Some(text),
+                    false => None,
+                },
+                super::Shape::Panel(_) | super::Shape::Picture(_) | super::Shape::Cropped(_) | super::Shape::Line(_) | super::Shape::Clip(_) => None,
+            })
+            .ok_or("the number was not drawn")?;
+        let key = panelled
+            .touching
+            .iter()
+            .find(|region| matches!(region.lands, super::Lands::ButtonPress { row: 1, which: 0 }))
+            .ok_or("the keypad drew no keys")?;
         let Ok(right) = super::inside_right(&card);
         let Ok(number_wide) = fitted::<u32, i32>(number.width);
         let big = number.font.height;
@@ -5420,50 +5389,55 @@ mod tests {
         assert!(number.at.y.saturating_add(big_tall) <= key.panel.at.y, "the number runs into the keys");
         assert!(number.at.y >= card.y.saturating_add(super::strip::EDGE), "the number rises out of the card");
         assert!(big > super::BIG, "the number is drawn at {big}, no larger than a headline with a title beside it");
+
+        Ok(())
     }
 
     #[test]
     fn left_and_right_walk_a_strip_of_buttons_and_a_press_takes_the_one_stood_on() {
         let taken = Arc::new(std::sync::atomic::AtomicU32::new(9));
-        let rows = vec![transport(&taken)];
+        let Ok(transport) = transport(&taken);
+        let rows = vec![transport];
         let Ok(page) = Page::new("Viewing", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
         state.at = Some(0);
 
-        let _ = pressed(&mut state, &rows, Keysym::Return);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Return);
 
         assert_eq!(taken.load(std::sync::atomic::Ordering::SeqCst), 1, "A before moving is the button the program stood on");
 
-        let _ = pressed(&mut state, &rows, Keysym::Left);
-        let _ = pressed(&mut state, &rows, Keysym::Left);
-        let _ = pressed(&mut state, &rows, Keysym::Return);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Left);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Left);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Return);
 
         assert_eq!(taken.load(std::sync::atomic::Ordering::SeqCst), 0, "left twice from play is previous, and no further");
 
-        let _ = pressed(&mut state, &rows, Keysym::Right);
-        let _ = pressed(&mut state, &rows, Keysym::Right);
-        let _ = pressed(&mut state, &rows, Keysym::Return);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Right);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Right);
+        let Ok(_gone) = pressed(&mut state, &rows, Keysym::Return);
 
         assert_eq!(taken.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]
     fn a_finger_on_a_card_that_has_gone_quiet_wakes_it_rather_than_pressing_what_is_under_it() {
-        let Ok(row) = Row::said("a.png", Aside(""));
+        let Ok(row) = Row::text("a.png", Aside(""));
         let Ok(asleep) = Page::new("Viewing", Rows::Fixed(vec![row.clone()])).and_then(|page| page.stirring(|| crate::page::WakeOutcome::Woke));
         let Ok(awake) = Page::new("Viewing", Rows::Fixed(vec![row])).and_then(|page| page.stirring(|| crate::page::WakeOutcome::AlreadyAwake));
         let nothing = super::Panelled { shapes: Vec::new(), touching: Vec::new(), moving: None };
+        let Ok(asleep) = state_of(vec![asleep]);
+        let Ok(awake) = state_of(vec![awake]);
 
-        let Ok(woke) = super::finger_down(&state_of(vec![asleep]), &nothing, (10.0, 10.0));
-        let Ok(held) = super::finger_down(&state_of(vec![awake]), &nothing, (10.0, 10.0));
+        let Ok(woke) = super::finger_down(&asleep, &nothing, (10.0, 10.0));
+        let Ok(held) = super::finger_down(&awake, &nothing, (10.0, 10.0));
 
         assert!(matches!(woke, super::Down::Woke), "a tap on a quiet card pressed what was under it and the controls never came back");
         assert!(matches!(held, super::Down::Touched(_)), "a tap on an awake card did not press");
     }
 
     #[test]
-    fn a_press_put_in_the_corner_stands_at_the_far_end_and_the_rest_stay_in_the_middle() {
+    fn a_press_put_in_the_corner_stands_at_the_far_end_and_the_rest_stay_in_the_middle() -> Result<(), Failure> {
         let Ok(a) = crate::page::ButtonPress::new(crate::icons::Icon::ZoomOut, crate::page::Active::No, |_| {});
         let Ok(b) = crate::page::ButtonPress::new(crate::icons::Icon::ZoomIn, crate::page::Active::No, |_| {});
         let Ok(whole) = crate::page::ButtonPress::new(crate::icons::Icon::FullScreen, crate::page::Active::No, |_| {});
@@ -5484,52 +5458,53 @@ mod tests {
             },
             lit: super::Lit::No,
         };
-        let Ok((_, touching)) = super::press_shapes(&across, &measured, strip, &wearing());
+        let wearing = sample_palette()?;
+        let Ok((_, touching)) = super::press_shapes(&across, &measured, strip, &wearing);
         let far = |which: u32| {
             touching
                 .iter()
                 .find(|region| region.lands == super::Lands::ButtonPress { row: 0, which })
-                .map(|region| region.panel.at.x + i32::try_from(region.panel.size.width).expect("a width"))
-                .expect("the press was drawn")
+                .map(|region| {
+                    let Ok(wide) = fitted::<u32, i32>(region.panel.size.width);
+
+                    region.panel.at.x.saturating_add(wide)
+                })
         };
 
-        assert_eq!(far(2), 1000, "the corner press is not at the end of the row");
-        assert!(far(1) < 600, "the presses in the middle made room for the one in the corner");
-        assert!(far(0) > 400, "the presses in the middle were pushed to the start");
+        assert_eq!(far(2), Some(1000), "the corner press is not at the end of the row");
+        assert!(far(1).is_some_and(|end| end < 600), "the presses in the middle made room for the one in the corner");
+        assert!(far(0).is_some_and(|end| end > 400), "the presses in the middle were pushed to the start");
+
+        Ok(())
     }
 
     #[test]
     fn an_app_is_the_whole_screen_and_a_panel_is_a_card_on_it() {
-        let screen = super::SurfaceSize { width: 1024, height: 640 };
-        let Ok(app) = super::card_on(&screen, Opened::No, super::Framing::Screen);
-        let Ok(panel) = super::card_on(&screen, Opened::No, super::Framing::Card);
+        let Ok(app) = super::card_on(&SCREEN, Opened::No, super::Framing::Screen);
+        let Ok(panel) = super::card_on(&SCREEN, Opened::No, super::Framing::Card);
 
         assert_eq!(app, Card { x: 0, y: 0, width: 1024, height: 640 }, "an app left a margin round itself, which is a panel");
         assert!(panel.width < 1024 && panel.height < 640, "a panel took the whole screen, which is an app");
     }
 
     #[test]
-    fn opened_out_is_the_whole_screen_and_the_picture_runs_to_its_edges() {
-        let screen = super::SurfaceSize { width: 1024, height: 640 };
-        let Ok(whole) = super::card_on(&screen, Opened::Expanded, super::Framing::Card);
-        let Ok(card) = super::card_on(&screen, Opened::No, super::Framing::Card);
+    fn opened_out_is_the_whole_screen_and_the_picture_runs_to_its_edges() -> Result<(), Failure> {
+        let Ok(whole) = super::card_on(&SCREEN, Opened::Expanded, super::Framing::Card);
+        let Ok(card) = super::card_on(&SCREEN, Opened::No, super::Framing::Card);
 
         assert_eq!(whole, Card { x: 0, y: 0, width: 1024, height: 640 }, "opened out left a margin round the card");
         assert!(card.width < 1024 && card.height < 640, "a card that is not opened out is still a card");
 
-        let Ok(row) = Row::showing(Picture::Playing(Some("/nowhere/a-film.mkv".into())));
+        let Ok(row) = Row::picture(Picture::Playing(Some(PathBuf::from("/nowhere/a-film.mkv"))));
         let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![row]));
-        let wearing = wearing();
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&whole));
-        let fits = fits_for(&whole);
-        let mut state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(mut state) = state_of(vec![page]);
 
         state.opened = Opened::Expanded;
         state.at = Some(0);
 
-        let Ok(panelled) = shapes(&state, &whole, fits, &measured, &wearing);
-        let Some(moving) = panelled.moving else { panic!("the film has nowhere to be drawn") };
+        let Ok(panelled) = drawn(&state, &whole, &wearing);
+        let moving = panelled.moving.ok_or("the film has nowhere to be drawn")?;
 
         assert_eq!(moving.at, super::Point { x: 0, y: 0 }, "the picture does not start at the corner of the screen");
         assert_eq!(moving.room.width, 1024, "the picture is not given the width of the screen");
@@ -5540,15 +5515,20 @@ mod tests {
         });
 
         assert!(!lit, "something pink stands round a picture opened out");
+
+        Ok(())
     }
 
-    fn a_folder_that_selects(acted_on: Arc<std::sync::Mutex<Vec<String>>>, opened: Arc<std::sync::Mutex<u32>>) -> State {
+    fn a_folder_that_selects(acted_on: Arc<std::sync::Mutex<Vec<String>>>, opened: Arc<std::sync::Mutex<u32>>) -> Result<State, Never> {
         let rows: Vec<Row> = ["beach.jpg", "dune.jpg", "sea.jpg"]
             .iter()
             .map(|name| {
                 let opened = Arc::clone(&opened);
                 let Ok(opens) = Handler::and_stay(move |_| {
-                    let Ok(mut count) = opened.lock() else { return };
+                    let mut count = match opened.lock() {
+                        Ok(count) => count,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
 
                     *count = count.saturating_add(1);
                 });
@@ -5560,7 +5540,10 @@ mod tests {
             .collect();
         let Ok(page) = Page::new("Pictures", Rows::Fixed(rows));
         let Ok(page) = page.selecting("Delete", move |_, keys| {
-            let Ok(mut acted) = acted_on.lock() else { return };
+            let mut acted = match acted_on.lock() {
+                Ok(acted) => acted,
+                Err(poisoned) => poisoned.into_inner(),
+            };
 
             *acted = keys.to_vec();
         });
@@ -5572,12 +5555,12 @@ mod tests {
     fn once_something_is_selected_a_press_marks_rather_than_opens_and_y_acts_on_every_mark() {
         let acted = Arc::new(std::sync::Mutex::new(Vec::new()));
         let opened = Arc::new(std::sync::Mutex::new(0));
-        let mut state = a_folder_that_selects(Arc::clone(&acted), Arc::clone(&opened));
+        let Ok(mut state) = a_folder_that_selects(Arc::clone(&acted), Arc::clone(&opened));
         let rows = state.rows.clone();
 
         let Ok(_opens) = carried_out(&mut state, &rows, Outcome::Chose(0));
 
-        assert_eq!(opened.lock().map(|count| *count).ok(), Some(1), "with nothing selected a press opens");
+        assert_eq!(held(&opened), Ok(1), "with nothing selected a press opens");
 
         use crate::page::Showing as _;
         let Ok(front) = super::Front::over(&state);
@@ -5589,34 +5572,34 @@ mod tests {
         let Ok(_marks) = carried_out(&mut state, &rows, Outcome::Chose(1));
         let Ok(_unmarks) = carried_out(&mut state, &rows, Outcome::Chose(1));
 
-        assert_eq!(opened.lock().map(|count| *count).ok(), Some(1), "a press while selecting opened the thing");
+        assert_eq!(held(&opened), Ok(1), "a press while selecting opened the thing");
         assert_eq!(state.selected, vec!["beach.jpg".to_string(), "sea.jpg".to_string()]);
 
         let Ok(_asks) = carried_out(&mut state, &rows, Outcome::Else(0));
         let Ok(()) = super::took(&mut state, 1);
 
-        assert_eq!(acted.lock().map(|keys| keys.clone()).ok(), Some(vec!["beach.jpg".to_string(), "sea.jpg".to_string()]));
+        assert_eq!(held(&acted), Ok(vec!["beach.jpg".to_string(), "sea.jpg".to_string()]));
         assert!(state.selected.is_empty(), "the selection outlived what was done with it");
     }
 
-    fn landing(state: &State, card: &Card, lands: Lands) -> HitRegion {
-        let wearing = wearing();
-        let measured = measured_for(&state.pages, wide_of(card));
-        let Ok(panelled) = shapes(state, card, fits_for(card), &measured, &wearing);
+    fn landing(state: &State, card: &Card, lands: Lands) -> Result<HitRegion, Failure> {
+        let wearing = sample_palette()?;
+        let Ok(panelled) = drawn(state, card, &wearing);
+        let region = panelled
+            .touching
+            .into_iter()
+            .find(|region| region.lands == lands)
+            .ok_or(format!("nothing a finger can reach lands on {lands:?}"))?;
 
-        match panelled.touching.into_iter().find(|region| region.lands == lands) {
-            Some(region) => region,
-            None => panic!("nothing a finger can reach lands on {lands:?}"),
-        }
+        Ok(region)
     }
 
-    fn marks_drawn(state: &State, card: &Card) -> u32 {
-        let wearing = wearing();
-        let measured = measured_for(&state.pages, wide_of(card));
-        let Ok(panelled) = shapes(state, card, fits_for(card), &measured, &wearing);
+    fn marks_drawn(state: &State, card: &Card) -> Result<u32, Failure> {
+        let wearing = sample_palette()?;
+        let Ok(panelled) = drawn(state, card, &wearing);
         let Ok(side) = fitted::<i32, u32>(super::SELECTED_MARK);
 
-        let Ok(drawn) = fitted::<_, u32>(panelled
+        let Ok(marks) = fitted::<_, u32>(panelled
             .shapes
             .iter()
             .filter(|shape| match shape {
@@ -5625,20 +5608,23 @@ mod tests {
             })
             .count());
 
-        drawn
+        Ok(marks)
     }
 
     #[test]
-    fn a_finger_alone_can_select_act_on_and_put_down_a_selection() {
+    fn a_finger_alone_can_select_act_on_and_put_down_a_selection() -> Result<(), Failure> {
         let acted = Arc::new(std::sync::Mutex::new(Vec::new()));
         let opened = Arc::new(std::sync::Mutex::new(0));
-        let mut state = a_folder_that_selects(Arc::clone(&acted), Arc::clone(&opened));
+        let Ok(mut state) = a_folder_that_selects(Arc::clone(&acted), Arc::clone(&opened));
         let rows: Vec<Row> = state
             .rows
             .iter()
             .cloned()
             .map(|row| {
-                let key = row.key.clone().unwrap_or_else(String::new);
+                let key = match row.key.clone() {
+                    Some(key) => key,
+                    None => String::new(),
+                };
                 let Ok(row) = row.offering(move |showing| {
                     showing.select(vec![key.clone()]);
 
@@ -5653,7 +5639,10 @@ mod tests {
             let acted = Arc::clone(&acted);
 
             move |_, keys| {
-                let Ok(mut held) = acted.lock() else { return };
+                let mut held = match acted.lock() {
+                    Ok(held) => held,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
 
                 *held = keys.to_vec();
             }
@@ -5662,55 +5651,61 @@ mod tests {
         state.pages = vec![page];
         state.rows = rows;
 
-        let card = card_for(1024, 640);
+        let Ok(card) = card();
 
-        assert_eq!(marks_drawn(&state, &card), 0, "a mark is drawn before anything is selected");
+        let unmarked = marks_drawn(&state, &card)?;
 
-        let dots = landing(&state, &card, Lands::Else(0));
+        assert_eq!(unmarked, 0, "a mark is drawn before anything is selected");
+
+        let dots = landing(&state, &card, Lands::Else(0))?;
         let Ok(_selects) = super::tapped(&mut state, Some(dots.lands), dots.panel.at, &card);
-        let row = landing(&state, &card, Lands::Row(2));
+        let row = landing(&state, &card, Lands::Row(2))?;
         let Ok(_marks) = super::tapped(&mut state, Some(row.lands), row.panel.at, &card);
 
-        assert_eq!(state.selected, vec!["beach.jpg".to_string(), "sea.jpg".to_string()]);
-        assert_eq!(marks_drawn(&state, &card), 2, "what is selected is not marked on the glass");
-        assert_eq!(opened.lock().map(|count| *count).ok(), Some(0), "a tap while selecting opened the thing");
+        let marked = marks_drawn(&state, &card)?;
 
-        let dots = landing(&state, &card, Lands::Else(1));
+        assert_eq!(state.selected, vec!["beach.jpg".to_string(), "sea.jpg".to_string()]);
+        assert_eq!(marked, 2, "what is selected is not marked on the glass");
+        assert_eq!(held(&opened), Ok(0), "a tap while selecting opened the thing");
+
+        let dots = landing(&state, &card, Lands::Else(1))?;
         let Ok(_asks) = super::tapped(&mut state, Some(dots.lands), dots.panel.at, &card);
-        let delete = landing(&state, &card, Lands::Answer(1));
+        let delete = landing(&state, &card, Lands::Answer(1))?;
         let Ok(_deletes) = super::tapped(&mut state, Some(delete.lands), delete.panel.at, &card);
 
-        assert_eq!(acted.lock().map(|keys| keys.clone()).ok(), Some(vec!["beach.jpg".to_string(), "sea.jpg".to_string()]));
+        assert_eq!(held(&acted), Ok(vec!["beach.jpg".to_string(), "sea.jpg".to_string()]));
         assert!(state.selected.is_empty());
 
         state.selected = vec!["dune.jpg".to_string()];
 
-        let shut = landing(&state, &card, Lands::Back);
+        let shut = landing(&state, &card, Lands::Back)?;
         let Ok(gone) = super::tapped(&mut state, Some(shut.lands), shut.panel.at, &card);
 
         assert_eq!(gone, Gone::Staying, "the \u{d7} closed the panel instead of putting the selection down");
         assert!(state.selected.is_empty());
+
+        Ok(())
     }
 
     #[test]
     fn b_puts_a_selection_down_before_it_closes_anything() {
         let acted = Arc::new(std::sync::Mutex::new(Vec::new()));
         let opened = Arc::new(std::sync::Mutex::new(0));
-        let mut state = a_folder_that_selects(acted, opened);
+        let Ok(mut state) = a_folder_that_selects(acted, opened);
         let rows = state.rows.clone();
 
         state.selected = vec!["dune.jpg".to_string()];
 
-        assert_eq!(told(&mut state, Meaning::Close, &rows), Ok(Outcome::Redrawn));
+        assert_eq!(apply_meaning(&mut state, Meaning::Close, &rows), Ok(Outcome::Redrawn));
         assert!(state.selected.is_empty());
-        assert_eq!(told(&mut state, Meaning::Close, &rows), Ok(Outcome::Closing));
+        assert_eq!(apply_meaning(&mut state, Meaning::Close, &rows), Ok(Outcome::Closing));
     }
 
     #[test]
     fn select_all_marks_every_row_that_can_be_marked() {
         let acted = Arc::new(std::sync::Mutex::new(Vec::new()));
         let opened = Arc::new(std::sync::Mutex::new(0));
-        let mut state = a_folder_that_selects(acted, opened);
+        let Ok(mut state) = a_folder_that_selects(acted, opened);
         let rows = state.rows.clone();
 
         state.selected = vec!["dune.jpg".to_string()];
@@ -5723,9 +5718,9 @@ mod tests {
 
     #[test]
     fn a_choice_made_over_a_zoomed_picture_is_told_what_was_on_the_screen() {
-        let still = std::path::PathBuf::from("/nowhere/a.png");
+        let still = PathBuf::from("/nowhere/a.png");
         let room = console_core_geometry::Size { width: 1280, height: 800 };
-        let mut state = state_of(Vec::new());
+        let Ok(mut state) = state_of(Vec::new());
         let Ok(closer) = crate::zoom::Zoom::default().times(crate::zoom::STEP);
 
         state.shown = Some(super::Moving { of: still.clone(), at: console_core_geometry::Point { x: 0, y: 0 }, room });
@@ -5740,7 +5735,7 @@ mod tests {
             "the viewer cannot crop to what it cannot see"
         );
 
-        state.zoom = Some((std::path::PathBuf::from("/nowhere/b.png"), closer));
+        state.zoom = Some((PathBuf::from("/nowhere/b.png"), closer));
         let Ok(front) = super::Front::over(&state);
 
         assert_eq!(
@@ -5751,10 +5746,10 @@ mod tests {
     }
 
     #[test]
-    fn the_zoom_buttons_and_the_full_screen_button_reach_the_picture_on_the_screen() {
-        let Ok(row) = Row::showing(Picture::Showing(Some("/nowhere/a.png".into())));
+    fn the_zoom_buttons_and_the_full_screen_button_reach_the_picture_on_the_screen() -> Result<(), Failure> {
+        let Ok(row) = Row::picture(Picture::Showing(Some(PathBuf::from("/nowhere/a.png"))));
         let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![row]));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
         use crate::page::Showing as _;
 
         let Ok(front) = super::Front::new();
@@ -5764,7 +5759,7 @@ mod tests {
 
         let Ok(()) = front.onto(&mut state);
         let rows = state.rows.clone();
-        let Some(row) = rows.first() else { panic!("the page lost its picture") };
+        let row = rows.first().ok_or("the page lost its picture")?;
         let Ok(zoom) = super::zoom_on(&state, row);
 
         assert_eq!(zoom.by, crate::zoom::STEP, "the zoom button did not zoom the picture");
@@ -5777,19 +5772,21 @@ mod tests {
         let Ok(()) = front.onto(&mut state);
 
         assert_eq!(state.opened, Opened::No, "pressed again, full screen did not give the card back");
+
+        Ok(())
     }
 
     #[test]
     fn a_finger_drags_a_zoomed_picture_and_scrolls_a_whole_one() {
-        let still = std::path::PathBuf::from("/nowhere/a.png");
+        let still = PathBuf::from("/nowhere/a.png");
         let moving = super::Moving {
             of: still.clone(),
             at: super::Point { x: 100, y: 100 },
             room: super::Size { width: 800, height: 400 },
         };
-        let Ok(row) = Row::showing(Picture::Showing(Some(still.clone())));
+        let Ok(row) = Row::picture(Picture::Showing(Some(still.clone())));
         let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![row]));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
         let on_it = super::Point { x: 500, y: 300 };
         let Ok(whole) = super::panning(&state, Some(&moving), on_it);
 
@@ -5807,31 +5804,35 @@ mod tests {
     }
 
     #[test]
-    fn a_bar_draws_how_far_along_it_is_and_a_tap_on_it_goes_there() {
+    fn a_bar_draws_how_far_along_it_is_and_a_tap_on_it_goes_there() -> Result<(), Failure> {
         let landed = Arc::new(std::sync::Mutex::new(None));
         let hearing = Arc::clone(&landed);
         let Ok(nothing) = Handler::and_stay(|_| {});
         let Ok(row) = Row::new("0:25", Aside("1:40"), nothing);
         let Ok(row) = row.picturing(Picture::Bar(crate::page::Bar { at: 25, of: 100 }));
         let Ok(row) = row.seeking(move |_, fraction| {
-            let _ = hearing.lock().map(|mut landed| *landed = Some(fraction));
+            let mut landed = match hearing.lock() {
+                Ok(landed) => landed,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+
+            *landed = Some(fraction);
         });
         let Ok(page) = Page::new("Viewing", Rows::Fixed(vec![row]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let mut state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
-        let Some(seek) = panelled.touching.iter().find(|touching| matches!(touching.lands, Lands::Seek { .. })) else {
-            panic!("a bar that seeks has nowhere to tap")
-        };
+        let Ok(panelled) = drawn(&state, &card, &wearing);
+        let seek = panelled
+            .touching
+            .iter()
+            .find(|touching| matches!(touching.lands, Lands::Seek { .. }))
+            .ok_or("a bar that seeks has nowhere to tap")?;
         let whole = seek.panel.size.width;
         let filled = panelled.shapes.iter().any(|shape| match shape {
             super::Shape::Panel(panel) => {
-                panel.fill == wearing.pink && panel.at.x == seek.panel.at.x && panel.size.width == whole / 4
+                panel.fill == wearing.pink && panel.at.x == seek.panel.at.x && panel.size.width == whole.saturating_div(4)
             },
             super::Shape::Text(_) | super::Shape::Picture(_) | super::Shape::Cropped(_) | super::Shape::Line(_) | super::Shape::Clip(_) => false,
         });
@@ -5839,39 +5840,34 @@ mod tests {
         assert!(filled, "a quarter of the way through is not a quarter of the bar lit");
 
         let Ok(wide) = console_core_number_conversion::fitted::<u32, i32>(whole);
-        let hit = super::Point { x: seek.panel.at.x.saturating_add(wide * 3 / 4), y: seek.panel.at.y };
-        let _ = super::tapped(&mut state, Some(seek.lands), hit, &card);
-        let Ok(landed) = landed.lock().map(|landed| *landed) else { panic!("poisoned") };
+        let hit = super::Point { x: seek.panel.at.x.saturating_add(wide.saturating_mul(3).saturating_div(4)), y: seek.panel.at.y };
+        let Ok(_gone) = super::tapped(&mut state, Some(seek.lands), hit, &card);
+        let Ok(landed) = held(&landed);
 
         assert!(landed.is_some_and(|fraction| (fraction - 0.75).abs() < 0.01), "{landed:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_bar_that_steps_holds_its_buttons_at_its_own_ends_and_its_length_past_them() {
+    fn a_bar_that_steps_holds_its_buttons_at_its_own_ends_and_its_length_past_them() -> Result<(), Failure> {
         let Ok(nothing) = Handler::and_stay(|_| {});
         let Ok(row) = Row::new("0:50", Aside("2:37"), nothing);
         let Ok(row) = row.picturing(Picture::Bar(crate::page::Bar { at: 50, of: 157 }));
-        let Ok(row) = row.leveled(Arc::new(|_step| {}));
+        let Ok(row) = row.with_level(Arc::new(|_step| {}));
         let Ok(row) = row.seeking(|_, _fraction| {});
         let Ok(page) = Page::new("Now Playing", Rows::Fixed(vec![row]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let landing = |wanted: fn(&Lands) -> bool| {
             panelled.touching.iter().find(|touching| wanted(&touching.lands)).map(|touching| touching.panel)
         };
-        let (Some(seek), Some(less), Some(more)) = (
-            landing(|lands| matches!(lands, Lands::Seek { .. })),
-            landing(|lands| matches!(lands, Lands::Nudge { step: -1, .. })),
-            landing(|lands| matches!(lands, Lands::Nudge { step: 1, .. })),
-        ) else {
-            panic!("the bar, its minus or its plus is missing")
-        };
+        let seek = landing(|lands| matches!(lands, Lands::Seek { .. })).ok_or("the bar is missing")?;
+        let less = landing(|lands| matches!(lands, Lands::Nudge { step: -1, .. })).ok_or("the minus is missing")?;
+        let more = landing(|lands| matches!(lands, Lands::Nudge { step: 1, .. })).ok_or("the plus is missing")?;
         let length = panelled.shapes.iter().find_map(|shape| match shape {
             super::Shape::Text(text) => (text.said == "2:37").then_some(text.at.x),
             super::Shape::Panel(_) | super::Shape::Picture(_) | super::Shape::Cropped(_) | super::Shape::Line(_) | super::Shape::Clip(_) => None,
@@ -5882,73 +5878,74 @@ mod tests {
         assert!(less.at.x < seek.at.x, "the minus is not before the bar: {less:?} {seek:?}");
         assert!(more.at.x >= bar_ends, "the plus is not after the bar: {more:?} {seek:?}");
         assert!(length.is_some_and(|x| x > more.at.x), "the length is not past the plus: {length:?} {more:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_bar_on_the_lit_row_fills_in_the_dark_rather_than_pink_on_pink() {
+    fn a_bar_on_the_lit_row_fills_in_the_dark_rather_than_pink_on_pink() -> Result<(), Failure> {
         let Ok(nothing) = Handler::and_stay(|_| {});
         let Ok(row) = Row::new("0:25", Aside("1:40"), nothing);
         let Ok(row) = row.picturing(Picture::Bar(crate::page::Bar { at: 25, of: 100 }));
         let Ok(row) = row.seeking(|_, _fraction| {});
         let Ok(page) = Page::new("Now Playing", Rows::Fixed(vec![row]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let mut state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![page]);
 
         state.at = Some(0);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
-        let Some(seek) = panelled.touching.iter().find(|touching| matches!(touching.lands, Lands::Seek { .. })) else {
-            panic!("a bar that seeks has nowhere to tap")
-        };
+        let Ok(panelled) = drawn(&state, &card, &wearing);
+        let seek = panelled
+            .touching
+            .iter()
+            .find(|touching| matches!(touching.lands, Lands::Seek { .. }))
+            .ok_or("a bar that seeks has nowhere to tap")?;
         let whole = seek.panel.size.width;
         let filled = panelled.shapes.iter().any(|shape| match shape {
             super::Shape::Panel(panel) => {
-                panel.fill == wearing.night && panel.at.x == seek.panel.at.x && panel.size.width == whole / 4
+                panel.fill == wearing.night && panel.at.x == seek.panel.at.x && panel.size.width == whole.saturating_div(4)
             },
             super::Shape::Text(_) | super::Shape::Picture(_) | super::Shape::Cropped(_) | super::Shape::Line(_) | super::Shape::Clip(_) => false,
         });
 
         assert!(filled, "the lit row's bar is not filled in the dark");
+
+        Ok(())
     }
 
     #[test]
-    fn what_a_card_says_it_drew_names_every_part_a_hand_could_land_on() {
-        let Ok(row) = Row::said("Ferry.jpg", Aside("2.1 MB"));
+    fn what_a_card_says_it_drew_names_every_part_a_hand_could_land_on() -> Result<(), Failure> {
+        let Ok(row) = Row::text("Ferry.jpg", Aside("2.1 MB"));
         let Ok(row) = row.offering(|_showing| false);
         let rows = vec![row];
         let Ok(page) = Page::new("Files", Rows::Fixed(rows.clone()));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let mut state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![page]);
 
         state.at = Some(0);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
         let Ok(told) = what_it_drew(&state, &panelled, &rows, (1024, 640));
 
         assert_eq!(told.tab, "Files");
 
-        let Ok(worn) = told.wearing("shut");
+        let Ok(worn) = told.spot("shut");
 
         assert!(worn.is_some(), "a card with no way out drawn on it");
 
-        let Ok(worn) = told.wearing("tab");
+        let Ok(worn) = told.spot("tab");
 
         assert!(worn.is_none(), "one tab is the panel's title, not a strip with nothing to turn to");
 
-        let line = told.line_saying("Ferry.jpg").expect("the row").expect("the row");
+        let Ok(line) = told.line_saying("Ferry.jpg");
+        let line = line.ok_or("the row")?;
 
         assert_eq!(line.standing, crate::description::Standing::On);
         assert_eq!(line.offers, crate::description::Offers::Yes);
 
-        let Ok(worn) = line.wearing("else");
+        let Ok(worn) = line.spot("else");
 
         assert!(worn.is_some(), "a row offering something and drawing no mark for it");
 
@@ -5964,6 +5961,8 @@ mod tests {
                 spot.big
             );
         }
+
+        Ok(())
     }
 
     fn landing_on_rows(panelled: &Panelled) -> Result<Vec<&HitRegion>, Never> {
@@ -5974,12 +5973,11 @@ mod tests {
             .collect())
     }
 
-    fn pressed(state: &mut State, rows: &[Row], key: Keysym) -> Gone {
+    fn pressed(state: &mut State, rows: &[Row], key: Keysym) -> Result<Gone, Never> {
         let Ok(driving) = driving(state);
         let Ok(meaning) = crate::keys::meaning(key, driving);
-        let Ok(gone) = pressed_here(state, rows, key, meaning, driving);
 
-        gone
+        pressed_here(state, rows, key, meaning, driving)
     }
 
     #[test]
@@ -5999,13 +5997,13 @@ mod tests {
         let Ok(row) = Row::new("Throw away", Aside(""), does);
         let rows = vec![row];
         let Ok(page) = Page::new("Files", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
         let Ok(_up) = carried_out(&mut state, &rows, Outcome::Chose(0));
 
         assert_eq!(driving(&state), Ok(Driving::Sure), "a question is what is being driven");
 
-        let _cancelled = pressed(&mut state, &rows, Keysym::Return);
+        let Ok(_cancelled) = pressed(&mut state, &rows, Keysym::Return);
 
         assert_eq!(
             taken.load(Ordering::Relaxed),
@@ -6015,8 +6013,8 @@ mod tests {
         assert_eq!(driving(&state), Ok(Driving::Panel), "and the list is back");
 
         let Ok(_again) = carried_out(&mut state, &rows, Outcome::Chose(0));
-        let _leant = pressed(&mut state, &rows, Keysym::Right);
-        let _took = pressed(&mut state, &rows, Keysym::Return);
+        let Ok(_leant) = pressed(&mut state, &rows, Keysym::Right);
+        let Ok(_took) = pressed(&mut state, &rows, Keysym::Return);
 
         assert_eq!(taken.load(Ordering::Relaxed), 0, "the first thing it offers to do is done");
         assert_eq!(driving(&state), Ok(Driving::Panel));
@@ -6027,10 +6025,12 @@ mod tests {
         let heard = Arc::new(Mutex::new(String::new()));
         let told_what = Arc::clone(&heard);
         let answering: crate::page::Answer = Arc::new(move |_showing, word| {
-            match told_what.lock() {
-                Ok(mut said) => said.push_str(word),
-                Err(_poisoned) => {},
-            }
+            let mut said = match told_what.lock() {
+                Ok(said) => said,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+
+            said.push_str(word);
         });
         let Ok(does) = Handler::and_stay(move |showing| {
             showing.ask_aloud("What should it be called", Arc::clone(&answering));
@@ -6038,36 +6038,30 @@ mod tests {
         let Ok(row) = Row::new("Rename", Aside(""), does);
         let rows = vec![row];
         let Ok(page) = Page::new("Files", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
         let Ok(_up) = carried_out(&mut state, &rows, Outcome::Chose(0));
 
         assert_eq!(driving(&state), Ok(Driving::Question));
 
         for key in [Keysym::h, Keysym::i] {
-            let _typed = pressed(&mut state, &rows, key);
+            let Ok(_typed) = pressed(&mut state, &rows, key);
         }
 
-        let _answered = pressed(&mut state, &rows, Keysym::Return);
-
-        let said = match heard.lock() {
-            Ok(said) => said.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        };
+        let Ok(_answered) = pressed(&mut state, &rows, Keysym::Return);
+        let Ok(said) = held(&heard);
 
         assert_eq!(said, "hi", "what was typed is what the row was told");
         assert_eq!(driving(&state), Ok(Driving::Panel), "and the question is gone");
     }
 
     #[test]
-    fn a_question_standing_over_the_list_is_what_is_drawn() {
-        let Ok(page) = Page::new("Files", Rows::Fixed(vec![said_row("Ferry.jpg")]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let mut state = state_of(pages);
+    fn a_question_standing_over_the_list_is_what_is_drawn() -> Result<(), Failure> {
+        let Ok(ferry) = said_row("Ferry.jpg");
+        let Ok(page) = Page::new("Files", Rows::Fixed(vec![ferry]));
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(mut state) = state_of(vec![page]);
 
         state.sure = Some(super::Sure {
             question: "Throw away".to_string(),
@@ -6077,7 +6071,7 @@ mod tests {
             then: Arc::new(|_showing, _which| {}),
         });
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
 
         let said: Vec<String> = panelled
             .shapes
@@ -6105,13 +6099,15 @@ mod tests {
             2,
             "both answers can be pressed by a thumb"
         );
+
+        Ok(())
     }
 
     #[test]
     fn right_on_a_row_that_offers_something_stands_beside_it_and_a_runs_it() {
         let offered = Arc::new(AtomicBool::new(false));
         let told_it_was = Arc::clone(&offered);
-        let Ok(row) = Row::said("Ferry.jpg", Aside("2.1 MB"));
+        let Ok(row) = Row::text("Ferry.jpg", Aside("2.1 MB"));
         let Ok(row) = row.offering(move |_showing| {
             told_it_was.store(true, Ordering::Relaxed);
 
@@ -6119,15 +6115,15 @@ mod tests {
         });
         let rows = vec![row];
         let Ok(page) = Page::new("Files", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
-        let Ok(_down) = told(&mut state, Meaning::Step(1), &rows);
-        let Ok(stood) = told(&mut state, Meaning::Nudge(1), &rows);
+        let Ok(_down) = apply_meaning(&mut state, Meaning::Step(1), &rows);
+        let Ok(stood) = apply_meaning(&mut state, Meaning::Nudge(1), &rows);
 
         assert_eq!(stood, Outcome::Redrawn);
         assert_eq!(state.beside, Beside::Yes, "the highlight is on what else the row offers");
 
-        let Ok(chose) = told(&mut state, Meaning::Choose, &rows);
+        let Ok(chose) = apply_meaning(&mut state, Meaning::Choose, &rows);
 
         assert_eq!(chose, Outcome::Else(0));
         assert_eq!(state.beside, Beside::No, "and it comes back to the row");
@@ -6141,19 +6137,19 @@ mod tests {
     fn right_on_a_row_that_holds_a_level_moves_the_level_instead() {
         let moved = Arc::new(AtomicU32::new(0));
         let told_it_was = Arc::clone(&moved);
-        let Ok(row) = Row::said("Volume", Aside("40%"));
-        let Ok(row) = row.leveled(Arc::new(move |step| {
+        let Ok(row) = Row::text("Volume", Aside("40%"));
+        let Ok(row) = row.with_level(Arc::new(move |step| {
             let Ok(step) = console_core_number_conversion::fitted::<i32, u32>(step.max(0));
 
             told_it_was.store(step.saturating_add(1), Ordering::Relaxed);
         }));
         let rows = vec![row];
         let Ok(page) = Page::new("Sound", Rows::Fixed(rows.clone()));
-        let mut state = state_of(vec![page]);
+        let Ok(mut state) = state_of(vec![page]);
 
         state.at = Some(0);
 
-        let Ok(nudged) = told(&mut state, Meaning::Nudge(1), &rows);
+        let Ok(nudged) = apply_meaning(&mut state, Meaning::Nudge(1), &rows);
 
         assert_eq!(nudged, Outcome::Redrawn);
         assert_eq!(state.beside, Beside::No, "a row with a level has nowhere to stand beside");
@@ -6164,7 +6160,7 @@ mod tests {
     fn a_row_that_has_a_square_at_its_front_starts_its_words_after_it() {
         let Ok(room) = beside_the_words(&crate::page::Picture::Space);
         let Ok(none) = beside_the_words(&crate::page::Picture::None);
-        let Ok(at) = beside_the_words(&crate::page::Picture::At("/x.png".into()));
+        let Ok(at) = beside_the_words(&crate::page::Picture::At(PathBuf::from("/x.png")));
 
         assert!(room > crate::strip::PICTURE, "the square and the gap after it");
         assert_eq!(at, room, "a picture takes the room a blank square holds open");
@@ -6173,7 +6169,7 @@ mod tests {
 
     #[test]
     fn a_row_whose_picture_is_not_made_yet_asks_for_it_rather_than_drawing_it() {
-        let at = crate::page::Picture::At("/usr/share/x.png".into());
+        let at = crate::page::Picture::At(PathBuf::from("/usr/share/x.png"));
         let Ok(wanted) = wanted_of(&at);
         let Ok(sleeve) = wanted_of(&crate::page::Picture::Sleeve(None));
         let Ok(named) = wanted_of(&crate::page::Picture::Named(crate::icons::Icon::Folder));
@@ -6184,18 +6180,15 @@ mod tests {
     }
 
     #[test]
-    fn a_row_with_a_level_draws_its_two_marks_where_a_thumb_can_find_them() {
-        let Ok(row) = Row::said("Volume", Aside("40%"));
-        let Ok(row) = row.leveled(Arc::new(|_step| {}));
+    fn a_row_with_a_level_draws_its_two_marks_where_a_thumb_can_find_them() -> Result<(), Failure> {
+        let Ok(row) = Row::text("Volume", Aside("40%"));
+        let Ok(row) = row.with_level(Arc::new(|_step| {}));
         let Ok(page) = Page::new("Sound", Rows::Fixed(vec![row]));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
 
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
 
         let marks: Vec<Lands> = panelled
             .touching
@@ -6227,141 +6220,173 @@ mod tests {
         assert!(said.contains(&crate::marks::LESS.to_string()), "the end that takes away: {said:?}");
         assert!(said.contains(&crate::marks::MORE.to_string()), "the end that adds: {said:?}");
         assert!(said.contains(&"40%".to_string()), "and what it is now: {said:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_tabs_watch_runs_while_the_tab_is_in_front_and_not_after() {
-        let watch = crate::page::Watch::anything(&["sleep", "60"]).expect("a watch");
-        let looking = page("Bluetooth", &["Search for Devices"]).watching(watch).expect("watching");
-        let mut state = state_of(vec![looking, page("Wi-Fi", &["Home"])]);
+    fn a_tabs_watch_runs_while_the_tab_is_in_front_and_not_after() -> Result<(), Failure> {
+        let Ok(watch) = crate::page::Watch::command(&["sleep", "60"]);
+        let Ok(looking) = page("Bluetooth", &["Search for Devices"]);
+        let Ok(looking) = looking.with_watch(watch);
+        let Ok(wifi) = page("Wi-Fi", &["Home"]);
+        let Ok(mut state) = state_of(vec![looking, wifi]);
         let mut watching = None;
 
-        super::watched(&mut watching, &state).expect("watched");
+        let Ok(()) = super::sync_watch(&mut watching, &state);
 
-        let at = match &watching {
-            Some((0, running)) => std::path::PathBuf::from(format!("/proc/{}", running.id().expect("an id"))),
-            Some(_) | None => panic!("the Bluetooth tab is in front and nothing it watches is running"),
+        let running = match &watching {
+            Some((0, running)) => Some(running),
+            Some(_) | None => None,
         };
+        let running = running.ok_or("the Bluetooth tab is in front and nothing it watches is running")?;
+        let Ok(id) = running.id();
+        let at = PathBuf::from(format!("/proc/{id}"));
 
         assert!(at.exists(), "the watch was started and is not running");
 
         state.here = 1;
-        super::watched(&mut watching, &state).expect("watched");
+
+        let Ok(()) = super::sync_watch(&mut watching, &state);
 
         assert!(watching.is_none(), "a tab with nothing to watch is holding a watch");
         assert!(!at.exists(), "the tab went and {} is still running, which is a scan no one asked for", at.display());
+
+        Ok(())
     }
 
-    fn a_pool_watching(folder: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-        let at = std::env::temp_dir().join(format!("console-panel-{folder}-{}.sock", std::process::id()));
-        let into = std::env::temp_dir().join(format!("console-panel-{folder}-{}", std::process::id()));
-        std::fs::create_dir_all(&into).expect("a folder");
+    fn a_pool_watching(folder: &str) -> Result<(PathBuf, PathBuf), Failure> {
+        let socket = console_core_temporary_directories::fresh(&format!("panel-{folder}-socket"))?;
+        let at = socket.join("panel.sock");
+        let into = console_core_temporary_directories::fresh(&format!("panel-{folder}"))?;
 
         let serving = at.clone();
-        let _ = std::thread::spawn(move || console_events::serving::serve(&serving, console_events::sources::hold));
-        let began = std::time::Instant::now();
+        let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
+            let _unserved = console_events::serving::serve(&serving, console_events::sources::hold);
+        }));
+        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(5));
+        let Ok(_up) = console_waiting::until(patience, || {
+            Ok(match at.exists() {
+                true => console_waiting::Ready::Yes,
+                false => console_waiting::Ready::NotYet,
+            })
+        });
 
-        while !at.exists() && began.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-
-        (at, into)
+        Ok((at, into))
     }
 
-    fn woke_within(seconds: i64, nanoseconds: i64) -> crate::frames::Woken {
+    fn woke_within(within: rustix::event::Timespec) -> Result<crate::frames::Woken, Failure> {
         let Ok(waking) = crate::frames::waking();
-        let waking = waking.expect("a socket the loop is woken on");
+        let waking = waking.ok_or("a socket the loop is woken on")?;
         let mut watch = [rustix::event::PollFd::new(&waking, rustix::event::PollFlags::IN)];
-        let within = rustix::event::Timespec { tv_sec: seconds, tv_nsec: nanoseconds };
         let _ = rustix::event::poll(&mut watch, Some(&within));
-        let Ok(woken) = crate::frames::woken();
+        let Ok(woken) = crate::frames::wake_state();
 
-        woken
+        Ok(woken)
     }
 
-    fn woke_at_all(seconds: i64, nanoseconds: i64) -> crate::frames::FrameReceived {
+    fn woke_at_all(within: rustix::event::Timespec) -> Result<crate::frames::FrameReceived, Failure> {
         let Ok(waking) = crate::frames::waking();
-        let waking = waking.expect("a socket the loop is woken on");
+        let waking = waking.ok_or("a socket the loop is woken on")?;
         let mut watch = [rustix::event::PollFd::new(&waking, rustix::event::PollFlags::IN)];
-        let within = rustix::event::Timespec { tv_sec: seconds, tv_nsec: nanoseconds };
         let woke = match rustix::event::poll(&mut watch, Some(&within)) {
-            Ok(0) | Err(_) => crate::frames::FrameReceived::No,
+            Ok(0) => crate::frames::FrameReceived::No,
+            Err(_interrupted) => crate::frames::FrameReceived::No,
             Ok(_ready) => crate::frames::FrameReceived::Yes,
         };
-        let Ok(_drained) = crate::frames::woken();
+        let Ok(_drained) = crate::frames::wake_state();
 
-        woke
+        Ok(woke)
     }
 
     fn told_after_writing(
         at: &std::path::Path,
         into: &std::path::Path,
         worth: console_events::again::Worthwhile,
-    ) -> crate::frames::FrameReceived {
-        let subscriber = console_events::subscription::connect_at(at, &[]).expect("a subscriber");
-        let front = super::InFront::on(subscriber).expect("a page in front");
+    ) -> Result<crate::frames::FrameReceived, Failure> {
+        let Ok(subscriber) = console_events::subscription::connect_at(at, &[]);
+        let Ok(front) = super::InFront::on(subscriber);
         let topic = console_program_contract::Topic::Path(into.to_path_buf());
-        let looking = page("Sound", &["Speakers"]).listening(topic, worth).expect("listening");
-        let Ok(_before) = crate::frames::woken();
+        let Ok(looking) = page("Sound", &["Speakers"]);
+        let Ok(looking) = looking.with_subscription(topic, worth);
+        let Ok(_before) = crate::frames::wake_state();
 
-        super::listened(&front.subscriptions, &front.now, Some(&looking)).expect("listened");
+        let Ok(()) = super::listened(&front.subscriptions, &front.now, Some(&looking));
+        let joined = woke_within(rustix::event::Timespec { tv_sec: 2, tv_nsec: 0 })?;
 
         assert_eq!(
-            woke_within(2, 0).rows,
+            joined.rows,
             crate::frames::FrameReceived::Yes,
             "getting into the pool did not wake the loop to read the tab again"
         );
 
-        let _replayed = woke_within(0, 100_000_000);
-        let began = std::time::Instant::now();
-        let mut told = crate::frames::FrameReceived::No;
+        let _replayed = woke_within(rustix::event::Timespec { tv_sec: 0, tv_nsec: 100_000_000 })?;
+        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(2));
+        let Ok(told) = console_waiting::until_some(patience, || {
+            let written = console_core_atomic_writes::whole(&into.join("changed"), b"");
+            let woke = woke_within(rustix::event::Timespec { tv_sec: 0, tv_nsec: 50_000_000 });
 
-        while told == crate::frames::FrameReceived::No && began.elapsed() < Duration::from_secs(2) {
-            std::fs::write(into.join("changed"), b"").expect("a change on disk");
-            told = woke_within(0, 50_000_000).rows;
-        }
+            Ok(match (written, woke) {
+                (Ok(()), Ok(woken)) => match woken.rows {
+                    crate::frames::FrameReceived::Yes => Some(()),
+                    crate::frames::FrameReceived::No => None,
+                },
+                (Err(_unwritten), _) => None,
+                (Ok(()), Err(_unwaited)) => None,
+            })
+        });
 
-        told
+        Ok(match told {
+            Some(()) => crate::frames::FrameReceived::Yes,
+            None => crate::frames::FrameReceived::No,
+        })
     }
 
     #[test]
-    fn a_tab_in_front_is_read_again_when_the_pool_says_its_topic_changed() {
+    fn a_tab_in_front_is_read_again_when_the_pool_says_its_topic_changed() -> Result<(), Failure> {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let (at, into) = a_pool_watching("listening");
-        let told = told_after_writing(&at, &into, console_events::again::anything);
+        let (at, into) = a_pool_watching("listening")?;
+        let told = told_after_writing(&at, &into, console_events::again::always)?;
         let _ = std::fs::remove_dir_all(&into);
         let _ = std::fs::remove_file(&at);
 
         assert_eq!(told, crate::frames::FrameReceived::Yes, "the pool said the topic changed and the loop was never woken to read the tab again");
+
+        Ok(())
     }
 
     #[test]
-    fn a_change_the_tab_does_not_care_about_does_not_read_it_again() {
-        fn nothing(_line: &str) -> Result<console_events::again::Worth, Never> {
+    fn a_change_the_tab_does_not_care_about_does_not_read_it_again() -> Result<(), Failure> {
+        fn ignore_all(_line: &str) -> Result<console_events::again::Worth, Never> {
             Ok(console_events::again::Worth::Ignoring)
         }
 
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let (at, into) = a_pool_watching("ignoring");
-        let told = told_after_writing(&at, &into, nothing);
+        let (at, into) = a_pool_watching("ignoring")?;
+        let told = told_after_writing(&at, &into, ignore_all)?;
         let _ = std::fs::remove_dir_all(&into);
         let _ = std::fs::remove_file(&at);
 
         assert_eq!(told, crate::frames::FrameReceived::No, "a line the tab said was not worth asking after read it again");
+
+        Ok(())
     }
 
     #[test]
-    fn a_panel_told_to_shut_wakes_a_loop_asleep_with_no_timeout() {
+    fn a_panel_told_to_shut_wakes_a_loop_asleep_with_no_timeout() -> Result<(), Failure> {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let Ok(_before) = crate::frames::woken();
+        let Ok(_before) = crate::frames::wake_state();
         let shut = Arc::new(AtomicBool::new(false));
         let Ok(()) = super::Close(Arc::clone(&shut)).shut();
+        let woke = woke_at_all(rustix::event::Timespec { tv_sec: 0, tv_nsec: 0 })?;
 
         assert!(shut.load(Ordering::Relaxed), "shutting did not say so");
-        assert_eq!(woke_at_all(0, 0), crate::frames::FrameReceived::Yes, "a panel was told to shut and the loop asleep in poll was never woken to read it");
+        assert_eq!(woke, crate::frames::FrameReceived::Yes, "a panel was told to shut and the loop asleep in poll was never woken to read it");
+
+        Ok(())
     }
 
-    fn looked_while(shut: &Arc<AtomicBool>, closing: Closing) -> console_waiting::Outcome {
+    fn looked_while(shut: &Arc<AtomicBool>, closing: Closing) -> Result<console_waiting::Outcome, Never> {
         let (_rows_that_never_come, arrived) = std::sync::mpsc::channel();
         let (finished, done) = std::sync::mpsc::channel();
         let looking = Arc::clone(shut);
@@ -6374,7 +6399,8 @@ mod tests {
         let Ok(()) = console_program_lifetime::threads::let_go(first);
 
         let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(10));
-        let Ok(outcome) = console_waiting::until(patience, || {
+
+        console_waiting::until(patience, || {
             match closing {
                 Closing::Announced => {
                     let Ok(()) = super::Close(Arc::clone(shut)).shut();
@@ -6386,9 +6412,7 @@ mod tests {
                 Ok(()) => console_waiting::Ready::Yes,
                 Err(_still_looking) => console_waiting::Ready::NotYet,
             })
-        });
-
-        outcome
+        })
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6400,12 +6424,12 @@ mod tests {
     #[test]
     fn a_panel_shut_while_it_waits_for_its_first_rows_stops_waiting() {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let Ok(_before) = crate::frames::woken();
+        let Ok(_before) = crate::frames::wake_state();
         let shut = Arc::new(AtomicBool::new(false));
 
         assert_eq!(
             looked_while(&shut, Closing::Announced),
-            console_waiting::Outcome::Happened,
+            Ok(console_waiting::Outcome::Happened),
             "a panel was shut while its first rows were still being read, and it waited for them anyway"
         );
     }
@@ -6413,37 +6437,38 @@ mod tests {
     #[test]
     fn a_panel_already_shut_does_not_wait_for_its_first_rows() {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let Ok(_before) = crate::frames::woken();
+        let Ok(_before) = crate::frames::wake_state();
         let shut = Arc::new(AtomicBool::new(true));
 
         assert_eq!(
             looked_while(&shut, Closing::Unannounced),
-            console_waiting::Outcome::Happened,
+            Ok(console_waiting::Outcome::Happened),
             "the word that a panel was shut was read before its first look, and the look waited anyway"
         );
     }
 
     #[test]
-    fn a_reading_that_lands_wakes_the_loop_waiting_for_it() {
+    fn a_reading_that_lands_wakes_the_loop_waiting_for_it() -> Result<(), Failure> {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
-        let Ok(_before) = crate::frames::woken();
-        let reading = super::reading(&page("Now", &["one"]), 0).expect("a reading");
+        let Ok(_before) = crate::frames::wake_state();
+        let Ok(now) = page("Now", &["one"]);
+        let Ok(reading) = super::reading(&now, 0);
+        let woke = woke_at_all(rustix::event::Timespec { tv_sec: 5, tv_nsec: 0 })?;
 
-        assert_eq!(woke_at_all(5, 0), crate::frames::FrameReceived::Yes, "the rows were read and the loop asleep in poll was never woken to draw them");
+        assert_eq!(woke, crate::frames::FrameReceived::Yes, "the rows were read and the loop asleep in poll was never woken to draw them");
         assert_eq!(reading.arrived.try_recv().map(|rows| rows.len()), Ok(1), "the loop was woken before the rows it was woken for");
+
+        Ok(())
     }
 
-    fn written_on(rows: Vec<Row>) -> Vec<console_core_shapes::Text> {
+    fn written_on(rows: Vec<Row>) -> Result<Vec<console_core_shapes::Text>, Failure> {
         let Ok(page) = Page::new("Now", Rows::Fixed(rows));
-        let wearing = wearing();
-        let card = card_for(1024, 640);
-        let pages = vec![page];
-        let measured = measured_for(&pages, wide_of(&card));
-        let fits = fits_for(&card);
-        let state = state_of(pages);
-        let Ok(panelled) = shapes(&state, &card, fits, &measured, &wearing);
+        let wearing = sample_palette()?;
+        let Ok(card) = card();
+        let Ok(state) = state_of(vec![page]);
+        let Ok(panelled) = drawn(&state, &card, &wearing);
 
-        panelled
+        Ok(panelled
             .shapes
             .into_iter()
             .filter_map(|shape| match shape {
@@ -6453,40 +6478,46 @@ mod tests {
                 | console_core_shapes::Shape::Cropped(_)
                 | console_core_shapes::Shape::Line(_) | console_core_shapes::Shape::Clip(_) => None,
             })
-            .collect()
+            .collect())
     }
 
-    fn glyph_of(icon: crate::icons::Icon) -> String {
+    fn glyph_of(icon: crate::icons::Icon) -> Result<String, Never> {
         let Ok(glyph) = icon.glyph();
 
-        glyph.to_string()
+        Ok(glyph.to_string())
     }
 
     #[test]
-    fn an_icon_beside_a_row_is_drawn_rather_than_left_as_a_gap() {
-        let Ok(row) = said_row("Tomorrow  Rain").picturing(Picture::Named(crate::icons::Icon::Rain));
-        let said: Vec<String> = written_on(vec![row]).into_iter().map(|text| text.said).collect();
+    fn an_icon_beside_a_row_is_drawn_rather_than_left_as_a_gap() -> Result<(), Failure> {
+        let Ok(row) = said_row("Tomorrow  Rain");
+        let Ok(row) = row.picturing(Picture::Named(crate::icons::Icon::Rain));
+        let written = written_on(vec![row])?;
+        let said: Vec<String> = written.into_iter().map(|text| text.said).collect();
+        let Ok(rain) = glyph_of(crate::icons::Icon::Rain);
 
-        assert!(said.contains(&glyph_of(crate::icons::Icon::Rain)), "the rain is not on the row: {said:?}");
+        assert!(said.contains(&rain), "the rain is not on the row: {said:?}");
+
+        Ok(())
     }
 
     #[test]
-    fn a_cell_with_an_icon_draws_the_icon_before_its_words() {
+    fn a_cell_with_an_icon_draws_the_icon_before_its_words() -> Result<(), Failure> {
         let Ok(cell) = crate::page::Cell::new("Wind  10 km/h", crate::page::Active::No);
         let Ok(cell) = cell.with_icon(crate::icons::Icon::Wind);
         let Ok(row) = Row::celled(vec![cell]);
-        let written = written_on(vec![row]);
-        let glyph = written.iter().find(|text| text.said == glyph_of(crate::icons::Icon::Wind));
+        let written = written_on(vec![row])?;
+        let Ok(wind) = glyph_of(crate::icons::Icon::Wind);
+        let glyph = written.iter().find(|text| text.said == wind);
         let words = written.iter().find(|text| text.said == "Wind  10 km/h");
+        let (glyph, words) = glyph.zip(words).ok_or(format!("the icon or its words are missing: {written:?}"))?;
 
-        match (glyph, words) {
-            (Some(glyph), Some(words)) => assert!(glyph.at.x < words.at.x, "the icon comes after its words"),
-            (None, _) | (_, None) => panic!("the icon or its words are missing: {written:?}"),
-        }
+        assert!(glyph.at.x < words.at.x, "the icon comes after its words");
+
+        Ok(())
     }
 
     #[test]
-    fn a_headline_draws_the_temperature_large_with_its_sky_beside_an_icon() {
+    fn a_headline_draws_the_temperature_large_with_its_sky_beside_an_icon() -> Result<(), Failure> {
         let headline = crate::page::Headline {
             title: "Brussels".to_string(),
             subtitle: "Thursday, updated 02:30".to_string(),
@@ -6497,19 +6528,23 @@ mod tests {
             alignment: crate::page::Alignment::Leading,
         };
         let Ok(row) = Row::headline(Picture::Showing(None), headline);
-        let written = written_on(vec![row, said_row("under it")]);
+        let Ok(under) = said_row("under it");
+        let written = written_on(vec![row, under])?;
         let said: Vec<&str> = written.iter().map(|text| text.said.as_str()).collect();
         let big = written.iter().find(|text| text.said == "17\u{b0}");
         let body = written.iter().find(|text| text.said == "under it");
+        let Ok(sky) = glyph_of(crate::icons::Icon::CloudSun);
 
         for wanted in ["Brussels", "Thursday, updated 02:30", "Partly Cloudy", "H:21\u{b0}  L:15\u{b0}"] {
             assert!(said.contains(&wanted), "{wanted} is missing: {said:?}");
         }
-        assert!(said.contains(&glyph_of(crate::icons::Icon::CloudSun).as_str()), "the sky has no icon: {said:?}");
 
-        match (big, body) {
-            (Some(big), Some(body)) => assert!(big.font.height > body.font.height.saturating_mul(3), "the temperature is not large"),
-            (None, _) | (_, None) => panic!("the temperature or the row under it is missing: {said:?}"),
-        }
+        assert!(said.contains(&sky.as_str()), "the sky has no icon: {said:?}");
+
+        let (big, body) = big.zip(body).ok_or(format!("the temperature or the row under it is missing: {said:?}"))?;
+
+        assert!(big.font.height > body.font.height.saturating_mul(3), "the temperature is not large");
+
+        Ok(())
     }
 }

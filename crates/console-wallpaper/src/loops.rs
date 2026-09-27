@@ -180,28 +180,28 @@ pub fn cut(frame: &[u8], wide: u32, patch: &Patch) -> Result<Vec<u8>, Never> {
 mod tests {
     use super::*;
 
-    fn flat(wide: u32, tall: u32, shade: u8) -> Vec<u8> {
-        vec![shade; (wide * tall * 3).try_into().unwrap()]
-    }
+    fn dotted() -> Result<Vec<u8>, Never> {
+        let mut picture = vec![30; 192];
+        let at = 3_u32.saturating_mul(8).saturating_add(5).saturating_mul(3);
+        let Ok(at) = console_core_number_conversion::index(at);
 
-    fn dotted(wide: u32, tall: u32, shade: u8, at: (u32, u32), dot: u8) -> Vec<u8> {
-        let mut picture = flat(wide, tall, shade);
-        for byte in picture.iter_mut().skip(((at.1 * wide + at.0) * 3).try_into().unwrap()).take(3) {
-            *byte = dot;
+        for byte in picture.iter_mut().skip(at).take(3) {
+            *byte = 200;
         }
-        picture
+
+        Ok(picture)
     }
 
     #[test]
     fn two_pictures_the_same_are_no_distance_apart() {
-        assert_eq!(apart(&flat(8, 8, 30), &flat(8, 8, 30)), Ok(0.0));
+        assert_eq!(apart(&[30; 192], &[30; 192]), Ok(0.0));
     }
 
     #[test]
     fn a_picture_further_from_another_measures_further() {
-        let Ok(near) = apart(&flat(8, 8, 30), &flat(8, 8, 40));
+        let Ok(near) = apart(&[30; 192], &[40; 192]);
 
-        let Ok(far) = apart(&flat(8, 8, 30), &flat(8, 8, 90));
+        let Ok(far) = apart(&[30; 192], &[90; 192]);
 
         assert!(near < far, "{near} was not under {far}");
     }
@@ -209,44 +209,47 @@ mod tests {
     #[test]
     fn the_stir_is_the_slice_that_ends_nearest_where_it_began() {
         let shades = [10, 90, 200, 90, 10, 90, 200];
-        let frames: Vec<Vec<u8>> = shades.iter().map(|shade| flat(4, 4, *shade)).collect();
+        let frames: Vec<Vec<u8>> = shades.iter().map(|shade| vec![*shade; 48]).collect();
+
         assert_eq!(stir(&frames, 4), Ok((0, 4)));
     }
 
     #[test]
     fn a_loop_shorter_than_the_stir_asked_for_is_taken_whole() {
-        let frames: Vec<Vec<u8>> = (0..3).map(|shade| flat(4, 4, shade * 20)).collect();
+        let frames: Vec<Vec<u8>> = [0, 20, 40].into_iter().map(|shade| vec![shade; 48]).collect();
+
         assert_eq!(stir(&frames, 9), Ok((0, 2)));
     }
 
     #[test]
     fn nothing_moving_is_no_rectangle_at_all() {
-        assert_eq!(changed(&flat(8, 8, 30), &flat(8, 8, 30), 8, 0), Ok(None));
+        assert_eq!(changed(&[30; 192], &[30; 192], 8, 0), Ok(None));
     }
 
     #[test]
     fn a_change_under_the_tolerance_is_not_a_change() {
-        assert_eq!(changed(&flat(8, 8, 30), &flat(8, 8, 32), 8, 3), Ok(None));
+        assert_eq!(changed(&[30; 192], &[32; 192], 8, 3), Ok(None));
 
-        let Ok(moved) = changed(&flat(8, 8, 30), &flat(8, 8, 40), 8, 3);
+        let Ok(moved) = changed(&[30; 192], &[40; 192], 8, 3);
 
         assert!(moved.is_some());
     }
 
     #[test]
     fn the_rectangle_is_the_bounds_of_what_moved_on_an_even_corner() {
-        let moved = changed(&flat(8, 8, 30), &dotted(8, 8, 30, (5, 3), 200), 8, 0);
+        let Ok(dotted) = dotted();
+        let moved = changed(&[30; 192], &dotted, 8, 0);
 
         assert_eq!(moved, Ok(Some(Patch { x: 4, y: 2, width: 2, height: 2 })));
     }
 
     #[test]
     fn a_rectangle_cut_out_holds_that_rectangle_and_no_more() {
-        let picture = dotted(8, 8, 30, (5, 3), 200);
+        let Ok(picture) = dotted();
         let patch = Patch { x: 4, y: 2, width: 2, height: 2 };
         let Ok(taken) = cut(&picture, 8, &patch);
 
-        assert_eq!(taken.len(), 2 * 2 * 3);
-        assert_eq!(&taken[9..12], &[200, 200, 200]);
+        assert_eq!(taken.len(), 12);
+        assert_eq!(taken.get(9..12), Some([200, 200, 200].as_slice()));
     }
 }

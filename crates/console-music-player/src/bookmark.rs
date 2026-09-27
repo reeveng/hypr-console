@@ -59,7 +59,7 @@ pub fn where_() -> Result<Option<PathBuf>, Never> {
     Ok(ours.map(|ours| ours.join(NOTE)))
 }
 
-pub fn said(song: &Path, at: f64) -> Result<String, Never> {
+pub fn serialize(song: &Path, at: f64) -> Result<String, Never> {
     Ok(format!("[{UNDER}]\n{SONG}={}\n{AT}={at}\n", song.display()))
 }
 
@@ -93,7 +93,7 @@ pub fn write(song: &Path, at: f64) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let Ok(said) = said(song, at);
+    let Ok(said) = serialize(song, at);
 
     match console_core_atomic_writes::whole(&at_, said.as_bytes()) {
         Ok(()) => {},
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn what_is_written_is_what_is_read_back() {
         let song = Path::new("/home/someone/Music/a song.flac");
-        let Ok(said) = said(song, 61.5);
+        let Ok(said) = serialize(song, 61.5);
 
         assert_eq!(
             of(&said),

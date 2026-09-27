@@ -47,10 +47,6 @@ dylint_linting::declare_late_lint! {
 
 const SCREEN: usize = 70;
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // Every line a `match` arm stands on, the pattern with the body, so that a
 // decision is charged for the lines around it and not for its cases. A `?`
 // and a `for` are a `match` once they are lowered, and neither is an arm
@@ -101,10 +97,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit050NoLongFunction {
         span: Span,
         def_id: LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if span.from_expansion() {
             return;
         }

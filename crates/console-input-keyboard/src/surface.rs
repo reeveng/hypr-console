@@ -58,6 +58,7 @@
 
 
 use console_core_geometry::Size;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -254,11 +255,20 @@ impl Screen {
         self.board.size = None;
         self.board.up = Some(Up { surface, layer });
 
-        while self.board.size.is_none() && !self.board.closed {
-            self.queue.blocking_dispatch(&mut self.board).map_err(SurfaceError::Closed)?;
-        }
+        let shown = console_core_iteration::iterate(self, |this| {
+            Ok(match this.board.size.is_none() && !this.board.closed {
+                true => match this.queue.blocking_dispatch(&mut this.board) {
+                    Ok(_dispatched) => Step::Again(this),
+                    Err(fault) => Step::Halt(Err(SurfaceError::Closed(fault))),
+                },
+                false => Step::Halt(Ok(())),
+            })
+        });
 
-        Ok(())
+        match shown {
+            Ok(shown) => shown,
+            Err(_endless) => Ok(()),
+        }
     }
 
     pub fn hide(&mut self) -> Result<(), Never> {
@@ -276,7 +286,7 @@ impl Screen {
         Ok(())
     }
 
-    pub fn showing(&self) -> Result<Showing, Never> {
+    pub fn visibility(&self) -> Result<Showing, Never> {
         Ok(match self.board.up {
             Some(_) => Showing::Yes,
             None => Showing::No,
@@ -701,22 +711,32 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Board {
 mod tests {
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn the_keyboard_publishes_the_name_the_desktop_looks_for() {
-        assert_eq!(NAMESPACE, the_desktops_keyboard_name());
+    fn the_keyboard_publishes_the_name_the_desktop_looks_for() -> Result<(), Failure> {
+        let name = the_desktops_keyboard_name()?;
+
+        assert_eq!(NAMESPACE, name);
+
+        Ok(())
     }
 
-    fn the_desktops_keyboard_name() -> String {
+    fn the_desktops_keyboard_name() -> Result<String, Failure> {
         let at = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../console-onscreen/src/lib.rs");
-        let held = std::fs::read_to_string(at).expect("what is on the screen");
-        held.lines()
+        let held = std::fs::read_to_string(at)?;
+        let name = held
+            .lines()
             .find_map(|line| {
                 let rest = line.trim().strip_prefix("pub const KEYBOARD: &str =")?;
                 let (_, quoted) = rest.split_once('"')?;
                 let (name, _) = quoted.split_once('"')?;
+
                 Some(name.to_string())
             })
-            .expect("KEYBOARD in what is on the screen")
+            .ok_or("KEYBOARD in what is on the screen")?;
+
+        Ok(name)
     }
 }

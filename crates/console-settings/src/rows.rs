@@ -11,6 +11,7 @@ use console_battery as battery;
 use console_default_applications::engines;
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
+use console_lock_screen::LockScreen;
 use console_login_window::stored_pattern::StoredPattern;
 use console_home_screen::shape::Shape;
 use console_core_never::Never;
@@ -31,7 +32,7 @@ use console_default_applications::clock::{self, Clock};
 use crate::hours::{self, Place};
 use crate::level::{CELLS, Muted, bar, volume};
 use crate::named::{self, Allowed};
-use crate::languages::{Locale, Made, Names, Language, made};
+use crate::languages::{Locale, Made, Names, Language, generation_state};
 use crate::size::{EVERY, Size};
 use crate::turning::{self, Turn};
 use crate::learned::Following;
@@ -76,7 +77,7 @@ pub fn sound_rows(
             let Ok(silence) = hush(speakers.index, "sink");
             let Ok(row) = Row::new("Speakers", Aside(&level), silence);
             let Ok(turning) = turn(speakers.index, "sink");
-            let Ok(leveled) = row.leveled(turning);
+            let Ok(leveled) = row.with_level(turning);
 
             rows.push(leveled);
         }
@@ -90,19 +91,19 @@ pub fn sound_rows(
         };
         let Ok(at) = stream.level();
         let Ok(level) = volume(at, muted);
-        let Ok(said) = stream.said();
+        let Ok(said) = stream.display_name();
 
         let Ok(silence) = hush(stream.index, "sink-input");
         let Ok(row) = Row::new(&said, Aside(&level), silence);
         let Ok(turning) = turn(stream.index, "sink-input");
-        let Ok(leveled) = row.leveled(turning);
+        let Ok(leveled) = row.with_level(turning);
 
         rows.push(leveled);
     }
 
     match playing.is_empty() {
         true => {
-            let Ok(row) = Row::nothing("Nothing else is playing");
+            let Ok(row) = Row::placeholder("Nothing else is playing");
 
             rows.push(row);
         }
@@ -173,11 +174,11 @@ fn swatches(painted: ColorRole, now: Paint) -> Result<Vec<Row>, Never> {
 }
 
 pub fn books_rows(now: Appearance) -> Result<Vec<Row>, Never> {
-    let Ok(background) = Row::nothing("Background");
+    let Ok(background) = Row::placeholder("Background");
     let Ok(pages) = swatches(ColorRole::Background, now.background);
-    let Ok(text) = Row::nothing("Text");
+    let Ok(text) = Row::placeholder("Text");
     let Ok(inks) = swatches(ColorRole::Text, now.text);
-    let Ok(font) = Row::nothing("Font");
+    let Ok(font) = Row::placeholder("Font");
     let mut rows = vec![background];
 
     rows.extend(pages);
@@ -264,9 +265,9 @@ pub fn dwindling(
         let Ok(level) = levels.at(step);
         let Ok(at) = threshold(level);
         let Ok(words) = text(&word);
-        let Ok(row) = Row::said(&words, Aside(&at));
+        let Ok(row) = Row::text(&words, Aside(&at));
         let Ok(guarding) = guard(step);
-        let Ok(leveled) = row.leveled(guarding);
+        let Ok(leveled) = row.with_level(guarding);
 
         leveled
     }));
@@ -291,16 +292,16 @@ pub fn home_rows(
     let Ok(the_home_screen) = text(&Word::HomeScreen);
     let Ok(naming) = Row::naming(&the_home_screen, Aside(""));
     let Ok(applications_across) = text(&Word::Columns);
-    let Ok(columns) = Row::said(&applications_across, Aside(&shape.columns.to_string()));
-    let Ok(columns) = columns.leveled(across);
+    let Ok(columns) = Row::text(&applications_across, Aside(&shape.columns.to_string()));
+    let Ok(columns) = columns.with_level(across);
     let Ok(applications_down) = text(&Word::Rows);
-    let Ok(down_row) = Row::said(&applications_down, Aside(&shape.rows.to_string()));
-    let Ok(down_row) = down_row.leveled(down);
+    let Ok(down_row) = Row::text(&applications_down, Aside(&shape.rows.to_string()));
+    let Ok(down_row) = down_row.with_level(down);
     let Ok(word) = word_of_home_size(shape.size);
     let Ok(how_big_they_are) = text(&Word::IconSize);
     let Ok(words) = text(&word);
-    let Ok(big) = Row::said(&how_big_they_are, Aside(&words));
-    let Ok(big) = big.leveled(sized);
+    let Ok(big) = Row::text(&how_big_they_are, Aside(&words));
+    let Ok(big) = big.with_level(sized);
 
     Ok(vec![naming, columns, down_row, big])
 }
@@ -329,8 +330,8 @@ pub fn screen_rows(
         None => YET.to_string(),
     };
     let Ok(screen_brightness) = text(&Word::Brightness);
-    let Ok(bright) = Row::said(&screen_brightness, Aside(&level));
-    let Ok(bright) = bright.leveled(dim);
+    let Ok(bright) = Row::text(&screen_brightness, Aside(&level));
+    let Ok(bright) = bright.with_level(dim);
     let Ok(warmth) = warmth(warm);
     let Ok(how_big_everything_is) = text(&Word::DisplayZoom);
     let Ok(naming) = Row::naming(&how_big_everything_is, Aside(""));
@@ -476,7 +477,7 @@ pub fn wifi_rows(
             true => {
                 let name = network.name.clone();
                 let Ok(shares) = share(network);
-                let Ok(row) = Row::said(&name, Aside(NOW));
+                let Ok(row) = Row::text(&name, Aside(NOW));
                 let Ok(row) = row.offering(move |showing| {
                     let shares = Arc::clone(&shares);
 
@@ -574,7 +575,7 @@ pub fn bluetooth_rows(
     }
 
     let last = match looking {
-        bluetooth::Looking::Yes => Row::said(LOOKING, Aside(YET)),
+        bluetooth::Looking::Yes => Row::text(LOOKING, Aside(YET)),
         bluetooth::Looking::No => {
             let Ok(words) = looking_words();
 
@@ -714,7 +715,7 @@ pub fn search_rows(engine: &str, back: Chosen) -> Result<Vec<Row>, Never> {
         let back = Arc::clone(&back);
         let Ok(chooses) = Handler::and_stay(move |showing| {
             let Ok(()) = engines::choose(key);
-            let Ok(telling) = telling(key);
+            let Ok(telling) = set_engine_command(key);
 
             showing.later(telling);
             back(showing);
@@ -773,20 +774,83 @@ pub fn dictation_says(language: &str) -> Result<String, Never> {
     })
 }
 
-pub fn telling(engine: &str) -> Result<Vec<String>, Never> {
+pub fn set_engine_command(engine: &str) -> Result<Vec<String>, Never> {
     Program::Sudo.arguments(&["-n", "console-engine", engine])
 }
 
 pub fn power_rows() -> Result<Vec<Row>, Never> {
     let Ok(systemctl) = Program::Systemctl.name();
-    let Ok(suspends) = Handler::run(&[systemctl, "suspend"]);
+    let suspending = vec![systemctl.to_string(), "suspend".to_string()];
+    let Ok(suspends) = Handler::call(move |_| {
+        let Ok(()) = console_music::player::pause();
+        let Ok(()) = console_panel::running::left_running(&suspending);
+
+        true
+    });
     let Ok(sleep) = Row::new("Sleep", Aside(""), suspends);
     let Ok(reboots) = Handler::run(&[systemctl, "reboot"]);
     let Ok(restart) = Row::new("Restart", Aside(""), reboots);
     let Ok(powers_off) = Handler::run(&[systemctl, "poweroff"]);
     let Ok(shut_down) = Row::new("Shut Down", Aside(""), powers_off);
+    let mut rows = vec![sleep, restart, shut_down];
+    let Ok(locks) = locking();
 
-    Ok(vec![sleep, restart, shut_down])
+    match locks {
+        Locks::Yes => {
+            let Ok(loginctl) = Program::Loginctl.name();
+            let Ok(locking) = Handler::run(&[loginctl, "lock-session"]);
+            let Ok(lock) = Row::new(LOCK_NOW, Aside(""), locking);
+
+            rows.push(lock);
+        }
+        Locks::No => {}
+    }
+
+    Ok(rows)
+}
+
+const LOCK_NOW: &str = "Lock Now";
+
+const LOCK_SCREEN: &str = "Lock Screen";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Locks {
+    Yes,
+    No,
+}
+
+fn locking() -> Result<Locks, Never> {
+    let Ok(home) = console_core_places::home();
+    let stored = home.as_deref().map(console_login_window::stored_pattern::stored);
+    let Ok(chosen) = console_lock_screen::current();
+
+    Ok(match stored {
+        Some(Ok(stored)) => {
+            let Ok(wanted) = console_lock_screen::desired(stored, chosen);
+
+            match wanted {
+                console_lock_screen::Wanted::Lock(_) => Locks::Yes,
+                console_lock_screen::Wanted::Absent => Locks::No,
+            }
+        }
+        Some(Err(_unreadable)) => Locks::No,
+        None => Locks::No,
+    })
+}
+
+pub fn lock_screen(chosen: LockScreen) -> Result<Row, Never> {
+    let state = match chosen {
+        LockScreen::On => ON,
+        LockScreen::Off => OFF,
+    };
+    let Ok(turning) = Handler::and_stay(move |showing| {
+        let Ok(turned) = chosen.flipped();
+        let Ok(()) = console_lock_screen::choose(turned);
+
+        showing.refresh();
+    });
+
+    Row::new(LOCK_SCREEN, Aside(state), turning)
 }
 
 pub fn game_row() -> Result<Row, Never> {
@@ -810,9 +874,11 @@ pub fn login_rows() -> Result<Vec<Row>, Never> {
     match stored {
         Some(Ok(StoredPattern::Hash(_))) => {
             let Ok(change) = Row::new(LOGIN_PATTERN, Aside(ON), chooses);
+            let Ok(chosen) = console_lock_screen::current();
+            let Ok(lock) = lock_screen(chosen);
             let Ok(off) = Row::new(TURN_OFF_LOGIN_PATTERN, Aside(""), forgets);
 
-            Ok(vec![change, off])
+            Ok(vec![change, lock, off])
         }
         Some(Ok(StoredPattern::Absent)) => {
             let Ok(set) = Row::new(LOGIN_PATTERN, Aside(OFF), chooses);
@@ -820,7 +886,7 @@ pub fn login_rows() -> Result<Vec<Row>, Never> {
             Ok(vec![set])
         }
         Some(Err(why)) => {
-            let Ok(unread) = Row::said(LOGIN_PATTERN, Aside(&why.to_string()));
+            let Ok(unread) = Row::text(LOGIN_PATTERN, Aside(&why.to_string()));
 
             Ok(vec![unread])
         }
@@ -847,7 +913,7 @@ pub fn measurements(measuring: Measuring) -> Result<Row, Never> {
 
 pub fn security_rows() -> Result<Vec<Row>, Never> {
     let Ok(mut rows) = login_rows();
-    let Ok(measuring) = measuring::chosen();
+    let Ok(measuring) = measuring::current();
     let Ok(switch) = measurements(measuring);
 
     rows.push(switch);
@@ -868,14 +934,14 @@ pub fn notifications_rows(do_not_disturb: DoNotDisturb) -> Result<Vec<Row>, Neve
         DoNotDisturb::Off => ON,
     };
     let Ok(busctl) = Program::Busctl.name();
-    let Ok(arguments) = console_notifications::serving::asking(QUIETEN);
+    let Ok(arguments) = console_notifications::serving::call_arguments(QUIETEN);
     let mut said = vec![busctl];
 
     said.extend(arguments.iter().map(String::as_str));
 
     let Ok(row) = switch(says, Aside(mark), &said);
 
-    let Ok(bell) = Row::said(BELL, Aside("All, even silenced"));
+    let Ok(bell) = Row::text(BELL, Aside("All, even silenced"));
 
     Ok(vec![row, bell])
 }
@@ -948,7 +1014,7 @@ pub fn language_rows(languages: Languages<'_>, into: [Handler; 3]) -> Result<Vec
     let Ok(heard) = row.opening();
 
     let Ok(english) = text(&Word::EnglishOnly);
-    let Ok(standing) = Row::nothing(&english);
+    let Ok(standing) = Row::placeholder(&english);
 
     Ok(vec![said, typed, heard, standing])
 }
@@ -1033,7 +1099,7 @@ pub fn place_rows(
             false => where_,
         };
 
-        let Ok(made) = made(generated, locale);
+        let Ok(made) = generation_state(generated, locale);
 
         let note = match made {
             Made::Yes => None,
@@ -1074,12 +1140,12 @@ pub fn alphabet_rows(chosen: &[&'static Alphabet], back: Chosen) -> Result<Vec<R
 
         match alphabet.key == alphabets::LATIN {
             true => {
-                let Ok(row) = Row::said(alphabet.says, Aside(mark));
+                let Ok(row) = Row::text(alphabet.says, Aside(mark));
 
                 rows.push(row);
             }
             false => {
-                let Ok(turned) = alphabets::turned(chosen, alphabet.key);
+                let Ok(turned) = alphabets::toggle(chosen, alphabet.key);
                 let Ok(words) = Program::Systemctl.arguments(&["--user", "restart", KEYBOARD]);
                 let Ok(turns) = Handler::and_stay(move |showing| {
                     let Ok(()) = alphabets::choose(&turned);
@@ -1221,53 +1287,231 @@ pub type Chosen = Arc<dyn Fn(&dyn Showing) + Send + Sync>;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use console_core_localization::Localized;
-    use console_panel::page::{Heading, Active, Nowhere};
+    use console_core_number_conversion::{fitted, index};
+    use console_panel::page::{Action, Heading, Active, Nowhere};
     use super::*;
 
-    fn nothing() -> Level {
-        std::sync::Arc::new(|_| ())
+    type Failure = Box<dyn std::error::Error>;
+
+    type Standing = (bluetooth::Known, bluetooth::Joined, Option<i32>);
+
+    type Recorded = Arc<std::sync::Mutex<Vec<(u32, String)>>>;
+
+    trait Opening: Fn(u32, &str) -> Result<Handler, Never> {}
+
+    impl<F: Fn(u32, &str) -> Result<Handler, Never>> Opening for F {}
+
+    const STRANGER: Standing = (bluetooth::Known::No, bluetooth::Joined::No, None);
+
+    const FRIEND: Standing = (bluetooth::Known::Yes, bluetooth::Joined::No, None);
+
+    const JOINED: Standing = (bluetooth::Known::Yes, bluetooth::Joined::Yes, None);
+
+    fn nothing() -> Result<Level, Never> {
+        Ok(Arc::new(|_| ()))
     }
 
-    fn grid() -> Vec<Row> {
-        let Ok(rows) = home_rows(Shape::USUAL, nothing(), nothing(), nothing());
+    fn nowhere() -> Result<Chosen, Never> {
+        Ok(Arc::new(|_: &dyn Showing| ()))
+    }
 
-        rows
+    fn grid() -> Result<Vec<Row>, Never> {
+        let Ok(rows) = nothing();
+        let Ok(columns) = nothing();
+        let Ok(size) = nothing();
+
+        home_rows(Shape::USUAL, rows, columns, size)
     }
 
     fn silence(_: i64, _: &'static str) -> Result<Handler, Never> {
         Handler::and_stay(|_| ())
     }
 
-    fn now(row: &Row) -> Active {
-        let Ok(now) = row.now();
-
-        now
+    fn turning(_: i64, _: &'static str) -> Result<Level, Never> {
+        nothing()
     }
 
-    fn heading(row: &Row) -> Heading {
-        let Ok(heading) = row.heading();
-
-        heading
+    fn opening(_: u32, _: &str) -> Result<Handler, Never> {
+        Handler::and_stay(|_| ())
     }
 
-    fn marked(rows: &[Row]) -> Vec<&str> {
-        rows.iter()
-            .filter(|row| now(row) == Active::Yes)
-            .map(|row| row.says.as_str())
-            .collect()
+    fn says(rows: &[Row]) -> Result<Vec<&str>, Never> {
+        Ok(rows.iter().map(|row| row.says.as_str()).collect())
     }
 
-    fn configured() -> String {
-        let Ok(configuration) = configuration();
-
-        configuration
+    fn marked(rows: &[Row]) -> Result<Vec<&str>, Never> {
+        Ok(rows.iter().filter(|row| row.now() == Ok(Active::Yes)).map(|row| row.says.as_str()).collect())
     }
 
-    fn sound(sinks: &[sound::Thing], playing: &[sound::Thing], default: &str) -> Vec<Row> {
-        let Ok(rows) = sound_rows(sinks, playing, default, silence, turning);
+    fn row<'a>(rows: &'a [Row], said: &str) -> Result<&'a Row, Failure> {
+        let found = rows.iter().find(|row| row.says == said).ok_or(format!("no row says {said:?}"))?;
 
-        rows
+        Ok(found)
+    }
+
+    fn at(rows: &[Row], place: u32) -> Result<&Row, Failure> {
+        let Ok(place_at) = index(place);
+        let found = rows.get(place_at).ok_or(format!("no row {place} among {}", rows.len()))?;
+
+        Ok(found)
+    }
+
+    fn part(rows: &[Row], (from, to): (u32, u32)) -> Result<&[Row], Failure> {
+        let Ok(start) = index(from);
+        let Ok(end) = index(to);
+        let part = rows.get(start..end).ok_or(format!("no rows {from} to {to} among {}", rows.len()))?;
+
+        Ok(part)
+    }
+
+    fn after(rows: &[Row], skipped: u32) -> Result<&[Row], Failure> {
+        let Ok(start) = index(skipped);
+        let part = rows.get(start..).ok_or(format!("no rows after {skipped} among {}", rows.len()))?;
+
+        Ok(part)
+    }
+
+    fn from<'a>(rows: &'a [Row], said: &str) -> Result<&'a [Row], Never> {
+        Ok(match rows.iter().position(|row| row.says == said) {
+            Some(start) => match rows.get(start..) {
+                Some(rest) => rest,
+                None => &[],
+            },
+            None => &[],
+        })
+    }
+
+    fn sound(sinks: &[sound::Thing], default: &str) -> Result<Vec<Row>, Never> {
+        sound_rows(sinks, &[], default, silence, turning)
+    }
+
+    fn wifi_of(on: wifi::Radio, networks: Vec<wifi::Network>) -> Result<Vec<Row>, Never> {
+        wifi_rows(on, networks, &[], |_, _| silence(0, ""), |_| Ok(Arc::new(|_: &dyn Showing| ())))
+    }
+
+    fn bluetooth_of(on: bluetooth::Radio, met: Vec<bluetooth::Met>) -> Result<Vec<Row>, Never> {
+        bluetooth_rows(on, bluetooth::Looking::No, met, Arc::new(|_, _, _| ()))
+    }
+
+    fn while_looking(met: Vec<bluetooth::Met>) -> Result<Vec<Row>, Never> {
+        bluetooth_rows(bluetooth::Radio::On, bluetooth::Looking::Yes, met, Arc::new(|_, _, _| ()))
+    }
+
+    fn met(devices: &[bluetooth::Device], standing: &[Standing]) -> Result<Vec<bluetooth::Met>, Never> {
+        Ok(devices
+            .iter()
+            .zip(standing)
+            .map(|(device, (known, joined, heard))| bluetooth::Met {
+                device: device.clone(),
+                known: *known,
+                joined: *joined,
+                heard: *heard,
+            })
+            .collect())
+    }
+
+    fn heard(devices: &[bluetooth::Device], loudness: &[i32]) -> Result<Vec<bluetooth::Met>, Never> {
+        let standing: Vec<Standing> =
+            loudness.iter().map(|heard| (bluetooth::Known::No, bluetooth::Joined::No, Some(*heard))).collect();
+
+        met(devices, &standing)
+    }
+
+    fn meeting(device: &bluetooth::Device, standing: Standing) -> Result<Vec<String>, Failure> {
+        let Ok(nowhere) = nowhere();
+        let Ok(met) = met(std::slice::from_ref(device), &[standing]);
+        let met = met.first().ok_or("the device was not met")?;
+        let Ok(rows) = meeting_rows(met, nowhere);
+
+        Ok(rows.into_iter().map(|row| row.says).collect())
+    }
+
+    fn back_to(says: &str) -> Result<String, Never> {
+        let Ok(row) = Row::back(says, |_| ());
+
+        Ok(row.says)
+    }
+
+    fn searching(engine: &str) -> Result<Vec<Row>, Never> {
+        let Ok(nowhere) = nowhere();
+
+        search_rows(engine, nowhere)
+    }
+
+    fn listening_for(language: &str) -> Result<Vec<Row>, Never> {
+        let Ok(nowhere) = nowhere();
+
+        dictation_rows(language, nowhere)
+    }
+
+    fn sized(standing: Option<Size>) -> Result<Vec<Row>, Never> {
+        let Ok(level) = nothing();
+        let Ok(grid) = grid();
+
+        screen_rows(Some(50), level, None, NightShift::Off, standing, None, grid)
+    }
+
+    fn battery() -> Result<Vec<Row>, Never> {
+        battery_rows(Some("balanced"), battery::Levels::default(), |_| nothing())
+    }
+
+    fn sample_languages() -> Result<Vec<Language>, Never> {
+        let Ok(names) = Names::none();
+        let Ok(supported) = crate::languages::supported(
+            "en_GB.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\nnl_NL.UTF-8 UTF-8\nth_TH.UTF-8 UTF-8",
+        );
+
+        crate::languages::languages(&supported, &names)
+    }
+
+    fn recorder() -> Result<(Recorded, impl Opening), Never> {
+        let seen: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let telling = Arc::clone(&seen);
+
+        Ok((seen, move |at: u32, name: &str| {
+            match telling.lock() {
+                Ok(mut telling) => telling.push((at, name.to_string())),
+                Err(_the_test_that_held_it_failed) => {},
+            }
+
+            Handler::and_stay(|_| ())
+        }))
+    }
+
+    fn opened(seen: &Recorded) -> Result<Vec<(u32, String)>, Never> {
+        Ok(match seen.lock() {
+            Ok(mut seen) => std::mem::take(&mut seen),
+            Err(_the_test_that_held_it_failed) => Vec::new(),
+        })
+    }
+
+    fn opened_from(rows: &[Row], seen: &[(u32, String)]) -> Result<(), Never> {
+        for (place, says) in seen {
+            let Ok(place_at) = index(*place);
+            let standing = rows.get(place_at).map(|row| row.says.as_str());
+
+            assert_eq!(standing, Some(says.as_str()), "opened from row {place}, and that row is {standing:?}");
+        }
+
+        Ok(())
+    }
+
+    fn language() -> Result<Vec<Row>, Never> {
+        let Ok(nothing) = Handler::and_stay(|_| ());
+        let Ok(also) = Handler::and_stay(|_| ());
+        let Ok(third) = Handler::and_stay(|_| ());
+
+        language_rows(
+            Languages {
+                says: "English (United Kingdom)",
+                types: "Latin, Thai",
+                listens: "Dutch",
+            },
+            [nothing, also, third],
+        )
     }
 
     #[test]
@@ -1290,155 +1534,59 @@ mod tests {
         assert!(off.does.is_some(), "the row is a switch someone can press");
     }
 
-    fn wifi_of(on: wifi::Radio, networks: Vec<wifi::Network>) -> Vec<Row> {
-        let Ok(rows) = wifi_rows(on, networks, &[], |_, _| silence(0, ""), |_| Ok(Arc::new(|_: &dyn Showing| ())));
-
-        rows
-    }
-
-    fn bluetooth_of(on: bluetooth::Radio, met: Vec<bluetooth::Met>) -> Vec<Row> {
-        let Ok(rows) = bluetooth_rows(on, bluetooth::Looking::No, met, Arc::new(|_, _, _| ()));
-
-        rows
-    }
-
-    fn while_looking(met: Vec<bluetooth::Met>) -> Vec<Row> {
-        let Ok(rows) = bluetooth_rows(
-            bluetooth::Radio::On,
-            bluetooth::Looking::Yes,
-            met,
-            Arc::new(|_, _, _| ()),
-        );
-
-        rows
-    }
-
-    fn met(
-        device: &bluetooth::Device,
-        known: bluetooth::Known,
-        joined: bluetooth::Joined,
-    ) -> bluetooth::Met {
-        bluetooth::Met { device: device.clone(), known, joined, heard: None }
-    }
-
-    fn heard(device: &bluetooth::Device, heard: i32) -> bluetooth::Met {
-        bluetooth::Met {
-            device: device.clone(),
-            known: bluetooth::Known::No,
-            joined: bluetooth::Joined::No,
-            heard: Some(heard),
-        }
-    }
-
-    fn back_to(says: &str) -> String {
-        let Ok(row) = Row::back(says, |_| ());
-
-        row.says
-    }
-
-    fn meeting(met: &bluetooth::Met) -> Vec<Row> {
-        let Ok(rows) = meeting_rows(met, nowhere());
-
-        rows
-    }
-
-    fn searching(engine: &str) -> Vec<Row> {
-        let Ok(rows) = search_rows(engine, nowhere());
-
-        rows
-    }
-
-    fn listening(language: &str) -> Vec<Row> {
-        let Ok(rows) = dictation_rows(language, nowhere());
-
-        rows
-    }
-
-    fn named() -> [String; 11] {
-        let Ok(tabs) = tabs();
-
-        tabs
-    }
-
-    fn sized(standing: Option<Size>) -> Vec<Row> {
-        let Ok(rows) =
-            screen_rows(Some(50), nothing(), None, NightShift::Off, standing, None, grid());
-
-        rows
-    }
-
-    fn nowhere() -> Chosen {
-        Arc::new(|_: &dyn Showing| ())
-    }
-
-    fn turning(_: i64, _: &'static str) -> Result<Level, Never> {
-        Ok(nothing())
-    }
-
-    fn says(rows: &[Row]) -> Vec<&str> {
-        rows.iter().map(|row| row.says.as_str()).collect()
-    }
-
-    fn from<'a>(rows: &'a [Row], said: &str) -> &'a [Row] {
-        let mut rest = rows;
-
-        while let Some((first, after)) = rest.split_first() {
-            match first.says == said {
-                true => return rest,
-                false => rest = after,
-            }
-        }
-
-        rest
-    }
-
-    fn screen() -> Vec<Row> {
-        sized(Some(Size::Normal))
-    }
-
-    fn battery() -> Vec<Row> {
-        let Ok(rows) = battery_rows(Some("balanced"), battery::Levels::default(), |_| Ok(nothing()));
-
-        rows
-    }
-
     #[test]
-    fn the_two_things_that_are_held_at_a_level_are_on_a_panel() {
-        assert!(screen()[0].level.is_some(), "the screen is not a level");
+    fn the_two_things_that_are_held_at_a_level_are_on_a_panel() -> Result<(), Failure> {
+        let Ok(screen) = sized(Some(Size::Normal));
         let Ok(sinks) = sound::read(r#"[{"index": 1, "name": "a", "volume": {}}]"#);
-        let speakers = sound(&sinks, &[], "a");
-        assert!(speakers[0].level.is_some(), "the speakers are not a level");
+        let Ok(speakers) = sound(&sinks, "a");
+
+        let screen_first = at(&screen, 0)?;
+        assert!(screen_first.level.is_some(), "the screen is not a level");
+        let speakers_first = at(&speakers, 0)?;
+        assert!(speakers_first.level.is_some(), "the speakers are not a level");
+
+        Ok(())
     }
 
     #[test]
     fn the_profile_in_use_is_the_one_marked() {
-        let Ok(rows) =
-            battery_rows(Some("performance"), battery::Levels::default(), |_| Ok(nothing()));
-        assert_eq!(marked(&rows), [Word::HighPower.english()]);
+        let Ok(rows) = battery_rows(Some("performance"), battery::Levels::default(), |_| nothing());
+        let high = Word::HighPower.english();
+
+        assert_eq!(marked(&rows), Ok(vec![high.as_str()]));
     }
 
     #[test]
-    fn the_battery_tab_opens_on_stopping_the_machine() {
-        assert_eq!(says(&battery()[0..3]), ["Sleep", "Restart", "Shut Down"]);
+    fn the_battery_tab_opens_on_stopping_the_machine() -> Result<(), Failure> {
+        let Ok(rows) = battery();
+        let rows_part = part(&rows, (0, 3))?;
+        let Ok(said) = says(rows_part);
+
+        assert_eq!(said, ["Sleep", "Restart", "Shut Down"]);
+
+        Ok(())
     }
 
     #[test]
-    fn the_three_speeds_are_a_named_scale_with_the_least_of_them_first() {
-        let rows = battery();
-        assert!(rows[3].naming, "the speeds are not named");
-        assert_eq!(rows[3].says, Word::PowerMode.english());
-        assert_eq!(
-            says(&rows[4..7]),
-            [Word::LowPower.english(), Word::Automatic.english(), Word::HighPower.english()]
-        );
+    fn the_three_speeds_are_a_named_scale_with_the_least_of_them_first() -> Result<(), Failure> {
+        let Ok(rows) = battery();
+        let named = at(&rows, 3)?;
+        let rows_part = part(&rows, (4, 7))?;
+        let Ok(speeds) = says(rows_part);
+
+        assert!(named.naming, "the speeds are not named");
+        assert_eq!(named.says, Word::PowerMode.english());
+        assert_eq!(speeds, [Word::LowPower.english(), Word::Automatic.english(), Word::HighPower.english()]);
+
+        Ok(())
     }
 
     #[test]
-    fn the_books_tab_marks_the_page_the_ink_and_the_face_that_were_chosen() {
-        let grid = appearance::grid().expect("the grid");
-        let page = grid[2][3];
-        let now = Appearance { background: Paint::Chosen(page), text: Paint::Desktop, typeface: Typeface::Monospaced };
-        let rows = books_rows(now).expect("the rows");
+    fn the_books_tab_marks_the_page_the_ink_and_the_face_that_were_chosen() -> Result<(), Failure> {
+        let Ok(grid) = appearance::grid();
+        let page = grid.get(2).and_then(|row| row.get(3)).ok_or("the grid has a third row of four")?;
+        let now = Appearance { background: Paint::Chosen(*page), text: Paint::Desktop, typeface: Typeface::Monospaced };
+        let Ok(rows) = books_rows(now);
         let marked: Vec<&str> = rows.iter().filter(|row| row.aside == NOW).map(|row| row.says.as_str()).collect();
 
         assert_eq!(marked, ["Default", "Monospaced"], "the ink is the desktop's and the face was chosen");
@@ -1449,26 +1597,37 @@ mod tests {
             .flat_map(|across| across.presses.iter().filter(|press| press.now == Active::Yes).map(move |press| (across.at, press.face)))
             .collect();
 
-        assert_eq!(lit, [(3, console_panel::page::Face::Swatch(page))], "the page chosen is the one swatch lit, and it is where the row starts");
-        assert_eq!(rows.len(), 3 + 2 * (1 + grid.len()) + TYPEFACES.len());
+        assert_eq!(lit, [(3, console_panel::page::Face::Swatch(*page))], "the page chosen is the one swatch lit, and it is where the row starts");
+        assert_eq!(rows.len(), grid.len().saturating_add(1).saturating_mul(2).saturating_add(3).saturating_add(TYPEFACES.len()));
+
+        Ok(())
     }
 
     #[test]
     fn the_screen_and_how_hard_the_machine_works_are_two_tabs() {
-        let battery = says(&battery()).join("\n");
+        let Ok(rows) = battery();
+        let Ok(said) = says(&rows);
+        let battery = said.join("\n");
+
         for screen in [Word::Brightness.english(), Word::DisplayZoom.english()] {
             assert!(!battery.contains(&screen), "{screen:?} is still on the Battery tab");
         }
+
         assert!(!battery.contains("night colors"), "the evening is still on the Battery tab");
     }
 
     #[test]
-    fn the_sizes_are_a_named_scale_with_the_smallest_of_them_first() {
-        let rows = screen();
-        let named = from(&rows, &Word::DisplayZoom.english());
-        assert!(named.first().expect("the sizes are named").naming, "the name is a row the highlight can land on");
+    fn the_sizes_are_a_named_scale_with_the_smallest_of_them_first() -> Result<(), Failure> {
+        let Ok(rows) = sized(Some(Size::Normal));
+        let Ok(named) = from(&rows, &Word::DisplayZoom.english());
+        let Ok(rungs) = fitted::<_, u32>(EVERY.len());
+        let rungs_part = part(named, (1, rungs.saturating_add(1)))?;
+        let Ok(ladder) = says(rungs_part);
+
+        let named_first = at(named, 0)?;
+        assert!(named_first.naming, "the name is a row the highlight can land on");
         assert_eq!(
-            says(&named[1..1 + EVERY.len()]),
+            ladder,
             [
                 Word::SizeSmallest.english(),
                 Word::SizeSmaller.english(),
@@ -1481,84 +1640,91 @@ mod tests {
             rows.iter().take_while(|row| row.says != Word::DisplayZoom.english()).any(|row| row.level.is_some()),
             "the brightness is above the name, not under it"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn the_home_screens_own_shape_is_under_the_size_of_everything_else() {
-        let rows = screen();
-        let named = from(&rows, &Word::HomeScreen.english());
-        let ladder = from(&rows, &Word::DisplayZoom.english());
+    fn the_home_screens_own_shape_is_under_the_size_of_everything_else() -> Result<(), Failure> {
+        let Ok(rows) = sized(Some(Size::Normal));
+        let Ok(named) = from(&rows, &Word::HomeScreen.english());
+        let Ok(ladder) = from(&rows, &Word::DisplayZoom.english());
+        let named_after = after(named, 1)?;
+        let Ok(shape) = says(named_after);
 
         assert!(!ladder.is_empty(), "the sizes are named");
         assert!(ladder.len() > named.len(), "the home screen is under the ladder, not over it");
-        assert!(named.first().expect("the home screen is named").naming, "the name is a row the highlight can land on");
-        assert_eq!(
-            says(&named[1..]),
-            [
-                Word::Columns.english(),
-                Word::Rows.english(),
-                Word::IconSize.english(),
-            ]
-        );
+        let named_first = at(named, 0)?;
+        assert!(named_first.naming, "the name is a row the highlight can land on");
+        assert_eq!(shape, [Word::Columns.english(), Word::Rows.english(), Word::IconSize.english()]);
+
+        Ok(())
     }
 
     #[test]
-    fn the_home_screens_rows_say_what_they_are_at_and_can_all_be_moved() {
+    fn the_home_screens_rows_say_what_they_are_at_and_can_all_be_moved() -> Result<(), Failure> {
         let Ok(wide) = Shape::USUAL.with_columns(7);
 
         let Ok(deep) = wide.with_rows(4);
 
         let Ok(shape) = deep.sized(console_home_screen::shape::Size::Bigger);
 
-        let Ok(rows) = home_rows(shape, nothing(), nothing(), nothing());
-        let moved: Vec<&Row> = rows.iter().filter(|row| row.level.is_some()).collect();
+        let Ok(across) = nothing();
+        let Ok(down) = nothing();
+        let Ok(size) = nothing();
+        let Ok(rows) = home_rows(shape, across, down, size);
+        let moved: Vec<&str> = rows.iter().filter(|row| row.level.is_some()).map(|row| row.aside.as_str()).collect();
 
-        assert_eq!(moved.len(), 3, "one of them cannot be moved");
-        assert!(moved.iter().all(|row| !row.aside.is_empty()), "one of them says nothing");
-        assert_eq!(moved[0].aside, "7");
-        assert_eq!(moved[1].aside, "4");
-        assert_eq!(moved[2].aside, Word::SizeLarger.english());
+        assert_eq!(moved, ["7", "4", Word::SizeLarger.english().as_str()], "one of them cannot be moved or says nothing");
+
+        Ok(())
     }
 
     #[test]
-    fn the_way_up_the_screen_stands_is_the_one_marked_and_the_three_are_offered() {
-        let Ok(rows) =
-            screen_rows(Some(50), nothing(), None, NightShift::Off, None, Some(Turn::Left), grid());
-        let named = from(&rows, &Word::Rotation.english());
+    fn the_way_up_the_screen_stands_is_the_one_marked_and_the_three_are_offered() -> Result<(), Failure> {
+        let Ok(level) = nothing();
+        let Ok(grid) = grid();
+        let Ok(rows) = screen_rows(Some(50), level, None, NightShift::Off, None, Some(Turn::Left), grid);
+        let Ok(named) = from(&rows, &Word::Rotation.english());
+        let named_part = part(named, (1, 4))?;
+        let Ok(ways) = says(named_part);
+        let left = Word::RotatedLeft.english();
 
-        assert!(named.first().expect("the ways up are named").naming, "the name is a row the highlight can land on");
-        assert_eq!(
-            says(&named[1..4]),
-            [Word::RotatedLeft.english(), Word::Standard.english(), Word::RotatedRight.english()]
-        );
-        assert_eq!(marked(&rows), [Word::RotatedLeft.english()]);
+        let named_first = at(named, 0)?;
+        assert!(named_first.naming, "the name is a row the highlight can land on");
+        assert_eq!(ways, [Word::RotatedLeft.english(), Word::Standard.english(), Word::RotatedRight.english()]);
+        assert_eq!(marked(&rows), Ok(vec![left.as_str()]));
+
+        Ok(())
     }
 
     #[test]
     fn the_size_the_screen_is_at_is_the_one_marked() {
-        let rows = sized(Some(Size::Bigger));
-        assert_eq!(marked(&rows), [Word::SizeLarger.english()]);
+        let Ok(rows) = sized(Some(Size::Bigger));
+        let larger = Word::SizeLarger.english();
+
+        assert_eq!(marked(&rows), Ok(vec![larger.as_str()]));
     }
 
     #[test]
     fn a_screen_at_a_size_of_its_own_marks_none_of_the_rungs() {
-        let rows = sized(None);
-        assert!(
-            !rows.iter().any(|row| now(row) == Active::Yes),
-            "something is marked"
-        );
+        let Ok(rows) = sized(None);
+
+        assert_eq!(marked(&rows), Ok(Vec::new()), "something is marked");
         assert_eq!(
             rows.iter().filter(|row| row.does.is_some()).count(),
-            EVERY.len() + turning::EVERY.len() + 1,
+            EVERY.len().saturating_add(turning::EVERY.len()).saturating_add(1),
             "a rung or a way up went missing"
         );
     }
 
     #[test]
-    fn where_the_battery_is_watched_is_three_rows_that_can_be_moved() {
-        let Ok(rows) = dwindling(battery::Levels::default(), |_| Ok(nothing()));
+    fn where_the_battery_is_watched_is_three_rows_that_can_be_moved() -> Result<(), Failure> {
+        let Ok(rows) = dwindling(battery::Levels::default(), |_| nothing());
+        let Ok(said) = says(&rows);
+
         assert_eq!(
-            says(&rows),
+            said,
             [
                 Word::LowBattery.english(),
                 Word::AlertAt.english(),
@@ -1566,8 +1732,12 @@ mod tests {
                 Word::ShutDownAt.english(),
             ]
         );
-        assert!(rows[1..].iter().all(|row| row.level.is_some()), "a threshold that cannot be moved");
-        assert_eq!(rows[1].aside, "25%");
+        let rows_after = after(&rows, 1)?;
+        assert!(rows_after.iter().all(|row| row.level.is_some()), "a threshold that cannot be moved");
+        let second = at(&rows, 1)?;
+        assert_eq!(second.aside, "25%");
+
+        Ok(())
     }
 
     #[test]
@@ -1577,28 +1747,28 @@ mod tests {
     }
 
     #[test]
-    fn a_radio_that_is_looking_says_so_where_the_press_that_starts_it_was() {
-        let looking = while_looking(Vec::new());
-        let last = looking.last().expect("a last row");
+    fn a_radio_that_is_looking_says_so_where_the_press_that_starts_it_was() -> Result<(), Failure> {
+        let Ok(looking) = while_looking(Vec::new());
+        let last = looking.last().ok_or("a last row")?;
 
         assert_eq!(last.says, LOOKING);
         assert!(last.does.is_none(), "a row saying it is looking is not a row to press");
 
-        let idle = bluetooth_of(bluetooth::Radio::On, Vec::new());
+        let Ok(idle) = bluetooth_of(bluetooth::Radio::On, Vec::new());
+        let last = idle.last().ok_or("a last row")?;
 
-        assert_eq!(idle.last().expect("a last row").says, LOOK);
+        assert_eq!(last.says, LOOK);
+
+        Ok(())
     }
 
     #[test]
     fn the_loudest_stranger_is_the_nearest_row_to_the_thumb() {
         let Ok(devices) = bluetooth::devices("Device AA Far\nDevice BB Near\nDevice CC Middling");
-        let rows = while_looking(vec![
-            heard(&devices[0], -95),
-            heard(&devices[1], -40),
-            heard(&devices[2], -70),
-        ]);
+        let Ok(heard) = heard(&devices, &[-95, -40, -70]);
+        let Ok(rows) = while_looking(heard);
 
-        assert_eq!(says(&rows), [BLUETOOTH, "Near", "Middling", "Far", LOOKING]);
+        assert_eq!(says(&rows), Ok(vec![BLUETOOTH, "Near", "Middling", "Far", LOOKING]));
     }
 
     #[test]
@@ -1606,46 +1776,42 @@ mod tests {
         let Ok(devices) = bluetooth::devices(
             "Device AA:BB:CC:DD:EE:FF AA-BB-CC-DD-EE-FF\nDevice 11:22:33:44:55:66 Blue Keys",
         );
-        let rows = while_looking(vec![heard(&devices[0], -40), heard(&devices[1], -95)]);
+        let Ok(heard) = heard(&devices, &[-40, -95]);
+        let Ok(rows) = while_looking(heard);
 
-        assert_eq!(says(&rows), [
-            BLUETOOTH,
-            "Blue Keys",
-            "AA-BB-CC-DD-EE-FF",
-            LOOKING
-        ]);
+        assert_eq!(says(&rows), Ok(vec![BLUETOOTH, "Blue Keys", "AA-BB-CC-DD-EE-FF", LOOKING]));
     }
 
     #[test]
-    fn what_a_stranger_says_beside_it_is_how_loud_it_is() {
+    fn what_a_stranger_says_beside_it_is_how_loud_it_is() -> Result<(), Failure> {
         let Ok(devices) = bluetooth::devices("Device AA Near\nDevice BB Quiet");
-        let rows = while_looking(vec![heard(&devices[0], -50), met(
-            &devices[1],
-            bluetooth::Known::No,
-            bluetooth::Joined::No,
-        )]);
-        let near = rows.iter().find(|row| row.says == "Near").expect("near");
-        let quiet = rows.iter().find(|row| row.says == "Quiet").expect("quiet");
+        let Ok(met) = met(&devices, &[(bluetooth::Known::No, bluetooth::Joined::No, Some(-50)), STRANGER]);
+        let Ok(rows) = while_looking(met);
+        let Ok(loud) = strength(100);
 
-        assert_eq!(near.aside, strength(100).unwrap_or_default());
+        let near = row(&rows, "Near")?;
+        assert_eq!(near.aside, loud);
+        let quiet = row(&rows, "Quiet")?;
         assert_eq!(quiet.aside, YET, "a device the radio has heard nothing from says nothing");
+
+        Ok(())
     }
 
     #[test]
     fn a_radio_that_is_off_says_so_beside_its_own_name_rather_than_in_it() {
-        let off = wifi_of(wifi::Radio::Off, Vec::new());
-        let on = wifi_of(wifi::Radio::On, Vec::new());
+        let Ok(off) = wifi_of(wifi::Radio::Off, Vec::new());
+        let Ok(on) = wifi_of(wifi::Radio::On, Vec::new());
+        let Ok(on_says) = says(&on);
 
-        assert_eq!(says(&off), [WIFI]);
-        assert_eq!(says(&on).first().copied(), Some(WIFI));
+        assert_eq!(says(&off), Ok(vec![WIFI]));
+        assert_eq!(on_says.first().copied(), Some(WIFI));
         assert_eq!(off.first().map(|row| row.aside.as_str()), Some(OFF));
         assert_eq!(on.first().map(|row| row.aside.as_str()), Some(ON));
 
-        let dark = bluetooth_of(bluetooth::Radio::Off, Vec::new());
+        let Ok(dark) = bluetooth_of(bluetooth::Radio::Off, Vec::new());
 
-        assert_eq!(says(&dark), [BLUETOOTH]);
+        assert_eq!(says(&dark), Ok(vec![BLUETOOTH]));
         assert_eq!(dark.first().map(|row| row.aside.as_str()), Some(OFF));
-
         assert!(
             dark.first().is_some_and(|row| row.does.is_some()),
             "a row that says Off is still the row that turns it on"
@@ -1653,100 +1819,97 @@ mod tests {
     }
 
     #[test]
-    fn the_one_we_are_on_is_marked_rather_than_offered() {
+    fn the_one_we_are_on_is_marked_rather_than_offered() -> Result<(), Failure> {
         let Ok(networks) = wifi::networks("yes:Home:71:2437 MHz:WPA2\nno:Cafe:50:2437 MHz:");
-        let rows = wifi_of(wifi::Radio::On, networks);
-        let home = rows.iter().find(|row| row.says == "Home").expect("home");
-        assert_eq!(now(home), Active::Yes);
+        let Ok(rows) = wifi_of(wifi::Radio::On, networks);
+        let home = row(&rows, "Home")?;
+        let cafe = row(&rows, "Cafe")?;
+
+        assert_eq!(home.now(), Ok(Active::Yes));
         assert!(home.does.is_none(), "there is nothing to do about being where you are");
-        let cafe = rows.iter().find(|row| row.says == "Cafe").expect("cafe");
         assert!(cafe.does.is_some());
+
+        Ok(())
     }
 
     #[test]
     fn the_network_we_are_on_offers_its_code_on_y_and_no_other_does() {
         let Ok(networks) = wifi::networks("yes:Home:71:2437 MHz:WPA2\nno:Cafe:50:2437 MHz:WPA2");
-        let rows = wifi_of(wifi::Radio::On, networks);
+        let Ok(rows) = wifi_of(wifi::Radio::On, networks);
         let offered: Vec<&str> = rows.iter().filter(|row| row.more.is_some()).map(|row| row.says.as_str()).collect();
-        let said: Vec<&str> = rows.iter().map(|row| row.says.as_str()).collect();
 
         assert_eq!(offered, ["Home"]);
-        assert_eq!(said, [WIFI, "Home", "Cafe"], "the code is a choice on Y rather than a row of its own");
+        assert_eq!(says(&rows), Ok(vec![WIFI, "Home", "Cafe"]), "the code is a choice on Y rather than a row of its own");
     }
 
     #[test]
-    fn a_joined_device_is_marked_and_offers_the_way_out_of_it() {
+    fn a_joined_device_is_marked_and_offers_the_way_out_of_it() -> Result<(), Failure> {
         let Ok(devices) = bluetooth::devices("Device AA Pads\nDevice BB Speaker");
-        let rows = bluetooth_of(bluetooth::Radio::On, vec![
-            met(&devices[0], bluetooth::Known::Yes, bluetooth::Joined::Yes),
-            met(&devices[1], bluetooth::Known::Yes, bluetooth::Joined::No),
-        ]);
-        assert_eq!(now(rows.iter().find(|row| row.says == "Pads").expect("pads")), Active::Yes);
-        assert_eq!(
-            now(rows.iter().find(|row| row.says == "Speaker").expect("speaker")),
-            Active::No
-        );
+        let Ok(met) = met(&devices, &[JOINED, FRIEND]);
+        let Ok(rows) = bluetooth_of(bluetooth::Radio::On, met);
+
+        let pads = row(&rows, "Pads")?;
+        assert_eq!(pads.now(), Ok(Active::Yes));
+        let speaker = row(&rows, "Speaker")?;
+        assert_eq!(speaker.now(), Ok(Active::No));
+
+        Ok(())
     }
 
     #[test]
-    fn a_device_no_one_has_been_introduced_to_is_not_offered_a_word_bluez_would_refuse() {
+    fn a_device_no_one_has_been_introduced_to_is_not_offered_a_word_bluez_would_refuse() -> Result<(), Failure> {
         let Ok(devices) = bluetooth::devices("Device AA Blue Keys");
-        let rows = bluetooth_of(bluetooth::Radio::On, vec![met(
-            &devices[0],
-            bluetooth::Known::No,
-            bluetooth::Joined::No,
-        )]);
-        let stranger = rows.iter().find(|row| row.says == "Blue Keys").expect("the keyboard");
+        let Ok(met) = met(&devices, &[STRANGER]);
+        let Ok(rows) = bluetooth_of(bluetooth::Radio::On, met);
+        let stranger = row(&rows, "Blue Keys")?;
 
         assert!(stranger.does.is_some(), "a stranger has to be pressable to become known");
         assert_eq!(stranger.aside, YET, "and has to read as somewhere still to go");
+
+        Ok(())
     }
 
     #[test]
-    fn a_stranger_is_offered_the_pairing_and_a_friend_the_road_and_the_way_out() {
+    fn a_stranger_is_offered_the_pairing_and_a_friend_the_road_and_the_way_out() -> Result<(), Failure> {
         let Ok(devices) = bluetooth::devices("Device AA Blue Keys");
+        let keyboard = devices.first().ok_or("the keyboard")?;
+        let Ok(back) = back_to("Blue Keys");
 
-        assert_eq!(
-            says(&meeting(&met(&devices[0], bluetooth::Known::No, bluetooth::Joined::No))),
-            [&back_to("Blue Keys"), PAIR]
-        );
-        assert_eq!(
-            says(&meeting(&met(&devices[0], bluetooth::Known::Yes, bluetooth::Joined::No))),
-            [&back_to("Blue Keys"), JOIN, FORGET]
-        );
-        assert_eq!(
-            says(&meeting(&met(&devices[0], bluetooth::Known::Yes, bluetooth::Joined::Yes))),
-            [&back_to("Blue Keys"), LEAVE, FORGET]
-        );
+        let stranger_rows = meeting(keyboard, STRANGER)?;
+        assert_eq!(stranger_rows, [back.as_str(), PAIR]);
+        let friend_rows = meeting(keyboard, FRIEND)?;
+        assert_eq!(friend_rows, [back.as_str(), JOIN, FORGET]);
+        let joined_rows = meeting(keyboard, JOINED)?;
+        assert_eq!(joined_rows, [back.as_str(), LEAVE, FORGET]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_row_that_acts_on_the_device_the_page_names_does_not_name_it_again() {
+    fn a_row_that_acts_on_the_device_the_page_names_does_not_name_it_again() -> Result<(), Failure> {
         let Ok(devices) = bluetooth::devices("Device AA Blue Keys");
+        let keyboard = devices.first().ok_or("the keyboard")?;
 
-        for known in [bluetooth::Known::No, bluetooth::Known::Yes] {
-            for row in says(&meeting(&met(&devices[0], known, bluetooth::Joined::No))).iter().skip(1)
-            {
-                assert!(
-                    !row.contains("Blue Keys"),
-                    "{row:?} says the name the page it is on is already titled with"
-                );
+        for standing in [STRANGER, FRIEND] {
+            let said = meeting(keyboard, standing)?;
+
+            for row in said.iter().skip(1) {
+                assert!(!row.contains("Blue Keys"), "{row:?} says the name the page it is on is already titled with");
             }
         }
+
+        Ok(())
     }
 
     #[test]
     fn the_word_for_going_ahead_is_short_and_stands_for_nothing() {
         for word in [FORGET_YES, JOIN, LEAVE, PAIR] {
-            let words: Vec<&str> = word.split_whitespace().collect();
+            let words: BTreeSet<String> = word.split_whitespace().map(str::to_lowercase).collect();
 
             assert!(words.len() <= 2, "{word:?} is a sentence where a verb was wanted");
 
             for standing in ["it", "them", "this", "that", "these", "those"] {
-                assert!(
-                    !words.iter().any(|said| said.to_lowercase() == standing),
-                    "{word:?} says {standing:?} where the question already said the thing"
-                );
+                assert!(!words.contains(standing), "{word:?} says {standing:?} where the question already said the thing");
             }
         }
     }
@@ -1754,18 +1917,16 @@ mod tests {
     #[test]
     fn every_device_row_is_the_row_its_own_page_comes_back_to() {
         let Ok(devices) = bluetooth::devices("Device AA One\nDevice BB Two\nDevice CC Three");
+        let Ok(met) = met(&devices, &[STRANGER, STRANGER, STRANGER]);
         let seen: Arc<std::sync::Mutex<Vec<u32>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
         let telling = Arc::clone(&seen);
         let Ok(rows) = bluetooth_rows(
             bluetooth::Radio::On,
             bluetooth::Looking::No,
-            devices
-                .iter()
-                .map(|device| met(device, bluetooth::Known::No, bluetooth::Joined::No))
-                .collect(),
+            met,
             Arc::new(move |_, at, _| match telling.lock() {
                 Ok(mut seen) => seen.push(at),
-                Err(_) => {},
+                Err(_the_test_that_held_it_failed) => {},
             }),
         );
 
@@ -1780,13 +1941,18 @@ mod tests {
 
         let seen = match seen.lock() {
             Ok(seen) => seen.clone(),
-            Err(_) => Vec::new(),
+            Err(_the_test_that_held_it_failed) => Vec::new(),
         };
+        let names: BTreeSet<&str> = devices.iter().map(|device| device.name.as_str()).collect();
         let standing: Vec<u32> = rows
             .iter()
             .enumerate()
-            .filter(|(_, row)| devices.iter().any(|device| device.name == row.says))
-            .map(|(at, _)| at as u32)
+            .filter(|(_, row)| names.contains(row.says.as_str()))
+            .map(|(place, _)| {
+                let Ok(place) = fitted(place);
+
+                place
+            })
             .collect();
 
         assert_eq!(seen, standing);
@@ -1794,29 +1960,38 @@ mod tests {
 
     #[test]
     fn nothing_playing_is_said_rather_than_left_blank() {
-        assert_eq!(says(&sound(&[], &[], "")), ["Nothing else is playing"]);
+        let Ok(rows) = sound(&[], "");
+
+        assert_eq!(says(&rows), Ok(vec!["Nothing else is playing"]));
     }
 
     #[test]
     fn the_engine_in_use_is_the_one_marked() {
-        let rows = searching("startpage");
-        assert_eq!(marked(&rows), ["Startpage"]);
+        let Ok(rows) = searching("startpage");
+
+        assert_eq!(marked(&rows), Ok(vec!["Startpage"]));
     }
 
     #[test]
     fn the_browsers_are_told_without_stopping_to_ask_for_a_password() {
-        let Ok(telling) = telling("startpage");
+        let Ok(telling) = set_engine_command("startpage");
         let Ok(sudo) = Program::Sudo.name();
 
         assert_eq!(telling, [sudo, "-n", "console-engine", "startpage"]);
     }
 
     #[test]
-    fn the_list_is_the_way_back_and_then_a_row_that_only_reads() {
-        let rows = searching("duckduckgo");
-        assert!(rows[0].says.ends_with(&configured()), "{:?} is not the way back", rows[0].says);
-        assert_eq!(rows[1].says, "Search Engine");
-        assert_eq!(heading(&rows[1]), Heading::Yes);
+    fn the_list_is_the_way_back_and_then_a_row_that_only_reads() -> Result<(), Failure> {
+        let Ok(rows) = searching("duckduckgo");
+        let Ok(configured) = configuration();
+        let back = at(&rows, 0)?;
+        let named = at(&rows, 1)?;
+
+        assert!(back.says.ends_with(&configured), "{:?} is not the way back", back.says);
+        assert_eq!(named.says, "Search Engine");
+        assert_eq!(named.heading(), Ok(Heading::Yes));
+
+        Ok(())
     }
 
     #[test]
@@ -1827,26 +2002,37 @@ mod tests {
 
     #[test]
     fn the_language_being_listened_for_is_the_one_marked() {
-        let rows = listening("nl");
-        assert_eq!(marked(&rows), ["Dutch"]);
+        let Ok(rows) = listening_for("nl");
+
+        assert_eq!(marked(&rows), Ok(vec!["Dutch"]));
     }
 
     #[test]
-    fn chinese_is_not_on_the_list() {
-        let rows = listening("auto");
-        assert!(!says(&rows).contains(&"Chinese"));
-        assert_eq!(says(&rows)[2..], ["Automatic", "English", "Dutch", "Thai"]);
+    fn chinese_is_not_on_the_list() -> Result<(), Failure> {
+        let Ok(rows) = listening_for("auto");
+        let Ok(said) = says(&rows);
+        let rows_after = after(&rows, 2)?;
+        let Ok(offered) = says(rows_after);
+
+        assert!(!said.contains(&"Chinese"));
+        assert_eq!(offered, ["Automatic", "English", "Dutch", "Thai"]);
+
+        Ok(())
     }
 
     #[test]
-    fn the_languages_are_a_list_under_the_tab_like_the_engines() {
-        let rows = listening("auto");
+    fn the_languages_are_a_list_under_the_tab_like_the_engines() -> Result<(), Failure> {
+        let Ok(rows) = listening_for("auto");
         let Ok(tab) = the_language();
         let Ok(listens) = text(&Word::DictationLanguage);
+        let back = at(&rows, 0)?;
+        let named = at(&rows, 1)?;
 
-        assert!(rows[0].says.ends_with(&tab), "{:?} is not the way back", rows[0].says);
-        assert_eq!(rows[1].says, listens);
-        assert_eq!(heading(&rows[1]), Heading::Yes);
+        assert!(back.says.ends_with(&tab), "{:?} is not the way back", back.says);
+        assert_eq!(named.says, listens);
+        assert_eq!(named.heading(), Ok(Heading::Yes));
+
+        Ok(())
     }
 
     #[test]
@@ -1856,189 +2042,160 @@ mod tests {
         assert_eq!(dictation_says("zh"), Ok(String::new()));
     }
 
-
-    fn spoken() -> Vec<Language> {
-        let Ok(names) = Names::none();
-        let Ok(supported) = crate::languages::supported(
-            "en_GB.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\nnl_NL.UTF-8 UTF-8\nth_TH.UTF-8 UTF-8",
-        );
-        let Ok(spoken) = crate::languages::languages(&supported, &names);
-
-        spoken
-    }
-
-    type Recorded = Arc<std::sync::Mutex<Vec<(u32, String)>>>;
-
-    fn opening(_: u32, _: &str) -> Result<Handler, Never> {
-        Handler::and_stay(|_| ())
-    }
-
-    fn watching() -> (Recorded, impl Fn(u32, &str) -> Result<Handler, Never>) {
-        let seen: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let telling = Arc::clone(&seen);
-
-        (seen, move |at, name| {
-            match telling.lock() {
-                Ok(mut telling) => telling.push((at, name.to_string())),
-                Err(_the_test_that_held_it_failed) => {},
-            }
-
-            Handler::and_stay(|_| ())
-        })
-    }
-
-    fn opened(seen: &Recorded) -> Vec<(u32, String)> {
-        match seen.lock() {
-            Ok(mut seen) => std::mem::take(&mut seen),
-            Err(_the_test_that_held_it_failed) => Vec::new(),
-        }
-    }
-
-    fn language() -> Vec<Row> {
-        let Ok(nothing) = Handler::and_stay(|_| ());
-        let Ok(also) = Handler::and_stay(|_| ());
-        let Ok(third) = Handler::and_stay(|_| ());
-        let Ok(rows) = language_rows(
-            Languages {
-                says: "English (United Kingdom)",
-                types: "Latin, Thai",
-                listens: "Dutch",
-            },
-            [nothing, also, third],
-        );
-
-        rows
-    }
-
     #[test]
-    fn the_language_tab_is_three_rows_that_open_and_one_that_says_what_it_does_not_do() {
-        let rows = language();
+    fn the_language_tab_is_three_rows_that_open_and_one_that_says_what_it_does_not_do() -> Result<(), Failure> {
+        let Ok(rows) = language();
         let Ok(words) = text(&Word::PreferredLanguage);
         let Ok(types) = text(&Word::Keyboards);
         let Ok(listens) = text(&Word::DictationLanguage);
+        let Ok(english) = text(&Word::EnglishOnly);
+        let three = part(&rows, (0, 3))?;
+        let Ok(said) = says(three);
 
-        assert_eq!(says(&rows)[..3], [words.as_str(), types.as_str(), listens.as_str()]);
+        assert_eq!(said, [words.as_str(), types.as_str(), listens.as_str()]);
 
-        for row in rows.iter().take(3) {
-            assert_eq!(row.acts(), Ok(console_panel::page::Action::Yes), "{:?}", row.says);
+        for row in three {
+            assert_eq!(row.acts(), Ok(Action::Yes), "{:?}", row.says);
         }
 
-        let Ok(english) = text(&Word::EnglishOnly);
-
         assert_eq!(rows.last().map(|row| row.says.clone()), Some(english));
+
+        Ok(())
     }
 
     #[test]
     fn each_of_the_three_says_what_it_is_now_beside_it() {
-        let rows = language();
-        let asides: Vec<&str> = rows.iter().map(|row| row.aside.as_str()).collect();
+        let Ok(rows) = language();
+        let asides: Vec<&str> = rows.iter().take(3).map(|row| row.aside.as_str()).collect();
 
-        assert_eq!(asides[..3], ["English (United Kingdom)", "Latin, Thai", "Dutch"]);
+        assert_eq!(asides, ["English (United Kingdom)", "Latin, Thai", "Dutch"]);
     }
 
     #[test]
-    fn the_languages_are_the_way_back_a_heading_and_then_every_language() {
-        let Ok(rows) = language_picker_rows(&spoken(), None, nowhere(), opening);
+    fn the_languages_are_the_way_back_a_heading_and_then_every_language() -> Result<(), Failure> {
+        let Ok(spoken) = sample_languages();
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = language_picker_rows(&spoken, None, nowhere, opening);
         let Ok(tab) = the_language();
+        let back = at(&rows, 0)?;
+        let rows_after = after(&rows, 2)?;
+        let Ok(languages) = says(rows_after);
 
-        assert!(rows[0].says.ends_with(&tab), "{:?} is not the way back", rows[0].says);
-        assert_eq!(heading(&rows[1]), Heading::Yes);
-        assert_eq!(says(&rows)[2..], ["en", "nl", "th"]);
+        assert!(back.says.ends_with(&tab), "{:?} is not the way back", back.says);
+        let second = at(&rows, 1)?;
+        assert_eq!(second.heading(), Ok(Heading::Yes));
+        assert_eq!(languages, ["en", "nl", "th"]);
+
+        Ok(())
     }
 
     #[test]
     fn every_language_carries_the_row_it_was_opened_from_so_b_lands_back_on_it() {
-        let (seen, opening) = watching();
-        let Ok(rows) = language_picker_rows(&spoken(), None, nowhere(), opening);
-        let at = opened(&seen);
-
-        for (which, standing) in at.iter().enumerate() {
-            let says = rows.get(console_core_number_conversion::index(standing.0).unwrap()).map(|row| row.says.as_str());
-
-            assert_eq!(
-                says,
-                Some(standing.1.as_str()),
-                "the {which} language says it was opened from row {} and that row is {says:?}",
-                standing.0
-            );
-        }
+        let Ok((seen, opening)) = recorder();
+        let Ok(spoken) = sample_languages();
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = language_picker_rows(&spoken, None, nowhere, opening);
+        let Ok(seen) = opened(&seen);
+        let Ok(()) = opened_from(&rows, &seen);
     }
 
     #[test]
     fn every_part_of_the_world_carries_the_row_it_was_opened_from() {
-        let (seen, opening) = watching();
+        let Ok((seen, opening)) = recorder();
         let Ok(zones) = hours::zones("Europe/Amsterdam\nAsia/Bangkok\nUTC");
         let Ok(regions) = hours::regions(&zones);
-        let Ok(rows) = region_rows(&regions, None, nowhere(), opening);
-        let at = opened(&seen);
-
-        for standing in &at {
-            let says = rows.get(console_core_number_conversion::index(standing.0).unwrap()).map(|row| row.says.as_str());
-
-            assert_eq!(says, Some(standing.1.as_str()), "opened from row {}", standing.0);
-        }
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = region_rows(&regions, None, nowhere, opening);
+        let Ok(seen) = opened(&seen);
+        let Ok(()) = opened_from(&rows, &seen);
     }
 
     #[test]
     fn the_language_the_machine_is_in_is_the_one_marked() {
-        let spoken = spoken();
-        let Ok(standing) = crate::languages::standing(&spoken, Some("nl_NL.UTF-8"));
-        let Ok(rows) = language_picker_rows(&spoken, standing.as_ref(), nowhere(), opening);
+        let Ok(spoken) = sample_languages();
+        let Ok(standing) = crate::languages::current_locale(&spoken, Some("nl_NL.UTF-8"));
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = language_picker_rows(&spoken, standing.as_ref(), nowhere, opening);
 
-        assert_eq!(marked(&rows), ["nl"]);
+        assert_eq!(marked(&rows), Ok(vec!["nl"]));
     }
 
     #[test]
-    fn the_places_a_language_is_spoken_are_a_list_under_it() {
-        let spoken = spoken();
+    fn the_places_a_language_is_spoken_are_a_list_under_it() -> Result<(), Failure> {
+        let Ok(spoken) = sample_languages();
         let Ok(names) = Names::none();
-        let english = spoken.iter().find(|language| language.language == "en").expect("English");
-        let Ok(standing) = crate::languages::standing(&spoken, Some("en_GB.UTF-8"));
-        let Ok(rows) = place_rows(english, &names, &[], standing.as_ref(), nowhere());
+        let english = spoken.iter().find(|language| language.language == "en").ok_or("English")?;
+        let Ok(standing) = crate::languages::current_locale(&spoken, Some("en_GB.UTF-8"));
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = place_rows(english, &names, &[], standing.as_ref(), nowhere);
+        let rows_after = after(&rows, 2)?;
+        let Ok(places) = says(rows_after);
 
-        assert_eq!(says(&rows)[2..], ["GB", "US"]);
-        assert_eq!(marked(&rows), ["GB"]);
+        assert_eq!(places, ["GB", "US"]);
+        assert_eq!(marked(&rows), Ok(vec!["GB"]));
+
+        Ok(())
     }
 
     #[test]
-    fn latin_is_drawn_and_cannot_be_pressed_and_the_rest_can() {
+    fn latin_is_drawn_and_cannot_be_pressed_and_the_rest_can() -> Result<(), Failure> {
         let Ok(chosen) = alphabets::read(alphabets::UNLESS_TOLD);
-        let Ok(rows) = alphabet_rows(&chosen, nowhere());
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = alphabet_rows(&chosen, nowhere);
+        let rows_after = after(&rows, 2)?;
+        let Ok(alphabets) = says(rows_after);
 
-        assert_eq!(says(&rows)[2..], [
-            "Latin", "Arabic", "Georgian", "Greek", "Hebrew", "Persian", "Russian", "Thai",
-        ]);
-        assert_eq!(marked(&rows), ["Latin", "Thai"]);
-        assert_eq!(rows[2].acts(), Ok(console_panel::page::Action::None));
-        assert_eq!(rows[3].acts(), Ok(console_panel::page::Action::Yes));
+        assert_eq!(alphabets, ["Latin", "Arabic", "Georgian", "Greek", "Hebrew", "Persian", "Russian", "Thai"]);
+        assert_eq!(marked(&rows), Ok(vec!["Latin", "Thai"]));
+        let third = at(&rows, 2)?;
+        assert_eq!(third.acts(), Ok(Action::None));
+        let fourth = at(&rows, 3)?;
+        assert_eq!(fourth.acts(), Ok(Action::Yes));
+
+        Ok(())
     }
 
     #[test]
-    fn the_parts_of_the_world_open_onto_the_places_in_them() {
+    fn the_parts_of_the_world_open_onto_the_places_in_them() -> Result<(), Failure> {
         let Ok(zones) = hours::zones("Europe/Amsterdam\nEurope/London\nAsia/Bangkok");
         let Ok(regions) = hours::regions(&zones);
-        let Ok(rows) = region_rows(&regions, Some("Europe/Amsterdam"), nowhere(), opening);
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = region_rows(&regions, Some("Europe/Amsterdam"), nowhere, opening);
+        let rows_after = after(&rows, 2)?;
+        let Ok(parts) = says(rows_after);
 
-        assert_eq!(says(&rows)[2..], ["Asia", "Europe"]);
-        assert_eq!(marked(&rows), ["Europe"]);
+        assert_eq!(parts, ["Asia", "Europe"]);
+        assert_eq!(marked(&rows), Ok(vec!["Europe"]));
+
+        Ok(())
     }
 
     #[test]
-    fn a_part_of_the_world_is_its_places_with_the_one_it_is_in_marked() {
+    fn a_part_of_the_world_is_its_places_with_the_one_it_is_in_marked() -> Result<(), Failure> {
         let Ok(zones) = hours::zones("Europe/Amsterdam\nEurope/London\nAsia/Bangkok");
         let Ok(places) = hours::places(&zones, "Europe");
-        let Ok(rows) = zone_rows("Europe", &places, Some("Europe/London"), nowhere());
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = zone_rows("Europe", &places, Some("Europe/London"), nowhere);
+        let rows_after = after(&rows, 2)?;
+        let Ok(cities) = says(rows_after);
 
-        assert_eq!(says(&rows)[2..], ["Amsterdam", "London"]);
-        assert_eq!(marked(&rows), ["London"]);
+        assert_eq!(cities, ["Amsterdam", "London"]);
+        assert_eq!(marked(&rows), Ok(vec!["London"]));
+
+        Ok(())
     }
 
     #[test]
-    fn the_clock_is_the_hour_written_both_ways_with_one_of_them_marked() {
-        let Ok(rows) = clock_rows(Clock::Twelve, nowhere());
+    fn the_clock_is_the_hour_written_both_ways_with_one_of_them_marked() -> Result<(), Failure> {
+        let Ok(nowhere) = nowhere();
+        let Ok(rows) = clock_rows(Clock::Twelve, nowhere);
+        let rows_after = after(&rows, 2)?;
+        let Ok(ways) = says(rows_after);
 
-        assert_eq!(says(&rows)[2..], ["14:30", "2:30 pm"]);
-        assert_eq!(marked(&rows), ["2:30 pm"]);
+        assert_eq!(ways, ["14:30", "2:30 pm"]);
+        assert_eq!(marked(&rows), Ok(vec!["2:30 pm"]));
+
+        Ok(())
     }
 
     #[test]
@@ -2048,14 +2205,14 @@ mod tests {
 
         assert_eq!(row.says, asks);
         assert_eq!(row.aside, "legion");
-        assert_eq!(row.acts(), Ok(console_panel::page::Action::Yes));
+        assert_eq!(row.acts(), Ok(Action::Yes));
     }
 
     #[test]
     fn every_tab_is_named_once() {
-        let mut sorted = named().to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), named().len());
+        let Ok(tabs) = tabs();
+        let named: BTreeSet<&String> = tabs.iter().collect();
+
+        assert_eq!(named.len(), tabs.len());
     }
 }

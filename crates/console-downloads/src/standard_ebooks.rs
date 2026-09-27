@@ -60,7 +60,7 @@ pub fn id_in(page: &str) -> Result<Option<String>, Never> {
         None => return Ok(None),
     };
 
-    crate::store::named(&path.replace('/', "_"))
+    crate::store::valid_id(&path.replace('/', "_"))
 }
 
 pub fn publication(page: &str) -> Result<Option<String>, Never> {
@@ -96,43 +96,63 @@ mod tests {
 	</entry>
 </feed>"#;
 
-    fn found() -> Vec<Found> {
-        let Ok(found) = found_in(ANSWER);
+    type Failure = Box<dyn std::error::Error>;
 
-        found
+    fn found() -> Result<Vec<Found>, Never> {
+        found_in(ANSWER)
+    }
+
+    fn first() -> Result<Found, Failure> {
+        let Ok(found) = found();
+        let first = found.into_iter().next().ok_or("no book found")?;
+
+        Ok(first)
     }
 
     #[test]
     fn a_book_is_an_entry_whose_page_is_on_standard_ebooks() {
-        let titles: Vec<String> = found().into_iter().map(|found| found.title).collect();
+        let Ok(found) = found();
+        let titles: Vec<String> = found.into_iter().map(|found| found.title).collect();
 
         assert_eq!(titles, vec!["Meditations"]);
     }
 
     #[test]
-    fn the_feed_author_is_not_taken_for_a_book_author() {
-        assert_eq!(found()[0].by, "Marcus Aurelius");
+    fn the_feed_author_is_not_taken_for_a_book_author() -> Result<(), Failure> {
+        let first = first()?;
+
+        assert_eq!(first.by, "Marcus Aurelius");
+
+        Ok(())
     }
 
     #[test]
-    fn the_picture_is_the_thumbnail_rather_than_the_whole_cover() {
+    fn the_picture_is_the_thumbnail_rather_than_the_whole_cover() -> Result<(), Failure> {
+        let first = first()?;
+
         assert_eq!(
-            found()[0].picture,
+            first.picture,
             "https://standardebooks.org/ebooks/marcus-aurelius/meditations/george-long/downloads/cover-thumbnail.jpg"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_book_is_fetched_from_its_page_whatever_link_the_answer_carried() {
-        assert_eq!(found()[0].id, "marcus-aurelius_meditations_george-long");
+    fn a_book_is_fetched_from_its_page_whatever_link_the_answer_carried() -> Result<(), Failure> {
+        let first = first()?;
+
+        assert_eq!(first.id, "marcus-aurelius_meditations_george-long");
         assert_eq!(
-            publication(&found()[0].url),
+            publication(&first.url),
             Ok(Some(
                 "https://standardebooks.org/ebooks/marcus-aurelius/meditations/george-long/downloads/marcus-aurelius_meditations_george-long.epub?source=feed"
                     .to_string()
             ))
         );
         assert_eq!(publication("https://www.gutenberg.org/ebooks/2680"), Ok(None));
+
+        Ok(())
     }
 
     #[test]

@@ -35,7 +35,7 @@ pub mod session;
 pub mod starting;
 pub mod terminal;
 
-pub const OURS: &str = "resume";
+pub const APPLICATION: &str = "resume";
 
 #[derive(Debug)]
 pub enum Unresumed {

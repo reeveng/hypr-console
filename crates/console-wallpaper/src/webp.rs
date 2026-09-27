@@ -6,6 +6,7 @@
 //! needs, so the container is written out here. It is a header and a loop.
 
 use console_core_geometry::Size;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
@@ -55,31 +56,34 @@ fn chunk(tag: &[u8; 4], body: &[u8]) -> Result<Vec<u8>, Unpainted> {
 pub fn image_of(single: &[u8]) -> Result<&[u8], Unpainted> {
     let Ok(header) = index(RIFF_HEADER);
 
-    let mut rest = match single.get(header..) {
+    let rest = match single.get(header..) {
         Some(rest) => rest,
         None => return Err(Unpainted::NoPicture),
     };
 
-    loop {
+    let found = console_core_iteration::iterate(rest, |rest| {
         let (tag, size) = match rest
             .split_first_chunk::<4>()
             .and_then(|(tag, after)| after.first_chunk::<4>().map(|size| (tag, u32::from_le_bytes(*size))))
         {
             Some(chunk) => chunk,
-            None => return Err(Unpainted::NoPicture),
+            None => return Ok(Step::Halt(Err(Unpainted::NoPicture))),
         };
 
         let Ok(whole) = index(size.saturating_add(size & 1).saturating_add(8));
 
-        match tag == b"VP8 " || tag == b"VP8L" {
-            true => return rest.get(..whole).ok_or(Unpainted::CutShort),
-            false => {},
-        }
+        Ok(match tag == b"VP8 " || tag == b"VP8L" {
+            true => Step::Halt(rest.get(..whole).ok_or(Unpainted::CutShort)),
+            false => match rest.get(whole..) {
+                Some(rest) => Step::Again(rest),
+                None => Step::Halt(Err(Unpainted::NoPicture)),
+            },
+        })
+    });
 
-        rest = match rest.get(whole..) {
-            Some(rest) => rest,
-            None => return Err(Unpainted::NoPicture),
-        };
+    match found {
+        Ok(found) => found,
+        Err(_endless) => Err(Unpainted::NoPicture),
     }
 }
 
@@ -145,22 +149,33 @@ mod tests {
     }
 
     #[test]
-    fn an_odd_body_is_padded_and_an_even_one_is_not() {
-        assert_eq!(chunk(b"TEST", b"abc").expect("a chunk").len(), 12);
-        assert_eq!(chunk(b"TEST", b"abcd").expect("a chunk").len(), 12);
+    fn an_odd_body_is_padded_and_an_even_one_is_not() -> Result<(), Unpainted> {
+        let odd = chunk(b"TEST", b"abc")?;
+        let even = chunk(b"TEST", b"abcd")?;
+
+        assert_eq!(odd.len(), 12);
+        assert_eq!(even.len(), 12);
+
+        Ok(())
     }
 
     #[test]
-    fn the_picture_is_found_past_the_chunks_in_front_of_it() {
+    fn the_picture_is_found_past_the_chunks_in_front_of_it() -> Result<(), Unpainted> {
+        let extended = chunk(b"VP8X", &[0; 10])?;
+        let picture = chunk(b"VP8 ", b"a picture")?;
         let single = [
             b"RIFF".to_vec(),
             0u32.to_le_bytes().to_vec(),
             b"WEBP".to_vec(),
-            chunk(b"VP8X", &[0; 10]).expect("a chunk"),
-            chunk(b"VP8 ", b"a picture").expect("a chunk"),
+            extended,
+            picture,
         ]
         .concat();
-        assert_eq!(&image_of(&single).expect("a picture")[8..17], b"a picture");
+        let image = image_of(&single)?;
+
+        assert_eq!(image.get(8..17), Some(b"a picture".as_slice()));
+
+        Ok(())
     }
 
     #[test]
@@ -171,6 +186,7 @@ mod tests {
             b"WEBP".to_vec(),
         ]
         .concat();
-        assert!(image_of(&empty).is_err());
+
+        assert!(matches!(image_of(&empty), Err(Unpainted::NoPicture)));
     }
 }

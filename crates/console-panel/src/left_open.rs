@@ -33,7 +33,7 @@ pub struct LeftOpen {
     pub arguments: Vec<String>,
 }
 
-pub fn spelled(open: &LeftOpen) -> Result<String, Never> {
+pub fn serialize(open: &LeftOpen) -> Result<String, Never> {
     let words: Vec<&str> = std::iter::once(open.who.as_str()).chain(open.arguments.iter().map(String::as_str)).collect();
 
     Ok(words.join(&BETWEEN.to_string()))
@@ -49,7 +49,7 @@ pub fn read(said: &str) -> Result<Option<LeftOpen>, Never> {
 }
 
 pub fn opened(open: &LeftOpen) -> Result<(), Never> {
-    let Ok(said) = spelled(open);
+    let Ok(said) = serialize(open);
 
     notes::write(NOTE, &said)
 }
@@ -58,7 +58,7 @@ pub fn put_away() -> Result<(), Never> {
     notes::write(NOTE, "")
 }
 
-pub fn left() -> Result<Option<LeftOpen>, Never> {
+pub fn load() -> Result<Option<LeftOpen>, Never> {
     let Ok(said) = notes::read(NOTE);
 
     match said {
@@ -83,7 +83,7 @@ pub fn started(program: InternalProgram, arguments: Vec<String>) -> Result<(), N
     let Ok(()) = console_response_times::not_a_press(&mut starting);
 
     match let_go(&mut starting) {
-        Ok(started) => crate::running::kept(started),
+        Ok(started) => crate::running::reap_in_background(started),
         Err(fault) => {
             eprintln!("console-panels: putting {} back: {fault}", at.display());
 
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn a_panel_and_its_arguments_come_back_as_they_went_in() {
         let open = LeftOpen { who: "settings-panel".to_string(), arguments: vec!["Sound".to_string(), "two words".to_string(), String::new()] };
-        let Ok(said) = spelled(&open);
+        let Ok(said) = serialize(&open);
 
         assert_eq!(read(&said), Ok(Some(open)));
     }

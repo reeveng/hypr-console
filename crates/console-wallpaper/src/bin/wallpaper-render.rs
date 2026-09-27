@@ -359,7 +359,7 @@ fn press_named(
     size: Size<u32>,
     at: &Path,
 ) -> Result<render::Rendered, Unrendered> {
-    let Ok(kept) = source::kept();
+    let Ok(kept) = source::cache_path();
 
     let kept = match kept {
         Some(kept) => kept,
@@ -390,7 +390,7 @@ fn press_hers(paths: &[PathBuf], into: Option<PathBuf>) -> Result<(), Unrendered
     let into = match into {
         Some(at) => at,
         None => {
-            let Ok(hers) = place::hers();
+            let Ok(hers) = place::user();
 
             hers.ok_or(Unrendered::NoOnes)?
         }

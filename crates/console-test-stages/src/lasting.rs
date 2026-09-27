@@ -129,12 +129,12 @@ use console_core_never::Never;
 use console_how_far::Progress;
 
 use crate::checking::Check;
-use crate::device::{Device, quoted};
+use crate::device::{Device, shell_quote};
 
 pub const NAMED: &str = "checked";
 
 pub fn at(home: &str) -> Result<String, Never> {
-    let Ok(ours) = console_core_places::Base::State.ours_under(std::path::Path::new(home));
+    let Ok(ours) = console_core_places::Base::State.application_under(std::path::Path::new(home));
 
     Ok(ours.join(NAMED).display().to_string())
 }
@@ -194,7 +194,7 @@ impl Lengths {
     }
 }
 
-pub fn written(lengths: &Lengths) -> Result<String, Never> {
+pub fn serialize(lengths: &Lengths) -> Result<String, Never> {
     Ok(lengths
         .took
         .iter()
@@ -376,7 +376,7 @@ impl Ahead {
         Ok(one.mul_f64(part))
     }
 
-    pub fn left(&self, elapsed: Duration) -> Result<Option<Duration>, Never> {
+    pub fn remaining(&self, elapsed: Duration) -> Result<Option<Duration>, Never> {
         match self.whole.is_zero() {
             true => Ok(None),
             false => {
@@ -508,7 +508,7 @@ pub fn about(long: Duration) -> Result<String, Never> {
 pub fn read_from(device: &mut Device) -> Result<Lengths, Never> {
     let Ok(home) = device.home();
     let Ok(at) = at(&home);
-    let Ok(quoted) = quoted(&at);
+    let Ok(quoted) = shell_quote(&at);
     let Ok(said) = device.user(&format!("cat {quoted} 2>/dev/null"));
 
     reading(&said)
@@ -528,10 +528,10 @@ pub fn keep(device: &mut Device, lengths: &Lengths) -> Result<(), Never> {
         None => ".".to_string(),
     };
 
-    let Ok(holding) = quoted(&holding);
-    let Ok(written) = written(lengths);
-    let Ok(written) = quoted(&written);
-    let Ok(where_) = quoted(&at);
+    let Ok(holding) = shell_quote(&holding);
+    let Ok(written) = serialize(lengths);
+    let Ok(written) = shell_quote(&written);
+    let Ok(where_) = shell_quote(&at);
     let Ok(_) = device.user(&format!("mkdir -p {holding} && printf %s {written} > {where_}"));
 
     Ok(())
@@ -612,7 +612,6 @@ mod tests {
         let mut lengths = Lengths::default();
         let Ok(()) = lengths.learned(SLOW.name, Duration::from_secs(75));
         let Ok(()) = lengths.learned(QUICK.name, Duration::from_secs(25));
-
         let Ok(ahead) = Ahead::of(&lengths, &[&SLOW, &QUICK]);
 
         assert_eq!(ahead.span(), Ok(750));
@@ -625,174 +624,124 @@ mod tests {
         assert_eq!(ahead.span(), Ok(500));
     }
 
-    fn nothing(_device: &mut Device) -> CheckResult {
+    fn pass(_device: &mut Device) -> CheckResult {
         Ok(())
     }
 
-    const fn check(name: &'static str) -> Check {
-        Check {
-            name,
-            about: "A check.",
-            feature: "nothing",
-            since: "2026-09-05",
-            bodies: &[Body::Device(nothing)],
-        }
+    const ANY: Check = Check {
+        name: "",
+        about: "A check.",
+        feature: "nothing",
+        since: "2026-09-05",
+        bodies: &[Body::Device(pass)],
+    };
+
+    const SLOW: Check = Check { name: "040-slow", ..ANY };
+    const QUICK: Check = Check { name: "050-quick", ..ANY };
+    const ONE: Check = Check { name: "010-one", ..ANY };
+    const TWO: Check = Check { name: "020-two", ..ANY };
+    const THREE: Check = Check { name: "030-three", ..ANY };
+
+    fn every() -> Result<Vec<&'static Check>, Never> {
+        Ok(vec![&ONE, &TWO, &THREE])
     }
 
-    const SLOW: Check = check("040-slow");
-    const QUICK: Check = check("050-quick");
-    const ONE: Check = check("010-one");
-    const TWO: Check = check("020-two");
-    const THREE: Check = check("030-three");
-
-    fn every() -> Vec<&'static Check> {
-        vec![&ONE, &TWO, &THREE]
+    fn check_names(checks: &[&Check]) -> Result<Vec<String>, Never> {
+        Ok(checks.iter().map(|check| check.name.to_string()).collect())
     }
 
-    fn named(checks: &[&Check]) -> Vec<String> {
-        checks.iter().map(|check| check.name.to_string()).collect()
-    }
-
-    fn timed(said: &[(&str, u64)]) -> Lengths {
+    fn timed(said: &[(&str, u64)]) -> Result<Lengths, Never> {
         let mut lengths = Lengths::default();
 
         for (name, seconds) in said {
             let Ok(()) = lengths.learned(name, Duration::from_secs(*seconds));
         }
 
-        lengths
+        Ok(lengths)
     }
 
-    fn reading(held: &str) -> Lengths {
-        let Ok(lengths) = super::reading(held);
-
-        lengths
-    }
-
-    fn written(lengths: &Lengths) -> String {
-        let Ok(said) = super::written(lengths);
-
-        said
-    }
-
-    fn known(lengths: &Lengths) -> u32 {
-        let Ok(known) = lengths.known();
-
-        known
-    }
-
-    fn middle(lengths: &Lengths) -> Duration {
-        let Ok(middle) = lengths.middle();
-
-        middle
-    }
-
-    fn longest_first<'a>(lengths: &Lengths, checks: &[&'a Check]) -> Vec<&'a Check> {
-        let Ok(ordered) = lengths.longest_first(checks);
-
-        ordered
-    }
-
-    fn ahead(lengths: &Lengths, running: &[&Check]) -> Ahead {
-        let Ok(ahead) = Ahead::of(lengths, running);
-
-        ahead
-    }
-
-    fn far(ahead: &Ahead) -> u16 {
-        let Ok(far) = ahead.far();
-
-        far
-    }
-
-    fn left(ahead: &Ahead) -> Option<Duration> {
-        let Ok(left) = ahead.left(Duration::ZERO);
-
-        left
-    }
-
-    fn whole(ahead: &Ahead) -> Option<Duration> {
-        let Ok(whole) = ahead.whole();
-
-        whole
-    }
-
-    fn finished(ahead: &mut Ahead) {
+    fn finished(ahead: &mut Ahead) -> Result<(), Never> {
         let Ok(one) = ahead.expecting();
-        let Ok(()) = ahead.finished(one);
-    }
 
-    fn about(took: Duration) -> String {
-        let Ok(said) = super::about(took);
-
-        said
+        ahead.finished(one)
     }
 
     #[test]
     fn what_a_run_writes_down_is_what_the_next_one_reads() {
-        let lengths = timed(&[("010-one", 4), ("020-two", 90)]);
+        let Ok(lengths) = timed(&[("010-one", 4), ("020-two", 90)]);
+        let Ok(said) = serialize(&lengths);
 
-        assert_eq!(reading(&written(&lengths)), lengths);
+        assert_eq!(reading(&said), Ok(lengths));
     }
 
     #[test]
     fn a_line_nothing_here_wrote_is_not_read_as_a_length() {
         for held in ["", "\n", "010-one", "010-one later", " 12", "010-one 12s"] {
-            assert_eq!(known(&reading(held)), 0, "{held:?} was read as a length");
+            let Ok(read) = reading(held);
+
+            assert_eq!(read.known(), Ok(0), "{held:?} was read as a length");
         }
     }
 
     #[test]
     fn the_longest_goes_first() {
-        let lengths = timed(&[("010-one", 4), ("020-two", 90), ("030-three", 20)]);
+        let Ok(lengths) = timed(&[("010-one", 4), ("020-two", 90), ("030-three", 20)]);
+        let Ok(every) = every();
+        let Ok(ordered) = lengths.longest_first(&every);
 
-        assert_eq!(named(&longest_first(&lengths, &every())), ["020-two", "030-three", "010-one"]);
+        assert_eq!(check_names(&ordered), Ok(vec!["020-two".to_string(), "030-three".to_string(), "010-one".to_string()]));
     }
 
     #[test]
     fn a_check_nothing_has_ever_timed_weighs_the_middle_and_keeps_its_place() {
-        let lengths = timed(&[("010-one", 4), ("030-three", 90)]);
+        let Ok(lengths) = timed(&[("010-one", 4), ("030-three", 90)]);
+        let Ok(every) = every();
+        let Ok(ordered) = lengths.longest_first(&every);
 
-        assert_eq!(middle(&lengths), Duration::from_secs(90));
-        assert_eq!(named(&longest_first(&lengths, &every())), ["020-two", "030-three", "010-one"]);
+        assert_eq!(lengths.middle(), Ok(Duration::from_secs(90)));
+        assert_eq!(check_names(&ordered), Ok(vec!["020-two".to_string(), "030-three".to_string(), "010-one".to_string()]));
     }
 
     #[test]
     fn a_machine_no_one_has_timed_is_given_the_table_that_travels() {
-        let mut ahead = ahead(&Lengths::default(), &every());
+        let Ok(every) = every();
+        let Ok(mut ahead) = Ahead::of(&Lengths::default(), &every);
 
-        assert_eq!(far(&ahead), 0);
-        assert!(whole(&ahead).is_some(), "a fresh machine was promised nothing");
-        finished(&mut ahead);
+        assert_eq!(ahead.far(), Ok(0));
+        assert_ne!(ahead.whole(), Ok(None), "a fresh machine was promised nothing");
 
-        assert!(far(&ahead) > 0, "a check finished and the bar did not move");
+        let Ok(()) = finished(&mut ahead);
+        let Ok(far) = ahead.far();
+
+        assert!(far > 0, "a check finished and the bar did not move");
     }
 
     #[test]
     fn a_machine_with_no_table_at_all_still_counts_checks() {
-        let Ok(mut ahead) = Ahead::from(&Lengths::default(), &Lengths::default(), &every());
+        let Ok(every) = every();
+        let Ok(mut ahead) = Ahead::from(&Lengths::default(), &Lengths::default(), &every);
 
-        assert_eq!(far(&ahead), 0);
-        assert_eq!(left(&ahead), None);
-        assert_eq!(whole(&ahead), None);
+        assert_eq!(ahead.far(), Ok(0));
+        assert_eq!(ahead.remaining(Duration::ZERO), Ok(None));
+        assert_eq!(ahead.whole(), Ok(None));
 
         let Ok(()) = ahead.finished(Duration::ZERO);
 
-        assert_eq!(far(&ahead), 333);
+        assert_eq!(ahead.far(), Ok(333));
     }
 
     #[test]
     fn what_this_machine_measured_is_never_overruled_by_what_travels() {
-        let here = timed(&[("010-one", 4)]);
-        let there = timed(&[("010-one", 400), ("020-two", 40)]);
+        let Ok(here) = timed(&[("010-one", 4)]);
+        let Ok(there) = timed(&[("010-one", 400), ("020-two", 40)]);
 
         assert_eq!(expecting(&here, &there, 1.0, "010-one"), Ok(Duration::from_secs(4)));
     }
 
     #[test]
     fn a_check_this_machine_has_not_timed_is_carried_over_at_this_machines_pace() {
-        let here = timed(&[("010-one", 4)]);
-        let there = timed(&[("010-one", 8), ("020-two", 40)]);
+        let Ok(here) = timed(&[("010-one", 4)]);
+        let Ok(there) = timed(&[("010-one", 8), ("020-two", 40)]);
         let Ok(pace) = pace_of(&here, &there);
 
         assert_eq!(pace, 0.5, "this machine is twice the speed of the one that was carried");
@@ -801,8 +750,8 @@ mod tests {
 
     #[test]
     fn a_machine_with_nothing_in_common_with_the_carried_table_takes_it_as_it_stands() {
-        let here = timed(&[("040-slow", 4)]);
-        let there = timed(&[("010-one", 8)]);
+        let Ok(here) = timed(&[("040-slow", 4)]);
+        let Ok(there) = timed(&[("010-one", 8)]);
         let Ok(pace) = pace_of(&here, &there);
 
         assert_eq!(pace, 1.0);
@@ -811,8 +760,8 @@ mod tests {
 
     #[test]
     fn one_wild_check_cannot_send_the_whole_estimate_wild() {
-        let here = timed(&[("010-one", 100_000)]);
-        let there = timed(&[("010-one", 1)]);
+        let Ok(here) = timed(&[("010-one", 100_000)]);
+        let Ok(there) = timed(&[("010-one", 1)]);
         let Ok(pace) = pace_of(&here, &there);
 
         assert_eq!(pace, SLOWEST, "a single outlier was believed whole");
@@ -821,7 +770,7 @@ mod tests {
     #[test]
     fn a_check_in_neither_table_is_no_more_surprising_than_the_rest() {
         let here = Lengths::default();
-        let there = timed(&[("010-one", 8), ("020-two", 40)]);
+        let Ok(there) = timed(&[("010-one", 8), ("020-two", 40)]);
         let Ok(one) = expecting(&here, &there, 1.0, "999-brand-new");
 
         assert!(!one.is_zero(), "a new check was given no length at all");
@@ -829,41 +778,45 @@ mod tests {
 
     #[test]
     fn the_strip_moves_by_time_rather_than_by_check() {
-        let lengths = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
-        let ordered = longest_first(&lengths, &every());
-        let mut ahead = ahead(&lengths, &ordered);
+        let Ok(lengths) = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
+        let Ok(every) = every();
+        let Ok(ordered) = lengths.longest_first(&every);
+        let Ok(mut ahead) = Ahead::of(&lengths, &ordered);
 
-        assert_eq!(whole(&ahead), Some(Duration::from_secs(100)));
-        finished(&mut ahead);
+        assert_eq!(ahead.whole(), Ok(Some(Duration::from_secs(100))));
+
+        let Ok(()) = finished(&mut ahead);
 
         assert_eq!(
-            far(&ahead),
-            748,
+            ahead.far(),
+            Ok(748),
             "the long one is most of the run and the strip says so, leaning behind"
         );
-        assert_eq!(left(&ahead), Some(Duration::from_secs(20)));
+        assert_eq!(ahead.remaining(Duration::ZERO), Ok(Some(Duration::from_secs(20))));
     }
 
     #[test]
     fn the_strip_ends_full_and_goes_no_further() {
-        let lengths = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
-        let mut ahead = ahead(&lengths, &every());
+        let Ok(lengths) = timed(&[("010-one", 10), ("020-two", 80), ("030-three", 10)]);
+        let Ok(every) = every();
+        let Ok(mut ahead) = Ahead::of(&lengths, &every);
 
-        for _each in every() {
-            finished(&mut ahead);
+        for _each in &every {
+            let Ok(()) = finished(&mut ahead);
         }
 
-        assert_eq!(far(&ahead), WHOLE);
-        assert_eq!(left(&ahead), Some(Duration::ZERO));
-        finished(&mut ahead);
+        assert_eq!(ahead.far(), Ok(WHOLE));
+        assert_eq!(ahead.remaining(Duration::ZERO), Ok(Some(Duration::ZERO)));
 
-        assert_eq!(far(&ahead), WHOLE, "a check no one expected pushed the strip off the end");
+        let Ok(()) = finished(&mut ahead);
+
+        assert_eq!(ahead.far(), Ok(WHOLE), "a check no one expected pushed the strip off the end");
     }
 
     #[test]
     fn a_length_is_said_the_way_someone_waiting_would_say_it() {
-        assert_eq!(about(Duration::from_secs(40)), "40 seconds");
-        assert_eq!(about(Duration::from_secs(75)), "a minute");
-        assert_eq!(about(Duration::from_secs(400)), "6 minutes");
+        assert_eq!(about(Duration::from_secs(40)), Ok("40 seconds".to_string()));
+        assert_eq!(about(Duration::from_secs(75)), Ok("a minute".to_string()));
+        assert_eq!(about(Duration::from_secs(400)), Ok("6 minutes".to_string()));
     }
 }

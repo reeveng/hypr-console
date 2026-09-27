@@ -53,7 +53,7 @@ enum Spelled {
     LikeSomethingElse,
 }
 
-fn spelled(named: &str) -> Result<Spelled, Never> {
+fn classify_name(named: &str) -> Result<Spelled, Never> {
     let letters = named.chars().all(|one| one.is_ascii_alphanumeric() || one == '-');
 
     Ok(match named.is_empty() || !letters {
@@ -65,19 +65,19 @@ fn spelled(named: &str) -> Result<Spelled, Never> {
 impl Output<'_> {
     pub fn under(self, home: &Path) -> Result<PathBuf, Unnamed> {
         let named = self.0.trim();
-        let Ok(spelled) = spelled(named);
+        let Ok(spelled) = classify_name(named);
 
         match spelled {
             Spelled::LikeAConnector => {},
             Spelled::LikeSomethingElse => return Err(Unnamed::NotAConnector(self.0.to_string())),
         }
 
-        let Ok(ours) = console_core_places::Base::Configuration.ours_under(home);
+        let Ok(ours) = console_core_places::Base::Configuration.application_under(home);
 
         Ok(ours.join(UNDER).join(named))
     }
 
-    pub fn keeping(self, home: &Path, called: &str) -> Result<PathBuf, Unnamed> {
+    pub fn path_for(self, home: &Path, called: &str) -> Result<PathBuf, Unnamed> {
         let under = self.under(home)?;
 
         Ok(under.join(called))
@@ -88,34 +88,34 @@ impl Output<'_> {
 mod tests {
     use super::*;
 
-    fn at(named: &str, called: &str) -> Result<PathBuf, Unnamed> {
-        Output(named).keeping(Path::new("/home/ada"), called)
+    fn at(output: Output<'_>, called: &str) -> Result<PathBuf, Unnamed> {
+        output.path_for(Path::new("/home/ada"), called)
     }
 
     #[test]
     fn a_screens_answers_are_kept_in_a_directory_named_after_it() {
         assert_eq!(
-            at("eDP-1", "turn"),
+            at(Output("eDP-1"), "turn"),
             Ok(PathBuf::from("/home/ada/.config/console/screens/eDP-1/turn"))
         );
         assert_eq!(
-            at("DP-3", "scale"),
+            at(Output("DP-3"), "scale"),
             Ok(PathBuf::from("/home/ada/.config/console/screens/DP-3/scale"))
         );
     }
 
     #[test]
     fn two_screens_do_not_share_an_answer() {
-        assert_ne!(at("eDP-1", "turn"), at("HDMI-A-1", "turn"));
+        assert_ne!(at(Output("eDP-1"), "turn"), at(Output("HDMI-A-1"), "turn"));
     }
 
     #[test]
     fn a_name_that_could_leave_the_directory_is_not_a_connector() {
-        assert_eq!(at("../../..", "turn"), Err(Unnamed::NotAConnector("../../..".to_string())));
+        assert_eq!(at(Output("../../.."), "turn"), Err(Unnamed::NotAConnector("../../..".to_string())));
         assert_eq!(
-            at("eDP-1/../../x", "turn"),
+            at(Output("eDP-1/../../x"), "turn"),
             Err(Unnamed::NotAConnector("eDP-1/../../x".to_string()))
         );
-        assert_eq!(at("", "turn"), Err(Unnamed::NotAConnector(String::new())));
+        assert_eq!(at(Output(""), "turn"), Err(Unnamed::NotAConnector(String::new())));
     }
 }

@@ -24,7 +24,7 @@ use console_core_number_conversion::index;
 
 use crate::codes::{AbsoluteAxisCode, ForceFeedbackCode, MiscCode, PropType, RelativeAxisCode};
 use crate::event::{InputEvent, LONG, events};
-use crate::kernel::{self, AbsInfo, InputId, checked, ioctl};
+use crate::kernel::{self, AbsInfo, InputId, check, ioctl};
 use crate::keys::KeyCode;
 
 pub const INPUT: &str = "/dev/input";
@@ -111,7 +111,7 @@ impl Device {
             // number says, which the kernel writes into and nothing else holds.
             let asked = unsafe { ioctl(self.file.as_raw_fd(), request, &raw mut information) };
 
-            checked(asked)?;
+            check(asked)?;
             every.push((*axis, information));
         }
 
@@ -119,11 +119,11 @@ impl Device {
     }
 
     pub fn grab(&self) -> io::Result<()> {
-        held(&self.file, 1)
+        set_grab(&self.file, 1)
     }
 
     pub fn ungrab(&self) -> io::Result<()> {
-        held(&self.file, 0)
+        set_grab(&self.file, 0)
     }
 
     pub fn nonblocking(&self) -> io::Result<()> {
@@ -131,12 +131,12 @@ impl Device {
 
         // SAFETY: an open file, and a command that takes no argument.
         let flags = unsafe { kernel::fcntl(open, kernel::GET_FLAGS) };
-        let flags = checked(flags)?;
+        let flags = check(flags)?;
 
         // SAFETY: an open file, and the flags it already had with one more.
         let set = unsafe { kernel::fcntl(open, kernel::SET_FLAGS, flags | kernel::NOT_BLOCKING) };
 
-        checked(set)?;
+        check(set)?;
 
         Ok(())
     }
@@ -166,11 +166,11 @@ impl AsFd for Device {
     }
 }
 
-fn held(file: &File, grabbed: c_int) -> io::Result<()> {
+fn set_grab(file: &File, grabbed: c_int) -> io::Result<()> {
     // SAFETY: an open file, and a request that takes an int by value.
     let asked = unsafe { ioctl(file.as_raw_fd(), kernel::GRAB, grabbed) };
 
-    checked(asked)?;
+    check(asked)?;
 
     Ok(())
 }
@@ -182,7 +182,7 @@ fn identity(file: &File) -> io::Result<InputId> {
     // says, which the kernel writes into and nothing else holds.
     let asked = unsafe { ioctl(file.as_raw_fd(), kernel::GET_ID, &raw mut id) };
 
-    checked(asked)?;
+    check(asked)?;
 
     Ok(id)
 }
@@ -195,7 +195,7 @@ fn text(file: &File, request: std::ffi::c_ulong) -> Result<Option<String>, Never
     // says, which the kernel writes into and nothing else holds.
     let asked = unsafe { ioctl(file.as_raw_fd(), request, buffer.as_mut_ptr()) };
 
-    Ok(match checked(asked) {
+    Ok(match check(asked) {
         Ok(_) => buffer
             .split(|byte| *byte == 0)
             .next()
@@ -213,7 +213,7 @@ fn bits(file: &File, request: std::ffi::c_ulong) -> io::Result<Vec<u16>> {
     // says, which the kernel writes into and nothing else holds.
     let asked = unsafe { ioctl(file.as_raw_fd(), request, buffer.as_mut_ptr()) };
 
-    checked(asked)?;
+    check(asked)?;
 
     let Ok(set) = set_in(&buffer);
 
@@ -235,6 +235,7 @@ fn set_in(bytes: &[u8]) -> Result<Vec<u16>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn a_bit_is_the_code_it_stands_at() {
@@ -244,12 +245,20 @@ mod tests {
     }
 
     #[test]
-    fn the_pad_s_first_button_is_found_where_the_kernel_puts_it() {
+    fn the_pad_s_first_button_is_found_where_the_kernel_puts_it() -> Result<(), Box<dyn Error>> {
         let mut bytes = vec![0_u8; 96];
 
-        bytes[0x130 / 8] = 1;
+        let Ok(at) = console_core_number_conversion::index(KeyCode::BTN_SOUTH.0.div_euclid(8));
+
+        match bytes.get_mut(at) {
+            Some(byte) => *byte = 1,
+            None => return Err(Box::from("the pad's first button is past the last of the bits")),
+        }
+
         let Ok(set) = set_in(&bytes);
 
         assert_eq!(set, vec![KeyCode::BTN_SOUTH.0]);
+
+        Ok(())
     }
 }

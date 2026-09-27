@@ -84,7 +84,7 @@ fn zone(stage: &mut Device) -> Result<String, Never> {
 }
 
 fn latest(seen: &mut Device) -> Result<(u32, Option<Description>), Never> {
-    let Ok(mut drawn) = seen.told(TOLD);
+    let Ok(mut drawn) = seen.read_descriptions(TOLD);
     let Ok(many) = fitted::<_, u32>(drawn.len());
 
     Ok((many, drawn.pop()))
@@ -112,7 +112,7 @@ fn drawn_again(stage: &mut Device, since: u32) -> Result<Outcome, Never> {
     )
 }
 
-fn left(stage: &mut Device, says: &str) -> Result<Outcome, Never> {
+fn wait_for_highlight_to_move(stage: &mut Device, says: &str) -> Result<Outcome, Never> {
     stage.until(
         |seen| {
             let Ok((_, card)) = latest(seen);
@@ -164,7 +164,7 @@ fn walked_to(stage: &mut Device, says: &str) -> Result<Outcome, Never> {
             Next::Arrived => {
                 let Ok(()) = stage.press("a");
 
-                return left(stage, says);
+                return wait_for_highlight_to_move(stage, says);
             }
             Next::Button(way) => way,
         };
@@ -183,7 +183,7 @@ fn walked_to(stage: &mut Device, says: &str) -> Result<Outcome, Never> {
 
 fn console_put_away(stage: &mut Device) -> Result<(), Never> {
     let Ok(()) = stage.press("b");
-    let Ok(_) = stage.closed(PATIENCE);
+    let Ok(_) = stage.wait_for_close(PATIENCE);
 
     Ok(())
 }

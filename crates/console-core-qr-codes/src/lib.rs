@@ -53,7 +53,7 @@ pub struct Bitmap {
 }
 
 impl Code {
-    pub fn drawn(&self, scale: u32) -> Result<Bitmap, Never> {
+    pub fn render(&self, scale: u32) -> Result<Bitmap, Never> {
         let scale = scale.max(1);
         let side = self.size.saturating_add(QUIET.saturating_mul(2)).saturating_mul(scale);
         let Ok(width) = index(side);
@@ -133,10 +133,10 @@ pub fn encoded(bytes: &[u8]) -> Result<Option<Code>, Never> {
     };
 
     let Ok(data) = codewords(bytes, size, version);
-    let Ok(interleaved) = corrected(&data, size);
-    let Ok(grid) = Grid::fixed(version, size.aligned);
+    let Ok(interleaved) = add_error_correction(&data, size);
+    let Ok(grid) = Grid::with_fixed_patterns(version, size.aligned);
     let side = grid.side;
-    let Ok(grid) = grid.filled(&interleaved);
+    let Ok(grid) = grid.place_data(&interleaved);
     let Ok(best) = masked(&grid);
 
     Ok(Some(Code { size: side, modules: best.dark }))
@@ -281,7 +281,7 @@ fn remainder(data: &[u8], divisor: &[u8]) -> Result<Vec<u8>, Never> {
     Ok(made)
 }
 
-fn corrected(data: &[u8], size: &Size) -> Result<Vec<u8>, Never> {
+fn add_error_correction(data: &[u8], size: &Size) -> Result<Vec<u8>, Never> {
     let Ok(divisor) = divisor(size.correcting);
     let short = size.blocks.saturating_sub(size.total.wrapping_rem(size.blocks));
     let short_long = size.total.wrapping_div(size.blocks);
@@ -338,7 +338,7 @@ struct Grid {
 }
 
 impl Grid {
-    fn fixed(version: u32, aligned: &[u32]) -> Result<Grid, Never> {
+    fn with_fixed_patterns(version: u32, aligned: &[u32]) -> Result<Grid, Never> {
         let Ok(side) = side_of(version);
         let Ok(many) = index(side);
         let mut grid = Grid {
@@ -378,7 +378,7 @@ impl Grid {
         }
 
         let Ok(()) = grid.formatted(Mask(0));
-        let Ok(()) = grid.versioned(version);
+        let Ok(()) = grid.place_version(version);
 
         Ok(grid)
     }
@@ -462,7 +462,7 @@ impl Grid {
         self.fix(Point { x: 8, y: side.saturating_sub(8) }, Module::Dark)
     }
 
-    fn versioned(&mut self, version: u32) -> Result<(), Never> {
+    fn place_version(&mut self, version: u32) -> Result<(), Never> {
         match version < 7 {
             true => return Ok(()),
             false => {},
@@ -504,17 +504,18 @@ impl Grid {
         put(&mut self.dark, at, module)
     }
 
-    fn filled(mut self, data: &[u8]) -> Result<Grid, Never> {
+    fn place_data(mut self, data: &[u8]) -> Result<Grid, Never> {
         let Ok(many) = fitted::<_, u32>(data.len().saturating_mul(8));
         let mut taken: u32 = 0;
-        let mut right = self.side.saturating_sub(1);
+        let beside_the_timing = |right: u32| match right {
+            6 => 5,
+            other => other,
+        };
+        let columns = std::iter::successors(Some(beside_the_timing(self.side.saturating_sub(1))), |right| {
+            right.checked_sub(2).map(beside_the_timing)
+        });
 
-        loop {
-            match right {
-                6 => right = 5,
-                _other => {},
-            }
-
+        for right in columns {
             for vertical in 0..self.side {
                 for step in 0..2_u32 {
                     let across = right.saturating_sub(step);
@@ -540,11 +541,6 @@ impl Grid {
                         (Role::Data, false) | (Role::Fixed, _) => {},
                     }
                 }
-            }
-
-            match right.checked_sub(2) {
-                Some(next) => right = next,
-                None => break,
             }
         }
 
@@ -779,12 +775,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_drawn_code_has_its_quiet_border_and_each_square_is_the_scale_wide() {
-        let code = match encoded(b"hello") {
-            Ok(Some(code)) => code,
-            Ok(None) => panic!("hello fits in the smallest code"),
-        };
-        let Ok(drawn) = code.drawn(2);
+    fn a_drawn_code_has_its_quiet_border_and_each_square_is_the_scale_wide() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(code) = encoded(b"hello");
+        let code = code.ok_or("hello fits in the smallest code")?;
+        let Ok(drawn) = code.render(2);
         let shade = |across: u32, down: u32| {
             let at = down.saturating_mul(drawn.side).saturating_add(across).saturating_mul(3);
             let Ok(at) = index(at);
@@ -798,6 +792,8 @@ mod tests {
         assert_eq!(shade(0, 0), Some(u8::MAX), "the quiet border is not light");
         assert_eq!(shade(corner, corner), Some(0), "the finder's corner is not dark");
         assert_eq!(shade(corner.saturating_add(1), corner.saturating_add(1)), Some(0), "a square is not two pixels wide");
+
+        Ok(())
     }
 
     #[test]
@@ -825,11 +821,9 @@ mod tests {
     }
 
     #[test]
-    fn every_corner_but_one_holds_a_finder() {
-        let code = match encoded(b"WIFI:T:WPA;S:home;P:secret;;") {
-            Ok(Some(code)) => code,
-            Ok(None) => panic!("no code"),
-        };
+    fn every_corner_but_one_holds_a_finder() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(code) = encoded(b"WIFI:T:WPA;S:home;P:secret;;");
+        let code = code.ok_or("no code")?;
         let far = code.size.saturating_sub(1);
 
         for (across, down) in [(0, 0), (far, 0), (0, far), (3, 3)] {
@@ -837,6 +831,8 @@ mod tests {
         }
 
         assert_eq!(code.at(Point { x: 7, y: 7 }), Ok(Module::Light), "the separator");
+
+        Ok(())
     }
 
     #[test]

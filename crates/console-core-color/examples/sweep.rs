@@ -1,15 +1,13 @@
 use console_core_color as color;
 
 fn main() {
-    let mut hue = 0.0;
+    let steps = |step: f64, last: f64| {
+        std::iter::successors(Some(0.0_f64), move |at| Some(at + step)).take_while(move |at| *at <= last)
+    };
 
-    while hue < 360.0 {
-        let mut lightness = 0.0;
-
-        while lightness <= 1.0001 {
-            let mut chroma = 0.0;
-
-            while chroma <= 0.2001 {
+    for hue in steps(7.0, 359.9999) {
+        for lightness in steps(0.05, 1.0001) {
+            for chroma in steps(0.025, 0.2001) {
                 let asked = color::Oklch { lightness, chroma, hue };
 
                 let Ok(code) = color::hexcode(asked);
@@ -22,13 +20,8 @@ fn main() {
                 println!(
                     "hex {hue} {lightness} {chroma} {code} {fitted:.12} {back_lightness:.12} {back_chroma:.12} {back_hue:.12} {lifted}"
                 );
-                chroma += 0.025;
             }
-
-            lightness += 0.05;
         }
-
-        hue += 7.0;
     }
 
     let grounds = ["2a1a24".to_string(), "3d2833".to_string()];

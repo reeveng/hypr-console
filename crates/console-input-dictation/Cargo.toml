@@ -22,6 +22,7 @@ console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-iteration.workspace = true
 console-defaults.workspace = true
 console-core-internal-programs.workspace = true
 console-core-number-conversion.workspace = true

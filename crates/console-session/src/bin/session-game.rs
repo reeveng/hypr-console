@@ -13,21 +13,21 @@ fn main() {
     match here {
         Session::Game => {}
         Session::Desktop => {
-            let Ok(()) = remembering();
+            let Ok(()) = remember_session();
             let Ok(()) = run(Session::Desktop, Session::Game);
         }
     }
 }
 
-fn remembering() -> Result<(), Never> {
-    let Ok(runtime) = console_core_places::runtime_ours();
+fn remember_session() -> Result<(), Never> {
+    let Ok(runtime) = console_core_places::application_runtime();
 
     let runtime = match runtime {
         Some(runtime) => runtime,
         None => return Ok(()),
     };
 
-    let asked = match radio::asked() {
+    let asked = match radio::query_radio() {
         Ok(asked) => asked,
         Err(fault) => {
             eprintln!("session-game: {fault}");

@@ -77,7 +77,7 @@ use clippy_utils::sym;
 use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_hir::{Expr, HirId, Path};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_span::Span;
 
 dylint_linting::impl_late_lint! {
@@ -106,10 +106,6 @@ impl Default for Explicit041NoUnsaidPrinting {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // Naming the crate is not speaking it. `Topic` is the event vocabulary and is
@@ -151,10 +147,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit041NoUnsaidPrinting {
     }
 
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         let Some(called) = root_macro_call_first_node(cx, expr) else {
             return;
         };
@@ -167,10 +159,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit041NoUnsaidPrinting {
     }
 
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if !self.speaks {
             return;
         }

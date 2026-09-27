@@ -84,7 +84,7 @@ pub fn line(said: &str) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn settled() -> Result<(), Never> {
+pub fn flush() -> Result<(), Never> {
     let Ok(held) = writer();
 
     let say = match held {
@@ -136,7 +136,7 @@ fn start() -> Result<Option<SyncSender<Message>>, Never> {
 
     let started = std::thread::Builder::new()
         .name("wait-times".to_string())
-        .spawn(move || keep(&heard, &at, measuring::chosen));
+        .spawn(move || keep(&heard, &at, measuring::current));
 
     match started {
         Ok(_) => Ok(Some(say)),
@@ -158,7 +158,7 @@ fn keep(heard: &Receiver<Message>, at: &Path, asked: fn() -> Result<Measuring, N
 
                 match chosen {
                     Measuring::On => {
-                        let Ok(held) = written(store, at, &said);
+                        let Ok(held) = append(store, at, &said);
 
                         store = held;
                     }
@@ -179,7 +179,7 @@ struct Store {
     long: u64,
 }
 
-fn written(store: Option<Store>, at: &Path, said: &str) -> Result<Option<Store>, Never> {
+fn append(store: Option<Store>, at: &Path, said: &str) -> Result<Option<Store>, Never> {
     let mut store = match store {
         Some(store) => store,
         None => {
@@ -266,7 +266,7 @@ fn set_aside(at: &Path) -> Result<(), Never> {
 }
 
 fn by_hand(said: &str) -> Result<(), Never> {
-    let Ok(chosen) = measuring::chosen();
+    let Ok(chosen) = measuring::current();
 
     match chosen {
         Measuring::On => {}
@@ -295,53 +295,13 @@ fn by_hand(said: &str) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use std::path::PathBuf;
 
-    fn somewhere(named: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("console-waited-{named}-{}", std::process::id()))
-    }
+    fn somewhere(named: &str) -> Result<PathBuf, Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh(&format!("waited-{named}"))?;
 
-    #[test]
-    fn the_file_is_opened_once_and_held_for_every_line_after_the_first() {
-        let at = somewhere("held");
-        let _ = std::fs::remove_file(&at);
-        let Ok(store) = written(None, &at, "one\n");
-
-        assert!(store.is_some(), "the first line did not open the file");
-
-        let Ok(store) = written(store, &at, "two\n");
-
-        assert!(store.is_some(), "the second line let go of the file");
-        assert_eq!(std::fs::read_to_string(&at).unwrap_or_default(), "one\ntwo\n");
-        let _ = std::fs::remove_file(&at);
-    }
-
-    #[test]
-    fn a_line_written_by_hand_lands_where_the_thread_would_have_put_it() {
-        let at = somewhere("by-hand");
-        let _ = std::fs::remove_file(&at);
-        let Ok(store) = written(None, &at, "written on the thread that timed it\n");
-
-        assert!(store.is_some());
-        assert!(std::fs::read_to_string(&at).unwrap_or_default().ends_with('\n'));
-        let _ = std::fs::remove_file(&at);
-    }
-
-    #[test]
-    fn the_thread_writes_what_it_was_given_and_answers_once_the_queue_is_empty() {
-        let at = somewhere("queue");
-        let _ = std::fs::remove_file(&at);
-        let (say, heard) = sync_channel(8);
-        let there = at.clone();
-        let thread = std::thread::spawn(move || keep(&heard, &there, on));
-        say.send(Message::Line("one\n".to_string())).expect("a queue with room in it");
-        let (told, back) = sync_channel(0);
-        say.send(Message::Settled(told)).expect("a queue with room in it");
-        back.recv().expect("the thread says when it has caught up");
-        assert_eq!(std::fs::read_to_string(&at).unwrap_or_default(), "one\n");
-        drop(say);
-        let _ = thread.join();
-        let _ = std::fs::remove_file(&at);
+        Ok(folder.join("waited.jsonl"))
     }
 
     fn on() -> Result<Measuring, Never> {
@@ -353,24 +313,89 @@ mod tests {
     }
 
     #[test]
-    fn with_measuring_off_the_thread_writes_nothing_and_still_answers() {
-        let at = somewhere("off");
+    fn the_file_is_opened_once_and_held_for_every_line_after_the_first() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("held")?;
+        let _ = std::fs::remove_file(&at);
+        let Ok(store) = append(None, &at, "one\n");
+
+        assert!(store.is_some(), "the first line did not open the file");
+
+        let Ok(store) = append(store, &at, "two\n");
+        let written = std::fs::read_to_string(&at)?;
+
+        assert!(store.is_some(), "the second line let go of the file");
+        assert_eq!(written, "one\ntwo\n");
+
+        let _ = std::fs::remove_file(&at);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_line_written_by_hand_lands_where_the_thread_would_have_put_it() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("by-hand")?;
+        let _ = std::fs::remove_file(&at);
+        let Ok(store) = append(None, &at, "written on the thread that timed it\n");
+        let written = std::fs::read_to_string(&at)?;
+
+        assert!(store.is_some());
+        assert!(written.ends_with('\n'));
+
+        let _ = std::fs::remove_file(&at);
+
+        Ok(())
+    }
+
+    #[test]
+    fn the_thread_writes_what_it_was_given_and_answers_once_the_queue_is_empty() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("queue")?;
+        let _ = std::fs::remove_file(&at);
+        let (say, heard) = sync_channel(8);
+        let there = at.clone();
+        let thread = std::thread::spawn(move || keep(&heard, &there, on));
+        let (told, back) = sync_channel(0);
+
+        say.send(Message::Line("one\n".to_string())).map_err(|_| "the queue had no room in it")?;
+        say.send(Message::Settled(told)).map_err(|_| "the queue had no room in it")?;
+        back.recv().map_err(|_| "the thread never said it had caught up")?;
+
+        let written = std::fs::read_to_string(&at)?;
+
+        assert_eq!(written, "one\n");
+
+        drop(say);
+
+        let _ = thread.join();
+        let _ = std::fs::remove_file(&at);
+
+        Ok(())
+    }
+
+    #[test]
+    fn with_measuring_off_the_thread_writes_nothing_and_still_answers() -> Result<(), Box<dyn Error>> {
+        let at = somewhere("off")?;
         let _ = std::fs::remove_file(&at);
         let (say, heard) = sync_channel(8);
         let there = at.clone();
         let thread = std::thread::spawn(move || keep(&heard, &there, off));
-        say.send(Message::Line("one\n".to_string())).expect("a queue with room in it");
         let (told, back) = sync_channel(0);
-        say.send(Message::Settled(told)).expect("a queue with room in it");
-        back.recv().expect("the thread says when it has caught up");
+
+        say.send(Message::Line("one\n".to_string())).map_err(|_| "the queue had no room in it")?;
+        say.send(Message::Settled(told)).map_err(|_| "the queue had no room in it")?;
+        back.recv().map_err(|_| "the thread never said it had caught up")?;
+
         assert!(!at.exists(), "a line was written with measuring off");
+
         drop(say);
+
         let _ = thread.join();
+
+        Ok(())
     }
 
     #[test]
     fn waiting_for_a_queue_nothing_was_put_on_returns() {
-        let Ok(()) = settled();
-        let Ok(()) = settled();
+        let Ok(()) = flush();
+        let Ok(()) = flush();
     }
 }

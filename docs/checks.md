@@ -230,7 +230,7 @@ screenshot another check is taking, which is exactly how `180` failed inside the
 tier while passing three times out of three on its own. Four checks had the
 fault before it was found.
 
-`drawn()` waits for a picker to arrive and `closed()` waits for every picker to
+`wait_for_menu()` waits for a picker to arrive and `wait_for_close()` waits for every picker to
 leave. `changed(reading, from)` waits for something the device can be asked --
 the brightness, the volume, which workspace, how many windows, which song --
 to stop being what it was, which is what most of a check's waiting turns out to

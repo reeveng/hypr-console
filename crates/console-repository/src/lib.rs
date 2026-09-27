@@ -20,6 +20,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub mod sources;
+pub mod tracked;
 
 pub const MARK: &str = "desktop.conf";
 
@@ -69,24 +70,29 @@ pub fn root() -> Result<PathBuf, NotFound> {
 mod tests {
     use super::*;
 
-    fn root() -> PathBuf {
-        let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        from.canonicalize().unwrap_or(from)
+    fn root() -> Result<PathBuf, std::io::Error> {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
     }
 
     #[test]
-    fn the_top_is_found_from_a_crate_inside_it() {
+    fn the_top_is_found_from_a_crate_inside_it() -> Result<(), std::io::Error> {
         let Ok(above) = above(Path::new(env!("CARGO_MANIFEST_DIR")));
+        let root = root()?;
 
-        assert_eq!(above, Some(root()));
+        assert_eq!(above, Some(root));
+
+        Ok(())
     }
 
     #[test]
-    fn it_is_the_same_answer_from_further_down() {
+    fn it_is_the_same_answer_from_further_down() -> Result<(), std::io::Error> {
         let deep = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let Ok(above) = above(&deep);
+        let root = root()?;
 
-        assert_eq!(above, Some(root()));
+        assert_eq!(above, Some(root));
+
+        Ok(())
     }
 
     #[test]

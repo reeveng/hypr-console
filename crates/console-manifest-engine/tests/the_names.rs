@@ -36,69 +36,72 @@
 
 mod reading;
 
-use reading::section;
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
 
-fn root() -> PathBuf {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+use reading::{Failure, Section, section, read, root};
 
-    from.canonicalize().unwrap_or(from)
-}
-
-fn manifest() -> String {
-    std::fs::read_to_string(root().join("desktop.conf")).expect("desktop.conf")
-}
-
-fn crates() -> Vec<String> {
+fn crates() -> Result<Vec<String>, Failure> {
+    let Ok(root) = root();
     let mut found = Vec::new();
-    let entries = std::fs::read_dir(root().join("crates")).expect("crates");
 
-    for at in entries.flatten().map(|entry| entry.path()) {
-        if at.is_dir() {
-            if let Some(name) = at.file_name().and_then(|name| name.to_str()) {
-                found.push(name.to_string());
-            }
+    let entries = std::fs::read_dir(root.join("crates"))?;
+
+
+    for entry in entries {
+        let entry = entry?;
+        let at = entry.path();
+
+        match (at.is_dir(), at.file_name().and_then(|name| name.to_str())) {
+            (true, Some(name)) => found.push(name.to_string()),
+            (true, None) | (false, _) => {},
         }
     }
 
-    found
+    Ok(found)
 }
 
-fn entries() -> Vec<String> {
-    let at = root().join("files/usr/share/applications");
+fn entries() -> Result<Vec<String>, Failure> {
+    let Ok(root) = root();
     let mut found = Vec::new();
 
-    for path in std::fs::read_dir(at).expect("the applications").flatten() {
-        let path = path.path();
+    let entries = std::fs::read_dir(root.join("files/usr/share/applications"))?;
 
-        if path.extension().and_then(|kind| kind.to_str()) == Some("desktop") {
-            if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
-                found.push(stem.to_string());
-            }
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let desktop = path.extension().and_then(|kind| kind.to_str()) == Some("desktop");
+
+        match (desktop, path.file_stem().and_then(|stem| stem.to_str())) {
+            (true, Some(stem)) => found.push(stem.to_string()),
+            (true, None) | (false, _) => {},
         }
     }
 
     found.sort();
 
-    found
+    Ok(found)
 }
 
-fn known() -> Vec<String> {
-    let held = manifest();
-    let mut names = crates();
+fn known() -> Result<BTreeSet<String>, Failure> {
+    let held = read("desktop.conf")?;
+    let built = section(&held, Section::Build)?;
+    let packages = section(&held, Section::Packages)?;
+    let crates = crates()?;
+    let mut names: BTreeSet<String> = crates.into_iter().collect();
 
-    names.extend(section(&held, "build"));
-    names.extend(section(&held, "packages"));
-    names.extend(section(&held, "packages").iter().map(|name| format!("console-{name}")));
+    names.extend(built);
+    names.extend(packages.iter().map(|name| format!("console-{name}")));
+    names.extend(packages);
 
-    names
+    Ok(names)
 }
 
 #[test]
-fn every_desktop_entry_is_named_for_something_this_tree_still_uses() {
-    let known = known();
-    let stale: Vec<String> =
-        entries().into_iter().filter(|name| !known.contains(name)).collect();
+fn every_desktop_entry_is_named_for_something_this_tree_still_uses() -> Result<(), Failure> {
+    let known = known()?;
+    let entries = entries()?;
+    let stale: Vec<String> = entries.into_iter().filter(|name| !known.contains(name)).collect();
 
     assert!(
         stale.is_empty(),
@@ -107,39 +110,45 @@ fn every_desktop_entry_is_named_for_something_this_tree_still_uses() {
          so rename it to a crate, a built binary or a package -- and sweep the old \
          path in a migration, because an apply installs a name and never removes one",
     );
+
+    Ok(())
 }
 
 #[test]
-fn every_entry_the_mime_list_points_at_is_one_this_tree_installs() {
-    let list = std::fs::read_to_string(root().join("files/etc/xdg/mimeapps.list"))
-        .expect("mimeapps.list");
-    let held = entries();
+fn every_entry_the_mime_list_points_at_is_one_this_tree_installs() -> Result<(), Failure> {
+    let list = read("files/etc/xdg/mimeapps.list")?;
+    let entries = entries()?;
+    let held: BTreeSet<String> = entries.into_iter().collect();
 
     let missing: Vec<String> = list
         .lines()
         .filter_map(|line| line.split_once('='))
         .flat_map(|(_kind, said)| said.split(';').map(str::trim).map(str::to_string))
         .filter(|said| said.starts_with("console-") && said.ends_with(".desktop"))
-        .filter(|said| !held.contains(&said.trim_end_matches(".desktop").to_string()))
+        .filter(|said| !held.contains(said.trim_end_matches(".desktop")))
         .collect();
 
     assert!(
         missing.is_empty(),
         "mimeapps.list points at entries this tree does not install: {missing:?}",
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_manifest_installs_every_entry_that_is_in_the_tree() {
-    let held = manifest();
-    let installed = section(&held, "files");
+fn the_manifest_installs_every_entry_that_is_in_the_tree() -> Result<(), Failure> {
+    let held = read("desktop.conf")?;
+    let files = section(&held, Section::Files)?;
+    let installed: BTreeSet<String> = files.into_iter().collect();
 
-    let unnamed: Vec<String> = entries()
+    let entries = entries()?;
+    let unnamed: Vec<String> = entries
         .into_iter()
-        .filter(|name| {
-            !installed.contains(&format!("/usr/share/applications/{name}.desktop"))
-        })
+        .filter(|name| !installed.contains(&format!("/usr/share/applications/{name}.desktop")))
         .collect();
 
     assert!(unnamed.is_empty(), "in the tree and not in [files]: {unnamed:?}");
+
+    Ok(())
 }

@@ -15,6 +15,7 @@
 //! damaged or written to fill the disk, so the size said is the most that is
 //! ever made.
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::index;
 
@@ -53,7 +54,7 @@ struct BitReader<'a> {
 
 impl BitReader<'_> {
     fn read_bits(&mut self, count: u32) -> Result<u32, ZipError> {
-        while self.buffered < count {
+        for _byte in 0..count.saturating_sub(self.buffered).div_ceil(8) {
             let Ok(at) = index(self.at);
 
             let byte = match self.bytes.get(at) {
@@ -246,22 +247,43 @@ struct Tables {
     distances: Huffman,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Block {
+    Continues,
+    Ended,
+}
+
 fn compressed_block(bits: &mut BitReader<'_>, output: &mut Output, codes: &Tables) -> Result<(), ZipError> {
-    loop {
-        let symbol = decode_symbol(bits, &codes.lengths)?;
+    let decoded = iterate((bits, output), |(bits, output)| {
+        Ok(match decoded_symbol(bits, output, codes) {
+            Ok(Block::Continues) => Step::Again((bits, output)),
+            Ok(Block::Ended) => Step::Halt(Ok(())),
+            Err(fault) => Step::Halt(Err(fault)),
+        })
+    });
 
-        match (symbol, u8::try_from(symbol)) {
-            (_, Ok(byte)) => output.push(byte)?,
-            (END_OF_BLOCK, Err(_past_a_byte)) => return Ok(()),
-            (_, Err(_past_a_byte)) => {
-                let long = read_extra(bits, &LENGTH_BASE, &LENGTH_EXTRA, symbol.saturating_sub(FIRST_LENGTH))?;
-                let near = decode_symbol(bits, &codes.distances)?;
-                let back = read_extra(bits, &DISTANCE_BASE, &DISTANCE_EXTRA, near)?;
-
-                output.copy_back(BackReference { distance: back, length: long })?;
-            },
-        }
+    match decoded {
+        Ok(decoded) => decoded,
+        Err(Endless) => Err(ZipError::Corrupt),
     }
+}
+
+fn decoded_symbol(bits: &mut BitReader<'_>, output: &mut Output, codes: &Tables) -> Result<Block, ZipError> {
+    let symbol = decode_symbol(bits, &codes.lengths)?;
+
+    match (symbol, u8::try_from(symbol)) {
+        (_, Ok(byte)) => output.push(byte)?,
+        (END_OF_BLOCK, Err(_past_a_byte)) => return Ok(Block::Ended),
+        (_, Err(_past_a_byte)) => {
+            let long = read_extra(bits, &LENGTH_BASE, &LENGTH_EXTRA, symbol.saturating_sub(FIRST_LENGTH))?;
+            let near = decode_symbol(bits, &codes.distances)?;
+            let back = read_extra(bits, &DISTANCE_BASE, &DISTANCE_EXTRA, near)?;
+
+            output.copy_back(BackReference { distance: back, length: long })?;
+        },
+    }
+
+    Ok(Block::Continues)
 }
 
 fn stored_block(bits: &mut BitReader<'_>, output: &mut Output) -> Result<(), ZipError> {
@@ -315,6 +337,35 @@ fn push_repeated(lengths: &mut Vec<u16>, value: u16, times: u32) -> Result<(), N
     Ok(())
 }
 
+fn repeated(bits: &mut BitReader<'_>, short: &Huffman, lengths: &[u16]) -> Result<(u16, u32), ZipError> {
+    let symbol = decode_symbol(bits, short)?;
+
+    let (value, times) = match symbol {
+        0..=15 => (symbol, 1),
+        16 => match lengths.last() {
+            Some(last) => {
+                let more = bits.read_bits(2)?;
+
+                (*last, more.saturating_add(3))
+            },
+            None => return Err(ZipError::Corrupt),
+        },
+        17 => {
+            let more = bits.read_bits(3)?;
+
+            (0, more.saturating_add(3))
+        },
+        18 => {
+            let more = bits.read_bits(7)?;
+
+            (0, more.saturating_add(11))
+        },
+        _ => return Err(ZipError::Corrupt),
+    };
+
+    Ok((value, times))
+}
+
 fn read_code_lengths(bits: &mut BitReader<'_>, all: u32) -> Result<Vec<u16>, ZipError> {
     let buffered = bits.read_bits(4)?;
     let mut short = [0u16; 19];
@@ -332,39 +383,28 @@ fn read_code_lengths(bits: &mut BitReader<'_>, all: u32) -> Result<Vec<u16>, Zip
     }
 
     let short = huffman(&short)?;
-    let mut lengths: Vec<u16> = Vec::new();
-    let mut had = 0u32;
 
-    while had < all {
-        let symbol = decode_symbol(bits, &short)?;
+    let read = iterate((bits, Vec::new(), 0u32), |(bits, mut lengths, had)| {
+        match had < all {
+            true => {},
+            false => return Ok(Step::Halt(Ok((lengths, had)))),
+        }
 
-        let (value, times) = match symbol {
-            0..=15 => (symbol, 1),
-            16 => match lengths.last() {
-                Some(last) => {
-                    let more = bits.read_bits(2)?;
+        Ok(match repeated(bits, &short, &lengths) {
+            Ok((value, times)) => {
+                let Ok(()) = push_repeated(&mut lengths, value, times);
 
-                    (*last, more.saturating_add(3))
-                },
-                None => return Err(ZipError::Corrupt),
+                Step::Again((bits, lengths, had.saturating_add(times)))
             },
-            17 => {
-                let more = bits.read_bits(3)?;
+            Err(fault) => Step::Halt(Err(fault)),
+        })
+    });
 
-                (0, more.saturating_add(3))
-            },
-            18 => {
-                let more = bits.read_bits(7)?;
-
-                (0, more.saturating_add(11))
-            },
-            _ => return Err(ZipError::Corrupt),
-        };
-
-        let Ok(()) = push_repeated(&mut lengths, value, times);
-
-        had = had.saturating_add(times);
-    }
+    let read = match read {
+        Ok(read) => read,
+        Err(Endless) => Err(ZipError::Corrupt),
+    };
+    let (lengths, had) = read?;
 
     match had == all {
         true => Ok(lengths),
@@ -395,80 +435,96 @@ fn dynamic_tables(bits: &mut BitReader<'_>) -> Result<Tables, ZipError> {
 const DEFLATE_EXPANDS_AT_MOST: u32 = 1032;
 
 pub fn inflate(packed: &[u8], size: u32) -> Result<Vec<u8>, ZipError> {
-    let mut bits = BitReader { bytes: packed, at: 0, buffer: 0, buffered: 0 };
+    let bits = BitReader { bytes: packed, at: 0, buffer: 0, buffered: 0 };
     let long = match u32::try_from(packed.len()) {
         Ok(long) => long,
         Err(_fault) => return Err(ZipError::TooLarge),
     };
 
     let Ok(room) = index(size.min(long.saturating_mul(DEFLATE_EXPANDS_AT_MOST)));
-    let mut output = Output { bytes: Vec::with_capacity(room), written: 0, most: size };
+    let output = Output { bytes: Vec::with_capacity(room), written: 0, most: size };
 
-    loop {
-        let last = bits.read_bits(1)?;
-        let kind = bits.read_bits(2)?;
+    let inflated = iterate((bits, output), |(mut bits, mut output)| {
+        Ok(match block(&mut bits, &mut output) {
+            Ok(Block::Continues) => Step::Again((bits, output)),
+            Ok(Block::Ended) => Step::Halt(Ok(output.bytes)),
+            Err(fault) => Step::Halt(Err(fault)),
+        })
+    });
 
-        match kind {
-            0 => stored_block(&mut bits, &mut output)?,
-            1 => {
-                let codes = fixed_tables()?;
-
-                compressed_block(&mut bits, &mut output, &codes)?;
-            },
-            2 => {
-                let codes = dynamic_tables(&mut bits)?;
-
-                compressed_block(&mut bits, &mut output, &codes)?;
-            },
-            _ => return Err(ZipError::Corrupt),
-        }
-
-        match last {
-            1 => return Ok(output.bytes),
-            _ => {},
-        }
+    match inflated {
+        Ok(inflated) => inflated,
+        Err(Endless) => Err(ZipError::Corrupt),
     }
+}
+
+fn block(bits: &mut BitReader<'_>, output: &mut Output) -> Result<Block, ZipError> {
+    let last = bits.read_bits(1)?;
+    let kind = bits.read_bits(2)?;
+
+    match kind {
+        0 => stored_block(bits, output)?,
+        1 => {
+            let codes = fixed_tables()?;
+
+            compressed_block(bits, output, &codes)?;
+        },
+        2 => {
+            let codes = dynamic_tables(bits)?;
+
+            compressed_block(bits, output, &codes)?;
+        },
+        _ => return Err(ZipError::Corrupt),
+    }
+
+    Ok(match last {
+        1 => Block::Ended,
+        _ => Block::Continues,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn a_stored_block_is_its_own_bytes() {
         let packed = [0x01, 0x05, 0x00, 0xfa, 0xff, b'h', b'e', b'l', b'l', b'o'];
 
-        assert_eq!(inflate(&packed, 5).ok(), Some(b"hello".to_vec()));
+        assert_eq!(inflate(&packed, 5), Ok(b"hello".to_vec()));
     }
 
     #[test]
     fn a_fixed_block_with_a_repeat_in_it_comes_back() {
         let packed = [0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xc8, 0x40, 0x90, 0x00];
 
-        assert_eq!(inflate(&packed, 17).ok(), Some(b"hello hello hello".to_vec()));
+        assert_eq!(inflate(&packed, 17), Ok(b"hello hello hello".to_vec()));
     }
 
     #[test]
     fn a_stream_that_runs_past_its_size_is_refused_rather_than_followed() {
         let packed = [0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xc8, 0x40, 0x90, 0x00];
 
-        assert_eq!(inflate(&packed, 8).err(), Some(ZipError::LargerThanDeclared));
+        assert_eq!(inflate(&packed, 8), Err(ZipError::LargerThanDeclared));
     }
 
     #[test]
     fn a_stream_cut_short_says_so() {
         let packed = [0xcb, 0x48, 0xcd];
 
-        assert_eq!(inflate(&packed, 17).err(), Some(ZipError::Truncated));
+        assert_eq!(inflate(&packed, 17), Err(ZipError::Truncated));
     }
 
     #[test]
-    fn a_block_that_carries_its_own_codes_comes_back() {
+    fn a_block_that_carries_its_own_codes_comes_back() -> Result<(), Box<dyn Error>> {
         let packed = include_bytes!("../tests/words.deflate");
         let expected = include_bytes!("../tests/words.txt");
-        let size = u32::try_from(expected.len()).map_err(|_| ZipError::TooLarge);
-        let inflated = size.and_then(|size| inflate(packed, size));
+        let size = u32::try_from(expected.len())?;
+        let inflated = inflate(packed, size)?;
 
-        assert_eq!(inflated.ok().as_deref(), Some(expected.as_slice()));
+        assert_eq!(inflated.as_slice(), expected.as_slice());
+
+        Ok(())
     }
 }

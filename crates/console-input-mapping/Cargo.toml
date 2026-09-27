@@ -15,6 +15,8 @@ path = "src/bin/console-asking.rs"
 
 [dependencies]
 console-core-atomic-writes.workspace = true
+console-core-internal-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
 console-program-contract.workspace = true

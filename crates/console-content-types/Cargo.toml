@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-iteration.workspace = true
 
 [lints]
 workspace = true

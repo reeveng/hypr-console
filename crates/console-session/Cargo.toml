@@ -32,3 +32,6 @@ console-response-times.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

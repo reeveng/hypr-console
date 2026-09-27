@@ -85,7 +85,7 @@ impl Sum {
     pub fn above(&self) -> Result<String, Never> {
         Ok(match self.waiting {
             Some((held, operator)) => {
-                let Ok(held) = said(held);
+                let Ok(held) = format_number(held);
                 let Ok(operator) = operator.says();
 
                 format!("{held} {operator}")
@@ -101,17 +101,17 @@ impl Sum {
         })
     }
 
-    pub fn pressed(&self, key: Key) -> Result<Sum, Never> {
+    pub fn press(&self, key: Key) -> Result<Sum, Never> {
         let from = match self.failed {
             Failed::Yes => Sum::default(),
             Failed::No => self.clone(),
         };
 
         match key {
-            Key::Digit(digit) => from.typed(&digit.min(9).to_string()),
-            Key::Point => from.pointed(),
+            Key::Digit(digit) => from.type_digit(&digit.min(9).to_string()),
+            Key::Point => from.type_point(),
             Key::Operator(operator) => from.waiting_on(operator),
-            Key::Equals => from.finished(),
+            Key::Equals => from.equals(),
             Key::Clear => Ok(Sum::default()),
             Key::Sign => from.signed(),
             Key::Percent => from.percent(),
@@ -119,7 +119,7 @@ impl Sum {
         }
     }
 
-    fn typed(self, digit: &str) -> Result<Sum, Never> {
+    fn type_digit(self, digit: &str) -> Result<Sum, Never> {
         let Ok(long) = console_core_number_conversion::fitted::<_, u32>(self.entry.chars().count());
         let entry = match (self.typing, self.entry.as_str()) {
             (Typing::Fresh, _) | (Typing::Along, "0") => digit.to_string(),
@@ -133,7 +133,7 @@ impl Sum {
         Ok(Sum { entry, typing: Typing::Along, ..self })
     }
 
-    fn pointed(self) -> Result<Sum, Never> {
+    fn type_point(self) -> Result<Sum, Never> {
         let entry = match (self.typing, self.entry.contains('.')) {
             (Typing::Fresh, _) => "0.".to_string(),
             (Typing::Along, true) => self.entry.clone(),
@@ -154,7 +154,7 @@ impl Sum {
         match (self.waiting, self.typing) {
             (Some((held, _)), Typing::Fresh) => Ok(Sum { waiting: Some((held, operator)), ..self }),
             (Some(_), Typing::Along) => {
-                let Ok(done) = self.finished();
+                let Ok(done) = self.equals();
 
                 match done.failed {
                     Failed::Yes => Ok(done),
@@ -173,17 +173,17 @@ impl Sum {
         }
     }
 
-    fn finished(self) -> Result<Sum, Never> {
+    fn equals(self) -> Result<Sum, Never> {
         let (held, operator) = match self.waiting {
             Some(waiting) => waiting,
             None => return Ok(Sum { typing: Typing::Fresh, ..self }),
         };
         let Ok(value) = self.value();
-        let Ok(answer) = worked((held, operator), value);
+        let Ok(answer) = apply((held, operator), value);
 
         Ok(match answer {
             Some(answer) => {
-                let Ok(entry) = said(answer);
+                let Ok(entry) = format_number(answer);
 
                 Sum { entry, waiting: None, typing: Typing::Fresh, failed: Failed::No }
             }
@@ -216,13 +216,13 @@ impl Sum {
 
     fn percent(self) -> Result<Sum, Never> {
         let Ok(value) = self.value();
-        let Ok(entry) = said(value / 100.0);
+        let Ok(entry) = format_number(value / 100.0);
 
         Ok(Sum { entry, typing: Typing::Fresh, ..self })
     }
 }
 
-fn worked((held, operator): (f64, Operator), value: f64) -> Result<Option<f64>, Never> {
+fn apply((held, operator): (f64, Operator), value: f64) -> Result<Option<f64>, Never> {
     let answer = match operator {
         Operator::Add => held + value,
         Operator::Subtract => held - value,
@@ -241,7 +241,7 @@ fn worked((held, operator): (f64, Operator), value: f64) -> Result<Option<f64>, 
 
 const TRUSTED: i32 = 12;
 
-pub fn said(value: f64) -> Result<String, Never> {
+pub fn format_number(value: f64) -> Result<String, Never> {
     match value == 0.0 {
         true => return Ok("0".to_string()),
         false => {},
@@ -268,18 +268,18 @@ pub fn said(value: f64) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn keyed(keys: &[Key]) -> Sum {
-        keys.iter().fold(Sum::default(), |sum, key| {
-            let Ok(next) = sum.pressed(*key);
+    fn press_all(keys: &[Key]) -> Result<Sum, Never> {
+        Ok(keys.iter().fold(Sum::default(), |sum, key| {
+            let Ok(next) = sum.press(*key);
 
             next
-        })
+        }))
     }
 
-    fn shows(keys: &[Key]) -> String {
-        let Ok(shown) = keyed(keys).shown();
+    fn shows(keys: &[Key]) -> Result<String, Never> {
+        let Ok(sum) = press_all(keys);
 
-        shown
+        sum.shown()
     }
 
     use Key::{Backspace, Clear, Digit, Equals, Percent, Point, Sign};
@@ -291,92 +291,93 @@ mod tests {
 
     #[test]
     fn digits_are_typed_left_to_right_and_a_leading_zero_goes() {
-        assert_eq!(shows(&[]), "0");
-        assert_eq!(shows(&[Digit(0), Digit(4), Digit(2)]), "42");
+        assert_eq!(shows(&[]), Ok(String::from("0")));
+        assert_eq!(shows(&[Digit(0), Digit(4), Digit(2)]), Ok(String::from("42")));
     }
 
     #[test]
     fn a_sum_is_finished_by_equals() {
-        assert_eq!(shows(&[Digit(1), Digit(2), ADD, Digit(3), Equals]), "15");
-        assert_eq!(shows(&[Digit(7), SUBTRACT, Digit(9), Equals]), "-2");
-        assert_eq!(shows(&[Digit(6), MULTIPLY, Digit(7), Equals]), "42");
-        assert_eq!(shows(&[Digit(1), DIVIDE, Digit(4), Equals]), "0.25");
+        assert_eq!(shows(&[Digit(1), Digit(2), ADD, Digit(3), Equals]), Ok(String::from("15")));
+        assert_eq!(shows(&[Digit(7), SUBTRACT, Digit(9), Equals]), Ok(String::from("-2")));
+        assert_eq!(shows(&[Digit(6), MULTIPLY, Digit(7), Equals]), Ok(String::from("42")));
+        assert_eq!(shows(&[Digit(1), DIVIDE, Digit(4), Equals]), Ok(String::from("0.25")));
     }
 
     #[test]
     fn a_second_operator_finishes_the_first_sum_left_to_right() {
-        assert_eq!(shows(&[Digit(2), ADD, Digit(3), MULTIPLY]), "5");
-        assert_eq!(shows(&[Digit(2), ADD, Digit(3), MULTIPLY, Digit(4), Equals]), "20");
+        assert_eq!(shows(&[Digit(2), ADD, Digit(3), MULTIPLY]), Ok(String::from("5")));
+        assert_eq!(shows(&[Digit(2), ADD, Digit(3), MULTIPLY, Digit(4), Equals]), Ok(String::from("20")));
     }
 
     #[test]
     fn two_operators_in_a_row_are_a_change_of_mind() {
-        assert_eq!(shows(&[Digit(8), ADD, SUBTRACT, Digit(3), Equals]), "5");
-        assert_eq!(keyed(&[Digit(8), ADD, SUBTRACT]).above(), Ok("8 \u{2212}".to_string()));
+        assert_eq!(shows(&[Digit(8), ADD, SUBTRACT, Digit(3), Equals]), Ok(String::from("5")));
+        assert_eq!(press_all(&[Digit(8), ADD, SUBTRACT]).and_then(|sum| sum.above()), Ok(String::from("8 \u{2212}")));
     }
 
     #[test]
     fn what_is_waiting_is_said_above_the_number() {
-        assert_eq!(keyed(&[Digit(1), Digit(2), ADD]).above(), Ok("12 +".to_string()));
-        assert_eq!(keyed(&[Digit(1), ADD, Digit(2), Equals]).above(), Ok(String::new()));
+        assert_eq!(press_all(&[Digit(1), Digit(2), ADD]).and_then(|sum| sum.above()), Ok(String::from("12 +")));
+        assert_eq!(press_all(&[Digit(1), ADD, Digit(2), Equals]).and_then(|sum| sum.above()), Ok(String::new()));
     }
 
     #[test]
     fn a_tenth_and_a_fifth_are_three_tenths_on_the_screen() {
-        assert_eq!(shows(&[Point, Digit(1), ADD, Point, Digit(2), Equals]), "0.3");
+        assert_eq!(shows(&[Point, Digit(1), ADD, Point, Digit(2), Equals]), Ok(String::from("0.3")));
     }
 
     #[test]
     fn a_point_is_typed_once_and_starts_a_fresh_number_at_nought() {
-        assert_eq!(shows(&[Digit(1), Point, Point, Digit(5)]), "1.5");
-        assert_eq!(shows(&[Digit(1), ADD, Point, Digit(5), Equals]), "1.5");
+        assert_eq!(shows(&[Digit(1), Point, Point, Digit(5)]), Ok(String::from("1.5")));
+        assert_eq!(shows(&[Digit(1), ADD, Point, Digit(5), Equals]), Ok(String::from("1.5")));
     }
 
     #[test]
     fn dividing_by_nothing_is_an_error_and_the_next_key_starts_again() {
-        assert_eq!(shows(&[Digit(5), DIVIDE, Digit(0), Equals]), "Error");
-        assert_eq!(shows(&[Digit(5), DIVIDE, Digit(0), Equals, Digit(3)]), "3");
+        assert_eq!(shows(&[Digit(5), DIVIDE, Digit(0), Equals]), Ok(String::from("Error")));
+        assert_eq!(shows(&[Digit(5), DIVIDE, Digit(0), Equals, Digit(3)]), Ok(String::from("3")));
     }
 
     #[test]
     fn sign_and_percent_change_the_number_in_front() {
-        assert_eq!(shows(&[Digit(5), Sign]), "-5");
-        assert_eq!(shows(&[Digit(5), Sign, Sign]), "5");
-        assert_eq!(shows(&[Digit(5), Digit(0), Percent]), "0.5");
-        assert_eq!(shows(&[Digit(9), ADD, Digit(1), Sign, Equals]), "8");
+        assert_eq!(shows(&[Digit(5), Sign]), Ok(String::from("-5")));
+        assert_eq!(shows(&[Digit(5), Sign, Sign]), Ok(String::from("5")));
+        assert_eq!(shows(&[Digit(5), Digit(0), Percent]), Ok(String::from("0.5")));
+        assert_eq!(shows(&[Digit(9), ADD, Digit(1), Sign, Equals]), Ok(String::from("8")));
     }
 
     #[test]
     fn the_operator_waiting_for_a_number_is_the_one_lit() {
-        assert_eq!(keyed(&[Digit(2), MULTIPLY]).lit(), Ok(Some(Operator::Multiply)));
-        assert_eq!(keyed(&[Digit(2), MULTIPLY, Digit(3)]).lit(), Ok(None));
+        assert_eq!(press_all(&[Digit(2), MULTIPLY]).and_then(|sum| sum.lit()), Ok(Some(Operator::Multiply)));
+        assert_eq!(press_all(&[Digit(2), MULTIPLY, Digit(3)]).and_then(|sum| sum.lit()), Ok(None));
     }
 
     #[test]
     fn clear_forgets_everything() {
-        assert_eq!(keyed(&[Digit(9), ADD, Digit(1), Clear]), Sum::default());
+        assert_eq!(press_all(&[Digit(9), ADD, Digit(1), Clear]), Ok(Sum::default()));
     }
 
     #[test]
     fn a_number_is_not_typed_past_what_the_screen_holds() {
         let long = vec![Digit(9); 40];
-        let Ok(kept) = console_core_number_conversion::fitted::<_, u32>(shows(&long).chars().count());
+        let Ok(shown) = shows(&long);
+        let Ok(kept) = console_core_number_conversion::fitted::<_, u32>(shown.chars().count());
 
         assert_eq!(kept, LONGEST);
     }
 
     #[test]
     fn a_huge_answer_is_said_in_powers_of_ten() {
-        let Ok(said) = said(1.5e20);
+        let Ok(said) = format_number(1.5e20);
 
         assert_eq!(said, "1.5e20");
     }
 
     #[test]
     fn backspace_takes_back_the_last_digit_typed_and_never_an_answer() {
-        assert_eq!(shows(&[Digit(4), Digit(2), Backspace]), "4");
-        assert_eq!(shows(&[Digit(4), Backspace]), "0");
-        assert_eq!(shows(&[Digit(7), Sign, Backspace, Backspace]), "0");
-        assert_eq!(shows(&[Digit(6), MULTIPLY, Digit(7), Equals, Backspace]), "42");
+        assert_eq!(shows(&[Digit(4), Digit(2), Backspace]), Ok(String::from("4")));
+        assert_eq!(shows(&[Digit(4), Backspace]), Ok(String::from("0")));
+        assert_eq!(shows(&[Digit(7), Sign, Backspace, Backspace]), Ok(String::from("0")));
+        assert_eq!(shows(&[Digit(6), MULTIPLY, Digit(7), Equals, Backspace]), Ok(String::from("42")));
     }
 }

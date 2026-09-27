@@ -397,24 +397,39 @@ mapping:
       - keyboard: KeyPageDown
 ";
 
-    fn read() -> Profile {
-        Profile::read(Path::new("desktop.yaml"), SAID).expect("a profile")
+    fn read() -> Result<Profile, GamepadError> {
+        Profile::read(Path::new("desktop.yaml"), SAID)
     }
 
     #[test]
-    fn a_button_says_what_it_turns_into() {
-        let profile = read();
-        assert_eq!(
-            profile.targets_of("a").expect("a"),
-            [&Target { kind: Kind::MouseButton, name: "Left".to_string() }]
-        );
-        assert_eq!(profile.targets_of("b").expect("b"), [] as [&Target; 0]);
+    fn a_button_says_what_it_turns_into() -> Result<(), GamepadError> {
+        let profile = read()?;
+        let a = profile.targets_of("a")?;
+        let b = profile.targets_of("b")?;
+
+        assert_eq!(a, [&Target { kind: Kind::MouseButton, name: "Left".to_string() }]);
+        assert!(b.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn a_mapping_says_what_it_does_in_words() {
-        assert_eq!(read().mappings[0].does(), Ok("click"));
-        assert_eq!(read().mappings[1].does(), Ok("move the pointer"));
+    fn a_mapping_says_what_it_does_in_words() -> Result<(), GamepadError> {
+        let profile = read()?;
+        let does: Vec<&str> = profile
+            .mappings
+            .iter()
+            .take(2)
+            .map(|mapping| {
+                let Ok(does) = mapping.does();
+
+                does
+            })
+            .collect();
+
+        assert_eq!(does, ["click", "move the pointer"]);
+
+        Ok(())
     }
 
     #[test]
@@ -428,29 +443,35 @@ mapping:
     }
 
     #[test]
-    fn what_the_profile_does_not_publish_cannot_be_reached() {
-        let profile = read();
+    fn what_the_profile_does_not_publish_cannot_be_reached() -> Result<(), GamepadError> {
+        let profile = read()?;
+
         assert_eq!(profile.publishes("mouse"), Ok(Has::Yes));
         assert_eq!(profile.publishes("touchpad"), Ok(Has::No));
+
+        Ok(())
     }
 
     #[test]
-    fn a_stick_and_a_trigger_are_read_as_what_they_are() {
-        let profile = read();
-        assert_eq!(
-            profile.mappings[1].source,
-            Source::Axis { name: "LeftStick".to_string(), direction: None, deadzone: None }
-        );
-        assert_eq!(
-            profile.mappings[2].source,
-            Source::Trigger { name: "RightTrigger".to_string(), deadzone: Some(0.3) }
-        );
-        assert_eq!(profile.mappings[1].source.button(), Ok(None));
+    fn a_stick_and_a_trigger_are_read_as_what_they_are() -> Result<(), GamepadError> {
+        let profile = read()?;
+        let stick = profile.mappings.get(1).ok_or(GamepadError::NotFound("a second mapping"))?;
+        let trigger = profile.mappings.get(2).ok_or(GamepadError::NotFound("a third mapping"))?;
+
+        assert_eq!(stick.source, Source::Axis { name: "LeftStick".to_string(), direction: None, deadzone: None });
+        assert_eq!(trigger.source, Source::Trigger { name: "RightTrigger".to_string(), deadzone: Some(0.3) });
+        assert_eq!(stick.source.button(), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn a_folded_description_arrives_as_one_line() {
-        assert_eq!(read().description, "One controller map for the whole desktop.");
+    fn a_folded_description_arrives_as_one_line() -> Result<(), GamepadError> {
+        let profile = read()?;
+
+        assert_eq!(profile.description, "One controller map for the whole desktop.");
+
+        Ok(())
     }
 
     #[test]

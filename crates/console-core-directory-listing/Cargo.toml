@@ -1,0 +1,20 @@
+[package]
+name = "console-core-directory-listing"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_core_directory_listing"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+
+[dev-dependencies]
+console-core-atomic-writes.workspace = true
+console-core-temporary-directories.workspace = true
+
+[lints]
+workspace = true

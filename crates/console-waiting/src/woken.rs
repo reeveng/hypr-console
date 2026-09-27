@@ -55,7 +55,7 @@ pub fn pipe() -> Result<Woken, io::Error> {
     Ok(Woken { waiting, saying })
 }
 
-pub fn drained(waiting: &OwnedFd) -> Result<(), Never> {
+pub fn drain(waiting: &OwnedFd) -> Result<(), Never> {
     let mut heard = [0_u8; 64];
 
     let _ = read(waiting, &mut heard);
@@ -69,28 +69,23 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn a_byte_written_down_it_is_a_byte_the_loop_can_read() {
-        let woken = match pipe() {
-            Ok(woken) => woken,
-            Err(why) => panic!("a pipe should be made: {why}"),
-        };
+    fn a_byte_written_down_it_is_a_byte_the_loop_can_read() -> Result<(), Box<dyn std::error::Error>> {
+        let woken = pipe()?;
         let mut saying = woken.saying;
 
-        match saying.write_all(&[1]) {
-            Ok(()) => {}
-            Err(why) => panic!("a byte should go down it: {why}"),
-        }
+        saying.write_all(&[1])?;
 
-        assert_eq!(drained(&woken.waiting), Ok(()));
+        assert_eq!(drain(&woken.waiting), Ok(()));
+
+        Ok(())
     }
 
     #[test]
-    fn draining_one_no_one_wrote_to_answers_rather_than_waiting_for_a_byte() {
-        let woken = match pipe() {
-            Ok(woken) => woken,
-            Err(why) => panic!("a pipe should be made: {why}"),
-        };
+    fn draining_one_no_one_wrote_to_answers_rather_than_waiting_for_a_byte() -> Result<(), Box<dyn std::error::Error>> {
+        let woken = pipe()?;
 
-        assert_eq!(drained(&woken.waiting), Ok(()));
+        assert_eq!(drain(&woken.waiting), Ok(()));
+
+        Ok(())
     }
 }

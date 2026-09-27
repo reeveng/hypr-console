@@ -173,7 +173,7 @@ pub struct Set {
     pub pictures: Vec<Picture>,
 }
 
-fn standing<'a>(pictures: &'a [Picture], outside: &Outside) -> Result<Vec<&'a Picture>, Never> {
+fn suitable<'a>(pictures: &'a [Picture], outside: &Outside) -> Result<Vec<&'a Picture>, Never> {
     let mut answering: Vec<(&Picture, u32)> = Vec::new();
 
     for picture in pictures {
@@ -206,7 +206,7 @@ pub fn choose<'a>(
     outside: &Outside,
     turn: Turn,
 ) -> Result<Option<&'a Picture>, Never> {
-    let standing = standing(pictures, outside)?;
+    let standing = suitable(pictures, outside)?;
     let Ok(count) = fitted::<_, u64>(standing.len().max(1));
     let round = match turn.0.checked_rem(count) {
         Some(round) => round,
@@ -255,8 +255,8 @@ impl Wanted {
         })
     }
 
-    pub fn asked() -> Result<Self, Never> {
-        let at = crate::place::asked()?;
+    pub fn load() -> Result<Self, Never> {
+        let at = crate::place::config_path()?;
 
         let at = match at {
             Some(at) => at,
@@ -276,7 +276,7 @@ impl Wanted {
         }
     }
 
-    pub fn written(&self) -> Result<String, Never> {
+    pub fn serialize(&self) -> Result<String, Never> {
         Ok(match toml::to_string(self) {
             Ok(written) => written,
             Err(fault) => {
@@ -327,7 +327,7 @@ pub fn still(outside: &Outside, turn: Turn) -> Result<Option<PathBuf>, Never> {
     }))
 }
 
-pub fn wanted<'a>(
+pub fn pick<'a>(
     pictures: &'a [Picture],
     asked: &Wanted,
     outside: &Outside,
@@ -348,17 +348,54 @@ pub fn wanted<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn chosen<'a>(pictures: &'a [Picture], outside: &Outside, turn: Turn) -> Option<&'a Picture> {
-        let Ok(chosen) = choose(pictures, outside, turn);
-
-        chosen
+    struct Entry {
+        name: &'static str,
+        sky: &'static [&'static str],
+        weather: &'static [&'static str],
+        season: &'static [&'static str],
+        moon: &'static [&'static str],
     }
 
-    fn pin<'a>(pictures: &'a [Picture], asked: &Wanted) -> Option<&'a Picture> {
-        let Ok(pinned) = pinned(pictures, asked);
+    const ANYTHING: Entry = Entry { name: "", sky: &[], weather: &[], season: &[], moon: &[] };
 
-        pinned
+    const TERRARIUM: Entry = Entry { name: "terrarium", ..ANYTHING };
+    const STAR_RIDE: Entry = Entry { name: "star-ride", sky: &["night"], ..ANYTHING };
+    const DANCING_FROGS: Entry = Entry { name: "dancing-frogs", sky: &["night"], ..ANYTHING };
+    const COZY_WINTER: Entry = Entry { name: "cozy-winter", sky: &["night"], weather: &["snow"], ..ANYTHING };
+    const LAZY_RIVER: Entry = Entry { name: "lazy-river", sky: &["day"], weather: &["clear"], ..ANYTHING };
+
+    const SET: [Entry; 4] = [TERRARIUM, STAR_RIDE, COZY_WINTER, LAZY_RIVER];
+
+    const WINTER: Outside = Outside { sky: Sky::Day, weather: None, season: Season::Winter, moon: Moon::New };
+
+    const FIRST: Turn = Turn(0);
+
+    fn pictures(entries: &[Entry]) -> Result<Vec<Picture>, Never> {
+        let words = |list: &[&str]| list.iter().map(|word| (*word).to_string()).collect();
+
+        Ok(entries
+            .iter()
+            .map(|entry| Picture {
+                name: entry.name.to_string(),
+                says: entry.name.to_string(),
+                by: String::new(),
+                from: String::new(),
+                sha256: String::new(),
+                grade: None,
+                sky: words(entry.sky),
+                weather: words(entry.weather),
+                season: words(entry.season),
+                moon: words(entry.moon),
+            })
+            .collect())
+    }
+
+    fn chosen<'a>(pictures: &'a [Picture], outside: &Outside, turn: Turn) -> Result<Option<&'a str>, Never> {
+        let Ok(chosen) = choose(pictures, outside, turn);
+
+        Ok(chosen.map(|picture| picture.name.as_str()))
     }
 
     fn asked_for<'a>(
@@ -366,271 +403,219 @@ mod tests {
         asked: &Wanted,
         outside: &Outside,
         turn: Turn,
-    ) -> Option<&'a Picture> {
-        let Ok(wanted) = wanted(pictures, asked, outside, turn);
+    ) -> Result<Option<&'a str>, Never> {
+        let Ok(wanted) = pick(pictures, asked, outside, turn);
 
-        wanted
+        Ok(wanted.map(|picture| picture.name.as_str()))
     }
 
-    fn read(held: &str) -> Wanted {
-        let Ok(wanted) = Wanted::read(held);
+    fn pin<'a>(pictures: &'a [Picture], asked: &Wanted) -> Result<Option<&'a str>, Never> {
+        let Ok(pinned) = pinned(pictures, asked);
 
-        wanted
+        Ok(pinned.map(|picture| picture.name.as_str()))
     }
-
-    fn written(asked: &Wanted) -> String {
-        let Ok(written) = asked.written();
-
-        written
-    }
-
-    fn turn_at(seconds: f64) -> Turn {
-        let Ok(turn) = Turn::at(seconds);
-
-        turn
-    }
-
-    fn picture(name: &str, sky: &[&str], weather: &[&str]) -> Picture {
-        let words = |list: &[&str]| list.iter().map(|word| (*word).to_string()).collect();
-        Picture {
-            name: name.to_string(),
-            says: name.to_string(),
-            by: String::new(),
-            from: String::new(),
-            sha256: String::new(),
-            grade: None,
-            sky: words(sky),
-            weather: words(weather),
-            season: Vec::new(),
-            moon: Vec::new(),
-        }
-    }
-
-    fn set() -> Vec<Picture> {
-        vec![
-            picture("terrarium", &[], &[]),
-            picture("star-ride", &["night"], &[]),
-            picture("cozy-winter", &["night"], &["snow"]),
-            picture("lazy-river", &["day"], &["clear"]),
-        ]
-    }
-
-    fn outside(sky: Sky, weather: Option<Weather>) -> Outside {
-        Outside { sky, weather, season: Season::Winter, moon: Moon::New }
-    }
-
-    const FIRST: Turn = Turn(0);
 
     #[test]
     fn the_most_particular_picture_wins() {
-        let set = set();
-        let chosen =
-            chosen(&set, &outside(Sky::Night, Some(Weather::Snow)), FIRST).expect("a picture");
-        assert_eq!(chosen.name, "cozy-winter");
+        let Ok(set) = pictures(&SET);
+        let snowing = Outside { sky: Sky::Night, weather: Some(Weather::Snow), ..WINTER };
+
+        assert_eq!(chosen(&set, &snowing, FIRST), Ok(Some("cozy-winter")));
     }
 
     #[test]
     fn a_picture_for_a_part_of_the_day_beats_one_for_anything() {
-        let set = set();
-        let chosen =
-            chosen(&set, &outside(Sky::Night, Some(Weather::Rain)), FIRST).expect("a picture");
-        assert_eq!(chosen.name, "star-ride");
+        let Ok(set) = pictures(&SET);
+        let raining = Outside { sky: Sky::Night, weather: Some(Weather::Rain), ..WINTER };
+
+        assert_eq!(chosen(&set, &raining, FIRST), Ok(Some("star-ride")));
     }
 
     #[test]
     fn an_outside_nothing_answers_falls_to_the_picture_that_names_nothing() {
-        let set = set();
-        let chosen =
-            chosen(&set, &outside(Sky::Dusk, Some(Weather::Fog)), FIRST).expect("a picture");
-        assert_eq!(chosen.name, "terrarium");
+        let Ok(set) = pictures(&SET);
+        let foggy = Outside { sky: Sky::Dusk, weather: Some(Weather::Fog), ..WINTER };
+
+        assert_eq!(chosen(&set, &foggy, FIRST), Ok(Some("terrarium")));
     }
 
     #[test]
     fn a_picture_naming_a_weather_is_not_chosen_when_there_is_none_to_read() {
-        let set = set();
-        let chosen = chosen(&set, &outside(Sky::Night, None), FIRST).expect("a picture");
-        assert_eq!(chosen.name, "star-ride");
+        let Ok(set) = pictures(&SET);
+        let night = Outside { sky: Sky::Night, ..WINTER };
+
+        assert_eq!(chosen(&set, &night, FIRST), Ok(Some("star-ride")));
     }
 
     #[test]
     fn a_picture_may_be_chosen_by_the_season_and_by_the_moon() {
-        let mut winter = picture("first-snow", &[], &[]);
-        winter.season = vec!["winter".to_string()];
-        let mut full = picture("moonlit", &[], &[]);
-        full.moon = vec!["full".to_string()];
-        let set = vec![picture("terrarium", &[], &[]), winter, full];
-
-        let snowy = Outside {
-            sky: Sky::Day,
-            weather: None,
-            season: Season::Winter,
-            moon: Moon::Waning,
-        };
-        assert_eq!(chosen(&set, &snowy, FIRST).expect("a picture").name, "first-snow");
-
+        let Ok(set) = pictures(&[
+            TERRARIUM,
+            Entry { name: "first-snow", season: &["winter"], ..ANYTHING },
+            Entry { name: "moonlit", moon: &["full"], ..ANYTHING },
+        ]);
+        let snowy = Outside { moon: Moon::Waning, ..WINTER };
         let moonlit = Outside { moon: Moon::Full, season: Season::Summer, ..snowy };
-        assert_eq!(chosen(&set, &moonlit, FIRST).expect("a picture").name, "moonlit");
+
+        assert_eq!(chosen(&set, &snowy, FIRST), Ok(Some("first-snow")));
+        assert_eq!(chosen(&set, &moonlit, FIRST), Ok(Some("moonlit")));
     }
 
     #[test]
     fn a_sunset_and_the_dusk_after_it_are_different_outsides() {
-        let mut golden = picture("golden", &["sunrise", "sunset"], &[]);
-        golden.by = "no one".to_string();
-        let set = vec![picture("terrarium", &[], &[]), golden];
-        assert_eq!(
-            chosen(&set, &outside(Sky::Sunset, None), FIRST).expect("a picture").name,
-            "golden"
-        );
-        assert_eq!(
-            chosen(&set, &outside(Sky::Dusk, None), FIRST).expect("a picture").name,
-            "terrarium"
-        );
+        let Ok(set) = pictures(&[TERRARIUM, Entry { name: "golden", sky: &["sunrise", "sunset"], ..ANYTHING }]);
+        let sunset = Outside { sky: Sky::Sunset, ..WINTER };
+        let dusk = Outside { sky: Sky::Dusk, ..WINTER };
+
+        assert_eq!(chosen(&set, &sunset, FIRST), Ok(Some("golden")));
+        assert_eq!(chosen(&set, &dusk, FIRST), Ok(Some("terrarium")));
     }
 
     #[test]
     fn a_set_holding_nothing_chooses_nothing() {
-        assert!(chosen(&[], &outside(Sky::Day, Some(Weather::Clear)), FIRST).is_none());
+        let clear = Outside { weather: Some(Weather::Clear), ..WINTER };
+
+        assert_eq!(chosen(&[], &clear, FIRST), Ok(None));
     }
 
     #[test]
     fn pictures_of_the_same_standing_take_turns() {
-        let set = vec![
-            picture("terrarium", &[], &[]),
-            picture("star-ride", &["night"], &[]),
-            picture("dancing-frogs", &["night"], &[]),
-        ];
-        let night = outside(Sky::Night, Some(Weather::Rain));
-        let name = |turn: u64| chosen(&set, &night, Turn(turn)).expect("a picture").name.clone();
-        assert_eq!(name(0), "star-ride");
-        assert_eq!(name(1), "dancing-frogs");
-        assert_eq!(name(2), "star-ride");
-        assert_eq!(name(3), "dancing-frogs");
+        let Ok(set) = pictures(&[TERRARIUM, STAR_RIDE, DANCING_FROGS]);
+        let night = Outside { sky: Sky::Night, weather: Some(Weather::Rain), ..WINTER };
+        let name = |turn: u64| chosen(&set, &night, Turn(turn));
+
+        assert_eq!(name(0), Ok(Some("star-ride")));
+        assert_eq!(name(1), Ok(Some("dancing-frogs")));
+        assert_eq!(name(2), Ok(Some("star-ride")));
+        assert_eq!(name(3), Ok(Some("dancing-frogs")));
     }
 
     #[test]
     fn a_more_particular_picture_does_not_take_turns_with_a_less_particular_one() {
-        let set = vec![
-            picture("star-ride", &["night"], &[]),
-            picture("dancing-frogs", &["night"], &[]),
-            picture("cozy-winter", &["night"], &["snow"]),
-        ];
-        let snowing = outside(Sky::Night, Some(Weather::Snow));
+        let Ok(set) = pictures(&[STAR_RIDE, DANCING_FROGS, COZY_WINTER]);
+        let snowing = Outside { sky: Sky::Night, weather: Some(Weather::Snow), ..WINTER };
+
         for turn in 0..6 {
-            let chosen = chosen(&set, &snowing, Turn(turn)).expect("a picture");
-            assert_eq!(chosen.name, "cozy-winter", "turn {turn}");
+            assert_eq!(chosen(&set, &snowing, Turn(turn)), Ok(Some("cozy-winter")), "turn {turn}");
         }
     }
 
     #[test]
     fn a_set_where_nothing_ties_says_the_same_thing_all_day() {
-        let set = set();
-        let night = outside(Sky::Night, Some(Weather::Snow));
+        let Ok(set) = pictures(&SET);
+        let night = Outside { sky: Sky::Night, weather: Some(Weather::Snow), ..WINTER };
+
         for turn in 0..12 {
-            assert_eq!(chosen(&set, &night, Turn(turn)).expect("a picture").name, "cozy-winter");
+            assert_eq!(chosen(&set, &night, Turn(turn)), Ok(Some("cozy-winter")));
         }
     }
 
     #[test]
     fn a_turn_is_two_hours_of_the_clock() {
         let hour = 60.0 * 60.0;
-        assert_eq!(turn_at(0.0), Turn(0));
-        assert_eq!(turn_at(hour), Turn(0));
-        assert_eq!(turn_at(2.0 * hour), Turn(1));
-        assert_eq!(turn_at(2.0 * hour - 1.0), Turn(0));
-        assert_eq!(turn_at(24.0 * hour), Turn(12));
+
+        assert_eq!(Turn::at(0.0), Ok(Turn(0)));
+        assert_eq!(Turn::at(hour), Ok(Turn(0)));
+        assert_eq!(Turn::at(2.0 * hour), Ok(Turn(1)));
+        assert_eq!(Turn::at(2.0 * hour - 1.0), Ok(Turn(0)));
+        assert_eq!(Turn::at(24.0 * hour), Ok(Turn(12)));
     }
 
     #[test]
     fn a_pinned_picture_is_the_one_that_is_up() {
-        let set = set();
+        let Ok(set) = pictures(&SET);
         let asked = Wanted { follow: false, picture: "lazy-river".to_string() };
-        let chosen = asked_for(&set, &asked, &outside(Sky::Night, Some(Weather::Snow)), FIRST)
-            .expect("a picture");
-        assert_eq!(chosen.name, "lazy-river");
+        let snowing = Outside { sky: Sky::Night, weather: Some(Weather::Snow), ..WINTER };
+
+        assert_eq!(asked_for(&set, &asked, &snowing, FIRST), Ok(Some("lazy-river")));
     }
 
     #[test]
     fn a_pinned_picture_that_is_gone_goes_back_to_following_the_weather() {
-        let set = set();
+        let Ok(set) = pictures(&SET);
         let asked = Wanted { follow: false, picture: "sledding".to_string() };
-        let chosen = asked_for(&set, &asked, &outside(Sky::Night, Some(Weather::Snow)), FIRST)
-            .expect("a picture");
-        assert_eq!(chosen.name, "cozy-winter");
+        let snowing = Outside { sky: Sky::Night, weather: Some(Weather::Snow), ..WINTER };
+
+        assert_eq!(asked_for(&set, &asked, &snowing, FIRST), Ok(Some("cozy-winter")));
     }
 
     #[test]
     fn a_pinned_picture_is_known_without_anything_being_asked_of_the_weather() {
-        let set = set();
+        let Ok(set) = pictures(&SET);
         let pinned_on = Wanted { follow: false, picture: "lazy-river".to_string() };
-        assert_eq!(pin(&set, &pinned_on).expect("a picture").name, "lazy-river");
-
         let following = Wanted { follow: true, picture: "lazy-river".to_string() };
-        assert!(pin(&set, &following).is_none());
         let gone = Wanted { follow: false, picture: "sledding".to_string() };
-        assert!(pin(&set, &gone).is_none());
+
+        assert_eq!(pin(&set, &pinned_on), Ok(Some("lazy-river")));
+        assert_eq!(pin(&set, &following), Ok(None));
+        assert_eq!(pin(&set, &gone), Ok(None));
     }
 
     #[test]
     fn a_pinned_picture_does_not_take_turns_with_anything() {
-        let set = vec![
-            picture("star-ride", &["night"], &[]),
-            picture("dancing-frogs", &["night"], &[]),
-        ];
+        let Ok(set) = pictures(&[STAR_RIDE, DANCING_FROGS]);
         let asked = Wanted { follow: false, picture: "star-ride".to_string() };
-        let night = outside(Sky::Night, None);
+        let night = Outside { sky: Sky::Night, ..WINTER };
+
         for turn in 0..6 {
-            let chosen = asked_for(&set, &asked, &night, Turn(turn)).expect("a picture");
-            assert_eq!(chosen.name, "star-ride", "turn {turn}");
+            assert_eq!(asked_for(&set, &asked, &night, Turn(turn)), Ok(Some("star-ride")), "turn {turn}");
         }
     }
 
     #[test]
     fn what_was_asked_for_is_written_and_read_back_the_same() {
         let asked = Wanted { follow: false, picture: "star-ride".to_string() };
-        assert_eq!(read(&written(&asked)), asked);
+        let Ok(written) = asked.serialize();
+
+        assert_eq!(Wanted::read(&written), Ok(asked));
     }
 
-    fn shipped() -> Set {
+    fn shipped() -> Result<Set, Box<dyn Error>> {
         let Ok(at) = crate::place::table();
-
-        let held = std::fs::read_to_string(&at)
-            .unwrap_or_else(|fault| panic!("{} could not be read: {fault}", at.display()));
-
+        let held = std::fs::read_to_string(&at)?;
         let Ok(set) = Set::read(&held);
 
-        set.unwrap_or_else(|| panic!("{} is not a table this can read", at.display()))
+        set.ok_or_else(|| Box::from(format!("{} is not a table this can read", at.display())))
     }
 
     #[test]
-    fn no_two_pictures_in_the_shipped_table_are_called_the_same_thing() {
-        let set = shipped();
+    fn no_two_pictures_in_the_shipped_table_are_called_the_same_thing() -> Result<(), Box<dyn Error>> {
+        let set = shipped()?;
         let mut seen = std::collections::BTreeSet::new();
+
         for picture in &set.pictures {
             assert!(seen.insert(picture.name.clone()), "two pictures called {}", picture.name);
         }
+
+        Ok(())
     }
 
     #[test]
-    fn the_shipped_table_shows_more_than_one_picture_over_a_clear_day() {
-        let set = shipped();
+    fn the_shipped_table_shows_more_than_one_picture_over_a_clear_day() -> Result<(), Box<dyn Error>> {
+        let set = shipped()?;
         let clear = Outside {
             sky: Sky::Day,
             weather: Some(Weather::Clear),
             season: Season::Summer,
             moon: Moon::New,
         };
-        let over_a_day: Vec<&str> = (0..12)
+        let over_a_day: Vec<Option<&str>> = (0..12)
             .map(|turn| {
-                chosen(&set.pictures, &clear, Turn(turn)).expect("a picture").name.as_str()
+                let Ok(chosen) = chosen(&set.pictures, &clear, Turn(turn));
+
+                chosen
             })
             .collect();
-        let how_many: std::collections::BTreeSet<&str> = over_a_day.iter().copied().collect();
+        let how_many: std::collections::BTreeSet<Option<&str>> = over_a_day.iter().copied().collect();
+
         assert!(how_many.len() > 1, "a whole clear day showed only {over_a_day:?}");
+
+        Ok(())
     }
 
     #[test]
     fn a_file_that_is_not_one_reads_as_following_the_weather() {
-        assert_eq!(read("follow = maybe"), Wanted::default());
-        assert!(read("").follow);
+        assert_eq!(Wanted::read("follow = maybe"), Ok(Wanted::default()));
+        assert!(matches!(Wanted::read(""), Ok(Wanted { follow: true, .. })));
     }
 }

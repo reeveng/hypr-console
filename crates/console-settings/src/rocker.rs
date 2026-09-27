@@ -32,7 +32,7 @@ pub enum ButtonPress {
 }
 
 impl ButtonPress {
-    pub fn named(word: &str) -> Result<Option<Self>, Never> {
+    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
         match word {
             "up" => Ok(Some(ButtonPress::Up)),
             "down" => Ok(Some(ButtonPress::Down)),
@@ -55,7 +55,7 @@ pub fn asks(press: ButtonPress) -> Result<Vec<Vec<String>>, Never> {
     }
 }
 
-pub fn said(level: Option<&str>, muted: Muted) -> Result<String, Never> {
+pub fn volume_label(level: Option<&str>, muted: Muted) -> Result<String, Never> {
     match muted {
         Muted::Yes => Ok("Silent".to_string()),
         Muted::No => Ok(format!("Volume {}", match level {
@@ -99,19 +99,27 @@ pub fn value(level: Option<&str>) -> Result<Option<i64>, Never> {
 mod tests {
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
-    fn turning_it_up_unsilences_it_first() {
-        let asked = asks(ButtonPress::Up).expect("what it asks");
-        assert_eq!(asked[0][0], "set-sink-mute");
-        assert_eq!(asked[0][2], "0");
-        assert_eq!(asked[1][0], "set-sink-volume");
+    fn turning_it_up_unsilences_it_first() -> Result<(), Failure> {
+        let Ok(asked) = asks(ButtonPress::Up);
+        let unmuting = asked.first().ok_or("nothing asked")?;
+        let raising = asked.get(1).ok_or("one thing asked")?;
+
+        assert_eq!(unmuting.first().map(String::as_str), Some("set-sink-mute"));
+        assert_eq!(unmuting.get(2).map(String::as_str), Some("0"));
+        assert_eq!(raising.first().map(String::as_str), Some("set-sink-volume"));
+
+        Ok(())
     }
 
     #[test]
     fn turning_it_down_leaves_it_silenced() {
-        let asked = asks(ButtonPress::Down).expect("what it asks");
+        let Ok(asked) = asks(ButtonPress::Down);
+
         assert_eq!(asked.len(), 1);
-        assert!(!asked.iter().any(|arguments| arguments[0] == "set-sink-mute"));
+        assert!(!asked.iter().any(|arguments| arguments.first().is_some_and(|verb| verb == "set-sink-mute")));
     }
 
     #[test]
@@ -124,18 +132,17 @@ mod tests {
 
     #[test]
     fn nothing_but_the_three_words_is_a_press() {
-        assert_eq!(ButtonPress::named("up"), Ok(Some(ButtonPress::Up)));
-        assert_eq!(ButtonPress::named("UP"), Ok(None));
-        assert_eq!(ButtonPress::named(""), Ok(None));
+        assert_eq!(ButtonPress::parse("up"), Ok(Some(ButtonPress::Up)));
+        assert_eq!(ButtonPress::parse("UP"), Ok(None));
+        assert_eq!(ButtonPress::parse(""), Ok(None));
     }
 
     #[test]
     fn the_percentage_is_read_out_of_what_pactl_says() {
         let said = "Volume: front-left: 32768 /  50% / -18.06 dB,   front-right: 32768 /  50%\n";
-        assert_eq!(level(said), Ok(Some("50%")));
+        let Ok(found) = level(said);
 
-        let found = level(said).expect("the level");
-
+        assert_eq!(found, Some("50%"));
         assert_eq!(value(found), Ok(Some(50)));
     }
 
@@ -143,13 +150,13 @@ mod tests {
     fn nothing_pactl_says_is_ever_a_reason_to_fail() {
         assert_eq!(level(""), Ok(None));
         assert_eq!(value(None), Ok(None));
-        assert_eq!(said(None, Muted::No), Ok("Volume ?".to_string()));
+        assert_eq!(volume_label(None, Muted::No), Ok("Volume ?".to_string()));
     }
 
     #[test]
     fn silence_is_said_rather_than_shown_as_a_number() {
-        assert_eq!(said(Some("50%"), Muted::Yes), Ok("Silent".to_string()));
-        assert_eq!(said(Some("50%"), Muted::No), Ok("Volume 50%".to_string()));
+        assert_eq!(volume_label(Some("50%"), Muted::Yes), Ok("Silent".to_string()));
+        assert_eq!(volume_label(Some("50%"), Muted::No), Ok("Volume 50%".to_string()));
     }
 
     #[test]

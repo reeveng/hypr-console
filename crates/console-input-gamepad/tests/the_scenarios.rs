@@ -5,59 +5,66 @@
 //! button that has since been renamed is a scenario no one will find out about
 //! until they reach for it.
 
-use std::path::{Path, PathBuf};
+use std::error::Error;
+use std::path::PathBuf;
 
-use console_input_gamepad::capture::captured;
+use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
 use console_input_gamepad::go::{RecordingClock, LegionGo};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::play;
 use console_input_gamepad::world::World;
 
-fn ok<T>(answer: Result<T, console_core_never::Never>) -> T {
-    let Ok(value) = answer;
+fn scenarios() -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let root = console_repository::root()?;
+    let mut found = Vec::new();
 
-    value
-}
+    let entries = std::fs::read_dir(root.join("scenarios"))?;
 
-fn root() -> PathBuf {
-    {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
-}
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
 
-fn scenarios() -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(root().join("scenarios"))
-        .expect("the scenarios")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|kind| kind == "txt"))
-        .collect();
+        match path.extension().is_some_and(|kind| kind == "txt") {
+            true => found.push(path),
+            false => {}
+        }
+    }
+
     found.sort();
-    found
+
+    Ok(found)
 }
 
 #[test]
-fn there_are_some() {
-    assert!(!scenarios().is_empty());
+fn there_are_some() -> Result<(), Box<dyn Error>> {
+    let scenarios = scenarios()?;
+
+    assert!(!scenarios.is_empty());
+
+    Ok(())
 }
 
 #[test]
-fn every_scenario_plays() {
-    for path in scenarios() {
-        let world = ok(World::of(captured().expect("the capture carried in this program parses")));
-        let devices = ok(Devices::new(captured().expect("the capture"), world));
-        let mut go = LegionGo::new(
-            every_profile(&root()).expect("the profiles"),
-            devices,
-            RecordingClock::default(),
-            console_input_gamepad::router::NAME,
-        )
-        .expect("a pad");
-        let said = std::fs::read_to_string(&path).expect("a scenario");
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        play(&mut go, &said).unwrap_or_else(|fault| panic!("{name}: {fault}"));
+fn every_scenario_plays() -> Result<(), Box<dyn Error>> {
+    let root = console_repository::root()?;
+
+    let scenarios = scenarios()?;
+
+    for path in scenarios {
+        let seen = load_capture()?;
+        let descriptors = load_capture()?;
+        let Ok(world) = World::of(seen);
+        let Ok(devices) = Devices::new(descriptors, world);
+        let profiles = every_profile(&root)?;
+        let mut go = LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)?;
+        let said = std::fs::read_to_string(&path)?;
+        let name = path.display();
+
+        play(&mut go, &said).map_err(|fault| format!("{name}: {fault}"))?;
+
         assert!(!go.devices.sink.log.is_empty(), "{name} pressed nothing");
     }
+
+    Ok(())
 }

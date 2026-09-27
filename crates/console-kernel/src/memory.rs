@@ -275,7 +275,7 @@ mod tests {
         dylint_lib = "explicit051_no_machine_width",
         allow(explicit051_no_machine_width, reason = "a `Layout` is measured in `usize` by `alloc`, and the test asks for one at the width the kernel holds sizes in")
     )]
-    fn layout(size: u64, align: u64) -> Result<Layout, Missed> {
+    fn layout((size, align): (u64, u64)) -> Result<Layout, Missed> {
         let size = usize::try_from(size).map_err(|_too_wide| Missed::Layout)?;
         let align = usize::try_from(align).map_err(|_too_wide| Missed::Layout)?;
 
@@ -293,7 +293,8 @@ mod tests {
             usable.collect::<Vec<_>>(),
             [Region { start: 0, pages: 160 }, Region { start: 0x20_0000, pages: 2048 }, Region { start: 0x100_0000, pages: 4 }]
         );
-        assert_eq!(map.usable_bytes()?, 2212 * PAGE);
+        let usable_bytes = map.usable_bytes()?;
+        assert_eq!(usable_bytes, PAGE.saturating_mul(2212));
 
         Ok(())
     }
@@ -302,7 +303,9 @@ mod tests {
     fn a_descriptor_smaller_than_the_specifications_is_refused() -> Result<(), Missed> {
         let bytes = firmware()?;
 
-        assert_eq!(MemoryMap::new(&bytes, 32).err(), Some(MemoryError::DescriptorTooSmall(32)));
+        let refused = MemoryMap::new(&bytes, 32);
+
+        assert!(matches!(refused, Err(MemoryError::DescriptorTooSmall(32))), "{refused:?}");
 
         Ok(())
     }
@@ -310,14 +313,20 @@ mod tests {
     #[test]
     fn frames_skip_zero_and_move_on_when_a_region_is_too_small() -> Result<(), Missed> {
         let bytes = firmware()?;
-        let Ok(mut frames) = Frames::new(MemoryMap::new(&bytes, FIRMWARE_STRIDE)?);
+        let map = MemoryMap::new(&bytes, FIRMWARE_STRIDE)?;
+        let Ok(mut frames) = Frames::new(map);
 
-        assert_eq!(frames.take(159)?, PAGE);
-        assert_eq!(frames.take(1)?, 0x20_0000);
-        assert_eq!(frames.take(2047)?, 0x20_1000);
-        assert_eq!(frames.take(2)?, 0x100_0000);
+        let frame = frames.take(159)?;
+        assert_eq!(frame, PAGE);
+        let frame = frames.take(1)?;
+        assert_eq!(frame, 0x20_0000);
+        let frame = frames.take(2047)?;
+        assert_eq!(frame, 0x20_1000);
+        let frame = frames.take(2)?;
+        assert_eq!(frame, 0x100_0000);
         assert_eq!(frames.take(4), Err(MemoryError::OutOfFrames));
-        assert_eq!(frames.take(2)?, 0x100_2000);
+        let frame = frames.take(2)?;
+        assert_eq!(frame, 0x100_2000);
         assert_eq!(frames.take(1), Err(MemoryError::OutOfFrames));
 
         Ok(())
@@ -326,15 +335,27 @@ mod tests {
     #[test]
     fn the_heap_aligns_grows_into_new_frames_and_says_when_they_run_out() -> Result<(), Missed> {
         let bytes = firmware()?;
-        let Ok(frames) = Frames::new(MemoryMap::new(&bytes, FIRMWARE_STRIDE)?);
+        let map = MemoryMap::new(&bytes, FIRMWARE_STRIDE)?;
+        let Ok(frames) = Frames::new(map);
         let Ok(mut heap) = Heap::new(frames);
 
-        assert_eq!(heap.allocate(layout(3, 1)?)?, 0x20_0000);
-        assert_eq!(heap.allocate(layout(8, 8)?)?, 0x20_0008);
-        assert_eq!(heap.allocate(layout(16, 4096)?)?, 0x20_1000);
-        assert_eq!(heap.allocate(layout(0x3f_f000, 8)?)?, 0x60_0000);
-        assert_eq!(heap.allocate(layout(0x10_0000, 8)?), Err(MemoryError::OutOfFrames));
-        assert_eq!(heap.allocate(layout(64, 8)?)?, 0x9f_f000);
+        let wanted = layout((3, 1))?;
+        let at = heap.allocate(wanted)?;
+        assert_eq!(at, 0x20_0000);
+        let wanted = layout((8, 8))?;
+        let at = heap.allocate(wanted)?;
+        assert_eq!(at, 0x20_0008);
+        let wanted = layout((16, 4096))?;
+        let at = heap.allocate(wanted)?;
+        assert_eq!(at, 0x20_1000);
+        let wanted = layout((0x3f_f000, 8))?;
+        let at = heap.allocate(wanted)?;
+        assert_eq!(at, 0x60_0000);
+        let wanted = layout((0x10_0000, 8))?;
+        assert_eq!(heap.allocate(wanted), Err(MemoryError::OutOfFrames));
+        let wanted = layout((64, 8))?;
+        let at = heap.allocate(wanted)?;
+        assert_eq!(at, 0x9f_f000);
 
         Ok(())
     }

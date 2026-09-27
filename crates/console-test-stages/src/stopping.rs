@@ -45,7 +45,7 @@ pub fn caught() -> Result<(), Never> {
     // SAFETY: the handler stores one flag, and the second time puts the
     // default back and sends the signal again, all of it through calls that
     // allocate nothing.
-    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, answered) };
+    let answering = unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) };
 
     match answering {
         Ok(()) => {},
@@ -55,11 +55,11 @@ pub fn caught() -> Result<(), Never> {
     Ok(())
 }
 
-extern "C" fn answered(number: core::ffi::c_int) {
+extern "C" fn on_signal(number: core::ffi::c_int) {
     match ASKED.swap(true, Ordering::SeqCst) {
         true => match rustix::process::Signal::from_named_raw(number) {
             Some(again) => {
-                let _ = console_signals::defaulted(again);
+                let _ = console_signals::restore_default(again);
                 let _ = rustix::process::kill_process(rustix::process::getpid(), again);
             },
             None => {},
@@ -68,7 +68,7 @@ extern "C" fn answered(number: core::ffi::c_int) {
     }
 }
 
-pub fn asked() -> Result<Stop, Never> {
+pub fn stop_state() -> Result<Stop, Never> {
     Ok(match ASKED.load(Ordering::SeqCst) {
         true => Stop::Requested,
         false => Stop::No,

@@ -75,7 +75,7 @@ pub const ROOM: Size<u32> = Size { width: 440, height: 420 };
 
 const FIRST: u32 = 0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Target {
     Dot(u32),
     Login,
@@ -93,7 +93,7 @@ pub enum Direction {
 pub struct Secret(String);
 
 impl Secret {
-    pub fn spelled(&self) -> Result<&str, Never> {
+    pub fn as_str(&self) -> Result<&str, Never> {
         Ok(&self.0)
     }
 }
@@ -143,7 +143,7 @@ impl Pattern {
         Ok(Pattern { at, path: self.path.clone(), finger: None })
     }
 
-    pub fn touched(&self, touch: Touch) -> Result<Clicked, Never> {
+    pub fn touch(&self, touch: Touch) -> Result<Clicked, Never> {
         let Ok(lifted) = self.lifted();
 
         match (touch, self.finger) {
@@ -151,24 +151,24 @@ impl Pattern {
                 let Ok(login) = on_login(at);
 
                 match login {
-                    Some(login) => Pattern { at: login, path: self.path.clone(), finger: None }.clicked(),
+                    Some(login) => Pattern { at: login, path: self.path.clone(), finger: None }.click(),
                     None => {
                         let Ok(start) = self.cleared();
-                        let Ok(drawn) = start.crossed(at, at);
+                        let Ok(drawn) = start.cross(at, at);
 
                         Ok(Clicked::Traced(drawn))
                     }
                 }
             }
             (Touch::Moved(to), Some(from)) => {
-                let Ok(drawn) = self.crossed(from, to);
+                let Ok(drawn) = self.cross(from, to);
 
                 Ok(Clicked::Traced(drawn))
             }
             (Touch::Up, Some(_)) => match self.path.is_empty() {
                 true => Ok(Clicked::Traced(lifted)),
                 false => {
-                    let Ok(secret) = spelled(&self.path);
+                    let Ok(secret) = secret_from(&self.path);
 
                     Ok(Clicked::Submitted(secret))
                 }
@@ -177,7 +177,7 @@ impl Pattern {
         }
     }
 
-    fn crossed(&self, from: Point<i32>, to: Point<i32>) -> Result<Pattern, Never> {
+    fn cross(&self, from: Point<i32>, to: Point<i32>) -> Result<Pattern, Never> {
         let Ok(met) = passed_over(&self.path, from, to);
         let at = match met.last() {
             Some(last) => Target::Dot(*last),
@@ -190,16 +190,16 @@ impl Pattern {
         Ok(Pattern { at, path, finger: Some(to) })
     }
 
-    pub fn clicked(&self) -> Result<Clicked, Never> {
+    pub fn click(&self) -> Result<Clicked, Never> {
         Ok(match (self.at, self.path.last()) {
             (Target::Login, None) => Clicked::Traced(self.clone()),
             (Target::Login, Some(_)) => {
-                let Ok(secret) = spelled(&self.path);
+                let Ok(secret) = secret_from(&self.path);
 
                 Clicked::Submitted(secret)
             }
             (Target::Dot(on), _) => {
-                let Ok(drawn) = joined(self, on);
+                let Ok(drawn) = join_dot(self, on);
 
                 Clicked::Traced(drawn)
             }
@@ -215,7 +215,7 @@ impl Pattern {
     }
 }
 
-fn joined(pattern: &Pattern, on: u32) -> Result<Pattern, Never> {
+fn join_dot(pattern: &Pattern, on: u32) -> Result<Pattern, Never> {
     let mut path = pattern.path.clone();
 
     match pattern.path.contains(&on) {
@@ -266,7 +266,7 @@ fn passed_over(path: &[u32], from: Point<i32>, to: Point<i32>) -> Result<Vec<u32
     Ok(met.into_iter().map(|(_, at)| at).collect())
 }
 
-fn spelled(path: &[u32]) -> Result<Secret, Never> {
+fn secret_from(path: &[u32]) -> Result<Secret, Never> {
     let keys = path.iter().filter_map(|at| {
         let Ok(dot) = dot(*at);
 
@@ -343,79 +343,101 @@ fn cost(here: Point<i32>, there: Point<i32>, direction: Direction) -> Result<Opt
 mod tests {
     use super::*;
     use console_core_number_conversion::toward_zero_i32;
+    use std::collections::HashSet;
+    use std::error::Error;
+
+    type Failure = Box<dyn Error>;
 
     const WOBBLE: f64 = 10.0;
 
-    fn at(key: char) -> Target {
+    fn at(key: char) -> Result<Target, Failure> {
         match (0..).zip(DOTS).find(|(_, dot)| dot.key == key) {
-            Some((at, _)) => Target::Dot(at),
-            None => panic!("no dot for {key}"),
+            Some((at, _)) => Ok(Target::Dot(at)),
+            None => Err(Box::from(format!("no dot for {key}"))),
         }
     }
 
-    fn number(key: char) -> u32 {
-        match at(key) {
-            Target::Dot(number) => number,
-            Target::Login => panic!("{key} is Login"),
+    fn number(key: char) -> Result<u32, Failure> {
+        let target = at(key)?;
+
+        match target {
+            Target::Dot(number) => Ok(number),
+            Target::Login => Err(Box::from(format!("{key} is Login"))),
         }
     }
 
-    fn centre_of(key: char) -> Point<i32> {
-        match centre(at(key)) {
-            Ok(Some(centre)) => centre,
-            Ok(None) => panic!("no centre for {key}"),
-        }
+    fn centre_of(key: char) -> Result<Point<i32>, Failure> {
+        let target = at(key)?;
+        let Ok(found) = centre(target);
+
+        found.ok_or_else(|| Box::from(format!("no centre for {key}")))
     }
 
-    fn walked(from: Target, presses: &[Direction]) -> Target {
-        presses.iter().fold(from, |here, direction| {
+    #[cfg_attr(
+        dylint_lib = "explicit051_no_machine_width",
+        allow(
+            explicit051_no_machine_width,
+            reason = "an array's length is a usize by the language, and the array is what lets each test name its keys where it destructures them"
+        )
+    )]
+    fn each<T, const N: usize>(keys: [char; N], one: fn(char) -> Result<T, Failure>) -> Result<[T; N], Failure> {
+        let found = keys.into_iter().map(one).collect::<Result<Vec<T>, Failure>>()?;
+        let found: [T; N] = found.try_into().map_err(|_not_as_many| "as many answers as keys")?;
+
+        Ok(found)
+    }
+
+    fn walked(from: Target, presses: &[Direction]) -> Result<Target, Never> {
+        let mut here = from;
+
+        for direction in presses {
             let Ok(next) = toward(here, *direction);
 
-            next
-        })
+            here = next;
+        }
+
+        Ok(here)
     }
 
-    fn drawn(pattern: Pattern) -> Pattern {
-        let Ok(clicked) = pattern.clicked();
+    fn drawn(pattern: Pattern) -> Result<Pattern, Failure> {
+        let Ok(clicked) = pattern.click();
 
         match clicked {
-            Clicked::Traced(pattern) => pattern,
-            Clicked::Submitted(_) => panic!("submitted before Login"),
+            Clicked::Traced(pattern) => Ok(pattern),
+            Clicked::Submitted(_) => Err(Box::from("submitted before Login")),
         }
     }
 
-    fn touched(pattern: &Pattern, touches: &[Touch]) -> Clicked {
-        touches.iter().fold(Clicked::Traced(pattern.clone()), |clicked, touch| match clicked {
-            Clicked::Traced(pattern) => {
-                let Ok(next) = pattern.touched(*touch);
+    fn touch_all(pattern: &Pattern, touches: &[Touch]) -> Result<Clicked, Failure> {
+        let mut clicked = Clicked::Traced(pattern.clone());
 
-                next
-            }
-            Clicked::Submitted(_) => panic!("submitted before the last touch"),
-        })
+        for touch in touches {
+            let Ok(next) = match clicked {
+                Clicked::Traced(pattern) => pattern.touch(*touch),
+                Clicked::Submitted(_) => return Err(Box::from("submitted before the last touch")),
+            };
+
+            clicked = next;
+        }
+
+        Ok(clicked)
     }
 
-    fn fresh() -> Pattern {
-        let Ok(pattern) = Pattern::new();
-
-        pattern
-    }
-
-    fn spelled_by(clicked: &Clicked) -> String {
+    fn spelled_by(clicked: &Clicked) -> Result<String, Failure> {
         match clicked {
             Clicked::Submitted(secret) => {
-                let Ok(spelled) = secret.spelled();
+                let Ok(spelled) = secret.as_str();
 
-                spelled.to_string()
+                Ok(spelled.to_string())
             }
-            Clicked::Traced(_) => panic!("nothing was submitted"),
+            Clicked::Traced(_) => Err(Box::from("nothing was submitted")),
         }
     }
 
-    fn path_of(clicked: &Clicked) -> Vec<u32> {
+    fn path_of(clicked: &Clicked) -> Result<Vec<u32>, Failure> {
         match clicked {
-            Clicked::Traced(pattern) => pattern.path.clone(),
-            Clicked::Submitted(_) => panic!("submitted while drawing"),
+            Clicked::Traced(pattern) => Ok(pattern.path.clone()),
+            Clicked::Submitted(_) => Err(Box::from("submitted while drawing")),
         }
     }
 
@@ -454,13 +476,16 @@ mod tests {
     fn a_hand_that_wanders_off_the_line_still_crosses_no_third() {
         for (one, from) in (0_u32..).zip(DOTS) {
             for (other, to) in (0_u32..).zip(DOTS).filter(|(other, _)| *other != one) {
-                let run = (f64::from(to.centre.x - from.centre.x), f64::from(to.centre.y - from.centre.y));
+                let run = (
+                    f64::from(to.centre.x.saturating_sub(from.centre.x)),
+                    f64::from(to.centre.y.saturating_sub(from.centre.y)),
+                );
                 let long = run.0.hypot(run.1);
                 let aside = |point: Point<i32>, side: f64| {
                     let Ok(across) = toward_zero_i32((side * WOBBLE * run.1 / long).round());
                     let Ok(down) = toward_zero_i32((side * WOBBLE * run.0 / long).round());
 
-                    Point { x: point.x + across, y: point.y - down }
+                    Point { x: point.x.saturating_add(across), y: point.y.saturating_sub(down) }
                 };
 
                 for side in [-1.0, 1.0] {
@@ -474,161 +499,221 @@ mod tests {
 
     #[test]
     fn every_dot_and_login_can_be_reached_from_the_first() {
-        let start = fresh();
-        let mut reached = vec![start.at];
-        let mut frontier = vec![start.at];
+        let Ok(start) = Pattern::new();
         let every = [Direction::Up, Direction::Down, Direction::Left, Direction::Right];
+        let grown = std::iter::successors(Some(HashSet::from([start.at])), |reached: &HashSet<Target>| {
+            let wider: HashSet<Target> = reached
+                .iter()
+                .flat_map(|here| {
+                    every.map(|direction| {
+                        let Ok(next) = toward(*here, direction);
 
-        while let Some(here) = frontier.pop() {
-            for direction in every {
-                let Ok(next) = toward(here, direction);
+                        next
+                    })
+                })
+                .chain(reached.iter().copied())
+                .collect();
 
-                match reached.contains(&next) {
-                    true => {}
-                    false => {
-                        reached.push(next);
-                        frontier.push(next);
-                    }
-                }
+            match wider.len() > reached.len() {
+                true => Some(wider),
+                false => None,
             }
-        }
+        })
+        .last();
+        let reached = match grown {
+            Some(reached) => reached,
+            None => HashSet::new(),
+        };
 
         assert_eq!(reached.len(), DOTS.len().saturating_add(1));
     }
 
     #[test]
-    fn down_from_the_bottom_of_the_ring_is_login_and_up_from_login_is_back() {
-        let Ok(below) = toward(at('e'), Direction::Down);
+    fn down_from_the_bottom_of_the_ring_is_login_and_up_from_login_is_back() -> Result<(), Failure> {
+        let from = at('e')?;
+        let Ok(below) = toward(from, Direction::Down);
         let Ok(above) = toward(Target::Login, Direction::Up);
 
         assert_eq!(below, Target::Login);
         assert!(matches!(above, Target::Dot(_)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_step_goes_to_the_nearest_dot_the_way_it_was_pressed() {
-        assert_eq!(walked(at('a'), &[Direction::Right]), at('b'));
-        assert_eq!(walked(at('a'), &[Direction::Left]), at('i'));
-        assert_eq!(walked(at('e'), &[Direction::Left]), at('f'));
+    fn a_step_goes_to_the_nearest_dot_the_way_it_was_pressed() -> Result<(), Failure> {
+        let [a, b, e, f, i] = each(['a', 'b', 'e', 'f', 'i'], at)?;
+
+        assert_eq!(walked(a, &[Direction::Right]), Ok(b));
+        assert_eq!(walked(a, &[Direction::Left]), Ok(i));
+        assert_eq!(walked(e, &[Direction::Left]), Ok(f));
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_that_way_is_staying_put() {
-        assert_eq!(walked(at('a'), &[Direction::Up]), at('a'));
+    fn nothing_that_way_is_staying_put() -> Result<(), Failure> {
+        let a = at('a')?;
+
+        assert_eq!(walked(a, &[Direction::Up]), Ok(a));
+
+        Ok(())
     }
 
     #[test]
-    fn a_pattern_spells_the_keys_of_its_dots_in_order() {
-        let pattern = drawn(Pattern { at: at('a'), path: Vec::new(), finger: None });
-        let pattern = drawn(Pattern { at: at('c'), path: pattern.path, finger: None });
-        let pattern = drawn(Pattern { at: at('b'), path: pattern.path, finger: None });
-        let Ok(clicked) = Pattern { at: Target::Login, path: pattern.path, finger: None }.clicked();
+    fn a_pattern_spells_the_keys_of_its_dots_in_order() -> Result<(), Failure> {
+        let [a, b, c] = each(['a', 'b', 'c'], at)?;
+        let pattern = drawn(Pattern { at: a, path: Vec::new(), finger: None })?;
+        let pattern = drawn(Pattern { at: c, path: pattern.path, finger: None })?;
+        let pattern = drawn(Pattern { at: b, path: pattern.path, finger: None })?;
+        let Ok(clicked) = Pattern { at: Target::Login, path: pattern.path, finger: None }.click();
+        let spelled = spelled_by(&clicked)?;
 
-        assert_eq!(spelled_by(&clicked), "acb");
+        assert_eq!(spelled, "acb");
+
+        Ok(())
     }
 
     #[test]
-    fn a_dot_already_in_the_pattern_is_not_joined_again() {
-        let pattern = drawn(Pattern { at: at('a'), path: vec![number('a'), number('c')], finger: None });
+    fn a_dot_already_in_the_pattern_is_not_joined_again() -> Result<(), Failure> {
+        let joined = each(['a', 'c'], number)?;
+        let a = at('a')?;
+        let pattern = drawn(Pattern { at: a, path: joined.to_vec(), finger: None })?;
 
-        assert_eq!(pattern.path, vec![number('a'), number('c')]);
+        assert_eq!(pattern.path, joined);
+
+        Ok(())
     }
 
     #[test]
     fn login_with_nothing_drawn_submits_nothing() {
-        let Ok(clicked) = Pattern { at: Target::Login, path: Vec::new(), finger: None }.clicked();
+        let Ok(clicked) = Pattern { at: Target::Login, path: Vec::new(), finger: None }.click();
 
         assert!(matches!(clicked, Clicked::Traced(_)));
     }
 
     #[test]
-    fn b_takes_the_last_dot_back() {
-        let pattern = drawn(Pattern { at: at('a'), path: vec![1, 2], finger: None });
+    fn b_takes_the_last_dot_back() -> Result<(), Failure> {
+        let a = at('a')?;
+        let pattern = drawn(Pattern { at: a, path: vec![1, 2], finger: None })?;
         let Ok(undone) = pattern.undone();
 
         assert_eq!(undone.path, vec![1, 2]);
+
+        Ok(())
     }
 
     #[test]
     fn a_secret_does_not_print_itself() {
-        let Ok(clicked) = Pattern { at: Target::Login, path: vec![0], finger: None }.clicked();
+        let Ok(clicked) = Pattern { at: Target::Login, path: vec![0], finger: None }.click();
 
         assert_eq!(format!("{clicked:?}"), "Submitted(Secret(..))");
     }
 
     #[test]
-    fn a_finger_joins_each_dot_it_is_drawn_over_and_lifting_it_submits() {
-        let touches = [
-            Touch::Down(centre_of('a')),
-            Touch::Moved(centre_of('b')),
-            Touch::Moved(centre_of('c')),
-            Touch::Moved(centre_of('d')),
-            Touch::Up,
-        ];
+    fn a_finger_joins_each_dot_it_is_drawn_over_and_lifting_it_submits() -> Result<(), Failure> {
+        let Ok(fresh) = Pattern::new();
+        let [a, b, c, d] = each(['a', 'b', 'c', 'd'], centre_of)?;
+        let touches = [Touch::Down(a), Touch::Moved(b), Touch::Moved(c), Touch::Moved(d), Touch::Up];
+        let clicked = touch_all(&fresh, &touches)?;
+        let spelled = spelled_by(&clicked)?;
 
-        assert_eq!(spelled_by(&touched(&fresh(), &touches)), "abcd");
+        assert_eq!(spelled, "abcd");
+
+        Ok(())
     }
 
     #[test]
-    fn a_finger_follows_every_sample_and_the_line_ends_under_it() {
+    fn a_finger_follows_every_sample_and_the_line_ends_under_it() -> Result<(), Failure> {
+        let Ok(fresh) = Pattern::new();
         let halfway = Point { x: 300, y: 100 };
-        let clicked = touched(&fresh(), &[Touch::Down(centre_of('a')), Touch::Moved(halfway)]);
+        let from = centre_of('a')?;
+        let clicked = touch_all(&fresh, &[Touch::Down(from), Touch::Moved(halfway)])?;
+        let a = number('a')?;
 
         match clicked {
             Clicked::Traced(pattern) => {
-                assert_eq!(pattern.path, vec![number('a')]);
+                assert_eq!(pattern.path, vec![a]);
                 assert_eq!(pattern.finger, Some(halfway));
             }
-            Clicked::Submitted(_) => panic!("submitted while drawing"),
+            Clicked::Submitted(_) => return Err(Box::from("submitted while drawing")),
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_finger_sampled_past_a_dot_joins_it_on_the_way() {
-        let a = centre_of('a');
-        let b = centre_of('b');
-        let beyond = Point { x: b.x + (b.x - a.x) / 2, y: b.y + (b.y - a.y) / 2 };
-        let clicked = touched(&fresh(), &[Touch::Down(a), Touch::Moved(beyond)]);
+    fn a_finger_sampled_past_a_dot_joins_it_on_the_way() -> Result<(), Failure> {
+        let Ok(fresh) = Pattern::new();
+        let [a, b] = each(['a', 'b'], centre_of)?;
+        let beyond = Point {
+            x: b.x.saturating_add(b.x.saturating_sub(a.x).saturating_div(2)),
+            y: b.y.saturating_add(b.y.saturating_sub(a.y).saturating_div(2)),
+        };
+        let clicked = touch_all(&fresh, &[Touch::Down(a), Touch::Moved(beyond)])?;
+        let path = path_of(&clicked)?;
+        let joined = each(['a', 'b'], number)?;
 
-        assert_eq!(path_of(&clicked), vec![number('a'), number('b')]);
+        assert_eq!(path, joined);
+
+        Ok(())
     }
 
     #[test]
-    fn a_finger_drawn_back_over_joined_dots_joins_nothing() {
-        let touches = [
-            Touch::Down(centre_of('a')),
-            Touch::Moved(centre_of('b')),
-            Touch::Moved(centre_of('c')),
-            Touch::Moved(centre_of('a')),
-        ];
+    fn a_finger_drawn_back_over_joined_dots_joins_nothing() -> Result<(), Failure> {
+        let Ok(fresh) = Pattern::new();
+        let [a, b, c] = each(['a', 'b', 'c'], centre_of)?;
+        let touches = [Touch::Down(a), Touch::Moved(b), Touch::Moved(c), Touch::Moved(a)];
+        let clicked = touch_all(&fresh, &touches)?;
+        let path = path_of(&clicked)?;
+        let joined = each(['a', 'b', 'c'], number)?;
 
-        assert_eq!(path_of(&touched(&fresh(), &touches)), vec![number('a'), number('b'), number('c')]);
+        assert_eq!(path, joined);
+
+        Ok(())
     }
 
     #[test]
-    fn a_touch_that_meets_no_dot_submits_nothing() {
-        let clicked = touched(&fresh(), &[Touch::Down(Point { x: 220, y: 170 }), Touch::Up]);
+    fn a_touch_that_meets_no_dot_submits_nothing() -> Result<(), Failure> {
+        let Ok(fresh) = Pattern::new();
+        let clicked = touch_all(&fresh, &[Touch::Down(Point { x: 220, y: 170 }), Touch::Up])?;
 
         match clicked {
             Clicked::Traced(pattern) => {
                 assert!(pattern.path.is_empty());
                 assert_eq!(pattern.finger, None);
             }
-            Clicked::Submitted(_) => panic!("an empty touch submitted"),
+            Clicked::Submitted(_) => return Err(Box::from("an empty touch submitted")),
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_new_touch_starts_a_new_pattern() {
-        let drawn = Pattern { at: at('b'), path: vec![number('a'), number('b')], finger: None };
+    fn a_new_touch_starts_a_new_pattern() -> Result<(), Failure> {
+        let b = at('b')?;
+        let joined = each(['a', 'b'], number)?;
+        let drawn = Pattern { at: b, path: joined.to_vec(), finger: None };
+        let e = centre_of('e')?;
+        let clicked = touch_all(&drawn, &[Touch::Down(e)])?;
+        let path = path_of(&clicked)?;
+        let e = number('e')?;
 
-        assert_eq!(path_of(&touched(&drawn, &[Touch::Down(centre_of('e'))])), vec![number('e')]);
+        assert_eq!(path, vec![e]);
+
+        Ok(())
     }
 
     #[test]
-    fn touching_login_submits_what_the_pad_drew() {
-        let drawn = Pattern { at: at('b'), path: vec![number('a'), number('b')], finger: None };
+    fn touching_login_submits_what_the_pad_drew() -> Result<(), Failure> {
+        let b = at('b')?;
+        let joined = each(['a', 'b'], number)?;
+        let drawn = Pattern { at: b, path: joined.to_vec(), finger: None };
+        let clicked = touch_all(&drawn, &[Touch::Down(LOGIN)])?;
+        let spelled = spelled_by(&clicked)?;
 
-        assert_eq!(spelled_by(&touched(&drawn, &[Touch::Down(LOGIN)])), "ab");
+        assert_eq!(spelled, "ab");
+
+        Ok(())
     }
 }

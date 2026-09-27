@@ -10,16 +10,17 @@
 //! The capture is the device's own answer -- `just capture` writes it off the
 //! machine -- so asking it here is the last moment that drift is cheap.
 
-use console_input_gamepad::capture::captured;
+use console_input_gamepad::GamepadError;
+use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::targets::ASKED;
 
 #[test]
-fn every_target_this_desktop_asks_for_is_on_the_device_wearing_what_it_says() {
-    let every = captured().expect("the capture");
+fn every_target_this_desktop_asks_for_is_on_the_device_wearing_what_it_says() -> Result<(), GamepadError> {
+    let every = load_capture()?;
 
     for target in ASKED {
         let Ok(identity) = target.identity();
-        let Ok(asked) = target.asked();
+        let Ok(asked) = target.as_str();
 
         let found = every
             .values()
@@ -35,15 +36,17 @@ fn every_target_this_desktop_asks_for_is_on_the_device_wearing_what_it_says() {
             identity.product
         );
     }
+
+    Ok(())
 }
 
 #[test]
-fn nothing_else_on_the_device_is_wearing_a_targets_numbers() {
-    let every = captured().expect("the capture");
+fn nothing_else_on_the_device_is_wearing_a_targets_numbers() -> Result<(), GamepadError> {
+    let every = load_capture()?;
 
     for target in ASKED {
         let Ok(identity) = target.identity();
-        let Ok(asked) = target.asked();
+        let Ok(asked) = target.as_str();
 
         let wearing: Vec<&str> = every
             .values()
@@ -58,4 +61,6 @@ fn nothing_else_on_the_device_is_wearing_a_targets_numbers() {
              the daemon opens is whichever the kernel lists first"
         );
     }
+
+    Ok(())
 }

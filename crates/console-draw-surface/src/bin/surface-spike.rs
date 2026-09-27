@@ -45,7 +45,7 @@ enum HexColor {
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let wanted = match asked(&arguments) {
+    let wanted = match parse_arguments(&arguments) {
         Ok(wanted) => wanted,
         Err(why) => {
             eprintln!("surface-spike: {why}");
@@ -72,13 +72,11 @@ fn main() -> ExitCode {
         }
     }
 
-    let Ok(panel) = driving();
+    let Ok(panel) = describe_screen();
 
     println!("{panel}");
 
-    let mut left = TURNS;
-
-    while left > 0 {
+    for _turn in 0..TURNS {
         match surface.draw(paint) {
             Ok(()) => {}
             Err(why) => {
@@ -88,7 +86,7 @@ fn main() -> ExitCode {
             }
         }
 
-        let Ok(said) = said(&surface);
+        let Ok(said) = describe(&surface);
 
         println!("{said}");
 
@@ -105,8 +103,6 @@ fn main() -> ExitCode {
             Ok(Closed::Yes) => return ExitCode::SUCCESS,
             Ok(Closed::No) | Err(_) => {}
         }
-
-        left = left.saturating_sub(1);
     }
 
     ExitCode::SUCCESS
@@ -138,8 +134,8 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-fn asked(arguments: &[String]) -> Result<Wanted, ParseError> {
-    let mut wanted = Wanted {
+fn parse_arguments(arguments: &[String]) -> Result<Wanted, ParseError> {
+    let wanted = Wanted {
         namespace: NAMESPACE.to_string(),
         anchor: Anchor::Whole,
         size: Size { width: 0, height: 0 },
@@ -148,41 +144,51 @@ fn asked(arguments: &[String]) -> Result<Wanted, ParseError> {
         room: Room::Over,
         under: Under::None,
     };
-    let mut rest = arguments.iter();
-
-    while let Some(flag) = rest.next() {
-        match flag.as_str() {
-            "--size" => {
-                let said = rest.next().ok_or(ParseError::Without("--size"))?;
-
-                let size = measured(said)?;
+    let (wanted, reading) = arguments.iter().try_fold((wanted, Reading::Flag), |(mut wanted, reading), said| {
+        match (reading, said.as_str()) {
+            (Reading::Flag, "--size") => return Ok((wanted, Reading::Size)),
+            (Reading::Flag, "--anchor") => return Ok((wanted, Reading::Anchor)),
+            (Reading::Flag, "--margin") => return Ok((wanted, Reading::Margin)),
+            (Reading::Flag, _) => {}
+            (Reading::Size, said) => {
+                let size = parse_size(said)?;
 
                 wanted.size = size;
             }
-            "--anchor" => {
-                let said = rest.next().ok_or(ParseError::Without("--anchor"))?;
-
-                let anchor = anchored(said)?;
+            (Reading::Anchor, said) => {
+                let anchor = parse_anchor(said)?;
 
                 wanted.anchor = anchor;
             }
-            "--margin" => {
-                let said = rest.next().ok_or(ParseError::Without("--margin"))?;
-
+            (Reading::Margin, said) => {
                 let margin =
-                    said.parse::<i32>().map_err(|_| ParseError::Margin(said.clone()))?;
+                    said.parse::<i32>().map_err(|_not_a_number| ParseError::Margin(said.to_string()))?;
 
                 wanted.margin =
                     Margin { top: margin, right: margin, bottom: margin, left: margin };
             }
-            _ => {}
         }
-    }
 
-    Ok(wanted)
+        Ok((wanted, Reading::Flag))
+    })?;
+
+    match reading {
+        Reading::Flag => Ok(wanted),
+        Reading::Size => Err(ParseError::Without("--size")),
+        Reading::Anchor => Err(ParseError::Without("--anchor")),
+        Reading::Margin => Err(ParseError::Without("--margin")),
+    }
 }
 
-fn measured(said: &str) -> Result<Size<u32>, ParseError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    Flag,
+    Size,
+    Anchor,
+    Margin,
+}
+
+fn parse_size(said: &str) -> Result<Size<u32>, ParseError> {
     let (wide, tall) = said.split_once('x').ok_or_else(|| ParseError::Size(said.to_string()))?;
     let wide = wide.parse::<u32>().map_err(|_| ParseError::Size(said.to_string()))?;
     let tall = tall.parse::<u32>().map_err(|_| ParseError::Size(said.to_string()))?;
@@ -190,7 +196,7 @@ fn measured(said: &str) -> Result<Size<u32>, ParseError> {
     Ok(Size { width: wide, height: tall })
 }
 
-fn anchored(said: &str) -> Result<Anchor, ParseError> {
+fn parse_anchor(said: &str) -> Result<Anchor, ParseError> {
     match said {
         "top" => Ok(Anchor::Top),
         "top-right" => Ok(Anchor::TopRight),
@@ -200,7 +206,7 @@ fn anchored(said: &str) -> Result<Anchor, ParseError> {
     }
 }
 
-fn driving() -> Result<String, Never> {
+fn describe_screen() -> Result<String, Never> {
     Ok(match console_screen::here() {
         Ok(Some(screen)) => {
             let Ok(logical) = screen.logical();
@@ -215,7 +221,7 @@ fn driving() -> Result<String, Never> {
     })
 }
 
-fn said(surface: &Surface) -> Result<String, Never> {
+fn describe(surface: &Surface) -> Result<String, Never> {
     let Ok(logical) = surface.logical();
     let Ok(scale) = surface.scale();
     let Ok(many) = scale.hundred_twentieths();
@@ -286,40 +292,39 @@ fn ink(at: At) -> Result<HexColor, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
-    fn nothing_asked_for_is_whatever_screen_it_lands_on() {
-        let wanted = match asked(&[]) {
-            Ok(wanted) => wanted,
-            Err(why) => panic!("nothing asked for should read: {why}"),
-        };
+    fn nothing_asked_for_is_whatever_screen_it_lands_on() -> Result<(), Box<dyn Error>> {
+        let wanted = parse_arguments(&[]).map_err(|why| format!("nothing asked for should read: {why}"))?;
 
         assert_eq!(wanted.size, Size { width: 0, height: 0 });
         assert_eq!(wanted.anchor, Anchor::Whole);
+
+        Ok(())
     }
 
     #[test]
-    fn a_size_is_read_off_the_command_line_rather_than_written_here() {
+    fn a_size_is_read_off_the_command_line_rather_than_written_here() -> Result<(), Box<dyn Error>> {
         let arguments = ["--size".to_string(), "320x44".to_string()];
-        let wanted = match asked(&arguments) {
-            Ok(wanted) => wanted,
-            Err(why) => panic!("a size on the command line should read: {why}"),
-        };
+        let wanted = parse_arguments(&arguments).map_err(|why| format!("a size on the command line should read: {why}"))?;
 
         assert_eq!(wanted.size, Size { width: 320, height: 44 });
+
+        Ok(())
     }
 
     #[test]
     fn a_size_no_one_can_read_says_so_rather_than_standing_somewhere_surprising() {
         let arguments = ["--size".to_string(), "enormous".to_string()];
 
-        assert_eq!(asked(&arguments), Err(ParseError::Size("enormous".to_string())));
+        assert_eq!(parse_arguments(&arguments), Err(ParseError::Size("enormous".to_string())));
     }
 
     #[test]
     fn a_flag_with_nothing_after_it_is_not_a_default() {
         let arguments = ["--anchor".to_string()];
 
-        assert_eq!(asked(&arguments), Err(ParseError::Without("--anchor")));
+        assert_eq!(parse_arguments(&arguments), Err(ParseError::Without("--anchor")));
     }
 }

@@ -24,6 +24,7 @@ console-input-gamepad.workspace = true
 console-input-focus.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
+console-core-iteration.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 

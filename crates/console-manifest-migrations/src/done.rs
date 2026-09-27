@@ -120,61 +120,66 @@ pub fn attic(when: &str) -> Result<PathBuf, Never> {
 mod tests {
     use super::*;
 
-    fn one(moment: u64) -> Migration {
-        Migration { moment: Moment(moment), says: "", steps: &[] }
+    fn every(moments: &[u64]) -> Result<Vec<Migration>, Never> {
+        Ok(moments.iter().map(|moment| Migration { moment: Moment(*moment), says: "", steps: &[] }).collect())
     }
 
-    fn done(moments: &[u64]) -> Applied {
-        Applied::Before(moments.iter().map(|moment| Moment(*moment)).collect())
+    fn applied_before(moments: &[u64]) -> Result<Applied, Never> {
+        Ok(Applied::Before(moments.iter().map(|moment| Moment(*moment)).collect()))
     }
 
-    fn runs(moments: &[u64]) -> Outstanding {
-        Outstanding::Run(moments.iter().map(|moment| one(*moment)).collect())
+    fn runs(moments: &[u64]) -> Result<Outstanding, Never> {
+        let Ok(every) = every(moments);
+
+        Ok(Outstanding::Run(every))
     }
 
     #[test]
     fn a_machine_that_has_applied_and_run_nothing_has_all_of_them_pending() {
-        let every = [one(1780294774), one(1784767406)];
+        let Ok(every) = every(&[1780294774, 1784767406]);
+        let Ok(applied) = applied_before(&[]);
+        let Ok(outstanding) = pending(&every, &applied);
+        let Ok(expected) = runs(&[1780294774, 1784767406]);
 
-        let Ok(outstanding) = pending(&every, &done(&[]));
-
-        assert_eq!(outstanding, runs(&[1780294774, 1784767406]));
+        assert_eq!(outstanding, expected);
     }
 
     #[test]
     fn one_already_run_is_not_run_again() {
-        let every = [one(1780294774), one(1784767406)];
+        let Ok(every) = every(&[1780294774, 1784767406]);
+        let Ok(applied) = applied_before(&[1780294774]);
+        let Ok(outstanding) = pending(&every, &applied);
+        let Ok(expected) = runs(&[1784767406]);
 
-        let Ok(outstanding) = pending(&every, &done(&[1780294774]));
-
-        assert_eq!(outstanding, runs(&[1784767406]));
+        assert_eq!(outstanding, expected);
     }
 
     #[test]
     fn what_is_pending_comes_back_oldest_first() {
-        let every = [one(1780294774), one(1784767406), one(1787618700)];
+        let Ok(every) = every(&[1780294774, 1784767406, 1787618700]);
+        let Ok(applied) = applied_before(&[1784767406]);
+        let Ok(outstanding) = pending(&every, &applied);
+        let Ok(expected) = runs(&[1780294774, 1787618700]);
 
-        let Ok(outstanding) = pending(&every, &done(&[1784767406]));
-
-        assert_eq!(outstanding, runs(&[1780294774, 1787618700]));
+        assert_eq!(outstanding, expected);
     }
 
     #[test]
     fn a_machine_that_has_run_them_all_has_nothing_pending() {
-        let every = [one(1780294774)];
+        let Ok(every) = every(&[1780294774]);
+        let Ok(applied) = applied_before(&[1780294774]);
+        let Ok(outstanding) = pending(&every, &applied);
+        let Ok(expected) = runs(&[]);
 
-        let Ok(outstanding) = pending(&every, &done(&[1780294774]));
-
-        assert_eq!(outstanding, runs(&[]));
+        assert_eq!(outstanding, expected);
     }
 
     #[test]
     fn a_machine_that_has_never_applied_remembers_every_one_and_runs_none() {
-        let every = [one(1780294774), one(1784767406)];
-
+        let Ok(every) = every(&[1780294774, 1784767406]);
         let Ok(outstanding) = pending(&every, &Applied::Never);
 
-        assert_eq!(outstanding, Outstanding::Remember(vec![one(1780294774), one(1784767406)]));
+        assert_eq!(outstanding, Outstanding::Remember(every));
     }
 
     #[test]
@@ -196,23 +201,23 @@ mod tests {
     }
 
     #[test]
-    fn a_marker_directory_that_is_not_there_is_a_machine_that_has_never_applied() {
-        assert_eq!(
-            already(Path::new("/nowhere/console/migrations")).expect("never applied"),
-            Applied::Never
-        );
+    fn a_marker_directory_that_is_not_there_is_a_machine_that_has_never_applied() -> Result<(), Undone> {
+        let applied = already(Path::new("/nowhere/console/migrations"))?;
+
+        assert_eq!(applied, Applied::Never);
+
+        Ok(())
     }
 
     #[test]
-    fn a_marker_directory_that_is_there_and_empty_is_a_machine_that_has_applied() {
-        let at = std::env::temp_dir().join(format!("console-done-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&at);
+    fn a_marker_directory_that_is_there_and_empty_is_a_machine_that_has_applied() -> Result<(), Box<dyn std::error::Error>> {
+        let at = console_core_temporary_directories::fresh("done")?;
+        let applied = already(&at)?;
 
-        assert_eq!(
-            already(&at).expect("applied"),
-            Applied::Before(BTreeSet::new())
-        );
+        assert_eq!(applied, Applied::Before(BTreeSet::new()));
 
         let _ = std::fs::remove_dir_all(&at);
+
+        Ok(())
     }
 }

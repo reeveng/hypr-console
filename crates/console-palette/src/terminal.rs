@@ -98,33 +98,39 @@ impl Terminal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::configuration::Configuration;
     use console_core_color::{Ground, HexColor};
 
     const PALETTE: &str = include_str!("../../../theme/palette.toml");
 
-    fn spent() -> (Configuration, Palette, Terminal) {
-        let configuration: Configuration = toml::from_str(PALETTE).expect("the palette parses");
-        let palette = crate::palette::resolve(&configuration.color).expect("it resolves");
-        let terminal = Terminal::of(&configuration, &palette).expect("the terminal table is declared");
-        (configuration, palette, terminal)
+    fn spent() -> Result<(Configuration, Palette, Terminal), Box<dyn Error>> {
+        let configuration: Configuration = toml::from_str(PALETTE)?;
+        let palette = crate::palette::resolve(&configuration.color)?;
+        let terminal = Terminal::of(&configuration, &palette)?;
+        Ok((configuration, palette, terminal))
     }
 
     #[test]
-    fn bright_white_is_the_ink_and_not_a_lift_of_black() {
-        let (_, palette, terminal) = spent();
-        assert_eq!(
-            terminal.slot(Shade::Bright, "white"),
-            Ok(palette.must("text").expect("a declared color"))
-        );
+    fn bright_white_is_the_ink_and_not_a_lift_of_black() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        let (_, palette, terminal) = spent;
+        let text = palette.must("text")?;
+
+        assert_eq!(terminal.slot(Shade::Bright, "white"), Ok(text));
+
+        Ok(())
     }
 
     #[test]
-    fn every_bright_is_lighter_than_its_normal() {
-        let (_, _, terminal) = spent();
+    fn every_bright_is_lighter_than_its_normal() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        let (_, _, terminal) = spent;
+
         for slot in SLOTS {
             let Ok(normal) = terminal.slot(Shade::Normal, slot);
-
             let Ok(bright) = terminal.slot(Shade::Bright, slot);
 
             let Ok(lighter) = color::luminance(bright);
@@ -135,11 +141,16 @@ mod tests {
                 "bright {slot} ({bright}) is no lighter than normal ({normal})"
             );
         }
+
+        Ok(())
     }
 
     #[test]
-    fn every_slot_can_be_read_on_the_background() {
-        let (_, _, terminal) = spent();
+    fn every_slot_can_be_read_on_the_background() -> Result<(), Box<dyn Error>> {
+        let spent = spent()?;
+
+        let (_, _, terminal) = spent;
+
         for shade in [Shade::Normal, Shade::Bright] {
             for slot in SLOTS {
                 let Ok(code) = terminal.slot(shade, slot);
@@ -159,5 +170,7 @@ mod tests {
                 );
             }
         }
+
+        Ok(())
     }
 }

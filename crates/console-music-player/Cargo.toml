@@ -14,7 +14,10 @@ name = "music-player"
 path = "src/bin/music-player.rs"
 
 [dependencies]
+console-core-directory-listing.workspace = true
+console-core-file-urls.workspace = true
 console-awake.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-external-programs.workspace = true
@@ -29,3 +32,6 @@ serde_json = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true

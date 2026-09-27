@@ -39,7 +39,7 @@ fn louder_here(stage: &mut Here) -> CheckResult {
 }
 
 fn louder_there(stage: &mut Device) -> CheckResult {
-    stepped(stage, Step { from: SILENT, button: "dpad-up", way: Way::Up })
+    check_step(stage, Step { from: SILENT, button: "dpad-up", way: Way::Up })
 }
 
 fn quieter_here(stage: &mut Here) -> CheckResult {
@@ -49,7 +49,7 @@ fn quieter_here(stage: &mut Here) -> CheckResult {
 }
 
 fn quieter_there(stage: &mut Device) -> CheckResult {
-    stepped(stage, Step { from: BARELY, button: "dpad-down", way: Way::Down })
+    check_step(stage, Step { from: BARELY, button: "dpad-down", way: Way::Down })
 }
 
 struct Step {
@@ -58,15 +58,15 @@ struct Step {
     way: Way,
 }
 
-fn stepped(stage: &mut Device, Step { from, button, way }: Step) -> CheckResult {
+fn check_step(stage: &mut Device, Step { from, button, way }: Step) -> CheckResult {
     stage.trigger("l2", 1.0)?;
 
     let Ok(()) = stage.volume_to(from);
-    let Ok(was) = stage.stepped(button, Device::volume);
+    let Ok(was) = stage.press_and_wait(button, Device::volume);
 
     stage.trigger("l2", 0.0)?;
 
     let Ok(now) = stage.volume();
 
-    now.went(way, was, UNSAID)
+    now.expect_moved(way, was, UNSAID)
 }

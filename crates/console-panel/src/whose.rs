@@ -29,7 +29,7 @@ thread_local! {
     static WHOSE: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-pub fn named(who: &str) -> Result<(), Never> {
+pub fn set_owner(who: &str) -> Result<(), Never> {
     let said = match who.is_empty() {
         true => None,
         false => Some(who.to_string()),
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn what_was_said_is_what_is_read() {
-        let Ok(()) = named("settings-panel");
+        let Ok(()) = set_owner("settings-panel");
 
         assert_eq!(name(), Ok("settings-panel".to_string()));
 
@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn one_opening_does_not_leave_its_name_behind() {
-        let Ok(()) = named("launcher");
+        let Ok(()) = set_owner("launcher");
         let Ok(()) = no_one();
         let Ok(argv0) = argv0();
 
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn a_name_that_says_nothing_is_not_a_name() {
-        let Ok(()) = named("");
+        let Ok(()) = set_owner("");
         let Ok(argv0) = argv0();
 
         assert_eq!(name(), Ok(argv0));

@@ -6,7 +6,7 @@ extern crate rustc_middle;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
@@ -19,19 +19,12 @@ dylint_linting::declare_late_lint! {
     "numeric `into()` / `from()` hides a change of width; name the two types"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 fn is_numeric(ty: Ty<'_>) -> bool {
     matches!(ty.kind(), rustc_middle::ty::Int(_) | rustc_middle::ty::Uint(_) | rustc_middle::ty::Float(_))
 }
 
 impl<'tcx> LateLintPass<'tcx> for Explicit010NoNumericInto {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         let ExprKind::MethodCall(path, receiver, _, _) = expr.kind else {
             return;
         };

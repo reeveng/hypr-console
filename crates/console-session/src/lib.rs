@@ -88,7 +88,7 @@ pub const HANDED_OVER: [&str; 5] = [
 
 pub const TARGET: &str = "console.target";
 
-pub fn starting() -> Result<Vec<Vec<String>>, Never> {
+pub fn startup_commands() -> Result<Vec<Vec<String>>, Never> {
     let Ok(mut handing) = Program::Systemctl.arguments(&["--user", "import-environment"]);
 
     handing.extend(HANDED_OVER.iter().map(|name| (*name).to_string()));
@@ -167,8 +167,8 @@ pub fn run_each(what: &str, steps: &[Vec<String>]) -> Result<(), Never> {
         }
     }
 
-    let Ok(()) = waiting.done();
-    let Ok(()) = console_response_times::settled();
+    let Ok(()) = waiting.finish();
+    let Ok(()) = console_response_times::flush();
 
     Ok(())
 }
@@ -191,6 +191,7 @@ pub fn run(now: Session, to: Session) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn a_step_is_written_down_under_the_name_of_the_program_and_not_its_path() {
@@ -226,8 +227,8 @@ mod tests {
     fn the_pad_is_a_gamepad_again_before_steam_is_asked_for() {
         let Ok(steps) = steps(Session::Desktop, Session::Game);
 
-        assert_eq!(steps[0], ["controller-profile", "game"]);
-        assert_eq!(steps[1], [SWITCHER, "gamescope"]);
+        assert_eq!(steps.first(), Some(&vec!["controller-profile".to_string(), "game".to_string()]));
+        assert_eq!(steps.get(1), Some(&vec![SWITCHER.to_string(), "gamescope".to_string()]));
     }
 
     #[test]
@@ -237,40 +238,53 @@ mod tests {
         assert_eq!(steps, vec![vec![SWITCHER, "plasma"]]);
     }
 
-    fn the_desktop() -> (u32, Vec<String>) {
-        let Ok(starting) = starting();
+    fn the_desktop() -> Result<(u32, Vec<String>), Box<dyn Error>> {
+        let Ok(starting) = startup_commands();
 
-        (0..)
+        let desktop = (0..)
             .zip(starting)
-            .find(|(_, step)| step.contains(&TARGET.to_string()))
-            .expect("nothing in the session starts the desktop")
+            .find(|(_, step)| step.last().map(String::as_str) == Some(TARGET))
+            .ok_or("nothing in the session starts the desktop")?;
+
+        Ok(desktop)
     }
 
     #[test]
-    fn the_compositor_is_handed_over_before_anything_is_started() {
-        let Ok(starting) = starting();
+    fn the_compositor_is_handed_over_before_anything_is_started() -> Result<(), Box<dyn Error>> {
+        let Ok(starting) = startup_commands();
+        let handing = starting.first().ok_or("the session starts nothing")?;
+        let (desktop, _) = the_desktop()?;
 
-        assert_eq!(starting[0][2], "import-environment");
-        assert!(starting[0].contains(&"HYPRLAND_INSTANCE_SIGNATURE".to_string()));
-        assert!(the_desktop().0 > 0, "the desktop starts before it is told where it is");
+        assert_eq!(handing.get(2).map(String::as_str), Some("import-environment"));
+        assert!(handing.contains(&"HYPRLAND_INSTANCE_SIGNATURE".to_string()));
+        assert!(desktop > 0, "the desktop starts before it is told where it is");
+
+        Ok(())
     }
 
     #[test]
-    fn the_desktop_is_restarted_and_never_merely_started() {
-        let (_, step) = the_desktop();
+    fn the_desktop_is_restarted_and_never_merely_started() -> Result<(), Box<dyn Error>> {
+        let (_, step) = the_desktop()?;
+
         assert!(step.contains(&"restart".to_string()));
         assert!(!step.contains(&"start".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn the_screen_is_put_back_to_its_size_before_the_desktop_is_started() {
-        let Ok(starting) = starting();
+    fn the_screen_is_put_back_to_its_size_before_the_desktop_is_started() -> Result<(), Box<dyn Error>> {
+        let Ok(starting) = startup_commands();
         let Ok(scale) = InternalProgram::Scale.path();
         let (at, step) = (0..)
             .zip(&starting)
-            .find(|(_, step)| step[0] == scale)
-            .expect("nothing puts the screen back to the size it was left at");
-        assert_eq!(step[1], "apply");
-        assert!(at < the_desktop().0, "the desktop is drawn before the screen is the right size");
+            .find(|(_, step)| step.first().map(String::as_str) == Some(scale))
+            .ok_or("nothing puts the screen back to the size it was left at")?;
+        let (desktop, _) = the_desktop()?;
+
+        assert_eq!(step.get(1).map(String::as_str), Some("apply"));
+        assert!(at < desktop, "the desktop is drawn before the screen is the right size");
+
+        Ok(())
     }
 }

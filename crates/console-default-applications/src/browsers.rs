@@ -30,32 +30,36 @@ pub fn here(among: &[PathBuf]) -> Result<Vec<&'static Browser>, Never> {
         .collect())
 }
 
-pub fn asking() -> Result<[&'static str; 3], Never> {
+pub fn get_default_command() -> Result<[&'static str; 3], Never> {
     let Ok(settings) = Program::XdgSettings.name();
 
     Ok([settings, "get", "default-web-browser"])
 }
 
-pub fn telling(desktop: &str) -> Result<Vec<String>, Never> {
+pub fn set_default_command(desktop: &str) -> Result<Vec<String>, Never> {
     Program::XdgSettings.arguments(&["set", "default-web-browser", desktop])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
-    fn only_what_is_installed_is_offered() {
-        let at = std::env::temp_dir().join("console-defaults-browsers");
-        let _ = std::fs::remove_dir_all(&at);
-        std::fs::create_dir_all(&at).expect("somewhere to look");
-        std::fs::write(at.join("librewolf.desktop"), "[Desktop Entry]").expect("a browser");
+    fn only_what_is_installed_is_offered() -> Result<(), Box<dyn Error>> {
+        let at = console_core_temporary_directories::fresh("defaults-browsers")?;
+
+        console_core_atomic_writes::whole(&at.join("librewolf.desktop"), b"[Desktop Entry]")?;
+
         let among = vec![at.clone(), PathBuf::from("/nowhere")];
         let Ok(found) = here(&among);
         let says: Vec<&str> = found.iter().map(|browser| browser.says).collect();
 
         assert_eq!(says, ["LibreWolf"]);
+
         let _ = std::fs::remove_dir_all(&at);
+
+        Ok(())
     }
 
     #[test]
@@ -67,9 +71,9 @@ mod tests {
 
     #[test]
     fn a_browser_is_set_by_the_name_it_is_read_by() {
-        let Ok(told) = telling("librewolf.desktop");
+        let Ok(told) = set_default_command("librewolf.desktop");
 
-        assert_eq!(told.last().expect("a name"), "librewolf.desktop");
+        assert_eq!(told.last().map(String::as_str), Some("librewolf.desktop"));
     }
 
     #[test]

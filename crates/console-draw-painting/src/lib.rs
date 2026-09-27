@@ -81,7 +81,10 @@ use cairo::{Context, Format, ImageSurface};
 use pango::FontDescription;
 use pango::prelude::FontMapExt;
 
+pub mod painted;
+
 pub use console_core_shapes::Font;
+pub use painted::{Rendered, painter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame {
@@ -127,11 +130,11 @@ fn unhinted(context: &pango::Context) -> Result<(), Never> {
     Ok(())
 }
 
-pub fn measured(run: Run<'_>, font: &Font) -> Result<Size<u32>, Never> {
+pub fn measure_text(run: Run<'_>, font: &Font) -> Result<Size<u32>, Never> {
     let context = pangocairo::FontMap::default().create_context();
     let Ok(()) = unhinted(&context);
     let layout = pango::Layout::new(&context);
-    let Ok(described) = described(font, run.weight);
+    let Ok(described) = font_description(font, run.weight);
     let Ok(wide) = fitted::<u32, i32>(run.width);
 
     layout.set_font_description(Some(&described));
@@ -150,7 +153,7 @@ pub fn wrapped(run: Run<'_>, font: &Font) -> Result<Vec<String>, Never> {
     let context = pangocairo::FontMap::default().create_context();
     let Ok(()) = unhinted(&context);
     let layout = pango::Layout::new(&context);
-    let Ok(described) = described(font, run.weight);
+    let Ok(described) = font_description(font, run.weight);
     let Ok(wide) = fitted::<u32, i32>(run.width);
 
     layout.set_font_description(Some(&described));
@@ -218,14 +221,14 @@ enum Ground {
 }
 
 pub fn onto(pixels: &mut [u8], frame: Frame, shapes: &[Shape]) -> Result<(), Cannot> {
-    painted(pixels, frame, shapes, Ground::Cleared)
+    paint(pixels, frame, shapes, Ground::Cleared)
 }
 
 pub fn over(pixels: &mut [u8], frame: Frame, shapes: &[Shape]) -> Result<(), Cannot> {
-    painted(pixels, frame, shapes, Ground::Preserved)
+    paint(pixels, frame, shapes, Ground::Preserved)
 }
 
-fn painted(pixels: &mut [u8], frame: Frame, shapes: &[Shape], ground: Ground) -> Result<(), Cannot> {
+fn paint(pixels: &mut [u8], frame: Frame, shapes: &[Shape], ground: Ground) -> Result<(), Cannot> {
     let Ok(stride) = fitted::<u32, i32>(frame.device.width.saturating_mul(4));
     let Ok(wide) = fitted::<u32, i32>(frame.device.width);
     let Ok(tall) = fitted::<u32, i32>(frame.device.height);
@@ -253,13 +256,13 @@ fn painted(pixels: &mut [u8], frame: Frame, shapes: &[Shape], ground: Ground) ->
 
     for shape in shapes {
         match shape {
-            Shape::Panel(panel) => panelled(&cairo, panel)?,
-            Shape::Text(words) => written(&cairo, words)?,
-            Shape::Picture(picture) => pictured(&cairo, picture)?,
+            Shape::Panel(panel) => draw_panel(&cairo, panel)?,
+            Shape::Text(words) => draw_text(&cairo, words)?,
+            Shape::Picture(picture) => draw_picture(&cairo, picture)?,
             Shape::Cropped(picture) => cropped(&cairo, picture)?,
-            Shape::Line(line) => drawn(&cairo, line)?,
+            Shape::Line(line) => draw_line(&cairo, line)?,
             Shape::Clip(clip) => {
-                let Ok(()) = clipped(&cairo, *clip);
+                let Ok(()) = apply_clip(&cairo, *clip);
             }
         }
     }
@@ -269,7 +272,7 @@ fn painted(pixels: &mut [u8], frame: Frame, shapes: &[Shape], ground: Ground) ->
     Ok(())
 }
 
-fn clipped(cairo: &Context, clip: Clip) -> Result<(), Never> {
+fn apply_clip(cairo: &Context, clip: Clip) -> Result<(), Never> {
     cairo.reset_clip();
 
     match clip {
@@ -296,7 +299,7 @@ fn ratio(frame: Frame) -> Result<Size<f64>, Never> {
     Ok(Size { width: wide, height: tall })
 }
 
-fn described(font: &Font, weight: Weight) -> Result<FontDescription, Never> {
+fn font_description(font: &Font, weight: Weight) -> Result<FontDescription, Never> {
     let mut described = FontDescription::new();
 
     described.set_family(&font.family);
@@ -311,8 +314,8 @@ fn described(font: &Font, weight: Weight) -> Result<FontDescription, Never> {
     Ok(described)
 }
 
-fn drawn(cairo: &Context, line: &Line) -> Result<(), Cannot> {
-    let Ok(()) = sourced(cairo, line.color);
+fn draw_line(cairo: &Context, line: &Line) -> Result<(), Cannot> {
+    let Ok(()) = set_color(cairo, line.color);
 
     cairo.set_line_width(f64::from(line.width));
     cairo.set_line_cap(cairo::LineCap::Round);
@@ -323,9 +326,9 @@ fn drawn(cairo: &Context, line: &Line) -> Result<(), Cannot> {
     Ok(())
 }
 
-fn panelled(cairo: &Context, panel: &Panel) -> Result<(), Cannot> {
-    let Ok(()) = traced(cairo, panel, Inset::None);
-    let Ok(()) = sourced(cairo, panel.fill);
+fn draw_panel(cairo: &Context, panel: &Panel) -> Result<(), Cannot> {
+    let Ok(()) = trace_panel(cairo, panel, Inset::None);
+    let Ok(()) = set_color(cairo, panel.fill);
 
     cairo.fill().map_err(Cannot::Drawing)?;
 
@@ -333,8 +336,8 @@ fn panelled(cairo: &Context, panel: &Panel) -> Result<(), Cannot> {
         Edge::None => {}
         Edge::Of { wide, color } => {
             let half = f64::from(wide) / 2.0;
-            let Ok(()) = traced(cairo, panel, Inset::By(half));
-            let Ok(()) = sourced(cairo, color);
+            let Ok(()) = trace_panel(cairo, panel, Inset::By(half));
+            let Ok(()) = set_color(cairo, color);
 
             cairo.set_line_width(f64::from(wide));
             cairo.stroke().map_err(Cannot::Drawing)?;
@@ -350,7 +353,7 @@ enum Inset {
     None,
 }
 
-fn traced(cairo: &Context, panel: &Panel, inset: Inset) -> Result<(), Never> {
+fn trace_panel(cairo: &Context, panel: &Panel, inset: Inset) -> Result<(), Never> {
     let by = match inset {
         Inset::By(by) => by,
         Inset::None => 0.0,
@@ -387,9 +390,9 @@ fn traced(cairo: &Context, panel: &Panel, inset: Inset) -> Result<(), Never> {
     Ok(())
 }
 
-fn written(cairo: &Context, words: &Text) -> Result<(), Cannot> {
-    let Ok(()) = sourced(cairo, words.ink);
-    let Ok(described) = described(&words.font, words.weight);
+fn draw_text(cairo: &Context, words: &Text) -> Result<(), Cannot> {
+    let Ok(()) = set_color(cairo, words.ink);
+    let Ok(described) = font_description(&words.font, words.weight);
     let layout = pangocairo::functions::create_layout(cairo);
     let Ok(()) = unhinted(&layout.context());
     let Ok(wide) = fitted::<u32, i32>(words.width);
@@ -459,7 +462,7 @@ fn lit(channel: u8, alpha: Alpha) -> Result<u8, Never> {
     fitted(lit)
 }
 
-fn pictured(cairo: &Context, picture: &Picture) -> Result<(), Cannot> {
+fn draw_picture(cairo: &Context, picture: &Picture) -> Result<(), Cannot> {
     cropped(
         cairo,
         &Cropped {
@@ -518,7 +521,7 @@ fn cropped(cairo: &Context, picture: &Cropped) -> Result<(), Cannot> {
     Ok(())
 }
 
-fn sourced(cairo: &Context, color: Oklch) -> Result<(), Never> {
+fn set_color(cairo: &Context, color: Oklch) -> Result<(), Never> {
     let Ok(narrowed) = fit(color);
     let Ok(within) = color.with(narrowed);
     let Ok([red, green, blue]) = oklch_to_rgb(within);

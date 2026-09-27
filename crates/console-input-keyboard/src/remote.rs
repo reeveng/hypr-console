@@ -67,18 +67,18 @@ impl Command {
     )
 )]
 pub fn socket() -> Result<Option<PathBuf>, Never> {
-    let Ok(ours) = console_core_places::runtime_ours();
+    let Ok(ours) = console_core_places::application_runtime();
     let screen = match std::env::var("WAYLAND_DISPLAY") {
         Ok(screen) => screen,
         Err(_no_screen_is_named) => String::new(),
     };
 
-    let Ok(named) = named(&screen);
+    let Ok(named) = socket_name(&screen);
 
     Ok(ours.map(|ours| ours.join(named)))
 }
 
-fn named(screen: &str) -> Result<String, Never> {
+fn socket_name(screen: &str) -> Result<String, Never> {
     Ok(match screen.is_empty() {
         true => format!("{NAME}.sock"),
         false => format!("{NAME}-{screen}.sock"),
@@ -92,7 +92,7 @@ pub enum Answer {
     Failed { at: PathBuf, why: ErrorKind },
 }
 
-pub fn sent(asked: Command) -> Result<Answer, Never> {
+pub fn send(asked: Command) -> Result<Answer, Never> {
     let Ok(at) = socket();
 
     let at = match at {
@@ -120,7 +120,7 @@ impl Interpreter for Sending {
     type Effect = Command;
 
     fn interpret(&mut self, asked: &Command) -> Vec<Event<Answer>> {
-        let Ok(answer) = sent(*asked);
+        let Ok(answer) = send(*asked);
 
         vec![Event::Custom(answer)]
     }
@@ -204,6 +204,8 @@ mod tests {
 
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
     #[test]
     fn the_button_asks_the_keyboard_to_change_its_mind_and_says_no_more() {
         let Ok(trace) = run::<Toggle>(&Arguments::default(), &[Event::Opened, Event::Custom(Answer::Received)]);
@@ -249,28 +251,29 @@ mod tests {
 
     #[test]
     fn a_keyboard_on_another_screen_is_asked_at_another_socket() {
-        assert_ne!(named("wayland-1"), named("wayland-2"));
-        assert_eq!(named(""), Ok(format!("{NAME}.sock")));
+        assert_ne!(socket_name("wayland-1"), socket_name("wayland-2"));
+        assert_eq!(socket_name(""), Ok(format!("{NAME}.sock")));
     }
 
     #[test]
-    fn a_word_sent_is_a_word_heard_at_the_socket() {
-        let here = std::env::temp_dir().join(format!("console-keyboard-remote-{}", std::process::id()));
-        let _ = std::fs::remove_file(&here);
-        let hearing = UnixDatagram::bind(&here).unwrap();
-        let sending = UnixDatagram::unbound().unwrap();
+    fn a_word_sent_is_a_word_heard_at_the_socket() -> Result<(), Failure> {
+        let folder = console_core_temporary_directories::fresh("keyboard-remote")?;
+        let here = folder.join("keyboard.sock");
+        let hearing = UnixDatagram::bind(&here)?;
+        let sending = UnixDatagram::unbound()?;
         let Ok(word) = Command::Show.word();
 
-        sending.send_to(word.as_bytes(), &here).unwrap();
+        sending.send_to(word.as_bytes(), &here)?;
 
         let mut heard = [0_u8; 16];
-        let word = match hearing.recv(&mut heard) {
-            Ok(got) => std::str::from_utf8(heard.get(..got).unwrap()).unwrap(),
-            Err(why) => panic!("nothing was heard at the socket: {why}"),
-        };
+        let said = hearing.recv(&mut heard).map(|got| heard.get(..got))?;
+        let said = said.ok_or("the socket said it heard more than it was handed")?;
+        let word = std::str::from_utf8(said)?;
 
         assert_eq!(Command::read(word), Ok(Some(Command::Show)));
 
         let _ = std::fs::remove_file(&here);
+
+        Ok(())
     }
 }

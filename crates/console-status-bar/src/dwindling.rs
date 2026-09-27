@@ -14,7 +14,7 @@
 use std::process::{Command, Stdio};
 
 use console_program_lifetime::{Detached, Still, let_go};
-use console_battery::{Charge, Levels, Step, asked};
+use console_battery::{Charge, Levels, Step, alert};
 use console_core_never::Never;
 use console_notifications::saying::StatePath;
 
@@ -28,7 +28,7 @@ pub struct Watching {
 }
 
 impl Watching {
-    pub fn seen(&mut self, said: &str) -> Result<(), Never> {
+    pub fn record(&mut self, said: &str) -> Result<(), Never> {
         let Ok(()) = self.reap();
         let reading = Charge::of(said)?;
 
@@ -37,7 +37,7 @@ impl Watching {
             None => return Ok(()),
         };
 
-        let Ok(kept) = StatePath::named(SAID);
+        let Ok(kept) = StatePath::new(SAID);
         let Ok(read) = kept.read();
 
         let told = match read {
@@ -46,7 +46,7 @@ impl Watching {
         };
 
         let levels = Levels::here()?;
-        let said = asked(levels, charge, reading.filling, told)?;
+        let said = alert(levels, charge, reading.filling, told)?;
 
         let number = match said.told {
             Some(step) => step.number()?,
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn a_machine_with_no_battery_is_left_alone() {
         let mut watching = Watching::default();
-        let Ok(()) = watching.seen("");
+        let Ok(()) = watching.record("");
         assert!(watching.doing.is_none());
     }
 
@@ -122,6 +122,7 @@ mod tests {
 
             assert!(!word.is_empty());
         }
+
         assert_eq!(DOES, "console-battery");
     }
 }

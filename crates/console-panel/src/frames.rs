@@ -233,33 +233,31 @@ pub fn listened(deadline: Option<&OwnedFd>) -> Result<Listened, Never> {
     })
 }
 
-pub fn woken() -> Result<Woken, Never> {
+pub fn wake_state() -> Result<Woken, Never> {
     let Ok(wake) = wake();
 
-    let mut told = match wake {
+    let told = match wake {
         Some((told, _)) => told,
         None => return Ok(Woken::default()),
     };
 
-    let mut heard = Woken::default();
-    let mut read = [0u8; 64];
+    let read = std::iter::from_fn(|| {
+        let mut reading = told;
+        let mut read = [0u8; 64];
 
-    loop {
-        let bytes = match told.read(&mut read) {
-            Ok(0) => return Ok(heard),
-            Err(_the_read_failed) => return Ok(heard),
-            Ok(many) => read.iter().take(many),
-        };
-
-        for byte in bytes {
-            match byte {
-                b'f' => heard.frame = FrameReceived::Yes,
-                b'c' => heard.card = FrameReceived::Yes,
-                b'r' => heard.rows = FrameReceived::Yes,
-                _somebody_else => {},
-            }
+        match reading.read(&mut read) {
+            Ok(0) => None,
+            Err(_the_read_failed) => None,
+            Ok(many) => Some(read.into_iter().take(many)),
         }
-    }
+    });
+
+    Ok(read.flatten().fold(Woken::default(), |heard, byte| match byte {
+        b'f' => Woken { frame: FrameReceived::Yes, ..heard },
+        b'c' => Woken { card: FrameReceived::Yes, ..heard },
+        b'r' => Woken { rows: FrameReceived::Yes, ..heard },
+        _somebody_else => heard,
+    }))
 }
 
 pub fn current(of: &Path, room: Size<u32>) -> Result<Option<Pixels>, Never> {
@@ -297,7 +295,7 @@ pub fn current(of: &Path, room: Size<u32>) -> Result<Option<Pixels>, Never> {
             },
         };
 
-        let Ok(()) = landed(&at, read);
+        let Ok(()) = store_frame(&at, read);
     });
 
     let Ok(()) = console_program_lifetime::threads::let_go(decoding);
@@ -305,7 +303,7 @@ pub fn current(of: &Path, room: Size<u32>) -> Result<Option<Pixels>, Never> {
     Ok(None)
 }
 
-fn landed(at: &Path, read: FrameState) -> Result<(), Never> {
+fn store_frame(at: &Path, read: FrameState) -> Result<(), Never> {
     let mut holding = match LOOKING_AT.lock() {
         Ok(holding) => holding,
         Err(_a_reader_gave_up_holding_it) => return Ok(()),
@@ -400,7 +398,7 @@ pub fn room(of: &Path) -> Result<Option<Size<u32>>, Never> {
     Ok(holding.as_ref().filter(|looked| looked.of.as_path() == of).map(|looked| looked.room))
 }
 
-pub fn put(of: &Path, pixels: Pixels) -> Result<(), Never> {
+pub fn insert(of: &Path, pixels: Pixels) -> Result<(), Never> {
     let mut holding = match LOOKING_AT.lock() {
         Ok(holding) => holding,
         Err(_a_reader_gave_up_holding_it) => return Ok(()),
@@ -434,21 +432,21 @@ pub(crate) static ONE_TEST_AT_A_TIME: Mutex<()> = Mutex::new(());
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::sync::Arc;
     use std::time::Duration;
 
-    fn a_frame(red: u8) -> Pixels {
-        Pixels { width: 2, height: 1, stride: 8, bytes: Arc::new(vec![red, 0, 0, 255, red, 0, 0, 255]) }
-    }
+    type Failure = Box<dyn std::error::Error>;
 
-    fn patience() -> console_waiting::Schedule {
-        console_waiting::Schedule::of(Duration::from_secs(20)).expect("a patience")
+    fn a_frame(red: u8) -> Result<Pixels, Never> {
+        Ok(Pixels { width: 2, height: 1, stride: 8, bytes: Arc::new(vec![red, 0, 0, 255, red, 0, 0, 255]) })
     }
 
     #[test]
-    fn a_picture_asked_for_is_decoded_away_from_the_loop_and_the_loop_is_told() {
+    fn a_picture_asked_for_is_decoded_away_from_the_loop_and_the_loop_is_told() -> Result<(), Failure> {
         let _turn = ONE_TEST_AT_A_TIME.lock();
-        let at = std::env::temp_dir().join(format!("console-panel-frames-{}.png", std::process::id()));
+        let folder = console_core_temporary_directories::fresh("panel-frames")?;
+        let at = folder.join("panel-frames.png");
         let Ok(mut making) = console_core_external_programs::Program::Ffmpeg.command();
         let made = making
             .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=40x30", "-frames:v", "1"])
@@ -457,59 +455,58 @@ mod tests {
 
         assert!(made.is_ok_and(|how| how.success()), "ffmpeg made no picture to look at");
 
-        let room = Size { width: 80, height: 80 };
+        let space = Size { width: 80, height: 80 };
 
-        assert_eq!(current(&at, room), Ok(None), "the first ask is answered at once, with nothing yet");
+        assert_eq!(current(&at, space), Ok(None), "the first ask is answered at once, with nothing yet");
 
-        let mut told = Woken::default();
-        let Ok(drawn) = console_waiting::found(patience(), || {
-            let Ok(heard) = woken();
+        let told = Cell::new(FrameReceived::No);
+        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
+        let Ok(drawn) = console_waiting::until_some(patience, || {
+            let Ok(heard) = wake_state();
 
             match heard.card {
-                FrameReceived::Yes => told.card = FrameReceived::Yes,
+                FrameReceived::Yes => told.set(FrameReceived::Yes),
                 FrameReceived::No => {},
             }
 
-            current(&at, room)
+            current(&at, space)
         });
         let _ = std::fs::remove_file(&at);
 
-        let drawn = drawn.expect("the picture was never decoded");
+        let drawn = drawn.ok_or("the picture was never decoded")?;
 
         assert_eq!((drawn.width, drawn.height), (80, 60));
 
-        let Ok(heard) = woken();
+        let Ok(heard) = wake_state();
 
         match heard.card {
-            FrameReceived::Yes => told.card = FrameReceived::Yes,
+            FrameReceived::Yes => told.set(FrameReceived::Yes),
             FrameReceived::No => {},
         }
 
-        assert_eq!(told.card, FrameReceived::Yes, "the loop was never told the card had changed");
+        assert_eq!(told.get(), FrameReceived::Yes, "the loop was never told the card had changed");
 
         let film = Path::new("/nowhere/a-film.mkv");
+        let Ok(bright) = a_frame(200);
+        let Ok(dim) = a_frame(9);
 
-        assert_eq!(current(film, room), Ok(None));
-        assert_eq!(room_of(film), Some(room));
+        assert_eq!(current(film, space), Ok(None));
+        assert_eq!(room(film), Ok(Some(space)));
 
-        let Ok(()) = put(film, a_frame(200));
-        let Ok(heard) = woken();
+        let Ok(()) = insert(film, bright.clone());
+        let Ok(heard) = wake_state();
 
         assert_eq!(heard.frame, FrameReceived::Yes, "a frame put is a frame the loop hears about");
-        assert_eq!(current(film, room), Ok(Some(a_frame(200))));
+        assert_eq!(current(film, space), Ok(Some(bright.clone())));
 
-        let Ok(()) = landed(film, FrameState::Failed);
+        let Ok(()) = store_frame(film, FrameState::Failed);
 
-        assert_eq!(current(film, room), Ok(Some(a_frame(200))), "a late still does not cover a frame");
+        assert_eq!(current(film, space), Ok(Some(bright.clone())), "a late still does not cover a frame");
 
-        let Ok(()) = put(Path::new("/nowhere/another.mkv"), a_frame(9));
+        let Ok(()) = insert(Path::new("/nowhere/another.mkv"), dim);
 
-        assert_eq!(current(film, room), Ok(Some(a_frame(200))), "a frame of a film nobody is looking at is dropped");
-    }
+        assert_eq!(current(film, space), Ok(Some(bright)), "a frame of a film nobody is looking at is dropped");
 
-    fn room_of(of: &Path) -> Option<Size<u32>> {
-        let Ok(room) = room(of);
-
-        room
+        Ok(())
     }
 }

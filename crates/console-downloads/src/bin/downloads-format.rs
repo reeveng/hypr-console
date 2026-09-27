@@ -72,7 +72,7 @@ fn main() {
         }
     }
 
-    let Ok(()) = told(Converted { made, left }, &where_);
+    let Ok(()) = notify(Converted { made, left }, &where_);
 }
 
 fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
@@ -86,7 +86,7 @@ fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
         .filter(|path| {
-            let Ok(named) = named(path);
+            let Ok(named) = wants_for(path);
 
             !matches!(named, Wants::None | Wants::Leave)
         })
@@ -95,7 +95,7 @@ fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {
     Ok(found)
 }
 
-fn named(path: &Path) -> Result<Wants, Never> {
+fn wants_for(path: &Path) -> Result<Wants, Never> {
     let named = match path.file_name() {
         Some(named) => named.to_string_lossy().to_string(),
         None => String::new(),
@@ -105,13 +105,13 @@ fn named(path: &Path) -> Result<Wants, Never> {
 }
 
 fn what(path: &Path) -> Result<Option<Kind>, Never> {
-    let Ok(named) = named(path);
+    let Ok(named) = wants_for(path);
 
     Ok(match named {
         Wants::Made(kind) => Some(kind),
         Wants::Ask => {
             let Ok(about) = same::about(path);
-            let Ok(said) = said(&about);
+            let Ok(said) = run_output(&about);
             let Ok(inside) = same::inside(&said);
 
             Some(inside)
@@ -252,8 +252,8 @@ fn ran(arguments: &[String]) -> Result<Ran, Never> {
     })
 }
 
-fn said(arguments: &[String]) -> Result<String, Never> {
-    Ok(match console_core_external_programs::printed(arguments) {
+fn run_output(arguments: &[String]) -> Result<String, Never> {
+    Ok(match console_core_external_programs::capture_output(arguments) {
         Ok(said) => said,
         Err(_unprinted) => String::new(),
     })
@@ -265,7 +265,7 @@ struct Converted {
     left: u32,
 }
 
-fn told(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
+fn notify(converted: Converted, where_: &[PathBuf]) -> Result<(), Never> {
     let Converted { made, left } = converted;
     let folders: Vec<String> = where_
         .iter()

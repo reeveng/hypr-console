@@ -45,10 +45,6 @@ dylint_linting::declare_late_lint! {
     "a function whose answer is the point of it should say so with `#[must_use]`"
 }
 
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 fn implements_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
     matches!(
         cx.tcx.def_kind(cx.tcx.parent(def_id.to_def_id())),
@@ -58,6 +54,17 @@ fn implements_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefI
 
 fn is_the_entry_point(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
     matches!(cx.tcx.entry_fn(()), Some((entry, _)) if entry == def_id.to_def_id())
+        || is_the_entry_point_under_a_harness(cx, def_id)
+}
+
+// The harness build of a binary puts its own `main` in as the entry point, so
+// the one the binary wrote is asked by where it stands instead: a `main` at the
+// root of a crate built with `--test` is the entry point of the ordinary build
+// of that same crate.
+fn is_the_entry_point_under_a_harness(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
+    cx.sess().opts.test
+        && cx.tcx.opt_item_name(def_id.to_def_id()) == Some(rustc_span::sym::main)
+        && cx.tcx.parent_module_from_def_id(def_id).is_top_level_module()
 }
 
 fn speaks_another_language(kind: rustc_hir::intravisit::FnKind<'_>) -> bool {
@@ -121,9 +128,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit034NoUnclaimedAnswer {
         _span: rustc_span::Span,
         def_id: rustc_hir::def_id::LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
         if matches!(kind, rustc_hir::intravisit::FnKind::Closure) {
             return;
         }
@@ -139,12 +143,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit034NoUnclaimedAnswer {
         if is_a_macro(cx, def_id) {
             return;
         }
-        if cx
-            .tcx
-            .hir_attrs(cx.tcx.local_def_id_to_hir_id(def_id))
-            .iter()
-            .any(|held| held.has_name(rustc_span::sym::test))
-        {
+        if clippy_utils::is_test_function(cx.tcx, def_id) {
             return;
         }
         if already_says_so(cx, def_id) {

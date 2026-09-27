@@ -14,7 +14,11 @@
 //! machine. The ranges are the panel's own, which is what the real digitizer
 //! reports in, so the compositor turns what this says exactly as it turns what
 //! that says -- `console_screen::Screen::on_the_panel` is the arithmetic, and
-//! it is the same arithmetic either way round.  The device used to be made here
+//! it is the same arithmetic either way round. The screen it turns by is the
+//! one the compositor is showing, never the one `hyprland.lua` seeds: a device
+//! turned upright at another size once had every tap on the bar's left end
+//! land on the bell at its right, and every pull from the top edge drawn
+//! sideways across the middle.  The device used to be made here
 //! by hand: /dev/uinput opened as a file, the ioctl request numbers derived at
 //! compile time, `input_event` packed into twenty-four bytes and written. All
 //! of that was already in the tree. `console_input_gamepad::uinput` builds the
@@ -40,7 +44,7 @@ use console_input_event_devices::{
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_screen::declared;
+use console_screen::here;
 
 const DOWN_FOR: std::time::Duration = std::time::Duration::from_millis(120);
 
@@ -61,7 +65,7 @@ enum Sweeping {
 }
 
 fn main() -> ExitCode {
-    match tapped() {
+    match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("console-tap: {fault}");
@@ -76,7 +80,8 @@ enum Untouched {
     NotTwoWords,
     NotASwipe,
     NotAPlace(String),
-    Undeclared(console_screen::Undeclared),
+    Unasked(console_compositor::HyprctlError),
+    NoScreen,
     OffScreen(Point<u32>, Size<u32>),
     Unbuilt(Unmade),
     Unwritten(std::io::Error),
@@ -88,7 +93,8 @@ impl std::fmt::Display for Untouched {
             Untouched::NotTwoWords => write!(to, "say where: console-tap ACROSS DOWN [ACROSS DOWN ...], or console-tap --swipe ACROSS DOWN ACROSS DOWN"),
             Untouched::NotASwipe => write!(to, "a swipe goes from one place to one other: console-tap --swipe ACROSS DOWN ACROSS DOWN"),
             Untouched::NotAPlace(said) => write!(to, "{said} is not a place on the screen"),
-            Untouched::Undeclared(fault) => write!(to, "{fault}"),
+            Untouched::Unasked(fault) => write!(to, "the compositor was not asked where the screen is: {fault}"),
+            Untouched::NoScreen => write!(to, "the compositor answered with no screen to touch"),
             Untouched::OffScreen(at, room) => write!(
                 to,
                 "({}, {}) is not on a {}x{} screen",
@@ -102,13 +108,13 @@ impl std::fmt::Display for Untouched {
 
 impl std::error::Error for Untouched {}
 
-impl From<console_screen::Undeclared> for Untouched {
-    fn from(fault: console_screen::Undeclared) -> Self {
-        Untouched::Undeclared(fault)
+impl From<console_compositor::HyprctlError> for Untouched {
+    fn from(fault: console_compositor::HyprctlError) -> Self {
+        Untouched::Unasked(fault)
     }
 }
 
-fn tapped() -> Result<(), Untouched> {
+fn run() -> Result<(), Untouched> {
     let said: Vec<String> = std::env::args().skip(1).collect();
     let (sweeping, places) = match said.split_first() {
         Some((first, rest)) => match first.as_str() {
@@ -117,8 +123,9 @@ fn tapped() -> Result<(), Untouched> {
         },
         None => (Sweeping::No, said.as_slice()),
     };
-    let screen = declared()?;
-    let spots = placed(places, &screen)?;
+    let shown = here()?;
+    let screen = shown.ok_or(Untouched::NoScreen)?;
+    let spots = parse_points(places, &screen)?;
     let mut finger = Touch::new(screen.mode)?;
 
     #[cfg_attr(
@@ -163,7 +170,7 @@ fn tapped() -> Result<(), Untouched> {
     Ok(())
 }
 
-fn placed(said: &[String], screen: &console_screen::Screen) -> Result<Vec<Point<u32>>, Untouched> {
+fn parse_points(said: &[String], screen: &console_screen::Screen) -> Result<Vec<Point<u32>>, Untouched> {
     let pairs = said.chunks_exact(2);
 
     match (said.is_empty(), pairs.remainder().is_empty()) {
@@ -245,13 +252,13 @@ impl Touch {
         let Ok(across) = fitted::<u32, i32>(spot.x);
         let Ok(down) = fitted::<u32, i32>(spot.y);
 
-        let Ok(slot) = moved(AbsoluteAxisCode::ABS_MT_SLOT, 0);
-        let Ok(held) = moved(AbsoluteAxisCode::ABS_MT_TRACKING_ID, HELD);
-        let Ok(finger_across) = moved(AbsoluteAxisCode::ABS_MT_POSITION_X, across);
-        let Ok(finger_down) = moved(AbsoluteAxisCode::ABS_MT_POSITION_Y, down);
-        let Ok(pointer_across) = moved(AbsoluteAxisCode::ABS_X, across);
-        let Ok(pointer_down) = moved(AbsoluteAxisCode::ABS_Y, down);
-        let Ok(touching) = touched(TOUCHING);
+        let Ok(slot) = axis_event(AbsoluteAxisCode::ABS_MT_SLOT, 0);
+        let Ok(held) = axis_event(AbsoluteAxisCode::ABS_MT_TRACKING_ID, HELD);
+        let Ok(finger_across) = axis_event(AbsoluteAxisCode::ABS_MT_POSITION_X, across);
+        let Ok(finger_down) = axis_event(AbsoluteAxisCode::ABS_MT_POSITION_Y, down);
+        let Ok(pointer_across) = axis_event(AbsoluteAxisCode::ABS_X, across);
+        let Ok(pointer_down) = axis_event(AbsoluteAxisCode::ABS_Y, down);
+        let Ok(touching) = touch_event(TOUCHING);
 
         self.say(&[
             slot,
@@ -272,8 +279,8 @@ impl Touch {
         )]
         std::thread::sleep(DOWN_FOR);
 
-        let Ok(lifted) = moved(AbsoluteAxisCode::ABS_MT_TRACKING_ID, LIFTED);
-        let Ok(gone) = touched(GONE);
+        let Ok(lifted) = axis_event(AbsoluteAxisCode::ABS_MT_TRACKING_ID, LIFTED);
+        let Ok(gone) = touch_event(GONE);
 
         self.say(&[lifted, gone])?;
 
@@ -288,13 +295,13 @@ impl Touch {
         let Ok(across) = fitted::<i64, i32>(from_across);
         let Ok(down) = fitted::<i64, i32>(from_down);
 
-        let Ok(slot) = moved(AbsoluteAxisCode::ABS_MT_SLOT, 0);
-        let Ok(held) = moved(AbsoluteAxisCode::ABS_MT_TRACKING_ID, HELD);
-        let Ok(finger_across) = moved(AbsoluteAxisCode::ABS_MT_POSITION_X, across);
-        let Ok(finger_down) = moved(AbsoluteAxisCode::ABS_MT_POSITION_Y, down);
-        let Ok(pointer_across) = moved(AbsoluteAxisCode::ABS_X, across);
-        let Ok(pointer_down) = moved(AbsoluteAxisCode::ABS_Y, down);
-        let Ok(touching) = touched(TOUCHING);
+        let Ok(slot) = axis_event(AbsoluteAxisCode::ABS_MT_SLOT, 0);
+        let Ok(held) = axis_event(AbsoluteAxisCode::ABS_MT_TRACKING_ID, HELD);
+        let Ok(finger_across) = axis_event(AbsoluteAxisCode::ABS_MT_POSITION_X, across);
+        let Ok(finger_down) = axis_event(AbsoluteAxisCode::ABS_MT_POSITION_Y, down);
+        let Ok(pointer_across) = axis_event(AbsoluteAxisCode::ABS_X, across);
+        let Ok(pointer_down) = axis_event(AbsoluteAxisCode::ABS_Y, down);
+        let Ok(touching) = touch_event(TOUCHING);
 
         self.say(&[slot, held, finger_across, finger_down, pointer_across, pointer_down, touching])?;
 
@@ -314,16 +321,16 @@ impl Touch {
             )]
             std::thread::sleep(STEP);
 
-            let Ok(finger_across) = moved(AbsoluteAxisCode::ABS_MT_POSITION_X, across);
-            let Ok(finger_down) = moved(AbsoluteAxisCode::ABS_MT_POSITION_Y, down);
-            let Ok(pointer_across) = moved(AbsoluteAxisCode::ABS_X, across);
-            let Ok(pointer_down) = moved(AbsoluteAxisCode::ABS_Y, down);
+            let Ok(finger_across) = axis_event(AbsoluteAxisCode::ABS_MT_POSITION_X, across);
+            let Ok(finger_down) = axis_event(AbsoluteAxisCode::ABS_MT_POSITION_Y, down);
+            let Ok(pointer_across) = axis_event(AbsoluteAxisCode::ABS_X, across);
+            let Ok(pointer_down) = axis_event(AbsoluteAxisCode::ABS_Y, down);
 
             self.say(&[finger_across, finger_down, pointer_across, pointer_down])?;
         }
 
-        let Ok(lifted) = moved(AbsoluteAxisCode::ABS_MT_TRACKING_ID, LIFTED);
-        let Ok(gone) = touched(GONE);
+        let Ok(lifted) = axis_event(AbsoluteAxisCode::ABS_MT_TRACKING_ID, LIFTED);
+        let Ok(gone) = touch_event(GONE);
 
         self.say(&[lifted, gone])?;
 
@@ -335,10 +342,10 @@ impl Touch {
     }
 }
 
-fn moved(axis: AbsoluteAxisCode, to: i32) -> Result<InputEvent, Never> {
+fn axis_event(axis: AbsoluteAxisCode, to: i32) -> Result<InputEvent, Never> {
     Ok(InputEvent { kind: EventType::ABSOLUTE, code: axis.0, value: to })
 }
 
-fn touched(how: i32) -> Result<InputEvent, Never> {
+fn touch_event(how: i32) -> Result<InputEvent, Never> {
     Ok(InputEvent { kind: EventType::KEY, code: KeyCode::BTN_TOUCH.0, value: how })
 }

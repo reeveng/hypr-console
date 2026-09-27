@@ -119,25 +119,25 @@ use console_notifications::saying::{Notification, Content};
 use console_notifications::updating::{self, Progress};
 use console_waiting::{Schedule, Ready, until};
 
-use crate::device::{Device, quoted};
+use crate::device::{Device, shell_quote};
 use crate::lasting::{Ahead, WHOLE, about, crept, over};
 
 pub fn writing(far: &Progress) -> Result<String, Never> {
     let Ok(where_at) = updating::at();
-    let Ok(written) = updating::written(far);
+    let Ok(written) = updating::serialize(far);
 
     let at = where_at.display().to_string();
     let beside = format!("{at}.writing");
-    let Ok(said) = quoted(&written);
+    let Ok(said) = shell_quote(&written);
     let Ok(holding) = holding_of(&at);
-    let Ok(holding) = quoted(&holding);
-    let Ok(writing) = quoted(&beside);
-    let Ok(where_) = quoted(&at);
+    let Ok(holding) = shell_quote(&holding);
+    let Ok(writing) = shell_quote(&beside);
+    let Ok(where_) = shell_quote(&at);
 
     Ok(format!("mkdir -p {holding} && printf %s {said} > {writing} && mv {writing} {where_}"))
 }
 
-pub fn showing(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
+pub fn show_progress(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
     let Ok(permille) = ahead.far();
     let Ok(said) = writing(&Progress { permille, label: doing.to_string() });
     let Ok(_) = device.ssh(&said);
@@ -244,7 +244,7 @@ impl Watching {
         Ok(self.ended)
     }
 
-    pub fn drawn(&mut self) -> Result<(), Never> {
+    pub fn redraw(&mut self) -> Result<(), Never> {
         match self.ended {
             Ended::Yes => return Ok(()),
             Ended::No => {},
@@ -261,11 +261,16 @@ impl Watching {
         let Ok(late) = late(elapsed, expecting);
         let Ok(into) = percent_of(along);
 
-        self.bar.filling(into, &late)
+        self.bar.set_progress(into, &late)
     }
 
     pub fn tick(&mut self) -> Result<String, Never> {
-        let Ok(()) = self.drawn();
+        let Ok(()) = self.redraw();
+
+        match self.ended {
+            Ended::Yes => return Ok(String::new()),
+            Ended::No => {},
+        }
 
         let ahead = match &self.ahead {
             Some(ahead) => ahead,
@@ -297,7 +302,7 @@ impl Watching {
     }
 }
 
-pub fn held(watching: &Mutex<Watching>) -> Result<MutexGuard<'_, Watching>, Never> {
+pub fn lock(watching: &Mutex<Watching>) -> Result<MutexGuard<'_, Watching>, Never> {
     Ok(match watching.lock() {
         Ok(held) => held,
         Err(poisoned) => poisoned.into_inner(),
@@ -305,7 +310,7 @@ pub fn held(watching: &Mutex<Watching>) -> Result<MutexGuard<'_, Watching>, Neve
 }
 
 pub fn on(watching: &Mutex<Watching>, ahead: &Ahead, doing: &str) -> Result<(), Never> {
-    let Ok(mut held) = held(watching);
+    let Ok(mut held) = lock(watching);
 
     held.on(ahead, doing)
 }
@@ -319,7 +324,7 @@ pub fn quietly_handed<M>(
     handed: &mut M,
     work: impl FnOnce(&mut M),
 ) -> Result<(), Never> {
-    let Ok(mut held) = held(watching);
+    let Ok(mut held) = lock(watching);
     let Ok(()) = held.quiet();
 
     work(handed);
@@ -328,7 +333,7 @@ pub fn quietly_handed<M>(
 }
 
 pub fn ending(watching: &Mutex<Watching>) -> Result<(), Never> {
-    let Ok(mut held) = held(watching);
+    let Ok(mut held) = lock(watching);
 
     held.ending()
 }
@@ -337,14 +342,14 @@ pub fn drawing(watching: Arc<Mutex<Watching>>) -> Result<std::thread::JoinHandle
     Ok(std::thread::spawn(move || {
         let Ok(patience) = Schedule::asking_every(OUTSIDE, BETWEEN);
         let Ok(_) = until(patience, || {
-            let Ok(mut held) = held(&watching);
+            let Ok(mut held) = lock(&watching);
             let Ok(ended) = held.ended();
 
             Ok(match ended {
                 Ended::Yes => Ready::Yes,
 
                 Ended::No => {
-                    let Ok(()) = held.drawn();
+                    let Ok(()) = held.redraw();
 
                     Ready::NotYet
                 }
@@ -355,7 +360,7 @@ pub fn drawing(watching: Arc<Mutex<Watching>>) -> Result<std::thread::JoinHandle
 
 pub fn done_showing(device: &mut Device) -> Result<(), Never> {
     let Ok(where_at) = updating::at();
-    let Ok(at) = quoted(&where_at.display().to_string());
+    let Ok(at) = shell_quote(&where_at.display().to_string());
     let Ok(_) = device.ssh(&format!("rm -f {at}"));
 
     Ok(())
@@ -368,13 +373,13 @@ fn holding_of(at: &str) -> Result<String, Never> {
     })
 }
 
-pub fn said(device: &mut Device, notification: &Notification) -> Result<Option<u32>, Never> {
+pub fn notify(device: &mut Device, notification: &Notification) -> Result<Option<u32>, Never> {
     let Ok(said) = notification.arguments();
 
     let arguments: Vec<String> = said
         .iter()
         .map(|word| {
-            let Ok(quoted) = quoted(word);
+            let Ok(quoted) = shell_quote(word);
 
             quoted
         })
@@ -447,50 +452,41 @@ mod tests {
     use super::*;
     use crate::checking::{Body, Check, CheckResult};
 
-    fn nothing(_device: &mut Device) -> CheckResult {
+    fn pass(_device: &mut Device) -> CheckResult {
         Ok(())
     }
 
     #[test]
     fn the_bar_is_drawn_in_percent_though_the_run_is_counted_in_thousandths() {
         assert_eq!(percent_of(0), Ok(0));
-        assert_eq!(percent_of(WHOLE / 2), Ok(50));
-        assert_eq!(percent_of(WHOLE / 10), Ok(10));
+        assert_eq!(percent_of(WHOLE.div_euclid(2)), Ok(50));
+        assert_eq!(percent_of(WHOLE.div_euclid(10)), Ok(10));
         assert_eq!(percent_of(WHOLE), Ok(console_how_far::WHOLE));
     }
 
-    const fn check(name: &'static str) -> Check {
-        Check {
-            name,
-            about: "A check.",
-            feature: "nothing",
-            since: "2026-09-06",
-            bodies: &[Body::Device(nothing)],
-        }
-    }
+    const ANY: Check = Check {
+        name: "",
+        about: "A check.",
+        feature: "nothing",
+        since: "2026-09-06",
+        bodies: &[Body::Device(pass)],
+    };
 
-    const ONE: Check = check("010-one");
-    const TWO: Check = check("020-two");
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
+    const ONE: Check = Check { name: "010-one", ..ANY };
+    const TWO: Check = Check { name: "020-two", ..ANY };
 
     #[test]
     fn the_card_at_the_start_says_how_long_when_the_machine_has_been_timed() {
-        let ahead = ok(Ahead::of(&crate::lasting::Lengths::default(), &[]));
-        let said = ok(starting(10, &ahead));
+        let Ok(ahead) = Ahead::of(&crate::lasting::Lengths::default(), &[]);
+        let Ok(said) = starting(10, &ahead);
 
         assert!(!said.body.contains("about"), "a machine no one timed was promised a length");
     }
 
     #[test]
     fn the_card_at_the_end_replaces_the_one_at_the_start() {
-        let said = ok(ended(10, &[], Duration::from_secs(120), Some(41)));
-
-        let arguments = ok(said.arguments());
+        let Ok(said) = ended(10, &[], Duration::from_secs(120), Some(41));
+        let Ok(arguments) = said.arguments();
 
         assert_eq!(said.replacing, Some(41));
         assert!(arguments.iter().any(|word| word == "--replace-id=41"));
@@ -498,7 +494,7 @@ mod tests {
 
     #[test]
     fn a_run_that_failed_names_what_failed_and_stays_on_the_screen() {
-        let said = ok(ended(9, &["120-a-page".to_string()], Duration::from_secs(120), None));
+        let Ok(said) = ended(9, &["120-a-page".to_string()], Duration::from_secs(120), None);
 
         assert!(said.body.contains("120-a-page"), "the card does not say what failed");
         assert_eq!(said.expiry, console_notifications::saying::Expiry::Stays);
@@ -518,6 +514,25 @@ mod tests {
         assert!(
             said.starts_with("; "),
             "the strip is written in front of the press rather than behind it: {said}"
+        );
+    }
+
+    #[test]
+    fn a_command_sent_after_the_run_has_ended_does_not_draw_the_strip_back() {
+        let Ok(mut watching) = Watching::of(2);
+        let Ok(carried) = crate::lasting::reading("010-one 1000\n020-two 1000\n");
+        let Ok(ahead) =
+            Ahead::from(&crate::lasting::Lengths::default(), &carried, &[&ONE, &TWO]);
+        let Ok(()) = watching.on(&ahead, ONE.name);
+        watching.said = u16::MAX;
+        let Ok(()) = watching.ending();
+
+        let Ok(said) = watching.tick();
+
+        assert_eq!(
+            said, "",
+            "the run had ended and its strip been taken off the device, and the next command \
+             written after that put it back"
         );
     }
 
@@ -623,7 +638,7 @@ mod tests {
 
     #[test]
     fn the_directory_the_strip_is_written_in_is_the_one_holding_it() {
-        assert_eq!(ok(holding_of("/run/console/updating")), "/run/console");
-        assert_eq!(ok(holding_of("updating")), ".");
+        assert_eq!(holding_of("/run/console/updating"), Ok("/run/console".to_string()));
+        assert_eq!(holding_of("updating"), Ok(".".to_string()));
     }
 }

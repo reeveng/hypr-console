@@ -16,4 +16,5 @@
 pub mod display;
 pub mod greeting;
 pub mod picture;
+pub mod session;
 pub mod turn;

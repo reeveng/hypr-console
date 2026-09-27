@@ -41,42 +41,41 @@ pub fn allowed(name: &str) -> Result<Allowed, Never> {
 mod tests {
     use super::*;
 
-    fn allowed(name: &str) -> Allowed {
-        let Ok(allowed) = super::allowed(name);
-
-        allowed
-    }
+    use console_core_number_conversion::index;
 
     #[test]
     fn a_name_a_network_can_look_up_is_taken() {
-        assert_eq!(allowed("legion"), Allowed::Yes);
-        assert_eq!(allowed("legion-go"), Allowed::Yes);
-        assert_eq!(allowed("go2"), Allowed::Yes);
+        assert_eq!(allowed("legion"), Ok(Allowed::Yes));
+        assert_eq!(allowed("legion-go"), Ok(Allowed::Yes));
+        assert_eq!(allowed("go2"), Ok(Allowed::Yes));
     }
 
     #[test]
     fn nothing_is_not_a_name() {
-        assert_eq!(allowed(""), Allowed::No);
-        assert_eq!(allowed("   "), Allowed::No);
+        assert_eq!(allowed(""), Ok(Allowed::No));
+        assert_eq!(allowed("   "), Ok(Allowed::No));
     }
 
     #[test]
     fn a_name_with_a_space_or_a_dot_in_it_is_refused_rather_than_written() {
-        assert_eq!(allowed("my machine"), Allowed::No);
-        assert_eq!(allowed("legion.go"), Allowed::No);
-        assert_eq!(allowed("légion"), Allowed::No);
+        assert_eq!(allowed("my machine"), Ok(Allowed::No));
+        assert_eq!(allowed("legion.go"), Ok(Allowed::No));
+        assert_eq!(allowed("légion"), Ok(Allowed::No));
     }
 
     #[test]
     fn a_hyphen_at_either_end_is_the_one_that_looks_fine_and_is_not() {
-        assert_eq!(allowed("-legion"), Allowed::No);
-        assert_eq!(allowed("legion-"), Allowed::No);
+        assert_eq!(allowed("-legion"), Ok(Allowed::No));
+        assert_eq!(allowed("legion-"), Ok(Allowed::No));
     }
 
     #[test]
     fn a_name_longer_than_a_label_is_refused_here_rather_than_cut_there() {
-        assert_eq!(allowed(&"a".repeat(LONGEST.try_into().unwrap())), Allowed::Yes);
-        assert_eq!(allowed(&"a".repeat((LONGEST + 1).try_into().unwrap())), Allowed::No);
+        let Ok(longest) = index(LONGEST);
+        let Ok(longer) = index(LONGEST.saturating_add(1));
+
+        assert_eq!(allowed(&"a".repeat(longest)), Ok(Allowed::Yes));
+        assert_eq!(allowed(&"a".repeat(longer)), Ok(Allowed::No));
     }
 
     #[test]

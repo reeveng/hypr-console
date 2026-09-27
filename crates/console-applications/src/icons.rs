@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use console_core_directory_listing::Descend;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
@@ -86,7 +87,7 @@ pub fn said_size(parts: &[String]) -> Result<String, Never> {
     })
 }
 
-pub fn written(index: &BTreeMap<String, String>) -> Result<String, Never> {
+pub fn serialize(index: &BTreeMap<String, String>) -> Result<String, Never> {
     Ok(index.iter().map(|(name, path)| format!("{name}\t{path}\n")).collect())
 }
 
@@ -98,7 +99,7 @@ pub fn read(said: &str) -> Result<BTreeMap<String, String>, Never> {
         .collect())
 }
 
-fn indexed(root: &Path, path: &Path) -> Result<Option<(String, Best)>, Never> {
+fn index_entry(root: &Path, path: &Path) -> Result<Option<(String, Best)>, Never> {
     let holding = match path.parent() {
         Some(holding) => holding,
         None => root,
@@ -151,7 +152,7 @@ pub fn built(roots: &[PathBuf]) -> Result<BTreeMap<String, String>, Never> {
         let under = under(root)?;
 
         let found = under.into_iter().filter_map(|path| {
-            let Ok(indexed) = indexed(root, &path);
+            let Ok(indexed) = index_entry(root, &path);
 
             indexed
         });
@@ -175,31 +176,19 @@ pub fn built(roots: &[PathBuf]) -> Result<BTreeMap<String, String>, Never> {
 }
 
 fn under(root: &Path) -> Result<Vec<PathBuf>, Never> {
-    let mut found = Vec::new();
-    let mut waiting = listed(root)?;
+    let Ok(listing) = console_core_directory_listing::recursive(root, |_| Descend::Into);
 
-    while let Some(path) = waiting.pop() {
-        match path.is_dir() {
-            true => {
-                let deeper = listed(&path)?;
-
-                waiting.extend(deeper);
-            }
-            false => found.push(path),
-        }
-    }
-
-    Ok(found)
+    Ok(listing
+        .filter_map(|entry| match entry {
+            Ok(path) => match path.is_dir() {
+                true => None,
+                false => Some(path),
+            },
+            Err(_unreadable) => None,
+        })
+        .collect())
 }
 
-fn listed(directory: &Path) -> Result<Vec<PathBuf>, Never> {
-    let reading = match std::fs::read_dir(directory) {
-        Ok(reading) => reading,
-        Err(_unreadable) => return Ok(Vec::new()),
-    };
-
-    Ok(reading.filter_map(Result::ok).map(|entry| entry.path()).collect())
-}
 
 pub fn steam_appid(name: &str) -> Result<Option<&str>, Never> {
     let rest = match name.strip_prefix("steam_icon_") {
@@ -217,39 +206,53 @@ pub const UNPICTURED: &str = "application-x-executable";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
+    fn parts(said: &str) -> Result<Vec<String>, Never> {
+        Ok(said.split('/').map(str::to_string).collect())
+    }
 
-        value
+    fn ranked(icon: Icon<'_>) -> Result<Score, Box<dyn Error>> {
+        let Ok(rank) = rank(icon);
+        let score = rank.ok_or("an icon worth nothing")?;
+
+        Ok(score)
     }
 
     #[test]
-    fn the_theme_this_machine_is_dressed_in_wins() {
-        let dressed = Icon { theme: "Papirus-Dark", size: "64", suffix: "svg" };
-        let other = Icon { theme: "breeze", size: "64", suffix: "svg" };
+    fn the_theme_this_machine_is_dressed_in_wins() -> Result<(), Box<dyn Error>> {
+        let papirus = ranked(Icon { theme: "Papirus-Dark", size: "64", suffix: "svg" })?;
+        let breeze = ranked(Icon { theme: "breeze", size: "64", suffix: "svg" })?;
 
-        let papirus = ok(rank(dressed)).expect("a rank");
-        let breeze = ok(rank(other)).expect("a rank");
         assert!(papirus < breeze);
+
+        Ok(())
     }
 
     #[test]
-    fn something_drawn_beats_something_pixelated() {
-        let drawn = Icon { theme: "hicolor", size: "64", suffix: "svg" };
-        let pixelated = Icon { theme: "hicolor", size: "64", suffix: "png" };
+    fn something_drawn_beats_something_pixelated() -> Result<(), Box<dyn Error>> {
+        let drawn = ranked(Icon { theme: "hicolor", size: "64", suffix: "svg" })?;
+        let pixelated = ranked(Icon { theme: "hicolor", size: "64", suffix: "png" })?;
 
-        assert!(ok(rank(drawn)) < ok(rank(pixelated)));
+        assert!(drawn < pixelated);
+
+        Ok(())
     }
 
     #[test]
-    fn the_nearest_to_the_size_a_row_is_wins() {
-        let sized = |size| Icon { theme: "hicolor", size, suffix: "png" };
-        let drawn = |size| Icon { theme: "hicolor", size, suffix: "svg" };
+    fn the_nearest_to_the_size_a_row_is_wins() -> Result<(), Box<dyn Error>> {
+        let sixty_four = ranked(Icon { theme: "hicolor", size: "64", suffix: "png" })?;
+        let one_twenty_eight = ranked(Icon { theme: "hicolor", size: "128", suffix: "png" })?;
+        let forty_eight = ranked(Icon { theme: "hicolor", size: "48", suffix: "png" })?;
+        let two_fifty_six = ranked(Icon { theme: "hicolor", size: "256", suffix: "png" })?;
+        let scalable = ranked(Icon { theme: "hicolor", size: "scalable", suffix: "svg" })?;
+        let drawn = ranked(Icon { theme: "hicolor", size: "64", suffix: "svg" })?;
 
-        assert!(ok(rank(sized("64"))) < ok(rank(sized("128"))));
-        assert!(ok(rank(sized("48"))) < ok(rank(sized("256"))));
-        assert_eq!(ok(rank(drawn("scalable"))), ok(rank(drawn("64"))));
+        assert!(sixty_four < one_twenty_eight);
+        assert!(forty_eight < two_fifty_six);
+        assert_eq!(scalable, drawn);
+
+        Ok(())
     }
 
     #[test]
@@ -257,29 +260,37 @@ mod tests {
         let tiny = Icon { theme: "hicolor", size: "16", suffix: "png" };
         let unsaid = Icon { theme: "hicolor", size: "symbolic", suffix: "svg" };
 
-        assert_eq!(ok(rank(tiny)), None);
-        assert_eq!(ok(rank(unsaid)), None);
+        assert_eq!(rank(tiny), Ok(None));
+        assert_eq!(rank(unsaid), Ok(None));
     }
 
     #[test]
     fn whichever_part_of_the_path_looks_like_a_size_is_the_size() {
-        let parts = |said: &str| said.split('/').map(str::to_string).collect::<Vec<String>>();
-        assert_eq!(ok(said_size(&parts("Papirus/64x64/apps"))), "64x64");
-        assert_eq!(ok(said_size(&parts("hicolor/apps/48x48"))), "48x48");
-        assert_eq!(ok(said_size(&parts("hicolor/scalable/apps"))), "scalable");
-        assert_eq!(ok(said_size(&parts("pixmaps"))), "48", "a tree with no sizes in it");
+        for (path, size) in [
+            ("Papirus/64x64/apps", "64x64"),
+            ("hicolor/apps/48x48", "48x48"),
+            ("hicolor/scalable/apps", "scalable"),
+            ("pixmaps", "48"),
+        ] {
+            let Ok(parts) = parts(path);
+
+            assert_eq!(said_size(&parts), Ok(size.to_string()), "{path}");
+        }
     }
 
     #[test]
     fn what_is_written_is_what_is_read() {
         let said = "firefox\t/usr/share/icons/Papirus/64x64/apps/firefox.svg\n";
-        assert_eq!(ok(written(&ok(read(said)))), said);
+
+        let Ok(index) = read(said);
+
+        assert_eq!(serialize(&index), Ok(said.to_string()));
     }
 
     #[test]
     fn a_steam_icon_is_named_by_the_game_it_is_for() {
-        assert_eq!(ok(steam_appid("steam_icon_620")), Some("620"));
-        assert_eq!(ok(steam_appid("firefox")), None);
-        assert_eq!(ok(steam_appid("steam_icon_")), None);
+        assert_eq!(steam_appid("steam_icon_620"), Ok(Some("620")));
+        assert_eq!(steam_appid("firefox"), Ok(None));
+        assert_eq!(steam_appid("steam_icon_"), Ok(None));
     }
 }

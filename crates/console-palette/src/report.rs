@@ -28,7 +28,7 @@ pub fn write(
 ) -> Result<String, color::Short> {
     let Ok(head) = head(configuration);
     let colors = colors(configuration, palette)?;
-    let Ok(asked) = asked(rows);
+    let Ok(asked) = requested_section(rows);
     let Ok(sixteen) = sixteen(terminal);
 
     let lines: Vec<String> = head
@@ -77,7 +77,7 @@ fn colors(configuration: &Configuration, palette: &Palette) -> Result<Vec<String
         .collect::<Result<Vec<String>, color::Short>>()
 }
 
-fn asked(rows: &[Row]) -> Result<impl Iterator<Item = String> + '_, Never> {
+fn requested_section(rows: &[Row]) -> Result<impl Iterator<Item = String> + '_, Never> {
     Ok([
         String::new(),
         String::from("## What was asked of them"),
@@ -131,14 +131,18 @@ fn sixteen(terminal: &Terminal) -> Result<impl Iterator<Item = String> + '_, Nev
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
     use crate::measure::measure;
     use crate::spend::tests::{blossom, declared_palette};
 
-    fn written() -> String {
-        let (configuration, palette) = (declared_palette(), blossom());
-        let terminal = Terminal::of(&configuration, &palette).expect("the terminal table is declared");
-        let rows = measure(&configuration, &palette).expect("every pairing names a declared color");
-        write(&configuration, &palette, &rows, &terminal).expect("a report")
+    fn written() -> Result<String, Box<dyn Error>> {
+        let configuration = declared_palette()?;
+        let palette = blossom()?;
+        let terminal = Terminal::of(&configuration, &palette)?;
+        let rows = measure(&configuration, &palette)?;
+        let report = write(&configuration, &palette, &rows, &terminal)?;
+
+        Ok(report)
     }
 
     #[test]
@@ -156,31 +160,47 @@ mod tests {
     }
 
     #[test]
-    fn every_color_declared_is_listed_with_what_it_is_spent_on() {
-        let report = written();
-        for name in declared_palette().color.keys() {
+    fn every_color_declared_is_listed_with_what_it_is_spent_on() -> Result<(), Box<dyn Error>> {
+        let report = written()?;
+        let configuration = declared_palette()?;
+
+        for name in configuration.color.keys() {
             assert!(report.contains(&format!("| `{name}` |")), "{name} is not listed");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn every_pairing_measured_is_reported() {
-        let (configuration, palette) = (declared_palette(), blossom());
-        let rows = measure(&configuration, &palette).expect("every pairing names a declared color");
-        let report = written();
-        assert_eq!(report.lines().filter(|line| line.contains(":1 | **")).count(), rows.len());
+    fn every_pairing_measured_is_reported() -> Result<(), Box<dyn Error>> {
+        let blossom_palette = blossom()?;
+        let declared = declared_palette()?;
+
+        let (configuration, palette) = (declared, blossom_palette);
+        let rows = measure(&configuration, &palette)?;
+        let report = written()?;
+        assert_eq!(report.lines().filter(|l| l.contains(":1 | **")).count(), rows.len());
+
+        Ok(())
     }
 
     #[test]
-    fn the_report_is_three_tables_and_says_what_each_is() {
-        let report = written();
+    fn the_report_is_three_tables_and_says_what_each_is() -> Result<(), Box<dyn Error>> {
+        let report = written()?;
+
         for heading in ["## The colors", "## What was asked of them", "## The terminal"] {
             assert!(report.contains(heading), "{heading} is missing");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn nothing_in_it_is_reported_as_under() {
-        assert!(!written().contains("| under |"));
+    fn nothing_in_it_is_reported_as_under() -> Result<(), Box<dyn Error>> {
+        let written = written()?;
+
+        assert!(!written.contains("| under |"));
+
+        Ok(())
     }
 }

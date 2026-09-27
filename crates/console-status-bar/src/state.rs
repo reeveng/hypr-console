@@ -303,8 +303,8 @@ impl BarState {
 mod tests {
     use super::*;
 
-    fn shut() -> Open {
-        Open {
+    fn shut() -> Result<Open, Never> {
+        Ok(Open {
             launcher: Up::NotThere,
             keyboard: Up::NotThere,
             music: Up::NotThere,
@@ -312,44 +312,52 @@ mod tests {
             calendar: Up::NotThere,
             settings: Up::NotThere,
             tab: None,
-        }
+        })
     }
 
-    fn says(icon: &str, tone: Tone) -> Reading {
-        Reading { icon: icon.to_string(), beside: None, tone }
+    fn says(icon: &str, tone: Tone) -> Result<Reading, Never> {
+        Ok(Reading { icon: String::from(icon), beside: None, tone })
     }
 
-    fn held() -> BarState {
-        BarState {
-            readings: ALONG.iter().map(|item| (*item, says("x", Tone::Plain))).collect(),
-            bell: says("\u{f009c}", Tone::Secondary),
-            music: says(MUSIC, Tone::Secondary),
-            clock: "14:30".to_string(),
+    fn sample_state() -> Result<BarState, Never> {
+        let readings = ALONG
+            .iter()
+            .map(|item| {
+                let Ok(reading) = says("x", Tone::Plain);
+
+                (*item, reading)
+            })
+            .collect();
+        let Ok(bell) = says("\u{f009c}", Tone::Secondary);
+        let Ok(music) = says(MUSIC, Tone::Secondary);
+        let Ok(open) = shut();
+
+        Ok(BarState {
+            readings,
+            bell,
+            music,
+            clock: String::from("14:30"),
             workspaces: vec![
-                Workspace { id: 1, named: "1".to_string(), windows: Some(0) },
-                Workspace { id: 2, named: "2".to_string(), windows: Some(0) },
+                Workspace { id: 1, named: String::from("1"), windows: Some(0) },
+                Workspace { id: 2, named: String::from("2"), windows: Some(0) },
             ],
             front: Some(2),
-            open: shut(),
-        }
+            open,
+        })
     }
 
-    fn layout_of(held: &BarState) -> Layout {
-        let Ok(layout) = held.layout(Filling::None);
-
-        layout
-    }
-
-    fn does(slots: &[Slot]) -> Vec<Option<BarAction>> {
-        slots.iter().map(|slot| slot.action).collect()
+    fn does(slots: &[Slot]) -> Result<Vec<Option<BarAction>>, Never> {
+        Ok(slots.iter().map(|slot| slot.action).collect())
     }
 
     #[test]
     fn the_two_doors_are_the_first_things_a_thumb_reaches_on_the_left() {
-        let layout = layout_of(&held());
+        let Ok(state) = sample_state();
+        let Ok(layout) = state.layout(Filling::None);
+        let Ok(left) = does(&layout.left);
 
         assert_eq!(
-            does(&layout.left),
+            left,
             [
                 Some(BarAction::Launcher),
                 Some(BarAction::Keyboard),
@@ -363,12 +371,13 @@ mod tests {
     #[test]
     fn the_slot_after_the_workspaces_is_one_past_the_last_of_them() {
         let next = |ids: &[i64]| {
+            let Ok(state) = sample_state();
             let held = BarState {
                 workspaces: ids
                     .iter()
                     .map(|id| Workspace { id: *id, named: id.to_string(), windows: Some(0) })
                     .collect(),
-                ..held()
+                ..state
             };
             let Ok(next) = held.next();
 
@@ -385,14 +394,15 @@ mod tests {
 
     #[test]
     fn the_workspaces_are_counted_from_one_whatever_the_compositor_numbered_them() {
+        let Ok(state) = sample_state();
         let held = BarState {
             workspaces: [-98, 2, 3, 5]
                 .iter()
                 .map(|id| Workspace { id: *id, named: format!("was {id}"), windows: Some(1) })
                 .collect(),
-            ..held()
+            ..state
         };
-        let layout = layout_of(&held);
+        let Ok(layout) = held.layout(Filling::None);
         let named: Vec<&str> = layout
             .left
             .iter()
@@ -406,10 +416,12 @@ mod tests {
 
     #[test]
     fn the_readings_stand_in_one_order_and_the_bell_is_last() {
-        let layout = layout_of(&held());
+        let Ok(state) = sample_state();
+        let Ok(layout) = state.layout(Filling::None);
+        let Ok(right) = does(&layout.right);
 
         assert_eq!(
-            does(&layout.right),
+            right,
             [
                 Some(BarAction::Music),
                 Some(BarAction::Settings(StatusItem::Sound)),
@@ -423,7 +435,8 @@ mod tests {
 
     #[test]
     fn the_workspace_you_are_on_is_the_lit_one_and_the_rest_are_quiet() {
-        let layout = layout_of(&held());
+        let Ok(state) = sample_state();
+        let Ok(layout) = state.layout(Filling::None);
         let workspaces: Vec<Lit> = layout
             .left
             .iter()
@@ -436,7 +449,7 @@ mod tests {
 
     #[test]
     fn a_press_is_lit_before_the_compositor_has_said_anything() {
-        let mut state = held();
+        let Ok(mut state) = sample_state();
         let Ok(()) = state.pressed(BarAction::Workspace(3));
         let Ok(()) = state.pressed(BarAction::Calendar);
         let Ok(()) = state.pressed(BarAction::Settings(StatusItem::Battery));
@@ -452,16 +465,17 @@ mod tests {
 
     #[test]
     fn a_press_stays_lit_through_the_gap_between_one_panel_going_and_the_next_coming() {
-        let settings_up = Open { settings: Up::OnScreen, tab: Some("sound".to_string()), ..shut() };
+        let Ok(shut) = shut();
+        let settings_up = Open { settings: Up::OnScreen, tab: Some(String::from("sound")), ..shut.clone() };
         let pressed = Open { calendar: Up::OnScreen, ..settings_up.clone() };
 
-        let Ok((gap, waiting)) = shut().promised(BarAction::Calendar, &pressed);
+        let Ok((gap, waiting)) = shut.promised(BarAction::Calendar, &pressed);
 
         assert_eq!(gap.calendar, Up::OnScreen, "nothing is up yet and the calendar is still coming");
         assert_eq!(gap.settings, Up::NotThere, "what went is let go at once");
         assert_eq!(waiting, Promise::Waiting);
 
-        let arrived = Open { calendar: Up::OnScreen, ..shut() };
+        let arrived = Open { calendar: Up::OnScreen, ..shut };
         let Ok((after, kept)) = arrived.promised(BarAction::Calendar, &pressed);
 
         assert_eq!(after, arrived);
@@ -470,8 +484,9 @@ mod tests {
 
     #[test]
     fn a_tab_pressed_stays_in_front_while_the_old_one_is_still_on_the_screen() {
-        let pressed = Open { settings: Up::OnScreen, tab: Some("wifi".to_string()), ..shut() };
-        let before = Open { settings: Up::OnScreen, tab: Some("sound".to_string()), ..shut() };
+        let Ok(shut) = shut();
+        let pressed = Open { settings: Up::OnScreen, tab: Some(String::from("wifi")), ..shut.clone() };
+        let before = Open { settings: Up::OnScreen, tab: Some(String::from("sound")), ..shut };
 
         let Ok((held, waiting)) = before.promised(BarAction::Settings(StatusItem::Network), &pressed);
 
@@ -481,8 +496,11 @@ mod tests {
 
     #[test]
     fn a_door_says_whether_a_tap_will_open_or_close_what_it_opens() {
-        let closed = layout_of(&held());
-        let open = layout_of(&BarState { open: Open { launcher: Up::OnScreen, ..shut() }, ..held() });
+        let Ok(state) = sample_state();
+        let Ok(shut) = shut();
+        let Ok(closed) = state.layout(Filling::None);
+        let launcher_up = BarState { open: Open { launcher: Up::OnScreen, ..shut }, ..state };
+        let Ok(open) = launcher_up.layout(Filling::None);
         let first = |layout: &Layout| layout.left.first().map(|slot| slot.lit);
 
         assert_eq!(first(&closed), Some(Lit::No));
@@ -492,11 +510,13 @@ mod tests {
     #[test]
     fn a_reading_is_lit_only_while_its_own_tab_is_the_one_in_front() {
         let lit = |settings, tab: Option<&str>| {
+            let Ok(state) = sample_state();
+            let Ok(shut) = shut();
             let held = BarState {
-                open: Open { settings, tab: tab.map(str::to_string), ..shut() },
-                ..held()
+                open: Open { settings, tab: tab.map(String::from), ..shut },
+                ..state
             };
-            let layout = layout_of(&held);
+            let Ok(layout) = held.layout(Filling::None);
 
             layout
                 .right
@@ -522,16 +542,17 @@ mod tests {
 
     #[test]
     fn a_reading_with_something_beside_it_makes_a_slot_that_says_two_things() {
+        let Ok(state) = sample_state();
         let charge = Reading {
-            icon: "\u{f0079}".to_string(),
-            beside: Some("64%".to_string()),
+            icon: String::from("\u{f0079}"),
+            beside: Some(String::from("64%")),
             tone: Tone::Plain,
         };
         let held = BarState {
             readings: vec![(StatusItem::Battery, charge)],
-            ..held()
+            ..state
         };
-        let layout = layout_of(&held);
+        let Ok(layout) = held.layout(Filling::None);
         let faces: Vec<Vec<Face>> = layout
             .right
             .iter()
@@ -544,27 +565,33 @@ mod tests {
 
     #[test]
     fn a_reading_nothing_answered_for_is_left_off_rather_than_drawn_blank() {
-        let held = BarState { readings: Vec::new(), ..held() };
-        let layout = layout_of(&held);
+        let Ok(state) = sample_state();
+        let held = BarState { readings: Vec::new(), ..state };
+        let Ok(layout) = held.layout(Filling::None);
+        let Ok(right) = does(&layout.right);
 
-        assert_eq!(does(&layout.right), [Some(BarAction::Music), Some(BarAction::Notifications)]);
+        assert_eq!(right, [Some(BarAction::Music), Some(BarAction::Notifications)]);
     }
 
     #[test]
     fn the_clock_is_the_only_thing_in_the_middle_and_it_opens_the_calendar() {
-        let layout = layout_of(&held());
+        let Ok(state) = sample_state();
+        let Ok(layout) = state.layout(Filling::None);
+        let Ok(middle) = does(&layout.middle);
 
-        assert_eq!(does(&layout.middle), [Some(BarAction::Calendar)]);
+        assert_eq!(middle, [Some(BarAction::Calendar)]);
     }
 
     #[test]
     fn the_clock_is_lit_while_the_calendar_it_opens_is_up() {
-        let up = BarState { open: Open { calendar: Up::OnScreen, ..shut() }, ..held() };
-        let Ok(shut) = held().layout(Filling::None);
+        let Ok(state) = sample_state();
+        let Ok(shut) = shut();
+        let Ok(closed) = state.layout(Filling::None);
+        let up = BarState { open: Open { calendar: Up::OnScreen, ..shut }, ..state };
         let Ok(open) = up.layout(Filling::None);
         let lit = |layout: &Layout| layout.middle.iter().map(|slot| slot.lit).collect::<Vec<_>>();
 
-        assert_eq!(lit(&shut), [Lit::No]);
+        assert_eq!(lit(&closed), [Lit::No]);
         assert_eq!(lit(&open), [Lit::Yes]);
     }
 

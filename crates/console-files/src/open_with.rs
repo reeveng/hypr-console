@@ -103,7 +103,7 @@ pub fn started(at: &str, path: &Path) -> Result<(), Never> {
         }
     };
 
-    let Ok(mut arguments) = holding(&words, path);
+    let Ok(mut arguments) = with_file_argument(&words, path);
 
     match entry.terminal.map(str::to_lowercase).as_deref() == Some("true") {
         true => {
@@ -118,7 +118,7 @@ pub fn started(at: &str, path: &Path) -> Result<(), Never> {
     console_panel::running::left_running(&arguments)
 }
 
-pub fn holding(words: &[String], path: &Path) -> Result<Vec<String>, Never> {
+pub fn with_file_argument(words: &[String], path: &Path) -> Result<Vec<String>, Never> {
     let said = path.display().to_string();
     let mut arguments: Vec<String> = Vec::new();
     let mut put = Presence::Nowhere;
@@ -155,35 +155,35 @@ pub fn every(roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
 mod tests {
     use super::*;
 
-    fn words(said: &[&str]) -> Vec<String> {
-        said.iter().map(|word| (*word).to_string()).collect()
+    fn words(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
     }
 
     #[test]
     fn the_file_goes_where_the_entry_says_it_goes() {
-        assert_eq!(
-            holding(&words(&["gimp", "%U"]), Path::new("/home/ada/beach.jpg")),
-            Ok(words(&["gimp", "/home/ada/beach.jpg"]))
-        );
-        assert_eq!(
-            holding(&words(&["mpv", "--fullscreen", "%f"]), Path::new("/x/film.mkv")),
-            Ok(words(&["mpv", "--fullscreen", "/x/film.mkv"]))
-        );
+        let Ok(asked) = words(&["gimp", "%U"]);
+        let Ok(wanted) = words(&["gimp", "/home/ada/beach.jpg"]);
+
+        assert_eq!(with_file_argument(&asked, Path::new("/home/ada/beach.jpg")), Ok(wanted));
+        let Ok(asked) = words(&["mpv", "--fullscreen", "%f"]);
+        let Ok(wanted) = words(&["mpv", "--fullscreen", "/x/film.mkv"]);
+
+        assert_eq!(with_file_argument(&asked, Path::new("/x/film.mkv")), Ok(wanted));
     }
 
     #[test]
     fn an_entry_that_says_nowhere_is_handed_the_file_at_the_end() {
-        assert_eq!(
-            holding(&words(&["librewolf"]), Path::new("/x/page.html")),
-            Ok(words(&["librewolf", "/x/page.html"]))
-        );
+        let Ok(asked) = words(&["librewolf"]);
+        let Ok(wanted) = words(&["librewolf", "/x/page.html"]);
+
+        assert_eq!(with_file_argument(&asked, Path::new("/x/page.html")), Ok(wanted));
     }
 
     #[test]
     fn a_word_that_only_looks_like_a_code_is_left_alone() {
-        assert_eq!(
-            holding(&words(&["run", "--rate=%50", "%f"]), Path::new("/x/y")),
-            Ok(words(&["run", "--rate=%50", "/x/y"]))
-        );
+        let Ok(asked) = words(&["run", "--rate=%50", "%f"]);
+        let Ok(wanted) = words(&["run", "--rate=%50", "/x/y"]);
+
+        assert_eq!(with_file_argument(&asked, Path::new("/x/y")), Ok(wanted));
     }
 }

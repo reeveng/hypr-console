@@ -207,7 +207,7 @@ impl std::fmt::Display for Unwritten {
 
 impl std::error::Error for Unwritten {}
 
-pub fn written(looked: &Looked) -> Result<String, Unwritten> {
+pub fn serialize(looked: &Looked) -> Result<String, Unwritten> {
     let entries: Vec<Value> = looked
         .found
         .iter()
@@ -232,7 +232,7 @@ pub fn written(looked: &Looked) -> Result<String, Unwritten> {
     serde_json::to_string_pretty(&held).map_err(Unwritten)
 }
 
-pub fn kept(said: &str) -> Result<Looked, Never> {
+pub fn parse(said: &str) -> Result<Looked, Never> {
     let held = match serde_json::from_str::<Value>(said) {
         Ok(held) => held,
         Err(_not_json) => return Ok(Looked::default()),
@@ -293,7 +293,7 @@ pub const NO_YT_DLP: &str = "yt-dlp isn't installed";
 
 pub const NO_CURL: &str = "curl isn't installed";
 
-pub fn missing(kind: Kind) -> Result<&'static str, Never> {
+pub fn missing_tool_message(kind: Kind) -> Result<&'static str, Never> {
     Ok(match kind {
         Kind::Sound | Kind::Film => NO_YT_DLP,
         Kind::Book => NO_CURL,
@@ -336,48 +336,9 @@ fn joined(words: &[&str]) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_core_number_conversion::fitted;
 
-    fn target(asked: &str) -> String {
-        let Ok(target) = super::target(asked);
-
-        target
-    }
-
-    fn search(asked: &str) -> Vec<String> {
-        let Ok(search) = super::search(asked);
-
-        search
-    }
-
-    fn found_in(said: &str) -> Vec<Found> {
-        let Ok(found) = super::found_in(said);
-
-        found
-    }
-
-    fn kept(said: &str) -> Looked {
-        let Ok(kept) = super::kept(said);
-
-        kept
-    }
-
-    fn counted(views: u64) -> String {
-        let Ok(counted) = super::counted(views);
-
-        counted
-    }
-
-    fn complaint(said: &str) -> String {
-        let Ok(complaint) = super::complaint(said);
-
-        complaint
-    }
-
-    fn aside(kind: Kind, found: &Found, have: Have) -> String {
-        let Ok(aside) = super::aside(kind, found, have);
-
-        aside
-    }
+    type Failure = Box<dyn std::error::Error>;
 
     const SAID: &str = r#"{
         "entries": [
@@ -401,97 +362,132 @@ mod tests {
         ]
     }"#;
 
-    fn africa() -> Found {
-        found_in(SAID).first().cloned().expect("the first thing found")
+    fn africa() -> Result<Found, Failure> {
+        let Ok(found) = found_in(SAID);
+        let first = found.first().cloned().ok_or("nothing found")?;
+
+        Ok(first)
     }
 
     #[test]
-    fn what_a_search_answers_becomes_things_to_choose_from() {
-        let found = found_in(SAID);
+    fn what_a_search_answers_becomes_things_to_choose_from() -> Result<(), Failure> {
+        let Ok(found) = found_in(SAID);
+        let first = found.first().ok_or("nothing found")?;
 
         assert_eq!(found.len(), 1, "an entry with no id is not a row");
-        assert_eq!(found[0].title, "Toto - Africa (Official HD Video)");
-        assert_eq!(found[0].by, "TOTO");
-        assert_eq!(found[0].seconds, 272);
-        assert!(!found[0].live);
+        assert_eq!(first.title, "Toto - Africa (Official HD Video)");
+        assert_eq!(first.by, "TOTO");
+        assert_eq!(first.seconds, 272);
+        assert!(!first.live);
+
+        Ok(())
     }
 
     #[test]
-    fn the_picture_taken_is_the_smallest_one_still_worth_drawing() {
-        assert!(africa().picture.ends_with("small.jpg"));
+    fn the_picture_taken_is_the_smallest_one_still_worth_drawing() -> Result<(), Failure> {
+        let africa = africa()?;
+
+        assert!(africa.picture.ends_with("small.jpg"));
+
+        Ok(())
     }
 
     #[test]
     fn a_link_is_looked_at_and_words_are_looked_for() {
-        assert_eq!(target("https://youtu.be/abc"), "https://youtu.be/abc");
-        assert_eq!(target("  toto africa "), format!("ytsearch{MANY}:toto africa"));
         let Ok(yt_dlp) = Program::YtDlp.name();
+        let Ok(search) = search("toto");
 
-        assert_eq!(search("toto")[0], yt_dlp);
+        assert_eq!(target("https://youtu.be/abc"), Ok("https://youtu.be/abc".to_string()));
+        assert_eq!(target("  toto africa "), Ok(format!("ytsearch{MANY}:toto africa")));
+        assert_eq!(search.first().map(String::as_str), Some(yt_dlp));
     }
 
     #[test]
-    fn a_search_written_down_is_the_same_search_read_back() {
-        let looked = Looked {
-            asked: "toto africa".to_string(),
-            fault: String::new(),
-            found: found_in(SAID),
-        };
-        let again = kept(&written(&looked).expect("a search this program built writes down"));
+    fn a_search_written_down_is_the_same_search_read_back() -> Result<(), Failure> {
+        let Ok(found) = found_in(SAID);
+        let looked = Looked { asked: "toto africa".to_string(), fault: String::new(), found };
+        let said = serialize(&looked)?;
+        let Ok(again) = parse(&said);
 
         assert_eq!(again.asked, looked.asked);
         assert_eq!(again.found, looked.found);
+
+        Ok(())
     }
 
     #[test]
-    fn what_went_wrong_is_kept_with_the_search_that_went_wrong() {
+    fn what_went_wrong_is_kept_with_the_search_that_went_wrong() -> Result<(), Failure> {
         let looked = Looked {
             asked: "toto".to_string(),
             fault: "no network".to_string(),
             found: Vec::new(),
         };
-        let said = written(&looked).expect("a search this program built writes down");
-        assert_eq!(kept(&said).fault, "no network");
+        let said = serialize(&looked)?;
+        let Ok(kept) = parse(&said);
+
+        assert_eq!(kept.fault, "no network");
+
+        Ok(())
     }
 
     #[test]
-    fn a_length_nobody_said_is_left_out_rather_than_said_as_nothing() {
-        let unsaid = Found { seconds: 0, ..africa() };
-        assert_eq!(aside(Kind::Sound, &unsaid, Have::Not), "TOTO");
-        assert_eq!(aside(Kind::Film, &unsaid, Have::Not), "1.3B views");
+    fn a_length_nobody_said_is_left_out_rather_than_said_as_nothing() -> Result<(), Failure> {
+        let africa = africa()?;
+        let unsaid = Found { seconds: 0, ..africa };
+
+        assert_eq!(aside(Kind::Sound, &unsaid, Have::Not), Ok(String::from("TOTO")));
+        assert_eq!(aside(Kind::Film, &unsaid, Have::Not), Ok(String::from("1.3B views")));
+
+        Ok(())
     }
 
     #[test]
     fn how_many_have_watched_it_is_said_in_words() {
-        assert_eq!(counted(1_288_575_953), "1.3B views");
-        assert_eq!(counted(21_150_346), "21M views");
-        assert_eq!(counted(4_100), "4K views");
-        assert_eq!(counted(0), "");
+        assert_eq!(counted(1_288_575_953), Ok("1.3B views".to_string()));
+        assert_eq!(counted(21_150_346), Ok("21M views".to_string()));
+        assert_eq!(counted(4_100), Ok("4K views".to_string()));
+        assert_eq!(counted(0), Ok("".to_string()));
     }
 
     #[test]
-    fn each_tab_says_the_thing_its_own_list_is_chosen_by() {
-        let found = africa();
-        assert_eq!(aside(Kind::Sound, &found, Have::Not), "TOTO \u{00b7} 4:32");
-        assert_eq!(aside(Kind::Film, &found, Have::Not), "4:32 \u{00b7} 1.3B views");
+    fn each_tab_says_the_thing_its_own_list_is_chosen_by() -> Result<(), Failure> {
+        let found = africa()?;
+
+        assert_eq!(aside(Kind::Sound, &found, Have::Not), Ok("TOTO \u{00b7} 4:32".to_string()));
+        assert_eq!(aside(Kind::Film, &found, Have::Not), Ok("4:32 \u{00b7} 1.3B views".to_string()));
+
+        Ok(())
     }
 
     #[test]
-    fn a_thing_already_in_the_folder_says_so() {
-        assert!(aside(Kind::Sound, &africa(), Have::It).ends_with(HAVE_IT));
+    fn a_thing_already_in_the_folder_says_so() -> Result<(), Failure> {
+        let africa = africa()?;
+        let Ok(aside) = aside(Kind::Sound, &africa, Have::It);
+
+        assert!(aside.ends_with(HAVE_IT));
+
+        Ok(())
     }
 
     #[test]
-    fn a_thing_still_happening_has_no_length_and_says_that_instead() {
-        let live = Found { live: true, ..africa() };
-        assert!(aside(Kind::Film, &live, Have::Not).starts_with(LIVE));
+    fn a_thing_still_happening_has_no_length_and_says_that_instead() -> Result<(), Failure> {
+        let africa = africa()?;
+        let live = Found { live: true, ..africa };
+        let Ok(aside) = aside(Kind::Film, &live, Have::Not);
+
+        assert!(aside.starts_with(LIVE));
+
+        Ok(())
     }
 
     #[test]
     fn a_complaint_is_cut_down_to_the_line_that_says_why() {
         let said = "[youtube] tried\nERROR: Unable to download webpage: timed out\n";
-        assert_eq!(complaint(said), "Unable to download webpage: timed out");
-        assert_eq!(complaint("   "), WENT_WRONG);
-        assert!(u32::try_from(complaint(&"x".repeat(400)).chars().count()).unwrap() <= SHORT + 1);
+        let Ok(long) = complaint(&"x".repeat(400));
+        let Ok(letters) = fitted::<_, u32>(long.chars().count());
+
+        assert_eq!(complaint(said), Ok("Unable to download webpage: timed out".to_string()));
+        assert_eq!(complaint("   "), Ok(WENT_WRONG.to_string()));
+        assert!(letters <= SHORT.saturating_add(1));
     }
 }

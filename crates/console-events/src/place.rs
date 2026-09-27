@@ -7,7 +7,7 @@ use crate::Unserved;
 pub const SOCKET: &str = "events.sock";
 
 pub fn socket() -> Result<PathBuf, Unserved> {
-    let Ok(ours) = console_core_places::runtime_ours();
+    let Ok(ours) = console_core_places::application_runtime();
 
     let ours = match ours {
         Some(ours) => ours,

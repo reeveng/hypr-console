@@ -149,7 +149,7 @@ fn run() -> Result<ExitCode, Unspent> {
 
     let asked = work
         .iter()
-        .map(|written| wanted(written).map(|body| (written, body)))
+        .map(|written| desired_contents(written).map(|body| (written, body)))
         .collect::<Result<Vec<_>, Unspent>>()?;
     let changed = asked
         .into_iter()
@@ -159,7 +159,7 @@ fn run() -> Result<ExitCode, Unspent> {
         })
         .map(|(written, body)| match doing {
             Effect::Check => Ok(written.path.clone()),
-            Effect::Write => put(&written.path, &body).map(|()| written.path.clone()),
+            Effect::Write => write_file(&written.path, &body).map(|()| written.path.clone()),
         })
         .collect::<Result<Vec<PathBuf>, Unspent>>()?;
 
@@ -194,7 +194,7 @@ const HELP: &str = "\
 console-palette          write the palette out of theme/palette.toml
 console-palette --check  say what it would change, change nothing";
 
-fn wanted(written: &Written) -> Result<String, Unspent> {
+fn desired_contents(written: &Written) -> Result<String, Unspent> {
     match written.how {
         How::Whole => Ok(written.body.clone()),
         How::Region => {
@@ -207,7 +207,7 @@ fn wanted(written: &Written) -> Result<String, Unspent> {
     }
 }
 
-fn put(path: &Path, body: &str) -> Result<(), Unspent> {
+fn write_file(path: &Path, body: &str) -> Result<(), Unspent> {
     match path.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
             .map_err(|fault| Unspent::Holding(holding.to_path_buf(), fault))?,

@@ -71,7 +71,7 @@ fn here(_stage: &mut Here) -> CheckResult {
 
     let holding = at.join("holding");
 
-    let Ok(()) = made(&at, &holding.join(WRAPPED));
+    let Ok(()) = prepare_folders(&at, &holding.join(WRAPPED));
 
     let Ok(zipped) = zipped(&holding, &at.join(format!("{WRAPPED}.zip")));
 
@@ -80,7 +80,7 @@ fn here(_stage: &mut Here) -> CheckResult {
         Ran::Fine => {},
     }
 
-    let Ok(unzipping) = console_test_stages::beside(UNZIPS_WITH);
+    let Ok(unzipping) = console_core_internal_programs::beside_this_program(UNZIPS_WITH);
 
     let ran = Command::new(&unzipping).arg(at.join(format!("{WRAPPED}.zip"))).status();
 
@@ -91,7 +91,7 @@ fn here(_stage: &mut Here) -> CheckResult {
         }
     }
 
-    let Ok(landed) = landed(&at.join(WRAPPED));
+    let Ok(landed) = list_names(&at.join(WRAPPED));
 
     let _ = std::fs::remove_dir_all(&at);
 
@@ -149,7 +149,7 @@ fn no_one_elses(root: &Path) -> Result<PathBuf, Never> {
     Ok(root.join("target/checks/unzipping").join(format!("{whose}-{run}")))
 }
 
-fn made(at: &Path, wrapper: &Path) -> Result<(), Never> {
+fn prepare_folders(at: &Path, wrapper: &Path) -> Result<(), Never> {
     let _ = std::fs::remove_dir_all(at);
 
     match std::fs::create_dir_all(wrapper) {
@@ -193,7 +193,7 @@ fn zipped(holding: &Path, into: &Path) -> Result<Ran, Never> {
     })
 }
 
-fn landed(folder: &Path) -> Result<Vec<String>, Never> {
+fn list_names(folder: &Path) -> Result<Vec<String>, Never> {
     let reading = match std::fs::read_dir(folder) {
         Ok(reading) => reading,
         Err(_unreadable) => return Ok(Vec::new()),

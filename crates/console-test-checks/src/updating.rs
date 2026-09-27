@@ -31,7 +31,7 @@ use console_core_geometry::Point;
 use console_core_never::Never;
 use console_notifications::updating::Progress;
 use console_status_bar::showing::Fitting;
-use console_test_stages::checking::{Body, Check, CheckResult, seen};
+use console_test_stages::checking::{Body, Check, CheckResult, expect_ready};
 use console_test_stages::desktop::Desktop;
 use console_test_stages::device::Ready;
 use console_test_stages::palette::palette;
@@ -68,15 +68,9 @@ pub fn rows(fitting: Fitting) -> Result<Vec<f64>, Never> {
     let deep = f64::from(fitting.deep);
     let thin = f64::from(fitting.thin);
 
-    let mut down = Vec::new();
-    let mut at = deep;
-
-    while at < deep + thin {
-        down.push(at);
-        at += EVERY;
-    }
-
-    Ok(down)
+    Ok(std::iter::successors(Some(deep), |at| Some(at + EVERY))
+        .take_while(|at| *at < deep + thin)
+        .collect())
 }
 
 pub fn reserved() -> Result<f64, Never> {
@@ -132,7 +126,7 @@ fn fills(stage: &mut Desktop) -> CheckResult {
         saw.push(said);
     }
 
-    seen(filled, || {
+    expect_ready(filled, || {
         format!(
             "the strip was told it was {HOW_FAR} thousandths of the way through, so the row \
              under the bar \

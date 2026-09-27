@@ -135,122 +135,112 @@ Exec=firefox %u
 Name=New Window
 ";
 
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
     #[test]
     fn every_heading_is_found_in_the_order_the_file_puts_them_in() {
-        assert_eq!(ok(headings(SAID)), vec!["Desktop Entry", "Desktop Effect new-window"]);
+        assert_eq!(headings(SAID), Ok(vec!["Desktop Entry", "Desktop Effect new-window"]));
     }
 
     #[test]
     fn a_file_with_no_headings_has_none() {
-        assert_eq!(ok(headings("one\ntwo\n")), Vec::<&str>::new());
+        assert_eq!(headings("one\ntwo\n"), Ok(Vec::<&str>::new()));
     }
 
     #[test]
     fn a_comment_after_a_value_is_not_part_of_the_value() {
-        assert_eq!(ok(without_a_comment("pamac-aur  # manjaro's")), "pamac-aur");
+        assert_eq!(without_a_comment("pamac-aur  # manjaro's"), Ok("pamac-aur"));
     }
 
     #[test]
     fn a_line_with_nothing_on_it_but_a_comment_says_nothing() {
-        assert_eq!(ok(without_a_comment("  # what this block is for")), "");
+        assert_eq!(without_a_comment("  # what this block is for"), Ok(""));
     }
 
     #[test]
     fn a_line_with_no_comment_on_it_is_itself() {
-        assert_eq!(ok(without_a_comment("  freetube  ")), "freetube");
-    }
-
-    fn said<'a>(said: &'a str, under: &str) -> BTreeMap<&'a str, &'a str> {
-        ok(fields(said, Under(under)))
+        assert_eq!(without_a_comment("  freetube  "), Ok("freetube"));
     }
 
     #[test]
     fn a_heading_is_a_name_in_brackets() {
-        assert_eq!(ok(heading("[services]")), Some("services"));
-        assert_eq!(ok(heading("  [Desktop Entry]  ")), Some("Desktop Entry"));
-        assert_eq!(ok(heading("Name=Firefox")), None);
-        assert_eq!(ok(heading("[unclosed")), None);
+        assert_eq!(heading("[services]"), Ok(Some("services")));
+        assert_eq!(heading("  [Desktop Entry]  "), Ok(Some("Desktop Entry")));
+        assert_eq!(heading("Name=Firefox"), Ok(None));
+        assert_eq!(heading("[unclosed"), Ok(None));
     }
 
     #[test]
     fn a_group_is_the_lines_under_its_heading() {
-        assert_eq!(ok(lines(SAID, Under("Desktop Entry"))), vec![
+        assert_eq!(lines(SAID, Under("Desktop Entry")), Ok(vec![
             "Type=Application",
             "Name=Firefox",
             "Exec=firefox %u"
-        ]);
+        ]));
     }
 
     #[test]
     fn the_next_heading_ends_it() {
-        assert_eq!(ok(lines(SAID, Under("Desktop Effect new-window"))), vec!["Name=New Window"]);
-        assert_eq!(said(SAID, "Desktop Entry").get("Name"), Some(&"Firefox"));
+        assert_eq!(lines(SAID, Under("Desktop Effect new-window")), Ok(vec!["Name=New Window"]));
+        assert_eq!(fields(SAID, Under("Desktop Entry")).map(|read| read.get("Name").copied()), Ok(Some("Firefox")));
     }
 
     #[test]
     fn a_heading_that_is_not_there_holds_nothing() {
-        assert_eq!(ok(lines(SAID, Under("Sound"))), Vec::<&str>::new());
-        assert_eq!(said(SAID, "Sound"), BTreeMap::new());
+        assert_eq!(lines(SAID, Under("Sound")), Ok(Vec::<&str>::new()));
+        assert_eq!(fields(SAID, Under("Sound")), Ok(BTreeMap::new()));
     }
 
     #[test]
     fn what_is_said_before_the_first_heading_belongs_to_no_heading() {
-        assert_eq!(said("Name=NoOne\n[Desktop Entry]\nName=Firefox\n", "Desktop Entry"), said(
-            "[Desktop Entry]\nName=Firefox\n",
-            "Desktop Entry"
-        ));
+        assert_eq!(
+            fields("Name=NoOne\n[Desktop Entry]\nName=Firefox\n", Under("Desktop Entry")),
+            fields("[Desktop Entry]\nName=Firefox\n", Under("Desktop Entry"))
+        );
     }
 
     #[test]
     fn a_comment_and_a_blank_line_are_not_content() {
         let held = "[Desktop Entry]\n\n# Name=Commented\nName=Firefox\n";
 
-        assert_eq!(ok(lines(held, Under("Desktop Entry"))), vec!["Name=Firefox"]);
-        assert_eq!(said(held, "Desktop Entry").get("# Name"), None);
+        assert_eq!(lines(held, Under("Desktop Entry")), Ok(vec!["Name=Firefox"]));
+        assert_eq!(fields(held, Under("Desktop Entry")).map(|read| read.get("# Name").copied()), Ok(None));
     }
 
     #[test]
     fn space_either_side_of_the_equals_belongs_to_neither() {
         let held = "[Desktop Entry]\nName = Firefox \n";
 
-        assert_eq!(said(held, "Desktop Entry").get("Name"), Some(&"Firefox"));
+        assert_eq!(fields(held, Under("Desktop Entry")).map(|read| read.get("Name").copied()), Ok(Some("Firefox")));
     }
 
     #[test]
     fn the_first_value_given_for_a_key_is_the_one_kept() {
         let held = "[Desktop Entry]\nName=First\nName=Second\n";
 
-        assert_eq!(said(held, "Desktop Entry").get("Name"), Some(&"First"));
+        assert_eq!(fields(held, Under("Desktop Entry")).map(|read| read.get("Name").copied()), Ok(Some("First")));
     }
 
     #[test]
     fn a_value_may_hold_anything_including_the_marks_this_reads_by() {
         let held = "[Desktop Entry]\nExec=sh -c 'echo [x] # y=z'\n";
 
-        assert_eq!(said(held, "Desktop Entry").get("Exec"), Some(&"sh -c 'echo [x] # y=z'"));
+        assert_eq!(fields(held, Under("Desktop Entry")).map(|read| read.get("Exec").copied()), Ok(Some("sh -c 'echo [x] # y=z'")));
     }
 
     #[test]
     fn one_key_can_be_asked_for_without_the_rest() {
-        assert_eq!(ok(field(SAID, Under("Desktop Entry"), Key("Name"))), Some("Firefox"));
-        assert_eq!(ok(field(SAID, Under("Desktop Entry"), Key("Nothing"))), None);
-        assert_eq!(ok(field(SAID, Under("Sound"), Key("Name"))), None);
+        assert_eq!(field(SAID, Under("Desktop Entry"), Key("Name")), Ok(Some("Firefox")));
+        assert_eq!(field(SAID, Under("Desktop Entry"), Key("Nothing")), Ok(None));
+        assert_eq!(field(SAID, Under("Sound"), Key("Name")), Ok(None));
     }
 
     #[test]
     fn one_key_asked_for_alone_is_the_same_key_the_map_holds() {
         let held = "[Desktop Entry]\nName = First \nName=Second\n";
 
-        assert_eq!(ok(field(held, Under("Desktop Entry"), Key("Name"))), Some("First"));
+        assert_eq!(field(held, Under("Desktop Entry"), Key("Name")), Ok(Some("First")));
         assert_eq!(
-            said(held, "Desktop Entry").get("Name").copied(),
-            ok(field(held, Under("Desktop Entry"), Key("Name")))
+            fields(held, Under("Desktop Entry")).map(|read| read.get("Name").copied()),
+            field(held, Under("Desktop Entry"), Key("Name"))
         );
     }
 
@@ -258,7 +248,7 @@ Name=New Window
     fn a_line_with_no_equals_is_a_line_rather_than_a_field() {
         let held = "[services]\nconsole.target\nhypridle.service\n";
 
-        assert_eq!(ok(lines(held, Under("services"))), vec!["console.target", "hypridle.service"]);
-        assert_eq!(said(held, "services"), BTreeMap::new());
+        assert_eq!(lines(held, Under("services")), Ok(vec!["console.target", "hypridle.service"]));
+        assert_eq!(fields(held, Under("services")), Ok(BTreeMap::new()));
     }
 }

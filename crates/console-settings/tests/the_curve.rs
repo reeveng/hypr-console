@@ -9,24 +9,19 @@
 //! says the tree holds exactly that, which makes an edit to the file a test
 //! failure rather than a color no one can account for.
 
-use std::path::{Path, PathBuf};
+use std::error::Error;
+use std::path::Path;
 
 use console_settings::warm::configuration;
 
 const LIVE: &str = "files/home/@user@/.config/console/hypr/hyprsunset.conf";
 
-fn tree() -> PathBuf {
-    {
-    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    from.canonicalize().unwrap_or(from)
-}
-}
+const TREE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 #[test]
-fn the_config_in_the_tree_is_the_curve_this_workspace_says() {
-    let at = tree().join(LIVE);
-    let held = std::fs::read_to_string(&at)
-        .unwrap_or_else(|fault| panic!("{}: {fault}", at.display()));
+fn the_config_in_the_tree_is_the_curve_this_workspace_says() -> Result<(), Box<dyn Error>> {
+    let at = Path::new(TREE).join(LIVE);
+    let held = std::fs::read_to_string(&at)?;
     let Ok(configuration) = configuration();
 
     assert_eq!(
@@ -36,15 +31,19 @@ fn the_config_in_the_tree_is_the_curve_this_workspace_says() {
          \n    cargo run --bin console-warm -- curve > {LIVE}\n",
         at.display()
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_manifest_names_the_config() {
-    let manifest = tree().join("desktop.conf");
-    let held = std::fs::read_to_string(&manifest).expect("desktop.conf");
+fn the_manifest_names_the_config() -> Result<(), Box<dyn Error>> {
+    let held = std::fs::read_to_string(Path::new(TREE).join("desktop.conf"))?;
     let declared = LIVE.trim_start_matches("files");
+
     assert!(
         held.lines().any(|line| line.trim() == declared),
         "desktop.conf does not name {declared}, so `console apply` would not lay it down"
     );
+
+    Ok(())
 }

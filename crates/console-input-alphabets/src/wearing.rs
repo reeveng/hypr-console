@@ -41,7 +41,7 @@ pub const NAMED: &str = "alphabets";
 pub const SCREEN: &str = "screen";
 
 pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
-    let Ok(ours) = console_core_places::Base::State.ours_under(home);
+    let Ok(ours) = console_core_places::Base::State.application_under(home);
 
     Ok(ours.join(NAMED))
 }
@@ -68,7 +68,7 @@ pub fn of(text: &str) -> Result<BTreeMap<String, String>, Never> {
     Ok(every)
 }
 
-pub fn written(every: &BTreeMap<String, String>) -> Result<String, Never> {
+pub fn serialize(every: &BTreeMap<String, String>) -> Result<String, Never> {
     let mut text = String::new();
 
     for (whose, key) in every {
@@ -83,6 +83,7 @@ pub fn written(every: &BTreeMap<String, String>) -> Result<String, Never> {
 
 pub fn every(home: &Path) -> Result<BTreeMap<String, String>, Never> {
     let Ok(at) = path_in(home);
+
     let Ok(held) = console_core_atomic_writes::read(&at);
     let Ok(text) = held.text();
 
@@ -116,7 +117,7 @@ pub fn among(
 
 pub fn read(home: &Path, whose: &str) -> Result<&'static Alphabet, Never> {
     let Ok(every) = every(home);
-    let Ok(walk) = crate::chosen();
+    let Ok(walk) = crate::current();
 
     among(&every, whose, &walk)
 }
@@ -150,7 +151,7 @@ pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unr
     let Ok(mut every) = every(home);
     let _ = every.insert(whose.to_string(), alphabet.key.to_string());
 
-    let Ok(text) = written(&every);
+    let Ok(text) = serialize(&every);
     let Ok(at) = path_in(home);
 
     let under = match at.parent() {
@@ -167,39 +168,31 @@ pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     use crate::LATIN;
-
-    fn ok<T>(answer: Result<T, Never>) -> T {
-        let Ok(value) = answer;
-
-        value
-    }
-
-    fn scratch(test: &str) -> std::path::PathBuf {
-        console_core_temporary_directories::fresh(&format!("alphabets-{test}")).expect("somewhere")
-    }
-
-    fn walk(text: &str) -> Vec<&'static Alphabet> {
-        ok(crate::read(text))
-    }
 
     #[test]
     fn a_keyboard_no_one_has_met_wears_what_this_machine_types() {
         let every = BTreeMap::new();
-        let walk = walk("latin,greek");
+        let Ok(walk) = crate::read("latin,greek");
+        let Ok(worn) = among(&every, "Logitech K380", &walk);
 
-        assert_eq!(ok(among(&every, "Logitech K380", &walk)).key, LATIN);
+        assert_eq!(worn.key, LATIN);
     }
 
     #[test]
     fn from_its_first_switch_a_keyboard_keeps_its_own() {
         let Ok(every) = of("Logitech K380 = greek\n");
-        let walk = walk("latin,greek,thai");
+        let Ok(walk) = crate::read("latin,greek,thai");
+        let Ok(worn) = among(&every, "Logitech K380", &walk);
 
-        assert_eq!(ok(among(&every, "Logitech K380", &walk)).key, "greek");
+        assert_eq!(worn.key, "greek");
+
+        let Ok(worn) = among(&every, "Some Other Board", &walk);
+
         assert_eq!(
-            ok(among(&every, "Some Other Board", &walk)).key,
+            worn.key,
             LATIN,
             "the board beside it was not switched to anything"
         );
@@ -208,18 +201,20 @@ mod tests {
     #[test]
     fn the_screen_is_a_keyboard_with_a_name_like_any_other() {
         let Ok(every) = of("screen = thai\nLogitech K380 = greek\n");
-        let walk = walk("latin,greek,thai");
+        let Ok(walk) = crate::read("latin,greek,thai");
+        let Ok(worn) = among(&every, SCREEN, &walk);
 
-        assert_eq!(ok(among(&every, SCREEN, &walk)).key, "thai");
+        assert_eq!(worn.key, "thai");
     }
 
     #[test]
     fn an_alphabet_this_machine_no_longer_types_is_not_worn_by_anyone() {
         let Ok(every) = of("Logitech K380 = greek\n");
-        let walk = walk("latin,thai");
+        let Ok(walk) = crate::read("latin,thai");
+        let Ok(worn) = among(&every, "Logitech K380", &walk);
 
         assert_eq!(
-            ok(among(&every, "Logitech K380", &walk)).key,
+            worn.key,
             LATIN,
             "someone took Greek off this machine, so the board cannot be left on it"
         );
@@ -228,15 +223,16 @@ mod tests {
     #[test]
     fn a_word_no_one_here_wrote_is_not_an_alphabet() {
         let Ok(every) = of("Logitech K380 = klingon\n");
-        let walk = walk("latin,greek");
+        let Ok(walk) = crate::read("latin,greek");
+        let Ok(worn) = among(&every, "Logitech K380", &walk);
 
-        assert_eq!(ok(among(&every, "Logitech K380", &walk)).key, LATIN);
+        assert_eq!(worn.key, LATIN);
     }
 
     #[test]
     fn what_is_written_reads_back_the_same() {
         let Ok(every) = of("b = greek\na = thai\n");
-        let Ok(text) = written(&every);
+        let Ok(text) = serialize(&every);
         let Ok(again) = of(&text);
 
         assert_eq!(every, again);
@@ -251,16 +247,19 @@ mod tests {
     }
 
     #[test]
-    fn what_is_remembered_is_what_comes_back() {
-        let home = scratch("what_is_remembered_is_what_comes_back");
+    fn what_is_remembered_is_what_comes_back() -> Result<(), Box<dyn Error>> {
+        let home = console_core_temporary_directories::fresh("alphabets-what_is_remembered_is_what_comes_back")?;
         let Ok(greek) = crate::one("greek");
-        let greek = greek.expect("greek");
+        let greek = greek.ok_or("greek is not an alphabet")?;
 
-        remember(&home, "Logitech K380", greek).expect("a line written");
+        remember(&home, "Logitech K380", greek)?;
 
         let Ok(every) = every(&home);
-        let walk = walk("latin,greek");
+        let Ok(walk) = crate::read("latin,greek");
+        let Ok(worn) = among(&every, "Logitech K380", &walk);
 
-        assert_eq!(ok(among(&every, "Logitech K380", &walk)).key, "greek");
+        assert_eq!(worn.key, "greek");
+
+        Ok(())
     }
 }

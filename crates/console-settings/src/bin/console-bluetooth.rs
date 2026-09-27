@@ -90,7 +90,7 @@ fn said_how() -> Result<std::process::ExitCode, Never> {
 
 fn main() -> std::process::ExitCode {
     let words: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(asked) = introducing::asked(&words);
+    let Ok(asked) = introducing::parse_command(&words);
 
     let address = match asked {
         Command::Introduce(address) => address,

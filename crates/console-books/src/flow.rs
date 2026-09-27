@@ -178,34 +178,37 @@ pub fn blocks(page: &str) -> Result<Vec<Block>, Never> {
 }
 
 fn percent_decode(text: &str) -> Result<String, Never> {
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut rest = text.as_bytes();
+    let Ok(first) = decoded_byte(text.as_bytes());
+    let bytes: Vec<u8> = std::iter::successors(first, |(_, rest)| {
+        let Ok(next) = decoded_byte(rest);
 
-    while let Some((first, after)) = rest.split_first() {
-        let byte = match after.get(..2).map(std::str::from_utf8) {
-            Some(Ok(hexadecimal)) => match u8::from_str_radix(hexadecimal, 16) {
-                Ok(byte) => Some(byte),
-                Err(_not_hex) => None,
-            },
-            None => None,
-            Some(Err(_not_text)) => None,
-        };
-
-        rest = match (*first, byte, after.get(2..)) {
-            (b'%', Some(byte), Some(past)) => {
-                bytes.push(byte);
-
-                past
-            },
-            (other, _, _) => {
-                bytes.push(other);
-
-                after
-            },
-        };
-    }
+        next
+    })
+    .map(|(byte, _)| byte)
+    .collect();
 
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn decoded_byte(rest: &[u8]) -> Result<Option<(u8, &[u8])>, Never> {
+    let (first, after) = match rest.split_first() {
+        Some(split) => split,
+        None => return Ok(None),
+    };
+
+    let byte = match after.get(..2).map(std::str::from_utf8) {
+        Some(Ok(hexadecimal)) => match u8::from_str_radix(hexadecimal, 16) {
+            Ok(byte) => Some(byte),
+            Err(_not_hex) => None,
+        },
+        None => None,
+        Some(Err(_not_text)) => None,
+    };
+
+    Ok(Some(match (*first, byte, after.get(2..)) {
+        (b'%', Some(byte), Some(past)) => (byte, past),
+        (other, _, _) => (other, after),
+    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,7 +217,7 @@ pub struct Relative<'a> {
     pub path: &'a str,
 }
 
-pub fn resolved(link: Relative<'_>) -> Result<String, Never> {
+pub fn resolve(link: Relative<'_>) -> Result<String, Never> {
     let Relative { base: from, path: link } = link;
     let link = match link.split_once('#') {
         Some((link, _fragment)) => link,
@@ -250,10 +253,6 @@ pub fn resolved(link: Relative<'_>) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn paragraph(text: &str) -> Block {
-        Block::Paragraph(text.to_string())
-    }
-
     #[test]
     fn a_chapter_is_its_headings_and_paragraphs_with_the_head_left_out() {
         let page = "<html><head><title>One</title><style>p { x }</style></head><body>\
@@ -263,8 +262,8 @@ mod tests {
             blocks(page),
             Ok(vec![
                 Block::Heading("Chapter One".to_string()),
-                paragraph("It was the best of times,"),
-                paragraph("it was the worst."),
+                Block::Paragraph("It was the best of times,".to_string()),
+                Block::Paragraph("it was the worst.".to_string()),
             ])
         );
     }
@@ -276,22 +275,22 @@ mod tests {
         assert_eq!(
             blocks(page),
             Ok(vec![
-                paragraph("Roses are red,\nviolets are blue"),
+                Block::Paragraph("Roses are red,\nviolets are blue".to_string()),
                 Block::Picture("../img/rose.jpg".to_string()),
-                paragraph("End"),
+                Block::Paragraph("End".to_string()),
             ])
         );
     }
 
     #[test]
     fn words_outside_any_block_are_still_read() {
-        assert_eq!(blocks("<body>Just words</body>"), Ok(vec![paragraph("Just words")]));
+        assert_eq!(blocks("<body>Just words</body>"), Ok(vec![Block::Paragraph("Just words".to_string())]));
     }
 
     #[test]
     fn a_link_is_named_the_way_the_zip_names_it() {
-        assert_eq!(resolved(Relative { base: "OEBPS/text/one.xhtml", path: "../images/a%20b.jpg#top" }), Ok("OEBPS/images/a b.jpg".to_string()));
-        assert_eq!(resolved(Relative { base: "content.opf", path: "chapter.xhtml" }), Ok("chapter.xhtml".to_string()));
-        assert_eq!(resolved(Relative { base: "OEBPS/content.opf", path: "./text/one.xhtml" }), Ok("OEBPS/text/one.xhtml".to_string()));
+        assert_eq!(resolve(Relative { base: "OEBPS/text/one.xhtml", path: "../images/a%20b.jpg#top" }), Ok("OEBPS/images/a b.jpg".to_string()));
+        assert_eq!(resolve(Relative { base: "content.opf", path: "chapter.xhtml" }), Ok("chapter.xhtml".to_string()));
+        assert_eq!(resolve(Relative { base: "OEBPS/content.opf", path: "./text/one.xhtml" }), Ok("OEBPS/text/one.xhtml".to_string()));
     }
 }

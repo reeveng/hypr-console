@@ -62,7 +62,7 @@ fn kept_at() -> Result<Option<PathBuf>, Never> {
 fn icon_roots() -> Result<Vec<PathBuf>, Never> {
     let home = console_core_places::home()?;
 
-    let share = Base::Share.hers()?;
+    let share = Base::Share.user()?;
 
     let mut roots = vec![PathBuf::from("/usr/share/icons"), PathBuf::from("/usr/share/pixmaps")];
 
@@ -75,7 +75,7 @@ fn icon_roots() -> Result<Vec<PathBuf>, Never> {
 fn steam_roots() -> Result<Vec<PathBuf>, Never> {
     let home = console_core_places::home()?;
 
-    let share = Base::Share.hers()?;
+    let share = Base::Share.user()?;
 
     Ok(share
         .into_iter()
@@ -159,7 +159,7 @@ fn index() -> Result<BTreeMap<String, String>, Never> {
                 None => {},
             }
 
-            let said = icons::written(&built)?;
+            let said = icons::serialize(&built)?;
 
             let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
         }
@@ -259,7 +259,7 @@ fn icon_at(name: &str, index: &BTreeMap<String, String>) -> Result<Option<String
     steam_icon(appid)
 }
 
-fn pictured(found: Option<String>, index: &BTreeMap<String, String>) -> Result<Option<String>, Never> {
+fn icon_or_default(found: Option<String>, index: &BTreeMap<String, String>) -> Result<Option<String>, Never> {
     Ok(found.or_else(|| index.get(UNPICTURED).cloned()))
 }
 
@@ -297,7 +297,7 @@ pub fn machine() -> Result<Found, Never> {
         }
 
         let found = icon_at(&application.icon, &index)?;
-        let found = pictured(found, &index)?;
+        let found = icon_or_default(found, &index)?;
 
         match found {
             Some(found) => {
@@ -358,7 +358,7 @@ fn said_at(at: Option<PathBuf>) -> Result<String, Never> {
     }
 }
 
-pub fn remembered() -> Result<Found, Never> {
+pub fn load_cached() -> Result<Found, Never> {
     let mut applications: BTreeMap<String, Application> = BTreeMap::new();
     let mut icon: BTreeMap<String, String> = BTreeMap::new();
 
@@ -394,7 +394,7 @@ fn keep(
         None => return Ok(()),
     };
 
-    let said = cache::written(applications, icon)?;
+    let said = cache::serialize(applications, icon)?;
 
     match std::fs::read_to_string(&at).is_ok_and(|before| before == said) {
         true => return Ok(()),
@@ -406,7 +406,7 @@ fn keep(
     Ok(())
 }
 
-pub fn counted() -> Result<BTreeMap<String, u64>, Never> {
+pub fn load_counts() -> Result<BTreeMap<String, u64>, Never> {
     let at = counts_at()?;
 
     let said = said_at(at)?;
@@ -461,11 +461,11 @@ pub fn bump(name: &str) -> Result<(), Never> {
         None => {},
     }
 
-    let counted = counted()?;
+    let counted = load_counts()?;
 
-    let bumped = counts::bumped(counted, name)?;
+    let bumped = counts::increment(counted, name)?;
 
-    let said = counts::written(&bumped)?;
+    let said = counts::serialize(&bumped)?;
 
     let _ = console_core_atomic_writes::whole(&at, said.as_bytes());
 
@@ -476,22 +476,25 @@ pub fn bump(name: &str) -> Result<(), Never> {
 mod tests {
     use super::*;
 
-    fn index() -> BTreeMap<String, String> {
-        BTreeMap::from([
+    fn index() -> Result<BTreeMap<String, String>, Never> {
+        Ok(BTreeMap::from([
             ("firefox".to_string(), "/icons/firefox.png".to_string()),
             (UNPICTURED.to_string(), "/icons/program.png".to_string()),
-        ])
+        ]))
     }
 
     #[test]
     fn an_application_with_no_icon_file_is_given_the_picture_of_a_program() {
-        assert_eq!(pictured(None, &index()), Ok(Some("/icons/program.png".to_string())));
+        let Ok(index) = index();
+
+        assert_eq!(icon_or_default(None, &index), Ok(Some("/icons/program.png".to_string())));
     }
 
     #[test]
     fn an_application_whose_icon_was_found_keeps_it() {
         let found = Some("/icons/firefox.png".to_string());
+        let Ok(index) = index();
 
-        assert_eq!(pictured(found.clone(), &index()), Ok(found));
+        assert_eq!(icon_or_default(found.clone(), &index), Ok(found));
     }
 }

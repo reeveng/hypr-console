@@ -19,33 +19,27 @@ pub fn of(live: &str, head: &[u8]) -> Result<u32, Never> {
 
 #[cfg(test)]
 mod tests {
-    fn mode_of(live: &str, head: &[u8]) -> u32 {
-        let Ok(mode) = super::of(live, head);
-
-        mode
-    }
-
     #[test]
     fn anything_in_a_bin_directory_is_meant_to_be_run() {
-        assert_eq!(mode_of("/usr/local/bin/console", b"any"), 0o755);
-        assert_eq!(mode_of("/usr/sbin/thing", b""), 0o755);
+        assert_eq!(super::of("/usr/local/bin/console", b"any"), Ok(0o755));
+        assert_eq!(super::of("/usr/sbin/thing", b""), Ok(0o755));
     }
 
     #[test]
     fn a_script_and_a_compiled_program_are_both_meant_to_be_run() {
-        assert_eq!(mode_of("/etc/thing", b"#!/bin/sh"), 0o755);
-        assert_eq!(mode_of("/etc/thing", b"\x7fELF\x02"), 0o755);
+        assert_eq!(super::of("/etc/thing", b"#!/bin/sh"), Ok(0o755));
+        assert_eq!(super::of("/etc/thing", b"\x7fELF\x02"), Ok(0o755));
     }
 
     #[test]
     fn a_compiled_program_is_read_past_its_first_two_bytes() {
-        assert_eq!(mode_of("/etc/thing", b"\x7fELF"), 0o755);
-        assert_eq!(mode_of("/etc/thing", b"\x7fEL"), 0o644);
+        assert_eq!(super::of("/etc/thing", b"\x7fELF"), Ok(0o755));
+        assert_eq!(super::of("/etc/thing", b"\x7fEL"), Ok(0o644));
     }
 
     #[test]
     fn everything_else_is_only_read() {
-        assert_eq!(mode_of("/etc/systemd/user/console.target", b"[Uni"), 0o644);
-        assert_eq!(mode_of("/home/@user@/.config/kdeglobals", b"[Col"), 0o644);
+        assert_eq!(super::of("/etc/systemd/user/console.target", b"[Uni"), Ok(0o644));
+        assert_eq!(super::of("/home/@user@/.config/kdeglobals", b"[Col"), Ok(0o644));
     }
 }

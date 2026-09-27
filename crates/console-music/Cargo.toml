@@ -34,7 +34,11 @@ name = "music-cover"
 path = "src/bin/music-cover.rs"
 
 [dependencies]
+console-core-file-urls.workspace = true
+console-core-file-names.workspace = true
 console-core-atomic-writes.workspace = true
+console-core-internal-programs.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-localization.workspace = true
 console-core-walking.workspace = true
@@ -51,6 +55,9 @@ console-panel.workspace = true
 console-music-player.workspace = true
 console-events.workspace = true
 serde_json = "1"
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
 
 [lints]
 workspace = true

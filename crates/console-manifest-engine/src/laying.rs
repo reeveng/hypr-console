@@ -43,7 +43,7 @@ pub fn staged(live: &Path) -> Result<Option<PathBuf>, Never> {
     beside(live, STAGED)
 }
 
-pub fn kept(live: &Path) -> Result<Option<PathBuf>, Never> {
+pub fn backup_path(live: &Path) -> Result<Option<PathBuf>, Never> {
     beside(live, KEPT)
 }
 
@@ -74,7 +74,7 @@ pub trait Lays {
 
     fn drop_kept(&mut self, live: &str);
 
-    fn standing(&self, live: &str) -> Back;
+    fn presence(&self, live: &str) -> Back;
 
     fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied>;
 
@@ -110,7 +110,7 @@ impl Deploy {
         let plan: Vec<Laid> = self
             .staged
             .iter()
-            .map(|live| Laid { at: live.clone(), back: lays.standing(live) })
+            .map(|live| Laid { at: live.clone(), back: lays.presence(live) })
             .collect();
         lays.note(&plan)?;
 
@@ -176,83 +176,91 @@ impl Deploy {
 mod tests {
     use super::*;
 
-    fn staged(live: &Path) -> PathBuf {
-        let Ok(Some(staged)) = super::staged(live) else {
-            panic!("{} names no file to stage one beside", live.display())
-        };
-
-        staged
-    }
-
-    fn kept(live: &Path) -> PathBuf {
-        let Ok(Some(kept)) = super::kept(live) else {
-            panic!("{} names no file to keep one beside", live.display())
-        };
-
-        kept
-    }
-
-    fn undoing(laid: &[Laid]) -> Vec<&Laid> {
-        let Ok(undoing) = super::undoing(laid);
-
-        undoing
-    }
+    type Failure = Box<dyn std::error::Error>;
 
     #[test]
     fn a_file_waits_and_is_kept_beside_where_it_goes() {
         let live = Path::new("/usr/local/bin/launcher");
-        assert_eq!(staged(live), Path::new("/usr/local/bin/launcher.console-new"));
-        assert_eq!(kept(live), Path::new("/usr/local/bin/launcher.console-old"));
+
+        assert_eq!(staged(live), Ok(Some(PathBuf::from("/usr/local/bin/launcher.console-new"))));
+        assert_eq!(backup_path(live), Ok(Some(PathBuf::from("/usr/local/bin/launcher.console-old"))));
     }
 
     #[test]
-    fn what_waits_is_in_the_directory_it_is_going_into() {
+    fn what_waits_is_in_the_directory_it_is_going_into() -> Result<(), Failure> {
         let live = Path::new("/etc/systemd/user/console-bar.service");
-        assert_eq!(staged(live).parent(), live.parent());
-        assert_eq!(kept(live).parent(), live.parent());
+        let Ok(staged) = staged(live);
+        let Ok(backup_path) = backup_path(live);
+        let staged = staged.ok_or("nowhere to stage it")?;
+        let backup_path = backup_path.ok_or("nowhere to keep it")?;
+
+        assert_eq!(staged.parent(), live.parent());
+        assert_eq!(backup_path.parent(), live.parent());
+
+        Ok(())
     }
 
     #[test]
     fn undoing_a_file_that_replaced_nothing_removes_it() {
-        let laid = Laid { at: "/usr/local/bin/new-thing".into(), back: Back::Closed };
-        assert_eq!(undoing(std::slice::from_ref(&laid)), vec![&laid]);
+        let laid = Laid { at: "/usr/local/bin/new-thing".to_string(), back: Back::Closed };
+
+        assert_eq!(undoing(std::slice::from_ref(&laid)), Ok(vec![&laid]));
         assert_eq!(laid.back, Back::Closed);
     }
 
     #[test]
-    fn what_was_there_survives_being_replaced_and_comes_back_the_same_thing() {
+    fn what_was_there_survives_being_replaced_and_comes_back_the_same_thing() -> Result<(), Failure> {
         use std::os::unix::fs::MetadataExt;
 
-        let here = std::env::temp_dir().join(format!("console-laying-{}", std::process::id()));
-        std::fs::create_dir_all(&here).expect("somewhere to work");
+        let here = console_core_temporary_directories::fresh("laying")?;
+
         let live = here.join("a-program");
-        std::fs::write(&live, b"the one that is running").expect("the old one");
-        let was = std::fs::metadata(&live).expect("its inode").ino();
+        let Ok(staged) = staged(&live);
+        let Ok(backup_path) = backup_path(&live);
+        let staged = staged.ok_or("nowhere to stage it")?;
+        let backup_path = backup_path.ok_or("nowhere to keep it")?;
 
-        std::fs::hard_link(&live, kept(&live)).expect("keeping it");
-        std::fs::write(staged(&live), b"the new one").expect("the new one");
-        std::fs::rename(staged(&live), &live).expect("putting it in place");
+        console_core_atomic_writes::whole(&live, b"the one that is running")?;
 
-        assert_eq!(std::fs::read(&live).unwrap(), b"the new one");
-        assert_eq!(std::fs::read(kept(&live)).unwrap(), b"the one that is running");
-        assert_eq!(std::fs::metadata(kept(&live)).unwrap().ino(), was);
+        let before = std::fs::metadata(&live)?;
+        let was = before.ino();
 
-        std::fs::rename(kept(&live), &live).expect("putting it back");
-        assert_eq!(std::fs::metadata(&live).unwrap().ino(), was);
+        std::fs::hard_link(&live, &backup_path)?;
+        console_core_atomic_writes::whole(&staged, b"the new one")?;
+        std::fs::rename(&staged, &live)?;
 
-        std::fs::remove_dir_all(&here).ok();
+        let now = std::fs::read(&live)?;
+        let aside = std::fs::read(&backup_path)?;
+        let kept_as = std::fs::metadata(&backup_path)?;
+
+        assert_eq!(now, b"the new one");
+        assert_eq!(aside, b"the one that is running");
+        assert_eq!(kept_as.ino(), was);
+
+        std::fs::rename(&backup_path, &live)?;
+
+        let back = std::fs::metadata(&live)?;
+
+        assert_eq!(back.ino(), was);
+
+        let _ = std::fs::remove_dir_all(&here);
+
+        Ok(())
     }
 
     #[test]
-    fn no_file_is_laid_down_by_copying_it() {
-        let machine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/machine.rs");
-        let held = std::fs::read_to_string(machine).expect("the machine half");
+    fn no_file_is_laid_down_by_copying_it() -> Result<(), Failure> {
+        let machine = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/machine.rs");
+        let held = std::fs::read_to_string(machine)?;
         let copies: Vec<&str> = held
             .lines()
             .filter(|line| !line.trim_start().starts_with("//"))
             .filter(|line| line.contains("fs::copy"))
             .collect();
+
         assert!(copies.is_empty(), "a file is laid down by copying it again: {copies:?}");
+
+        Ok(())
     }
 
     #[derive(Default)]
@@ -269,14 +277,15 @@ mod tests {
     }
 
     impl Paper {
-        fn holding(&self, live: &str) -> Option<&str> {
-            self.on.get(live).map(String::as_str)
+        fn holding(&self, live: &str) -> Result<Option<&str>, Never> {
+            Ok(self.on.get(live).map(String::as_str))
         }
     }
 
     impl Lays for Paper {
         fn stage(&mut self, from: &Path, live: &str) -> Result<(), Unapplied> {
             self.asked.push(format!("stage {live}"));
+
             match self.wont_stage.iter().any(|which| which == live) {
                 true => {
                     return Err(Unapplied::Staging(
@@ -284,16 +293,29 @@ mod tests {
                         "will not stage",
                         std::io::Error::other("the paper machine"),
                     ));
-                }
+                },
                 false => {},
             }
-            let held = from.file_name().unwrap().to_string_lossy().to_string();
+
+            let held = match from.file_name() {
+                Some(named) => named.to_string_lossy().to_string(),
+                None => {
+                    return Err(Unapplied::Staging(
+                        live.to_string(),
+                        "names no file",
+                        std::io::Error::other("the paper machine"),
+                    ));
+                },
+            };
+
             self.waiting.insert(live.to_string(), held);
+
             Ok(())
         }
 
         fn swap(&mut self, live: &str) -> Result<Back, Unapplied> {
             self.asked.push(format!("swap {live}"));
+
             match self.wont_swap.iter().any(|which| which == live) {
                 true => {
                     return Err(Unapplied::Staging(
@@ -301,37 +323,53 @@ mod tests {
                         "will not go into place",
                         std::io::Error::other("the paper machine"),
                     ));
-                }
+                },
                 false => {},
             }
-            let coming = self.waiting.remove(live).expect("something staged");
+
+            let coming = match self.waiting.remove(live) {
+                Some(coming) => coming,
+                None => {
+                    return Err(Unapplied::Staging(
+                        live.to_string(),
+                        "nothing is staged for it",
+                        std::io::Error::other("the paper machine"),
+                    ));
+                },
+            };
             let back = match self.on.insert(live.to_string(), coming) {
                 None => Back::Closed,
                 Some(was) => {
                     self.aside.insert(live.to_string(), was);
+
                     Back::Retained
-                }
+                },
             };
+
             Ok(back)
         }
 
         fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied> {
             self.asked.push(format!("put back {}", laid.at));
+
             match self.wont_put_back.iter().any(|which| which == &laid.at) {
                 true => {
                     return Err(Unapplied::NothingKept(laid.at.clone()));
-                }
+                },
                 false => {},
             }
+
             match laid.back {
                 Back::Retained => {
-                    let was = self.aside.remove(&laid.at).expect("something kept");
+                    let was = self.aside.remove(&laid.at).ok_or_else(|| Unapplied::NothingKept(laid.at.clone()))?;
+
                     self.on.insert(laid.at.clone(), was);
-                }
+                },
                 Back::Closed => {
                     self.on.remove(&laid.at);
-                }
+                },
             }
+
             Ok(())
         }
 
@@ -345,7 +383,7 @@ mod tests {
             self.aside.remove(live);
         }
 
-        fn standing(&self, live: &str) -> Back {
+        fn presence(&self, live: &str) -> Back {
             match self.on.contains_key(live) {
                 true => Back::Retained,
                 false => Back::Closed,
@@ -366,6 +404,7 @@ mod tests {
             }
 
             self.noted = laid.to_vec();
+
             Ok(())
         }
 
@@ -375,186 +414,217 @@ mod tests {
         }
     }
 
-    fn from(name: &str) -> std::path::PathBuf {
-        std::path::PathBuf::from(format!("/source/{name}"))
-    }
-
-    fn machine_with(held: &[(&str, &str)]) -> Paper {
-        Paper {
+    fn machine_with(held: &[(&str, &str)]) -> Result<Paper, Never> {
+        Ok(Paper {
             on: held.iter().map(|(at, was)| (at.to_string(), was.to_string())).collect(),
             ..Paper::default()
-        }
+        })
     }
 
     #[test]
-    fn staging_changes_nothing_and_swapping_changes_all_of_it() {
-        let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
+    fn staging_changes_nothing_and_swapping_changes_all_of_it() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
-        assert_eq!(paper.holding("/bin/one"), Some("old one"));
-        assert_eq!(paper.holding("/bin/two"), Some("old two"));
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.stage(&mut paper, Path::new("/source/new two"), "/bin/two")?;
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("old one")));
+        assert_eq!(paper.holding("/bin/two"), Ok(Some("old two")));
 
-        deploy.swap(&mut paper).expect("swapped");
-        assert_eq!(paper.holding("/bin/one"), Some("new one"));
-        assert_eq!(paper.holding("/bin/two"), Some("new two"));
+        deploy.swap(&mut paper)?;
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("new one")));
+        assert_eq!(paper.holding("/bin/two"), Ok(Some("new two")));
+
+        Ok(())
     }
 
     #[test]
-    fn a_release_that_cannot_be_staged_whole_is_not_laid_down_at_all() {
-        let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
-        paper.wont_stage.push("/bin/two".into());
+    fn a_release_that_cannot_be_staged_whole_is_not_laid_down_at_all() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
+        paper.wont_stage.push("/bin/two".to_string());
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        assert!(deploy.stage(&mut paper, &from("new two"), "/bin/two").is_err());
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        let refused = deploy.stage(&mut paper, Path::new("/source/new two"), "/bin/two");
+
+        assert!(matches!(refused, Err(Unapplied::Staging(..))), "it staged what would not stage: {refused:?}");
         let Ok(()) = deploy.abandon(&mut paper);
 
-        assert_eq!(paper.holding("/bin/one"), Some("old one"));
-        assert_eq!(paper.holding("/bin/two"), Some("old two"));
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("old one")));
+        assert_eq!(paper.holding("/bin/two"), Ok(Some("old two")));
         assert!(paper.waiting.is_empty(), "something is still staged: {:?}", paper.waiting);
+
+        Ok(())
     }
 
     #[test]
-    fn a_move_that_will_not_go_puts_back_the_ones_that_did() {
-        let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
-        paper.wont_swap.push("/bin/two".into());
+    fn a_move_that_will_not_go_puts_back_the_ones_that_did() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
+        paper.wont_swap.push("/bin/two".to_string());
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
-        let fault = deploy.swap(&mut paper).expect_err("the second will not go");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.stage(&mut paper, Path::new("/source/new two"), "/bin/two")?;
+        let fault = match deploy.swap(&mut paper) {
+            Ok(_) => return Err(Failure::from("the second went into place")),
+            Err(fault) => fault,
+        };
 
         assert!(fault.to_string().contains("went back"), "the fault does not say it went back: {fault}");
-        assert_eq!(paper.holding("/bin/one"), Some("old one"));
-        assert_eq!(paper.holding("/bin/two"), Some("old two"));
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("old one")));
+        assert_eq!(paper.holding("/bin/two"), Ok(Some("old two")));
+
+        Ok(())
     }
 
     #[test]
-    fn undoing_takes_away_what_replaced_nothing() {
-        let mut paper = machine_with(&[("/bin/one", "old one")]);
+    fn undoing_takes_away_what_replaced_nothing() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one")]);
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.stage(&mut paper, &from("brand new"), "/bin/two").expect("staged");
-        deploy.swap(&mut paper).expect("swapped");
-        assert_eq!(paper.holding("/bin/two"), Some("brand new"));
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.stage(&mut paper, Path::new("/source/brand new"), "/bin/two")?;
+        deploy.swap(&mut paper)?;
+        assert_eq!(paper.holding("/bin/two"), Ok(Some("brand new")));
 
         let Ok(_) = deploy.undo(&mut paper);
-        assert_eq!(paper.holding("/bin/one"), Some("old one"));
-        assert_eq!(paper.holding("/bin/two"), None);
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("old one")));
+        assert_eq!(paper.holding("/bin/two"), Ok(None));
+
+        Ok(())
     }
 
     #[test]
-    fn the_undoing_happens_in_the_order_it_was_done_in_reversed() {
-        let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
+    fn the_undoing_happens_in_the_order_it_was_done_in_reversed() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
-        deploy.swap(&mut paper).expect("swapped");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.stage(&mut paper, Path::new("/source/new two"), "/bin/two")?;
+        deploy.swap(&mut paper)?;
         paper.asked.clear();
         let Ok(_) = deploy.undo(&mut paper);
 
         assert_eq!(paper.asked, ["put back /bin/two", "put back /bin/one", "forget note"]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_file_that_will_not_go_back_does_not_keep_the_others_out_of_place() {
-        let mut paper = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
-        paper.wont_put_back.push("/bin/two".into());
+    fn a_file_that_will_not_go_back_does_not_keep_the_others_out_of_place() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one"), ("/bin/two", "old two")]);
+        paper.wont_put_back.push("/bin/two".to_string());
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.stage(&mut paper, &from("new two"), "/bin/two").expect("staged");
-        deploy.swap(&mut paper).expect("swapped");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.stage(&mut paper, Path::new("/source/new two"), "/bin/two")?;
+        deploy.swap(&mut paper)?;
 
         let Ok(undone) = deploy.undo(&mut paper);
-        assert_eq!(undone.len(), 2);
-        assert!(matches!(undone[0].put, Put::NotBack(_)), "the one that refuses says so");
-        assert_eq!(undone[1].put, Put::Back, "the one that can go back went back");
-        assert_eq!(paper.holding("/bin/one"), Some("old one"));
-        assert_eq!(paper.holding("/bin/two"), Some("new two"));
+
+        match undone.as_slice() {
+            [refused, back] => {
+                assert!(matches!(refused.put, Put::NotBack(_)), "the one that refuses says so");
+                assert_eq!(back.put, Put::Back, "the one that can go back went back");
+            },
+            other => return Err(Failure::from(format!("two were to be undone and {} were", other.len()))),
+        }
+
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("old one")));
+        assert_eq!(paper.holding("/bin/two"), Ok(Some("new two")));
+
+        Ok(())
     }
 
     #[test]
-    fn settling_lets_go_and_leaves_nothing_to_put_back() {
-        let mut paper = machine_with(&[("/bin/one", "old one")]);
+    fn settling_lets_go_and_leaves_nothing_to_put_back() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one")]);
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.swap(&mut paper).expect("swapped");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.swap(&mut paper)?;
         let Ok(()) = deploy.settle(&mut paper);
 
         assert!(paper.aside.is_empty(), "something is still kept: {:?}", paper.aside);
         let Ok(_) = deploy.undo(&mut paper);
-        assert_eq!(paper.holding("/bin/one"), Some("new one"));
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("new one")));
+
+        Ok(())
     }
 
     #[test]
-    fn the_plan_is_written_down_before_anything_moves() {
-        let mut paper = machine_with(&[("/bin/one", "old one")]);
+    fn the_plan_is_written_down_before_anything_moves() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one")]);
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.stage(&mut paper, &from("brand new"), "/bin/two").expect("staged");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.stage(&mut paper, Path::new("/source/brand new"), "/bin/two")?;
         paper.asked.clear();
-        deploy.swap(&mut paper).expect("swapped");
+        deploy.swap(&mut paper)?;
 
         assert_eq!(paper.asked.first().map(String::as_str), Some("note 2"), "{:?}", paper.asked);
         assert_eq!(
             paper.noted,
             [
-                Laid { at: "/bin/one".into(), back: Back::Retained },
-                Laid { at: "/bin/two".into(), back: Back::Closed },
+                Laid { at: "/bin/one".to_string(), back: Back::Retained },
+                Laid { at: "/bin/two".to_string(), back: Back::Closed },
             ]
         );
+
+        Ok(())
     }
 
     #[test]
     fn the_plan_says_which_files_replaced_something_and_which_replaced_nothing() {
-        let paper = machine_with(&[("/bin/one", "old one")]);
-        assert_eq!(paper.standing("/bin/one"), Back::Retained);
-        assert_eq!(paper.standing("/bin/two"), Back::Closed);
+        let Ok(paper) = machine_with(&[("/bin/one", "old one")]);
+        assert_eq!(paper.presence("/bin/one"), Back::Retained);
+        assert_eq!(paper.presence("/bin/two"), Back::Closed);
     }
 
     #[test]
-    fn a_swap_that_cannot_be_written_down_does_not_happen() {
-        let mut paper = machine_with(&[("/bin/one", "old one")]);
+    fn a_swap_that_cannot_be_written_down_does_not_happen() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one")]);
         paper.wont_note = true;
         let mut deploy = Deploy::default();
 
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        assert!(deploy.swap(&mut paper).is_err(), "it swapped with no way back");
-        assert_eq!(paper.holding("/bin/one"), Some("old one"));
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        let refused = deploy.swap(&mut paper);
+
+        assert!(matches!(refused, Err(Unapplied::Directory(..))), "it swapped with no way back: {refused:?}");
+        assert_eq!(paper.holding("/bin/one"), Ok(Some("old one")));
+
+        Ok(())
     }
 
     #[test]
-    fn the_note_goes_whether_the_release_stood_up_or_was_put_back() {
-        let mut paper = machine_with(&[("/bin/one", "old one")]);
+    fn the_note_goes_whether_the_release_stood_up_or_was_put_back() -> Result<(), Failure> {
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one")]);
         let mut deploy = Deploy::default();
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.swap(&mut paper).expect("swapped");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.swap(&mut paper)?;
         let Ok(()) = deploy.settle(&mut paper);
         assert!(paper.asked.contains(&"forget note".to_string()), "{:?}", paper.asked);
 
-        let mut paper = machine_with(&[("/bin/one", "old one")]);
+        let Ok(mut paper) = machine_with(&[("/bin/one", "old one")]);
         let mut deploy = Deploy::default();
-        deploy.stage(&mut paper, &from("new one"), "/bin/one").expect("staged");
-        deploy.swap(&mut paper).expect("swapped");
+        deploy.stage(&mut paper, Path::new("/source/new one"), "/bin/one")?;
+        deploy.swap(&mut paper)?;
         paper.asked.clear();
         let Ok(_) = deploy.undo(&mut paper);
         assert!(paper.asked.contains(&"forget note".to_string()), "{:?}", paper.asked);
+
+        Ok(())
     }
 
     #[test]
     fn an_apply_is_undone_in_the_order_it_was_done_in_reversed() {
         let laid = [
-            Laid { at: "/usr/local/bin/one".into(), back: Back::Retained },
-            Laid { at: "/usr/local/bin/two".into(), back: Back::Closed },
+            Laid { at: "/usr/local/bin/one".to_string(), back: Back::Retained },
+            Laid { at: "/usr/local/bin/two".to_string(), back: Back::Closed },
         ];
-        let order: Vec<&str> = undoing(&laid).iter().map(|one| one.at.as_str()).collect();
+        let Ok(undoing) = undoing(&laid);
+        let order: Vec<&str> = undoing.iter().map(|one| one.at.as_str()).collect();
+
         assert_eq!(order, ["/usr/local/bin/two", "/usr/local/bin/one"]);
     }
 }

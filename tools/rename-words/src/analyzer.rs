@@ -183,7 +183,7 @@ impl Analyzer {
             let target = PathBuf::from(document.trim_start_matches("file://"));
             let code = crate::lexing::blank(&std::fs::read_to_string(&target)?);
 
-            if declares(&code, new) {
+            if definition.kind != "method" && declares(&code, new) {
                 clashing.push(target.display().to_string());
             }
         }

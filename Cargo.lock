@@ -71,6 +71,7 @@ name = "console-applications"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-ini-files",
  "console-core-never",
@@ -87,6 +88,7 @@ dependencies = [
  "console-core-ini-files",
  "console-core-never",
  "console-core-words",
+ "console-manifest-engine",
  "console-repository",
  "serde_json",
 ]
@@ -131,13 +133,16 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-color",
  "console-core-external-programs",
+ "console-core-file-names",
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-core-zip-files",
  "console-defaults",
@@ -175,6 +180,7 @@ name = "console-bus"
 version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "rustix",
@@ -187,6 +193,7 @@ dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -228,6 +235,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "serde_json",
 ]
@@ -238,6 +246,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-never",
  "console-core-number-conversion",
+ "console-waiting",
 ]
 
 [[package]]
@@ -245,6 +254,7 @@ name = "console-content-types"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-iteration",
  "console-core-never",
 ]
 
@@ -256,6 +266,7 @@ dependencies = [
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-shapes",
@@ -290,11 +301,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-directory-listing"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-never",
+ "console-core-temporary-directories",
+]
+
+[[package]]
 name = "console-core-external-programs"
 version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
  "console-core-never",
  "console-core-temporary-directories",
+]
+
+[[package]]
+name = "console-core-file-names"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
+name = "console-core-file-urls"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
 ]
 
 [[package]]
@@ -326,6 +361,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-iteration"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+]
+
+[[package]]
 name = "console-core-localization"
 version = "0.1.0"
 dependencies = [
@@ -349,6 +391,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-never",
+ "console-core-temporary-directories",
  "console-core-words",
 ]
 
@@ -416,6 +459,7 @@ name = "console-core-zip-files"
 version = "0.1.0"
 dependencies = [
  "console-core-checksums",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -427,6 +471,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-never",
  "console-core-places",
+ "console-core-temporary-directories",
 ]
 
 [[package]]
@@ -450,6 +495,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-never",
  "console-core-places",
+ "console-core-temporary-directories",
  "rustix",
 ]
 
@@ -481,10 +527,13 @@ dependencies = [
  "console-books",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-file-names",
+ "console-core-internal-programs",
  "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-music-player",
  "console-panel",
@@ -526,11 +575,14 @@ dependencies = [
 name = "console-events"
 version = "0.1.0"
 dependencies = [
+ "console-core-directory-listing",
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-reconnect",
+ "console-core-temporary-directories",
  "console-onscreen",
  "console-program-contract",
  "console-program-lifetime",
@@ -548,6 +600,8 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-checksums",
  "console-core-external-programs",
+ "console-core-file-urls",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -577,6 +631,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-color",
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -590,6 +645,7 @@ dependencies = [
  "console-panel",
  "console-program-contract",
  "console-program-lifetime",
+ "console-screen",
  "console-status-bar",
  "rustix",
 ]
@@ -635,12 +691,15 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-cpu-boost",
  "console-events",
@@ -653,6 +712,7 @@ dependencies = [
  "console-program-lifetime",
  "console-program-runtime",
  "console-response-times",
+ "console-waiting",
  "rustix",
  "serde_json",
 ]
@@ -664,6 +724,7 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -681,6 +742,7 @@ name = "console-input-event-devices"
 version = "0.1.0"
 dependencies = [
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -702,6 +764,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-ini-files",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-words",
@@ -724,9 +787,11 @@ dependencies = [
  "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
  "console-input-alphabets",
@@ -734,8 +799,10 @@ dependencies = [
  "console-input-event-devices",
  "console-input-focus",
  "console-input-gamepad",
+ "console-manifest-engine",
  "console-program-contract",
  "console-program-runtime",
+ "console-repository",
  "console-response-times",
  "pango",
  "pangocairo",
@@ -767,6 +834,8 @@ dependencies = [
  "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -788,10 +857,12 @@ name = "console-input-pointer"
 version = "0.1.0"
 dependencies = [
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-onscreen",
  "console-screen",
+ "console-waiting",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
@@ -801,6 +872,7 @@ dependencies = [
 name = "console-input-touchscreen"
 version = "0.1.0"
 dependencies = [
+ "console-compositor",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
@@ -849,6 +921,26 @@ dependencies = [
  "console-default-applications",
  "console-home-screen",
  "console-panel",
+ "console-screen",
+]
+
+[[package]]
+name = "console-lock-screen"
+version = "0.1.0"
+dependencies = [
+ "console-core-color",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-places",
+ "console-core-shapes",
+ "console-core-words",
+ "console-defaults",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-login-greeter",
+ "console-login-window",
+ "console-program-contract",
+ "console-readiness",
 ]
 
 [[package]]
@@ -857,10 +949,12 @@ version = "0.1.0"
 dependencies = [
  "console-core-color",
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-shapes",
  "console-draw-painting",
+ "console-draw-surface",
  "console-input-event-devices",
  "console-login-pattern",
  "console-login-window",
@@ -881,6 +975,7 @@ dependencies = [
 name = "console-login-session"
 version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -894,9 +989,11 @@ dependencies = [
  "console-core-external-programs",
  "console-core-ini-files",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-login-session",
  "console-program-lifetime",
 ]
@@ -908,13 +1005,16 @@ dependencies = [
  "console-awake",
  "console-battery",
  "console-core-atomic-writes",
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-fonts",
  "console-core-ini-files",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-defaults",
  "console-how-far",
@@ -940,6 +1040,8 @@ dependencies = [
  "console-core-external-programs",
  "console-core-internal-programs",
  "console-core-never",
+ "console-core-temporary-directories",
+ "console-core-words",
  "console-manifest-engine",
  "console-rename",
  "console-repository",
@@ -950,6 +1052,7 @@ name = "console-manifest-publish"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-never",
  "console-core-temporary-directories",
@@ -962,13 +1065,18 @@ name = "console-media-viewer"
 version = "0.1.0"
 dependencies = [
  "console-content-types",
+ "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-ini-files",
+ "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
  "console-music-player",
@@ -987,12 +1095,17 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-file-names",
+ "console-core-file-urls",
  "console-core-geometry",
+ "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
  "console-events",
@@ -1011,11 +1124,15 @@ dependencies = [
  "console-awake",
  "console-bus",
  "console-core-atomic-writes",
+ "console-core-directory-listing",
  "console-core-external-programs",
+ "console-core-file-urls",
  "console-core-ini-files",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-program-lifetime",
  "console-response-times",
@@ -1032,10 +1149,12 @@ dependencies = [
  "console-core-external-programs",
  "console-core-fonts",
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-draw-painting",
  "console-draw-surface",
@@ -1063,11 +1182,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-overview"
+version = "0.1.0"
+dependencies = [
+ "console-compositor",
+ "console-core-color",
+ "console-core-fonts",
+ "console-core-geometry",
+ "console-core-iteration",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-core-shapes",
+ "console-core-walking",
+ "console-draw-painting",
+ "console-draw-surface",
+ "console-onscreen",
+ "console-response-times",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+ "wayland-scanner",
+]
+
+[[package]]
 name = "console-palette"
 version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-color",
+ "console-core-directory-listing",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -1090,6 +1235,7 @@ dependencies = [
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -1119,8 +1265,11 @@ version = "0.1.0"
 dependencies = [
  "console-calculator",
  "console-calendar",
+ "console-core-external-programs",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
+ "console-core-temporary-directories",
  "console-downloads",
  "console-files",
  "console-forecast",
@@ -1139,6 +1288,7 @@ dependencies = [
 name = "console-pictures"
 version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-never",
@@ -1151,6 +1301,7 @@ name = "console-program-contract"
 version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
 ]
@@ -1171,23 +1322,34 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
+ "console-core-temporary-directories",
  "console-events",
  "console-program-contract",
  "console-program-lifetime",
+ "console-waiting",
 ]
+
+[[package]]
+name = "console-readiness"
+version = "0.1.0"
 
 [[package]]
 name = "console-recovery"
 version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-walking",
  "console-core-words",
  "console-input-event-devices",
  "console-program-contract",
+ "console-program-lifetime",
+ "console-program-runtime",
+ "console-readiness",
 ]
 
 [[package]]
@@ -1196,7 +1358,9 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
+ "console-core-temporary-directories",
  "console-manifest-migrations",
  "console-repository",
 ]
@@ -1205,8 +1369,13 @@ dependencies = [
 name = "console-repository"
 version = "0.1.0"
 dependencies = [
+ "console-core-atomic-writes",
+ "console-core-directory-listing",
+ "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-temporary-directories",
  "proc-macro2",
  "quote",
  "syn 3.0.4",
@@ -1219,6 +1388,7 @@ dependencies = [
  "console-battery",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -1231,9 +1401,11 @@ name = "console-response-times"
 version = "0.1.0"
 dependencies = [
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-defaults",
  "console-signals",
@@ -1249,6 +1421,7 @@ dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
  "console-core-external-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -1267,10 +1440,12 @@ name = "console-screen"
 version = "0.1.0"
 dependencies = [
  "console-compositor",
+ "console-core-atomic-writes",
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
 ]
 
 [[package]]
@@ -1282,6 +1457,7 @@ dependencies = [
  "console-core-internal-programs",
  "console-core-never",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-response-times",
 ]
@@ -1298,13 +1474,16 @@ dependencies = [
  "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-ini-files",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-localization",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
  "console-core-qr-codes",
  "console-core-shapes",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-default-applications",
  "console-draw-painting",
@@ -1315,9 +1494,11 @@ dependencies = [
  "console-input-dictation",
  "console-input-event-devices",
  "console-input-language",
+ "console-lock-screen",
  "console-login-greeter",
  "console-login-pattern",
  "console-login-window",
+ "console-music",
  "console-notifications",
  "console-panel",
  "console-pictures",
@@ -1356,11 +1537,13 @@ version = "0.1.0"
 dependencies = [
  "console-battery",
  "console-compositor",
+ "console-core-atomic-writes",
  "console-core-color",
  "console-core-external-programs",
  "console-core-fonts",
  "console-core-geometry",
  "console-core-internal-programs",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-reconnect",
@@ -1396,6 +1579,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-ini-files",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -1433,14 +1617,18 @@ version = "0.1.0"
 dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-ini-files",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-manifest-engine",
+ "console-manifest-migrations",
  "console-onscreen",
+ "console-panel",
  "console-program-lifetime",
  "console-repository",
  "console-screen",
@@ -1456,6 +1644,7 @@ version = "0.1.0"
 dependencies = [
  "console-button-guide",
  "console-core-geometry",
+ "console-core-never",
  "console-input-bindings",
  "console-input-controller",
  "console-input-event-devices",
@@ -1472,12 +1661,15 @@ dependencies = [
  "console-compositor",
  "console-core-atomic-writes",
  "console-core-color",
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-geometry",
  "console-core-ini-files",
+ "console-core-internal-programs",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-walking",
  "console-core-words",
  "console-device-name",
@@ -1486,6 +1678,7 @@ dependencies = [
  "console-input-controller",
  "console-input-event-devices",
  "console-input-gamepad",
+ "console-manifest-migrations",
  "console-notifications",
  "console-onscreen",
  "console-panel",
@@ -1502,6 +1695,7 @@ dependencies = [
 name = "console-vocabulary"
 version = "0.1.0"
 dependencies = [
+ "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-ini-files",
  "console-core-never",
@@ -1513,6 +1707,7 @@ dependencies = [
 name = "console-waiting"
 version = "0.1.0"
 dependencies = [
+ "console-core-iteration",
  "console-core-never",
  "rustix",
 ]
@@ -1526,9 +1721,11 @@ dependencies = [
  "console-core-color",
  "console-core-external-programs",
  "console-core-geometry",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-events",
  "console-onscreen",
@@ -1551,6 +1748,7 @@ dependencies = [
  "console-core-external-programs",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-temporary-directories",
  "console-core-words",
  "console-defaults",
  "serde_json",

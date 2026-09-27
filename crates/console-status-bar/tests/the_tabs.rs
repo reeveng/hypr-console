@@ -9,31 +9,33 @@
 //! at.
 
 use console_settings::rows::tabs;
+use console_core_never::Never;
 use console_status_bar::state::ALONG;
 
-fn asked() -> Vec<String> {
-    ALONG
+fn tab_names() -> Result<Vec<String>, Never> {
+    Ok(ALONG
         .into_iter()
         .map(|item| {
             let Ok(tab) = item.tab();
 
-            tab.to_string()
+            String::from(tab)
         })
-        .collect()
+        .collect())
 }
 
 #[test]
 fn every_tab_the_bar_asks_for_exists() {
     let Ok(tabs) = tabs();
+    let Ok(names) = tab_names();
 
-    for tab in asked() {
+    for tab in names {
         assert!(tabs.contains(&tab), "the bar opens the {tab} tab, which does not exist");
     }
 }
 
 #[test]
 fn the_tabs_the_bar_opens_stand_in_the_order_the_bar_draws_them() {
-    let along_the_bar = asked();
+    let Ok(along_the_bar) = tab_names();
     let Ok(tabs) = tabs();
     let along_the_tabs: Vec<String> =
         tabs.into_iter().filter(|tab| along_the_bar.contains(tab)).collect();

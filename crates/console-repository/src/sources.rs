@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
+use console_core_directory_listing::Descend;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,23 +30,16 @@ pub enum Spelled {
 }
 
 pub fn under(at: &Path) -> Result<Vec<PathBuf>, Never> {
-    let mut found = Vec::new();
-    let mut waiting = vec![at.to_path_buf()];
-
-    while let Some(here) = waiting.pop() {
-        let entries = match std::fs::read_dir(&here) {
-            Ok(entries) => entries,
-            Err(_nothing_there) => continue,
-        };
-
-        for path in entries.flatten().map(|entry| entry.path()) {
-            match (path.is_dir(), path.extension().and_then(|ending| ending.to_str())) {
-                (true, _) => waiting.push(path),
-                (false, Some("rs")) => found.push(path),
-                (false, Some(_) | None) => {}
-            }
-        }
-    }
+    let Ok(listing) = console_core_directory_listing::recursive(at, |_| Descend::Into);
+    let mut found: Vec<PathBuf> = listing
+        .filter_map(|entry| match entry {
+            Ok(path) => match (path.is_dir(), path.extension().and_then(|ending| ending.to_str())) {
+                (false, Some("rs")) => Some(path),
+                (true, _) | (false, Some(_) | None) => None,
+            },
+            Err(_nothing_there) => None,
+        })
+        .collect();
 
     found.sort();
 

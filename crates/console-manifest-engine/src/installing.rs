@@ -37,7 +37,7 @@ pub enum PacmanOutput {
     Other,
 }
 
-pub fn said(line: &str) -> Result<PacmanOutput, Never> {
+pub fn parse_line(line: &str) -> Result<PacmanOutput, Never> {
     let Ok(plain) = how_far::plain(line);
     let said = plain.trim();
 
@@ -95,7 +95,7 @@ pub fn fetched(far: Progress) -> Result<f64, Never> {
     Ok(part * FETCHING)
 }
 
-pub fn done(far: Progress) -> Result<f64, Never> {
+pub fn overall_fraction(far: Progress) -> Result<f64, Never> {
     let Ok(part) = how_far::fraction(far);
 
     Ok(FETCHING + part * (1.0 - FETCHING))
@@ -105,21 +105,15 @@ pub fn done(far: Progress) -> Result<f64, Never> {
 mod tests {
     use super::*;
 
-    fn read(line: &str) -> PacmanOutput {
-        let Ok(said) = said(line);
-
-        said
-    }
-
     #[test]
     fn the_line_that_names_a_package_being_written_carries_its_own_count() {
         assert_eq!(
-            read("(2/3) installing console-fonts"),
-            PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() }
+            parse_line("(2/3) installing console-fonts"),
+            Ok(PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() })
         );
         assert_eq!(
-            read("( 7/12) upgrading linux-firmware"),
-            PacmanOutput::Installing { done: 7, many: 12, name: "linux-firmware".to_string() }
+            parse_line("( 7/12) upgrading linux-firmware"),
+            Ok(PacmanOutput::Installing { done: 7, many: 12, name: "linux-firmware".to_string() })
         );
     }
 
@@ -132,23 +126,24 @@ mod tests {
             "(3/3) checking for file conflicts",
             "(1/1) checking available disk space",
         ] {
-            assert_eq!(read(line), PacmanOutput::Other, "{line} was counted");
+            assert_eq!(parse_line(line),
+            Ok(PacmanOutput::Other), "{line} was counted");
         }
     }
 
     #[test]
     fn the_line_pacman_prints_when_no_one_is_watching_it_names_a_download() {
         assert_eq!(
-            read(" linux-firmware-20240909.1-1-any downloading..."),
-            PacmanOutput::Downloading("linux-firmware-20240909.1-1-any".to_string())
+            parse_line(" linux-firmware-20240909.1-1-any downloading..."),
+            Ok(PacmanOutput::Downloading("linux-firmware-20240909.1-1-any".to_string()))
         );
     }
 
     #[test]
     fn what_it_says_in_color_is_read_the_same_as_what_it_says_plain() {
         assert_eq!(
-            read("\u{1b}[0;1m(2/3)\u{1b}[0m installing console-fonts"),
-            PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() }
+            parse_line("\u{1b}[0;1m(2/3)\u{1b}[0m installing console-fonts"),
+            Ok(PacmanOutput::Installing { done: 2, many: 3, name: "console-fonts".to_string() })
         );
     }
 
@@ -163,7 +158,8 @@ mod tests {
             "(x/3) installing nothing",
             "(1/) installing nothing",
         ] {
-            assert_eq!(read(line), PacmanOutput::Other, "{line:?} was read as progress");
+            assert_eq!(parse_line(line),
+            Ok(PacmanOutput::Other), "{line:?} was read as progress");
         }
     }
 
@@ -171,13 +167,13 @@ mod tests {
     fn fetching_has_the_first_half_and_writing_the_second() {
         assert_eq!(fetched(Progress { done: 0, many: 4 }), Ok(0.0));
         assert_eq!(fetched(Progress { done: 4, many: 4 }), Ok(FETCHING));
-        assert_eq!(done(Progress { done: 0, many: 4 }), Ok(FETCHING));
-        assert_eq!(done(Progress { done: 4, many: 4 }), Ok(1.0));
+        assert_eq!(overall_fraction(Progress { done: 0, many: 4 }), Ok(FETCHING));
+        assert_eq!(overall_fraction(Progress { done: 4, many: 4 }), Ok(1.0));
     }
 
     #[test]
     fn a_stage_with_no_packages_in_it_divides_by_nothing_and_says_nothing() {
         assert_eq!(fetched(Progress { done: 0, many: 0 }), Ok(0.0));
-        assert_eq!(done(Progress { done: 0, many: 0 }), Ok(FETCHING));
+        assert_eq!(overall_fraction(Progress { done: 0, many: 0 }), Ok(FETCHING));
     }
 }

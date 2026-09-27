@@ -1,13 +1,14 @@
 use std::process::{ExitCode, Stdio};
 
-use console_control_center::{CLOSE, EDGE, Labels, SCREENSHOT, Sheet, Swipe, Tapped, drawn, sheet, swiped, tapped};
+use console_control_center::{CLOSE, EDGE, Labels, SCREENSHOT, Sheet, Swipe, Tapped, render, sheet, classify_swipe, hit_test};
 use console_core_color::palette::Wearing;
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_fonts::TextStyle;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_internal_programs::InternalProgram;
 use console_core_shapes::{Shape, Weight};
-use console_draw_painting::{self as painting, Frame, Run};
+use console_draw_painting::{self as painting, Run};
 use console_draw_surface::{
     Anchor, Closed, Keyboard, Margin, PointerEvent, Room, Surface, SurfaceError, Under, Wanted,
 };
@@ -56,40 +57,54 @@ fn main() -> ExitCode {
 }
 
 fn run(surface: &mut Surface, wearing: &Wearing) -> Result<(), SurfaceError> {
-    let mut showing = edge(surface)?;
+    let showing = edge(surface)?;
 
-    loop {
-        surface.wait(&[], None)?;
+    let ran = iterate((surface, showing), |(surface, showing)| {
+        Ok(match round(surface, wearing, showing) {
+            Ok(showing) => Step::Again((surface, showing)),
+            Err(fault) => Step::Halt(fault),
+        })
+    });
 
-        match surface.closed() {
-            Ok(Closed::Yes) => return Err(SurfaceError::Hung),
-            Ok(Closed::No) => {},
-        }
-
-        let Ok(events) = surface.pointer_events();
-
-        for event in events {
-            let Ok(next) = step(&mut showing, event);
-
-            showing = match next {
-                Next::Stay => showing,
-                Next::Open => opened(surface, wearing)?,
-                Next::PutAway => edge(surface)?,
-                Next::TakeScreenshot => {
-                    let put_away = edge(surface)?;
-                    let Ok(()) = started(InternalProgram::Screenshot);
-
-                    put_away
-                }
-                Next::Close => {
-                    let put_away = edge(surface)?;
-                    let Ok(()) = started(InternalProgram::PutAway);
-
-                    put_away
-                }
-            };
-        }
+    match ran {
+        Ok(fault) => Err(fault),
+        Err(Endless) => Ok(()),
     }
+}
+
+fn round(surface: &mut Surface, wearing: &Wearing, mut showing: Showing) -> Result<Showing, SurfaceError> {
+    surface.wait(&[], None)?;
+
+    match surface.closed() {
+        Ok(Closed::Yes) => return Err(SurfaceError::Hung),
+        Ok(Closed::No) => {},
+    }
+
+    let Ok(events) = surface.pointer_events();
+
+    for event in events {
+        let Ok(next) = step(&mut showing, event);
+
+        showing = match next {
+            Next::Stay => showing,
+            Next::Open => open(surface, wearing)?,
+            Next::PutAway => edge(surface)?,
+            Next::TakeScreenshot => {
+                let put_away = edge(surface)?;
+                let Ok(()) = start(InternalProgram::Screenshot);
+
+                put_away
+            }
+            Next::Close => {
+                let put_away = edge(surface)?;
+                let Ok(()) = start(InternalProgram::PutAway);
+
+                put_away
+            }
+        };
+    }
+
+    Ok(showing)
 }
 
 fn step(showing: &mut Showing, event: PointerEvent) -> Result<Next, Never> {
@@ -100,7 +115,7 @@ fn step(showing: &mut Showing, event: PointerEvent) -> Result<Next, Never> {
             Next::Stay
         }
         (Showing::Edge { from: Some(from) }, PointerEvent::Moved { at }) => {
-            let Ok(swipe) = swiped(*from, at);
+            let Ok(swipe) = classify_swipe(*from, at);
 
             match swipe {
                 Swipe::Down => Next::Open,
@@ -120,7 +135,7 @@ fn step(showing: &mut Showing, event: PointerEvent) -> Result<Next, Never> {
             Next::Stay
         }
         (Showing::Sheet { sheet, at: Some(at) }, PointerEvent::Up) => {
-            let Ok(tap) = tapped(sheet, *at);
+            let Ok(tap) = hit_test(sheet, *at);
 
             match tap {
                 Tapped::Screenshot => Next::TakeScreenshot,
@@ -129,7 +144,7 @@ fn step(showing: &mut Showing, event: PointerEvent) -> Result<Next, Never> {
             }
         }
         (Showing::Sheet { at: Some(from), .. }, PointerEvent::Moved { at }) => {
-            let Ok(swipe) = swiped(*from, at);
+            let Ok(swipe) = classify_swipe(*from, at);
 
             match swipe {
                 Swipe::Up => Next::PutAway,
@@ -154,12 +169,12 @@ fn edge(surface: &mut Surface) -> Result<Showing, SurfaceError> {
         under: Under::None,
     })?;
 
-    painted(surface, &[])?;
+    paint(surface, &[])?;
 
     Ok(Showing::Edge { from: None })
 }
 
-fn opened(surface: &mut Surface, wearing: &Wearing) -> Result<Showing, SurfaceError> {
+fn open(surface: &mut Surface, wearing: &Wearing) -> Result<Showing, SurfaceError> {
     let Ok(()) = surface.hide();
 
     surface.show(&Wanted {
@@ -179,38 +194,32 @@ fn opened(surface: &mut Surface, wearing: &Wearing) -> Result<Showing, SurfaceEr
 
     let Ok(laid) = sheet(room, wearing);
     let Ok(font) = TextStyle::Headline.font();
-    let Ok(screenshot) = painting::measured(
+    let Ok(screenshot) = painting::measure_text(
         Run { said: SCREENSHOT, weight: Weight::Bold, width: laid.screenshot.size.width },
         &font,
     );
-    let Ok(close) = painting::measured(
+    let Ok(close) = painting::measure_text(
         Run { said: CLOSE, weight: Weight::Bold, width: laid.close.size.width },
         &font,
     );
-    let Ok(shapes) = drawn(&laid, Labels { screenshot, close }, wearing);
+    let Ok(shapes) = render(&laid, Labels { screenshot, close }, wearing);
 
-    painted(surface, &shapes)?;
+    paint(surface, &shapes)?;
 
     Ok(Showing::Sheet { sheet: Box::new(laid), at: None })
 }
 
-fn painted(surface: &mut Surface, shapes: &[Shape]) -> Result<(), SurfaceError> {
+fn paint(surface: &mut Surface, shapes: &[Shape]) -> Result<(), SurfaceError> {
     let points = match surface.logical() {
         Ok(Some(points)) => points,
         Ok(None) => return Ok(()),
     };
 
-    surface.draw(|pixels, device, _scale| {
-        match painting::onto(pixels, Frame { device, points }, shapes) {
-            Ok(()) => {},
-            Err(why) => eprintln!("console-control-center: {why}"),
-        }
-
-        Ok(())
-    })
+    let Ok(painting) = painting::painter(points, shapes, "console-control-center");
+    surface.draw(painting)
 }
 
-fn started(program: InternalProgram) -> Result<(), Never> {
+fn start(program: InternalProgram) -> Result<(), Never> {
     let Ok(mut starting) = program.command();
     let Ok(named) = program.name();
 

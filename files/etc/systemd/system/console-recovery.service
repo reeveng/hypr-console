@@ -18,6 +18,10 @@ TimeoutStartSec=30
 # restarted, and "start the desktop again" would be refused for the same
 # reason. Forgetting that is what makes the first choice a real one.
 ExecStartPre=-/usr/bin/systemctl reset-failed display-manager.service
+# A login window that fell here had already said the boot came up, and the
+# next boot would skip the menu that holds the snapshots. Taking that back
+# puts the menu in front of the next boot, which is the one that wants it.
+ExecStartPre=-/usr/bin/bootctl set-timeout-oneshot ""
 ExecStart=/usr/local/bin/recovery
 StandardInput=tty
 StandardOutput=tty

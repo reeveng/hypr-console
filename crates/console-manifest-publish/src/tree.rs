@@ -64,11 +64,11 @@ fn among(forks: &[&str], name: &str) -> Result<Fork, Never> {
     })
 }
 
-pub fn carried(tracked: impl IntoIterator<Item = String>) -> Result<Vec<String>, Never> {
-    carrying(&FORKS, tracked)
+pub fn binary_forks(tracked: impl IntoIterator<Item = String>) -> Result<Vec<String>, Never> {
+    binary_forks_in(&FORKS, tracked)
 }
 
-fn carrying(
+fn binary_forks_in(
     forks: &[&str],
     tracked: impl IntoIterator<Item = String>,
 ) -> Result<Vec<String>, Never> {
@@ -83,10 +83,10 @@ fn carrying(
 }
 
 pub fn manifest(held: &str) -> Result<String, Never> {
-    written(&FORKS, held)
+    strip_forks(&FORKS, held)
 }
 
-fn written(forks: &[&str], held: &str) -> Result<String, Never> {
+fn strip_forks(forks: &[&str], held: &str) -> Result<String, Never> {
     #[cfg_attr(
         dylint_lib = "explicit028_no_search_in_a_loop",
         allow(
@@ -172,7 +172,7 @@ mod tests {
             "crates/console-input-keyboard/src/palette.rs",
             "docs/checks.md",
         ];
-        let Ok(carried) = carrying(&ONE, tracked.map(String::from));
+        let Ok(carried) = binary_forks_in(&ONE, tracked.map(String::from));
 
         assert_eq!(
             carried,
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn the_manifest_drops_the_forks_and_says_where_they_went() {
         let held = "[files]\n/usr/local/bin/launcher\n/usr/local/bin/kew\n";
-        let Ok(written) = written(&ONE, held);
+        let Ok(written) = strip_forks(&ONE, held);
         assert!(!written.contains("[files]\n/usr/local/bin/launcher\n/usr/local/bin/kew"));
         assert!(written.contains("/usr/local/bin/launcher\n"));
         assert!(written.contains("[elsewhere]"));

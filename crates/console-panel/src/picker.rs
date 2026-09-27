@@ -63,10 +63,17 @@
 //! underneath the first: asked for again with the same arguments it is already
 //! up and nothing starts, and asked for anything else the one up stands down
 //! for it. `alone_as` is that, and it is `choosing` over a different file.
+//!
+//! Which app is on top is asked of `/proc/locks` rather than by taking each
+//! lock and letting it go. A lock belongs to the open file and not to the
+//! handle, and a fork on any other thread copies every open file into the
+//! child: the probe's copy went with it, so the lock the probe let go stayed
+//! taken until the child ran its program, an app nobody held read as the one on
+//! top, and an app starting in that moment was told it was already up.
 
 
 use console_core_never::Never;
-use console_waiting::{Schedule, Ready, Outcome, found_handed, until};
+use console_waiting::{Schedule, Ready, Outcome, until_some_handed, until};
 use console_core_number_conversion::fitted;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -142,10 +149,10 @@ impl Drop for Stopwatch {
     }
 }
 
-pub fn showing(pid: i32) -> Result<(), Never> {
+pub fn register(pid: i32) -> Result<(), Never> {
     SHOWING.store(pid, Ordering::SeqCst);
     // SAFETY: the handler stores nothing and calls nothing that allocates.
-    let answering = unsafe { console_signals::answered(&console_signals::STOPPING, asked) };
+    let answering = unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) };
 
     match answering {
         Ok(()) => {},
@@ -161,7 +168,7 @@ pub fn showing_nothing() -> Result<(), Never> {
     Ok(())
 }
 
-extern "C" fn asked(_number: core::ffi::c_int) {
+extern "C" fn on_signal(_number: core::ffi::c_int) {
     let pid = SHOWING.load(Ordering::SeqCst);
 
     match pid > 0 {
@@ -259,7 +266,7 @@ enum Meanwhile {
 fn meanwhile(handle: &mut File) -> Result<Meanwhile, Never> {
     let Ok(patience) = Schedule::asking_every(COMING, BREATH);
 
-    let Ok(answer) = found_handed(patience, handle, |handle| {
+    let Ok(answer) = until_some_handed(patience, handle, |handle| {
         let Ok(took) = take(handle);
 
         match took == Took::It {
@@ -290,7 +297,7 @@ fn read(handle: &mut File) -> Result<String, Never> {
     Ok(said)
 }
 
-fn written(handle: &mut File, name: &str) -> Result<(), Never> {
+fn write_owner(handle: &mut File, name: &str) -> Result<(), Never> {
     let _ = handle.seek(SeekFrom::Start(0));
     let _ = handle.set_len(0);
     let _ = write!(handle, "{} {name}", std::process::id());
@@ -364,23 +371,48 @@ enum Owned {
 }
 
 fn someone_holds(at: &Path) -> Result<Owned, Never> {
-    #[cfg_attr(
-        dylint_lib = "explicit040_no_torn_write",
-        allow(
-            explicit040_no_torn_write,
-            reason = "the lock, opened only to ask whether it is held; nothing is written through it"
-        )
-    )]
-    let handle = match OpenOptions::new().read(true).open(at) {
-        Ok(handle) => handle,
-        Err(_unreadable) => return Ok(Owned::No),
+    let found = match std::fs::metadata(at) {
+        Ok(found) => found,
+        Err(_gone) => return Ok(Owned::No),
     };
 
-    let Ok(took) = take(&handle);
+    let Ok(file) = named_in_locks(&found);
 
-    Ok(match took {
-        Took::It => Owned::No,
-        Took::Not => Owned::Yes,
+    let locks = match std::fs::read_to_string(LOCKS) {
+        Ok(locks) => locks,
+        Err(fault) => {
+            eprintln!("console-panel: {LOCKS}: {fault}; nothing reads as holding {}", at.display());
+
+            return Ok(Owned::No);
+        }
+    };
+
+    held_in(&locks, &file)
+}
+
+const LOCKS: &str = "/proc/locks";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Listed(String);
+
+fn named_in_locks(found: &std::fs::Metadata) -> Result<Listed, Never> {
+    use std::os::unix::fs::MetadataExt;
+
+    let device = found.dev();
+
+    Ok(Listed(format!("{:02x}:{:02x}:{}", rustix::fs::major(device), rustix::fs::minor(device), found.ino())))
+}
+
+fn held_in(locks: &str, file: &Listed) -> Result<Owned, Never> {
+    let holding = locks.lines().any(|line| {
+        let mut words = line.split_whitespace().skip(1);
+
+        words.next() == Some("FLOCK") && words.nth(3) == Some(file.0.as_str())
+    });
+
+    Ok(match holding {
+        true => Owned::Yes,
+        false => Owned::No,
     })
 }
 
@@ -423,7 +455,7 @@ pub enum Away {
     None,
 }
 
-fn holding() -> Result<std::sync::MutexGuard<'static, Option<Holding>>, Never> {
+fn lock() -> Result<std::sync::MutexGuard<'static, Option<Holding>>, Never> {
     Ok(match HELD.lock() {
         Ok(held) => held,
 
@@ -456,7 +488,7 @@ pub fn alone_as(app: &str, asked: &[String]) -> Result<Alone, Never> {
 
     match alone {
         Alone::Yes => {
-            let Ok(()) = drawn();
+            let Ok(()) = mark_drawn();
         },
         Alone::No => {},
     }
@@ -474,7 +506,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
     )]
     let _asking = Stopwatch(Instant::now());
     let Ok(name) = door(name);
-    let Ok(mut held) = holding();
+    let Ok(mut held) = lock();
 
     match held.is_some() {
         true => return Ok(Alone::Yes),
@@ -528,7 +560,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
 
                     match meanwhile {
                         Meanwhile::Rendered => return Ok(Alone::No),
-                        Meanwhile::Free => return kept(&mut held, handle, name),
+                        Meanwhile::Free => return take_ownership(&mut held, handle, name),
                         Meanwhile::Stuck => {}
                     }
                 }
@@ -563,7 +595,7 @@ fn choosing(name: &str, again: Again, handover: Handover, path: &Path) -> Result
         false => {},
     }
 
-    kept(&mut held, handle, name)
+    take_ownership(&mut held, handle, name)
 }
 
 fn freed_from(handle: &File, pid: i32, name: &str) -> Result<Outcome, Never> {
@@ -591,7 +623,7 @@ fn freed_from(handle: &File, pid: i32, name: &str) -> Result<Outcome, Never> {
 }
 
 pub fn taken_over() -> Result<(), Never> {
-    let Ok(mut held) = holding();
+    let Ok(mut held) = lock();
 
     let holding = match held.as_mut() {
         Some(holding) => holding,
@@ -626,17 +658,17 @@ fn given_up(handle: &File, patience: Duration) -> Result<Outcome, Never> {
     })
 }
 
-fn kept(held: &mut Option<Holding>, mut handle: File, name: &str) -> Result<Alone, Never> {
-    let Ok(()) = written(&mut handle, "");
+fn take_ownership(held: &mut Option<Holding>, mut handle: File, name: &str) -> Result<Alone, Never> {
+    let Ok(()) = write_owner(&mut handle, "");
 
     *held = Some(Holding { handle, name: name.to_string(), lock: Lock::Acquired });
 
     Ok(Alone::Yes)
 }
 
-pub fn drawn() -> Result<(), Never> {
+pub fn mark_drawn() -> Result<(), Never> {
     let Ok(()) = taken_over();
-    let Ok(mut held) = holding();
+    let Ok(mut held) = lock();
 
     let holding = match held.as_mut() {
         Some(holding) => holding,
@@ -647,7 +679,7 @@ pub fn drawn() -> Result<(), Never> {
 
     match holding.lock {
         Lock::Acquired => {
-            let Ok(()) = written(&mut holding.handle, &name);
+            let Ok(()) = write_owner(&mut holding.handle, &name);
         }
         Lock::AfterDrawing(_still_the_one_before) => {},
     }
@@ -656,7 +688,7 @@ pub fn drawn() -> Result<(), Never> {
 }
 
 pub fn gone() -> Result<(), Never> {
-    let Ok(mut held) = holding();
+    let Ok(mut held) = lock();
 
     let holding = match held.as_mut() {
         Some(holding) => holding,
@@ -665,7 +697,7 @@ pub fn gone() -> Result<(), Never> {
 
     match holding.lock {
         Lock::Acquired => {
-            let Ok(()) = written(&mut holding.handle, "");
+            let Ok(()) = write_owner(&mut holding.handle, "");
         }
         Lock::AfterDrawing(_still_the_one_before) => {},
     }
@@ -676,6 +708,8 @@ pub fn gone() -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    type Failure = Box<dyn std::error::Error>;
 
     #[test]
     fn the_lock_lives_under_the_sessions_own_runtime() {
@@ -718,22 +752,26 @@ mod tests {
     }
 
     #[test]
-    fn the_paddle_puts_away_the_app_that_came_up_last_and_nothing_left_behind() {
-        let folder = std::env::temp_dir().join(format!("console-apps-on-top-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).expect("a runtime folder");
+    fn the_paddle_puts_away_the_app_that_came_up_last_and_nothing_left_behind() -> Result<(), Failure> {
+        let folder = console_core_temporary_directories::fresh("apps-on-top")?;
         let picker = folder.join("picker-wayland-1.lock");
-        let lock = |name: &str, seconds: u64| {
+        let lock = |name: &str, seconds: u64| -> Result<(PathBuf, File), Failure> {
             let at = folder.join(name);
-            let file = File::create(&at).expect("a lock");
-            file.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds)).expect("a time");
 
-            (at, file)
+            console_core_atomic_writes::whole(&at, b"")?;
+
+            let file = File::open(&at)?;
+            let modified = std::time::UNIX_EPOCH.checked_add(Duration::from_secs(seconds)).ok_or("a time past the end of time")?;
+
+            file.set_modified(modified)?;
+
+            Ok((at, file))
         };
 
-        let (files, files_held) = lock("app-files-wayland-1.lock", 100);
-        let (viewer, viewer_held) = lock("app-viewer-wayland-1.lock", 200);
-        let (_music, _music_let_go) = lock("app-music-wayland-1.lock", 300);
-        let (_other, other_held) = lock("app-files-wayland-7.lock", 400);
+        let (files, files_held) = lock("app-files-wayland-1.lock", 100)?;
+        let (viewer, viewer_held) = lock("app-viewer-wayland-1.lock", 200)?;
+        let (_music, _music_let_go) = lock("app-music-wayland-1.lock", 300)?;
+        let (_other, other_held) = lock("app-files-wayland-7.lock", 400)?;
 
         for held in [&files_held, &viewer_held, &other_held] {
             assert_eq!(take(held), Ok(Took::It));
@@ -741,15 +779,17 @@ mod tests {
 
         assert_eq!(app_on_top(&picker), Ok(Some(viewer)), "the music's lock is free, and wayland-7 is another screen");
 
-        viewer_held.unlock().expect("the viewer let go");
+        viewer_held.unlock()?;
 
         assert_eq!(app_on_top(&picker), Ok(Some(files)), "the viewer is gone and the files are still up under it");
 
-        files_held.unlock().expect("the files let go");
+        files_held.unlock()?;
 
         assert_eq!(app_on_top(&picker), Ok(None), "an app that has gone left a lock nobody holds");
 
-        std::fs::remove_dir_all(&folder).expect("the made-up runtime taken away");
+        std::fs::remove_dir_all(&folder)?;
+
+        Ok(())
     }
 
     #[test]
@@ -764,5 +804,63 @@ mod tests {
     fn a_file_saying_nothing_names_no_one() {
         assert_eq!(holder(""), Ok((0, "")));
         assert_eq!(holder("what"), Ok((0, "")));
+    }
+
+    #[test]
+    fn a_lock_is_held_when_the_kernel_lists_it_and_not_when_something_waits_for_it() {
+        let locks = "1: POSIX  ADVISORY  WRITE 1718 00:1d:668255 1073741826 1073742335\n\
+                     2: FLOCK  ADVISORY  WRITE 79969 00:1d:3909599 0 EOF\n\
+                     2: -> FLOCK  ADVISORY  WRITE 80001 00:1d:3909600 0 EOF\n";
+
+        assert_eq!(held_in(locks, &Listed("00:1d:3909599".to_string())), Ok(Owned::Yes));
+        assert_eq!(held_in(locks, &Listed("00:1d:3909600".to_string())), Ok(Owned::No), "a process waiting for a lock does not hold it");
+        assert_eq!(held_in(locks, &Listed("00:1d:668255".to_string())), Ok(Owned::No), "a record lock is not the flock an app takes");
+    }
+
+    #[test]
+    fn asking_whether_a_lock_is_held_takes_nothing_while_other_threads_start_programs() -> Result<(), Failure> {
+        let folder = console_core_temporary_directories::fresh("apps-while-forking")?;
+        let at = folder.join("app-files-wayland-1.lock");
+
+        console_core_atomic_writes::whole(&at, b"")?;
+
+        let misread = std::thread::scope(|scope| -> Result<Vec<u32>, Failure> {
+            #[cfg_attr(
+                dylint_lib = "explicit029_no_asking_per_item",
+                allow(
+                    explicit029_no_asking_per_item,
+                    reason = "the forks are what is being tested: each one copies the probe's open file into a child, and one program would be one fork"
+                )
+            )]
+            let starting = scope.spawn(|| -> Result<(), Never> {
+                for _ in 0..200 {
+                    let Ok(mut starting) = console_core_external_programs::Program::True.command();
+
+                    match starting.status() {
+                        Ok(_either_way) => {},
+                        Err(fault) => eprintln!("true: {fault}"),
+                    }
+                }
+
+                Ok(())
+            });
+            let misread: Vec<u32> = (0..5_000_u32)
+                .filter(|_| {
+                    let Ok(holding) = someone_holds(&at);
+
+                    holding == Owned::Yes
+                })
+                .take(10)
+                .collect();
+            let Ok(()) = starting.join().map_err(|_| "the thread starting programs did not come back")?;
+
+            Ok(misread)
+        })?;
+
+        assert_eq!(misread, Vec::<u32>::new(), "a lock nobody holds read as held while a fork carried the probe's copy");
+
+        std::fs::remove_dir_all(&folder)?;
+
+        Ok(())
     }
 }

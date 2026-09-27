@@ -38,7 +38,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use clippy_utils::higher::ForLoop;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT031: `for at in 0..held.len()` walks a list by counting to its
@@ -49,10 +49,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT031_NO_WALKING_BY_COUNT,
     Deny,
     "a list walked by counting to its length; walk it with `iter()`"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // A range whose far end is someone's length. Both spellings, since `..=` is
@@ -83,10 +79,6 @@ fn ends_at_a_length<'tcx>(walked: &'tcx Expr<'tcx>) -> Option<&'tcx Expr<'tcx>> 
 
 impl<'tcx> LateLintPass<'tcx> for Explicit031NoWalkingByCount {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         // A `for` loop is a `match` over `IntoIterator::into_iter` by the time
         // it reaches here, and this is what reads it back as the loop it was
         // written as.

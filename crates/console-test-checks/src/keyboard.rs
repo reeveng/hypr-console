@@ -210,18 +210,23 @@ fn in_a_page(stage: &mut Device) -> CheckResult {
         }
     };
 
+    let Ok(asked) = type_into_page(stage);
+    let Ok(_) = stage.close_window(&ours);
+    let Ok(_) = stage.user(&format!("rm -f {at}"));
+
+    asked
+}
+
+fn type_into_page(stage: &mut Device) -> Result<CheckResult, Never> {
     let Ok(page) = stage.until(|stage| titled(stage, "keyboard-check"), OPENS);
 
     match page {
         Outcome::Happened => {},
         Outcome::RanOut => {
-            let Ok(_) = stage.close_window(&ours);
-            let Ok(_) = stage.user(&format!("rm -f {at}"));
-
-            return failed(
+            return Ok(failed(
                 "the browser came up on something other than the page this check wrote"
                     .to_string(),
-            );
+            ));
         }
     }
 
@@ -238,21 +243,27 @@ fn in_a_page(stage: &mut Device) -> CheckResult {
     let Ok(()) = stage.press("x");
     let Ok(over) = stage.until(Device::keyboard, ARRIVES);
 
-    happened(over, || {
-        "X did not raise the keyboard over the browser, though it does over everything else.          The browser is a layer surface away from the pad, not a profile away from it."
-            .to_string()
-    })?;
+    match over {
+        Outcome::Happened => {},
+        Outcome::RanOut => {
+            return Ok(failed(
+                "X did not raise the keyboard over the browser, though it does over everything \
+                 else. The browser is a layer surface away from the pad, not a profile away from it."
+                    .to_string(),
+            ));
+        }
+    }
 
     let Ok(_) = stage.types(TYPED);
     let Ok(arrived) = stage.until(|stage| titled(stage, &format!("GOT[{TYPED}]")), ARRIVES);
     let Ok(()) = stage.press("x");
     let Ok(_) = stage.until(away, ARRIVES);
-    let Ok(_) = stage.close_window(&ours);
-    let Ok(_) = stage.user(&format!("rm -f {at}"));
 
-    happened(arrived, || {
+    Ok(happened(arrived, || {
         format!(
-            "the keyboard came up over the browser and {TYPED:?} did not reach the field. The              keys go to whoever holds the focus, so either the page never had it or the browser              is not taking a virtual keyboard -- MOZ_ENABLE_WAYLAND is what decides the second."
+            "the keyboard came up over the browser and {TYPED:?} did not reach the field. The \
+             keys go to whoever holds the focus, so either the page never had it or the browser \
+             is not taking a virtual keyboard -- MOZ_ENABLE_WAYLAND is what decides the second."
         )
-    })
+    }))
 }

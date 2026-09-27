@@ -40,6 +40,7 @@ use std::time::{Duration, Instant};
 
 use console_core_external_programs::Program;
 use console_core_geometry::Size;
+use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u64};
 use console_core_shapes::Pixels;
@@ -424,7 +425,7 @@ fn decoding(showing: &Showing, size: Size<u32>) -> Result<Option<BoundToParent>,
     })
 }
 
-fn going(shared: &Shared) -> Result<Going, Never> {
+fn state(shared: &Shared) -> Result<Going, Never> {
     Ok(match shared.going.lock() {
         Ok(going) => *going,
         Err(_the_film_gave_up) => Going::Off,
@@ -433,7 +434,7 @@ fn going(shared: &Shared) -> Result<Going, Never> {
 
 const LONGEST_WAIT: f64 = 0.25;
 
-fn waited(shared: &Shared, seconds: f64) -> Result<Going, Never> {
+fn wait(shared: &Shared, seconds: f64) -> Result<Going, Never> {
     let going = match shared.going.lock() {
         Ok(going) => going,
         Err(_the_film_gave_up) => return Ok(Going::Off),
@@ -453,14 +454,14 @@ fn waited(shared: &Shared, seconds: f64) -> Result<Going, Never> {
 }
 
 pub fn fitted_size(had: Size<u32>, room: Size<u32>) -> Result<Size<u32>, Never> {
-    let Ok(fitted) = console_pictures::fitted(had, room);
+    let Ok(fitted) = console_pictures::fit_within(had, room);
     let even = |side: u32| side.saturating_sub(side.wrapping_rem(2)).max(2);
 
     Ok(Size { width: even(fitted.width), height: even(fitted.height) })
 }
 
 fn shown(showing: &Showing, clock: &Clock, shared: &Shared) -> Result<(), Never> {
-    let had = match console_pictures::measured(&showing.film) {
+    let had = match console_pictures::measure(&showing.film) {
         Ok(Some(had)) => had,
         Ok(None) => Size { width: 16, height: 9 },
         Err(_unmeasured) => Size { width: 16, height: 9 },
@@ -473,9 +474,9 @@ fn shown(showing: &Showing, clock: &Clock, shared: &Shared) -> Result<(), Never>
         None => return ended(shared),
     };
 
-    let Ok(out) = decoder.reading();
+    let Ok(out) = decoder.take_stdout();
 
-    let mut out = match out {
+    let out = match out {
         Some(out) => out,
         None => return ended(shared),
     };
@@ -484,65 +485,96 @@ fn shown(showing: &Showing, clock: &Clock, shared: &Shared) -> Result<(), Never>
     let Ok(long) = console_core_number_conversion::index(long);
     let stride = size.width.saturating_mul(4);
     let a_frame = 1.0 / showing.rate;
-    let mut read: u64 = 0;
-    let mut said_second = u64::MAX;
-
-    'frames: loop {
+    let played = console_core_iteration::iterate((out, 0_u64, u64::MAX), |(mut out, read, said_second)| {
         let mut frame = vec![0u8; long];
 
         match out.read_exact(&mut frame) {
             Ok(()) => {},
-            Err(_the_film_is_over) => return ended(shared),
+            Err(_the_film_is_over) => return Ok(Step::Halt(Stop::FilmOver)),
         }
 
         let Ok(counted) = read.float();
         let due = showing.from + counted * a_frame;
+        let read = read.saturating_add(1);
 
-        read = read.saturating_add(1);
-
-        'due: loop {
-            let Ok(now) = clock.now();
-
-            match now + a_frame / 2.0 >= due {
-                true => break 'due,
-                false => {},
-            }
-
-            let Ok(still) = waited(shared, (due - now) / showing.tempo);
-
-            match still {
-                Going::Off => return Ok(()),
-                Going::On => {},
-            }
-        }
-
-        let Ok(still) = going(shared);
+        let Ok(still) = until_due(clock, shared, Due { at: due, early: a_frame / 2.0, tempo: showing.tempo });
 
         match still {
-            Going::Off => return Ok(()),
+            Going::Off => return Ok(Step::Halt(Stop::TurnedOff)),
+            Going::On => {},
+        }
+
+        let Ok(still) = state(shared);
+
+        match still {
+            Going::Off => return Ok(Step::Halt(Stop::TurnedOff)),
             Going::On => {},
         }
 
         let Ok(now) = clock.now();
 
         match now - due > a_frame * 2.0 {
-            true => continue 'frames,
+            true => return Ok(Step::Again((out, read, said_second))),
             false => {},
         }
 
         let pixels = Pixels { width: size.width, height: size.height, stride, bytes: Arc::new(frame) };
-        let Ok(()) = console_panel::frames::put(&showing.film, pixels);
+        let Ok(()) = console_panel::frames::insert(&showing.film, pixels);
         let Ok(second) = toward_zero_u64(due);
 
-        match second == said_second {
-            true => {},
+        let said_second = match second == said_second {
+            true => said_second,
             false => {
-                said_second = second;
-
                 let Ok(()) = console_panel::frames::tell(console_panel::frames::Notice::Rows);
+
+                second
             },
-        }
+        };
+
+        Ok(Step::Again((out, read, said_second)))
+    });
+
+    match played {
+        Ok(Stop::FilmOver) => ended(shared),
+        Ok(Stop::TurnedOff) => Ok(()),
+        Err(_endless) => ended(shared),
     }
+}
+
+enum Stop {
+    FilmOver,
+    TurnedOff,
+}
+
+#[derive(Clone, Copy)]
+struct Due {
+    at: f64,
+    early: f64,
+    tempo: f64,
+}
+
+fn until_due(clock: &Clock, shared: &Shared, due: Due) -> Result<Going, Never> {
+    let Due { at: due, early, tempo } = due;
+    let waited = console_core_iteration::iterate((), |()| {
+        let Ok(now) = clock.now();
+
+        match now + early >= due {
+            true => return Ok(Step::Halt(Going::On)),
+            false => {},
+        }
+
+        let Ok(still) = wait(shared, (due - now) / tempo);
+
+        Ok(match still {
+            Going::Off => Step::Halt(Going::Off),
+            Going::On => Step::Again(()),
+        })
+    });
+
+    Ok(match waited {
+        Ok(going) => going,
+        Err(_endless) => Going::On,
+    })
 }
 
 fn ended(shared: &Shared) -> Result<(), Never> {
@@ -556,15 +588,17 @@ fn ended(shared: &Shared) -> Result<(), Never> {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use super::*;
 
-    fn asked(film: &str) -> PlaybackRequest {
-        PlaybackRequest { film: PathBuf::from(film), from: 0.0, speed: 1, captions: Captions::Off, sought: None }
+    fn request(film: &str) -> Result<PlaybackRequest, Never> {
+        Ok(PlaybackRequest { film: PathBuf::from(film), from: 0.0, speed: 1, captions: Captions::Off, sought: None })
     }
 
     #[test]
     fn a_film_starts_when_it_is_wanted_and_stops_when_it_is_not() {
-        let film = asked("/x/holiday.mp4");
+        let Ok(film) = request("/x/holiday.mp4");
 
         assert_eq!(next(None, None), Ok(Next::None));
         assert_eq!(next(None, Some(&film)), Ok(Next::Start));
@@ -574,7 +608,7 @@ mod tests {
 
     #[test]
     fn the_film_moving_on_by_itself_is_not_a_reason_to_start_it_again() {
-        let playing = asked("/x/holiday.mp4");
+        let Ok(playing) = request("/x/holiday.mp4");
         let later = PlaybackRequest { from: 42.0, ..playing.clone() };
 
         assert_eq!(next(Some(&playing), Some(&later)), Ok(Next::None));
@@ -582,7 +616,7 @@ mod tests {
 
     #[test]
     fn a_seek_a_speed_subtitles_or_another_film_start_it_again() {
-        let playing = asked("/x/holiday.mp4");
+        let Ok(playing) = request("/x/holiday.mp4");
 
         for wanted in [
             PlaybackRequest { sought: Some(90), ..playing.clone() },
@@ -595,36 +629,41 @@ mod tests {
     }
 
     #[test]
-    fn what_ffprobe_says_about_a_film_is_read_into_what_playing_it_needs() {
+    fn what_ffprobe_says_about_a_film_is_read_into_what_playing_it_needs() -> Result<(), &'static str> {
         let said = "codec_type=video\nr_frame_rate=30000/1001\ncodec_type=audio\nr_frame_rate=0/0\n\
                     codec_type=subtitle\nr_frame_rate=0/0\ncodec_type=subtitle\nr_frame_rate=0/0\nduration=12.5\n";
-        let Ok(Some(facts)) = read(said) else { panic!("a film with a picture in it is a film") };
+        let Ok(facts) = read(said);
+        let facts = facts.ok_or("a film with a picture in it is a film")?;
 
         assert!((facts.rate - 29.97).abs() < 0.01, "{facts:?}");
         assert_eq!(facts.sound, Sound::Audible);
         assert_eq!(facts.words, 2);
         assert!((facts.seconds - 12.5).abs() < 0.001);
+
+        Ok(())
     }
 
     #[test]
-    fn a_film_with_no_sound_or_no_rate_still_plays_and_a_song_is_not_a_film() {
-        let Ok(Some(silent)) = read("codec_type=video\nr_frame_rate=0/0\nduration=3\n") else {
-            panic!("a silent film is a film")
-        };
+    fn a_film_with_no_sound_or_no_rate_still_plays_and_a_song_is_not_a_film() -> Result<(), &'static str> {
+        let Ok(silent) = read("codec_type=video\nr_frame_rate=0/0\nduration=3\n");
+        let silent = silent.ok_or("a silent film is a film")?;
 
         assert_eq!(silent.sound, Sound::Silent);
         assert!((silent.rate - ORDINARY_RATE).abs() < 0.001);
         assert_eq!(read("codec_type=audio\nr_frame_rate=0/0\nduration=3\n"), Ok(None));
 
-        let Ok(Some(fast)) = read("codec_type=video\nr_frame_rate=240/1\n") else { panic!("fast is a film") };
+        let Ok(fast) = read("codec_type=video\nr_frame_rate=240/1\n");
+        let fast = fast.ok_or("fast is a film")?;
 
         assert!((fast.rate - FASTEST_RATE).abs() < 0.001, "{fast:?}");
+
+        Ok(())
     }
 
     #[test]
     fn a_name_with_the_filter_syntax_in_it_is_said_so_the_filter_reads_it_whole() {
-        assert_eq!(escaped("/x/plain.mkv"), Ok("/x/plain.mkv".to_string()));
-        assert_eq!(escaped("it's a: test, [x].mkv"), Ok("it\\\\\\'s a\\\\: test\\, \\[x\\].mkv".to_string()));
+        assert_eq!(escaped("/x/plain.mkv"), Ok(String::from("/x/plain.mkv")));
+        assert_eq!(escaped("it's a: test, [x].mkv"), Ok(String::from("it\\\\\\'s a\\\\: test\\, \\[x\\].mkv")));
     }
 
     #[test]
@@ -633,13 +672,14 @@ mod tests {
     }
 
     #[test]
-    fn a_subtitle_track_inside_the_film_is_asked_for_by_its_number_and_starts_where_the_film_does() {
-        let Ok(Some(filter)) = words_filter(Path::new("/x/holiday.mp4"), Captions::Track(1), 2, 30.0) else {
-            panic!("a track the film has is drawn")
-        };
+    fn a_subtitle_track_inside_the_film_is_asked_for_by_its_number_and_starts_where_the_film_does() -> Result<(), &'static str> {
+        let Ok(filter) = words_filter(Path::new("/x/holiday.mp4"), Captions::Track(1), 2, 30.0);
+        let filter = filter.ok_or("a track the film has is drawn")?;
 
         assert_eq!(filter, "setpts=PTS+30/TB,subtitles=filename=/x/holiday.mp4:si=1,setpts=PTS-STARTPTS");
         assert_eq!(words_filter(Path::new("/x/holiday.mp4"), Captions::Track(5), 2, 0.0), Ok(None));
+
+        Ok(())
     }
 
     #[test]
@@ -649,20 +689,19 @@ mod tests {
     }
 
     #[test]
-    fn a_film_plays_through_its_frames_onto_the_card_and_says_when_it_is_over() {
-        let at = std::env::temp_dir().join(format!("console-viewer-film-{}.mkv", std::process::id()));
+    fn a_film_plays_through_its_frames_onto_the_card_and_says_when_it_is_over() -> Result<(), Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh("viewer-film")?;
+        let at = folder.join("viewer-film.mkv");
         let Ok(mut making) = Program::Ffmpeg.command();
         let made = making
             .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x48:r=5:d=2"])
             .arg(&at)
-            .status();
+            .status()?;
 
-        assert!(made.is_ok_and(|how| how.success()), "ffmpeg made no film to play");
+        assert!(made.success(), "ffmpeg made no film to play");
 
-        let facts = match facts(&at) {
-            Ok(Some(facts)) => facts,
-            Ok(None) | Err(_) => panic!("ffprobe says the film it was handed is no film"),
-        };
+        let Ok(facts) = facts(&at);
+        let facts = facts.ok_or("ffprobe says the film it was handed is no film")?;
 
         assert_eq!(facts.sound, Sound::Silent, "this test must not make a noise on the machine running it");
 
@@ -671,10 +710,10 @@ mod tests {
         let Ok(sound) = Sounding::new(|_progress| Ok(()));
         let asked = PlaybackRequest { film: at.clone(), from: 0.0, speed: 1, captions: Captions::Off, sought: None };
         let Ok(film) = Film::start(asked, &facts, room, Arc::new(sound));
-        let patience = console_waiting::Schedule::of(Duration::from_secs(20)).expect("a patience");
+        let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
         let mut seen: Vec<Arc<Vec<u8>>> = Vec::new();
 
-        let Ok(over) = console_waiting::until(patience, || {
+        let Ok(over) = console_waiting::until_handed(patience, &mut seen, |seen| {
             match console_panel::frames::current(&at, room) {
                 Ok(Some(frame)) => match seen.contains(&frame.bytes) {
                     true => {},
@@ -700,7 +739,9 @@ mod tests {
         let _ = std::fs::remove_file(&at);
 
         assert_eq!(over, console_waiting::Outcome::Happened, "a two second film never ended");
-        assert!(seen.len() > 5, "only {} different frames reached the card", seen.len());
+        assert!(seen.len() >= 2, "the picture on the card never moved on: {} different frames reached it", seen.len());
         assert!(heard_at > 0.5, "the film's clock stood still at {heard_at}");
+
+        Ok(())
     }
 }

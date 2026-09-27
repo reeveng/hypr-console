@@ -7,7 +7,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
@@ -18,10 +18,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT006_OPTION_NOT_ERROR,
     Deny,
     "`Result::ok()` throws away why it failed; `Option` is for absence, not for errors"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // `Result`, whatever it is called at the point of use. Asking the type rather
@@ -37,9 +33,6 @@ fn is_result(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit006OptionNotError {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         let ExprKind::MethodCall(path, receiver, _, _) = expr.kind else {
             return;
         };

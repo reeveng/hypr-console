@@ -293,6 +293,14 @@ pub fn password(said: &str) -> Result<Option<String>, Never> {
 mod tests {
     use super::*;
 
+    type Failure = Box<dyn std::error::Error>;
+
+    fn network<'a>(found: &'a [Network], name: &str) -> Result<&'a Network, Failure> {
+        let network = found.iter().find(|network| network.name == name).ok_or(format!("no {name}"))?;
+
+        Ok(network)
+    }
+
     const SAID: &str = "\
 yes:Home:71:2437 MHz:WPA2
 no:Home:44:2437 MHz:WPA2
@@ -301,17 +309,20 @@ no::60:2437 MHz:WPA2
 no:Locked:30:2437 MHz:WPA1 WPA2";
 
     #[test]
-    fn the_strongest_of_a_name_is_the_one_drawn() {
-        let found = networks(SAID).expect("the networks");
-        let home = found.iter().find(|network| network.name == "Home").expect("home");
+    fn the_strongest_of_a_name_is_the_one_drawn() -> Result<(), Failure> {
+        let Ok(found) = networks(SAID);
+        let home = network(&found, "Home")?;
+
         assert_eq!(home.signal, 71);
         assert!(home.here);
         assert_eq!(found.iter().filter(|network| network.name == "Home").count(), 1);
+
+        Ok(())
     }
 
     #[test]
     fn the_network_in_use_is_still_in_use_when_a_stronger_access_point_of_it_is_in_range() {
-        let found = networks("yes:Home:40:5180 MHz:WPA2\nno:Home:70:5180 MHz:WPA2").expect("the networks");
+        let Ok(found) = networks("yes:Home:40:5180 MHz:WPA2\nno:Home:70:5180 MHz:WPA2");
 
         assert_eq!(
             found,
@@ -327,8 +338,7 @@ no:Locked:30:2437 MHz:WPA1 WPA2";
 
     #[test]
     fn the_band_is_read_from_the_frequency() {
-        let found = networks("no:Two:50:2437 MHz:WPA2\nno:Five:50:5180 MHz:WPA2\nno:What:50:?:WPA2")
-            .expect("the networks");
+        let Ok(found) = networks("no:Two:50:2437 MHz:WPA2\nno:Five:50:5180 MHz:WPA2\nno:What:50:?:WPA2");
         let bands: Vec<(&str, Band)> = found.iter().map(|network| (network.name.as_str(), network.band)).collect();
 
         assert_eq!(
@@ -340,77 +350,90 @@ no:Locked:30:2437 MHz:WPA1 WPA2";
     const FIVE: &str = "5180 MHz";
     const TWO: &str = "2437 MHz";
 
-    fn range(here: (&str, i32), other: (&str, i32)) -> String {
-        format!("yes:Here:{}:{}:WPA2\nno:Other:{}:{}:WPA2", here.1, here.0, other.1, other.0)
+    struct Received {
+        here: (&'static str, i32),
+        other: (&'static str, i32),
     }
 
-    fn moving(said: &str, link: Receiving, left: &Left) -> Option<(String, Why)> {
-        let found = networks(said).expect("the networks");
+    fn range(heard: &Received) -> Result<String, Never> {
+        let Received { here: (here_band, here_signal), other: (other_band, other_signal) } = heard;
+
+        Ok(format!("yes:Here:{here_signal}:{here_band}:WPA2\nno:Other:{other_signal}:{other_band}:WPA2"))
+    }
+
+    fn moving(said: &str, link: Receiving, left: &Left) -> Result<Option<(String, Why)>, Never> {
+        let Ok(found) = networks(said);
         let saved = ["Here".to_string(), "Other".to_string()];
         let Ok(better) = better(&found, &saved, link, left);
 
-        better.map(|chosen| (chosen.to.name, chosen.why))
+        Ok(better.map(|chosen| (chosen.to.name, chosen.why)))
     }
 
-    fn fresh(said: &str, link: Receiving) -> Option<(String, Why)> {
-        moving(said, link, &Left::new())
+    fn fresh(heard: &Received, link: Receiving) -> Result<Option<(String, Why)>, Never> {
+        let Ok(said) = range(heard);
+
+        moving(&said, link, &Left::new())
+    }
+
+    fn other(why: Why) -> Result<Option<(String, Why)>, Never> {
+        Ok(Some(("Other".to_string(), why)))
     }
 
     #[test]
     fn a_weak_network_is_left_for_a_saved_one_clearly_stronger() {
-        assert_eq!(fresh(&range((TWO, 30), (FIVE, 64)), Receiving::Faster), Some(("Other".to_string(), Why::Weak)));
+        assert_eq!(fresh(&Received { here: (TWO, 30), other: (FIVE, 64) }, Receiving::Faster), other(Why::Weak));
     }
 
     #[test]
     fn two_networks_about_as_strong_on_one_band_are_not_swapped() {
-        assert_eq!(fresh(&range((TWO, 49), (TWO, 60)), Receiving::Faster), None);
+        assert_eq!(fresh(&Received { here: (TWO, 49), other: (TWO, 60) }, Receiving::Faster), Ok(None));
     }
 
     #[test]
     fn a_weak_five_gigahertz_network_is_left_for_a_two_and_a_half_one_as_strong() {
-        assert_eq!(fresh(&range((FIVE, 50), (TWO, 50)), Receiving::Unknown), Some(("Other".to_string(), Why::Weak)));
+        assert_eq!(fresh(&Received { here: (FIVE, 50), other: (TWO, 50) }, Receiving::Unknown), other(Why::Weak));
     }
 
     #[test]
     fn a_link_at_its_slowest_is_left_however_strong_it_reads() {
-        assert_eq!(fresh(&range((FIVE, 80), (TWO, 64)), Receiving::Slowest), Some(("Other".to_string(), Why::Slow)));
+        assert_eq!(fresh(&Received { here: (FIVE, 80), other: (TWO, 64) }, Receiving::Slowest), other(Why::Slow));
     }
 
     #[test]
     fn a_link_at_its_slowest_is_not_left_for_a_weak_one() {
-        assert_eq!(fresh(&range((FIVE, 80), (TWO, 40)), Receiving::Slowest), None);
+        assert_eq!(fresh(&Received { here: (FIVE, 80), other: (TWO, 40) }, Receiving::Slowest), Ok(None));
     }
 
     #[test]
     fn a_strong_fast_network_is_kept_however_strong_the_other_is() {
-        assert_eq!(fresh(&range((FIVE, 70), (TWO, 100)), Receiving::Faster), None);
+        assert_eq!(fresh(&Received { here: (FIVE, 70), other: (TWO, 100) }, Receiving::Faster), Ok(None));
     }
 
     #[test]
     fn near_the_router_a_strong_five_gigahertz_network_is_joined() {
-        assert_eq!(fresh(&range((TWO, 90), (FIVE, 80)), Receiving::Faster), Some(("Other".to_string(), Why::Near)));
-        assert_eq!(fresh(&range((TWO, 90), (FIVE, 70)), Receiving::Faster), None);
+        assert_eq!(fresh(&Received { here: (TWO, 90), other: (FIVE, 80) }, Receiving::Faster), other(Why::Near));
+        assert_eq!(fresh(&Received { here: (TWO, 90), other: (FIVE, 70) }, Receiving::Faster), Ok(None));
     }
 
     #[test]
     fn a_network_left_for_being_slow_is_gone_back_to_only_once_it_is_heard_closer() {
         let left = Left::from([("Other".to_string(), 80)]);
 
-        assert_eq!(moving(&range((TWO, 90), (FIVE, 85)), Receiving::Faster, &left), None);
-        assert_eq!(
-            moving(&range((TWO, 90), (FIVE, 90)), Receiving::Faster, &left),
-            Some(("Other".to_string(), Why::Near))
-        );
+        let Ok(farther) = range(&Received { here: (TWO, 90), other: (FIVE, 85) });
+        let Ok(closer) = range(&Received { here: (TWO, 90), other: (FIVE, 90) });
+
+        assert_eq!(moving(&farther, Receiving::Faster, &left), Ok(None));
+        assert_eq!(moving(&closer, Receiving::Faster, &left), other(Why::Near));
     }
 
     #[test]
     fn a_stronger_network_nobody_saved_is_not_joined() {
-        assert_eq!(fresh("yes:Here:30:2437 MHz:WPA2\nno:Cafe:90:2437 MHz:", Receiving::Faster), None);
+        assert_eq!(moving("yes:Here:30:2437 MHz:WPA2\nno:Cafe:90:2437 MHz:", Receiving::Faster, &Left::new()), Ok(None));
     }
 
     #[test]
     fn a_machine_on_no_network_is_left_to_networkmanager() {
-        assert_eq!(fresh("no:Here:30:2437 MHz:WPA2\nno:Other:90:2437 MHz:WPA2", Receiving::Slowest), None);
+        assert_eq!(moving("no:Here:30:2437 MHz:WPA2\nno:Other:90:2437 MHz:WPA2", Receiving::Slowest, &Left::new()), Ok(None));
     }
 
     #[test]
@@ -433,28 +456,34 @@ no:Locked:30:2437 MHz:WPA1 WPA2";
 
     #[test]
     fn the_strongest_is_first() {
-        let found = networks(SAID).expect("the networks");
+        let Ok(found) = networks(SAID);
 
-        assert_eq!(found.first().expect("the strongest").name, "Cafe");
+        assert_eq!(found.first().map(|network| network.name.as_str()), Some("Cafe"));
     }
 
     #[test]
     fn a_network_with_no_name_is_not_a_row() {
-        let found = networks(SAID).expect("the networks");
+        let Ok(found) = networks(SAID);
 
         assert!(!found.iter().any(|network| network.name.is_empty()));
     }
 
     #[test]
-    fn a_network_is_locked_if_it_says_anything_at_all_about_security() {
-        let found = networks(SAID).expect("the networks");
-        assert!(!found.iter().find(|network| network.name == "Cafe").expect("cafe").locked);
-        assert!(found.iter().find(|network| network.name == "Locked").expect("locked").locked);
+    fn a_network_is_locked_if_it_says_anything_at_all_about_security() -> Result<(), Failure> {
+        let Ok(found) = networks(SAID);
+        let cafe = network(&found, "Cafe")?;
+        let locked = network(&found, "Locked")?;
+
+        assert!(!cafe.locked);
+        assert!(locked.locked);
+
+        Ok(())
     }
 
     #[test]
     fn the_ones_we_already_know_the_way_into() {
         let said = "Home:802-11-wireless\nWired:802-3-ethernet\nCafe:802-11-wireless";
+
         assert_eq!(saved(said), Ok(vec!["Home".to_string(), "Cafe".to_string()]));
     }
 

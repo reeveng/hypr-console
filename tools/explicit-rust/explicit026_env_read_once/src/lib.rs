@@ -49,7 +49,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, QPath};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT026: reading an environment variable is denied outside the
@@ -59,10 +59,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT026_ENV_READ_ONCE,
     Deny,
     "an environment variable read outside the crate that owns what it means"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // The four ways the process asks its environment what it holds. Read off the
@@ -82,10 +78,6 @@ fn asks_the_environment(path: &str) -> Option<&'static str> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit026EnvReadOnce {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

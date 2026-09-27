@@ -177,7 +177,7 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn landed(self, hit: i32) -> Result<f64, Never> {
+    pub fn fraction_at(self, hit: i32) -> Result<f64, Never> {
         Ok(match self.width > 0 {
             true => (f64::from(hit.saturating_sub(self.from)) / f64::from(self.width)).clamp(0.0, 1.0),
             false => 0.0,
@@ -303,7 +303,7 @@ impl ButtonPress {
         })
     }
 
-    pub fn written(
+    pub fn labelled(
         says: &'static str,
         now: Active,
         does: impl Fn(&dyn Showing) + Send + Sync + 'static,
@@ -385,24 +385,24 @@ pub struct Ends<'a> {
 }
 
 impl Row {
-    pub fn said(says: &str, aside: Aside<'_>) -> Result<Self, Never> {
+    pub fn text(says: &str, aside: Aside<'_>) -> Result<Self, Never> {
         Ok(Row { says: says.to_string(), aside: aside.0.to_string(), ..Row::default() })
     }
 
-    pub fn nothing(says: &str) -> Result<Self, Never> {
-        let Ok(said) = Row::said(says, Aside(""));
+    pub fn placeholder(says: &str) -> Result<Self, Never> {
+        let Ok(said) = Row::text(says, Aside(""));
 
         Ok(Row { nothing: true, ..said })
     }
 
     pub fn naming(says: &str, aside: Aside<'_>) -> Result<Self, Never> {
-        let Ok(said) = Row::said(says, aside);
+        let Ok(said) = Row::text(says, aside);
 
         Ok(Row { naming: true, ..said })
     }
 
     pub fn new(says: &str, aside: Aside<'_>, does: Handler) -> Result<Self, Never> {
-        let Ok(said) = Row::said(says, aside);
+        let Ok(said) = Row::text(says, aside);
 
         Ok(Row { does: Some(does), ..said })
     }
@@ -422,7 +422,7 @@ impl Row {
         Ok(self)
     }
 
-    pub fn leveled(mut self, level: Level) -> Result<Self, Never> {
+    pub fn with_level(mut self, level: Level) -> Result<Self, Never> {
         self.level = Some(level);
 
         Ok(self)
@@ -464,7 +464,7 @@ impl Row {
         Ok(self)
     }
 
-    pub fn showing(picture: Picture) -> Result<Self, Never> {
+    pub fn picture(picture: Picture) -> Result<Self, Never> {
         Ok(Row { picture, naming: true, middle: true, ..Row::default() })
     }
 
@@ -473,7 +473,7 @@ impl Row {
     }
 
     pub fn stacked(picture: Picture, says: &str, aside: Aside<'_>) -> Result<Self, Never> {
-        let Ok(said) = Row::said(says, aside);
+        let Ok(said) = Row::text(says, aside);
 
         Ok(Row { picture, naming: true, stacked: true, ..said })
     }
@@ -651,7 +651,7 @@ pub fn under(says: &str) -> Result<String, Never> {
     })
 }
 
-pub fn standing(says: &str) -> Result<u8, Never> {
+pub fn sort_rank(says: &str) -> Result<u8, Never> {
     let Ok(under) = under(says);
 
     Ok(match under.as_str() {
@@ -783,28 +783,23 @@ pub fn ends_of(row: &Row) -> Result<(&str, &str), Never> {
 pub fn walked(rows: &[Row], at: i32, step: Step) -> Result<i32, Never> {
     let Ok(whole_10) = fitted::<_, i32>(rows.len().saturating_sub(1));
     let last = whole_10;
-    let mut going = at;
+    let stepped = |going: &i32| Some(going.saturating_add(step.0));
+    let clear = std::iter::successors(stepped(&at), stepped)
+        .take_while(|going| (0..=last).contains(going))
+        .find(|going| {
+            let Ok(going) = index(*going);
 
-    loop {
-        going = going.saturating_add(step.0);
+            rows.get(going).is_none_or(|row| {
+                let Ok(heading) = row.heading();
 
-        match going < 0 || going > last {
-            true => return Ok(at),
-            false => {},
-        }
-
-        let Ok(whole_11) = index(going);
-        let clear = rows.get(whole_11).is_none_or(|row| {
-            let Ok(heading) = row.heading();
-
-            heading == Heading::No
+                heading == Heading::No
+            })
         });
 
-        match clear {
-            true => return Ok(going),
-            false => {},
-        }
-    }
+    Ok(match clear {
+        Some(going) => going,
+        None => at,
+    })
 }
 
 
@@ -821,7 +816,7 @@ pub enum Rows {
 }
 
 impl Rows {
-    pub fn asked(of: impl Fn() -> Vec<Row> + Send + Sync + 'static) -> Result<Self, Never> {
+    pub fn computed(of: impl Fn() -> Vec<Row> + Send + Sync + 'static) -> Result<Self, Never> {
         Ok(Rows::Computed(Arc::new(of)))
     }
 
@@ -839,7 +834,7 @@ pub struct Watch {
 }
 
 impl Watch {
-    pub fn anything(arguments: &[&str]) -> Result<Self, Never> {
+    pub fn command(arguments: &[&str]) -> Result<Self, Never> {
         Ok(Watch { arguments: arguments.iter().map(|word| (*word).to_string()).collect() })
     }
 }
@@ -1026,13 +1021,13 @@ impl Page {
         Ok(self)
     }
 
-    pub fn watching(mut self, watch: Watch) -> Result<Self, Never> {
+    pub fn with_watch(mut self, watch: Watch) -> Result<Self, Never> {
         self.watch = Some(watch);
 
         Ok(self)
     }
 
-    pub fn listening(
+    pub fn with_subscription(
         mut self,
         topic: console_program_contract::Topic,
         worth: console_events::again::Worthwhile,
@@ -1070,12 +1065,15 @@ pub fn find(pages: &[Page], name: Option<&str>) -> Result<u32, Never> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    type Failure = Box<dyn std::error::Error>;
 
     #[test]
     fn a_heading_stands_over_every_run_of_one_letter_and_only_over_the_first_of_it() {
-        let Ok(apple) = Row::new("Apple.png", Aside(""), Handler::and_stay(|_| {}).expect("does"));
-        let Ok(apricot) = Row::new("apricot.png", Aside(""), Handler::and_stay(|_| {}).expect("does"));
-        let Ok(boat) = Row::new("boat.png", Aside(""), Handler::and_stay(|_| {}).expect("does"));
+        let Ok(apple) = stays("Apple.png");
+        let Ok(apricot) = stays("apricot.png");
+        let Ok(boat) = stays("boat.png");
 
         let Ok(lettered) = lettered(vec![apple, apricot, boat]);
         let says: Vec<&str> = lettered.iter().map(|row| row.says.as_str()).collect();
@@ -1086,7 +1084,7 @@ mod tests {
     #[test]
     fn a_heading_someone_else_wrote_is_left_where_it_is_and_starts_the_letters_again() {
         let Ok(album) = Row::naming("Albums", Aside(""));
-        let Ok(apple) = Row::new("Apple.png", Aside(""), Handler::and_stay(|_| {}).expect("does"));
+        let Ok(apple) = stays("Apple.png");
 
         let Ok(lettered) = lettered(vec![album, apple]);
         let says: Vec<&str> = lettered.iter().map(|row| row.says.as_str()).collect();
@@ -1106,11 +1104,16 @@ mod tests {
 
     #[test]
     fn the_numbers_stand_before_the_letters_and_the_rest_after_them() {
-        assert_eq!(standing("2019.png"), Ok(0));
-        assert_eq!(standing("boat.png"), Ok(1));
-        assert_eq!(standing("_draft.png"), Ok(2));
+        assert_eq!(sort_rank("2019.png"), Ok(0));
+        assert_eq!(sort_rank("boat.png"), Ok(1));
+        assert_eq!(sort_rank("_draft.png"), Ok(2));
     }
-    use super::*;
+
+    fn stays(says: &str) -> Result<Row, Never> {
+        let Ok(does) = Handler::and_stay(|_| {});
+
+        Row::new(says, Aside(""), does)
+    }
 
     #[test]
     fn two_rows_that_do_different_things_and_read_the_same_look_the_same() {
@@ -1122,25 +1125,26 @@ mod tests {
         assert_eq!(one.looks_like(&two), Ok(Same::Yes));
     }
 
-    fn runs(says: &str, aside: &str) -> Row {
+    fn runs(says: &str, aside: Aside<'_>) -> Result<Row, Never> {
         let Ok(does) = Handler::run(&["firefox"]);
-        let Ok(row) = Row::new(says, Aside(aside), does);
 
-        row
+        Row::new(says, aside, does)
     }
 
     #[test]
     fn anything_that_is_drawn_differently_is_a_row_that_must_be_drawn_again() {
-        let row = runs("Firefox", "");
-        let Ok(said) = Row::said("Firefox", Aside(""));
+        let Ok(row) = runs("Firefox", Aside(""));
+        let Ok(chromium) = runs("Chromium", Aside(""));
+        let Ok(now) = runs("Firefox", Aside("now"));
+        let Ok(said) = Row::text("Firefox", Aside(""));
         let Ok(opened) = row.clone().opening();
         let Ok(pictured) = row.clone().picturing(Picture::Space);
         let Ok(naming) = Row::naming("Firefox", Aside(""));
         let Ok(chief) = row.clone().chief();
-        let Ok(nothing) = Row::nothing("Firefox");
+        let Ok(nothing) = Row::placeholder("Firefox");
 
-        assert_eq!(row.looks_like(&runs("Chromium", "")), Ok(Same::No));
-        assert_eq!(row.looks_like(&runs("Firefox", "now")), Ok(Same::No));
+        assert_eq!(row.looks_like(&chromium), Ok(Same::No));
+        assert_eq!(row.looks_like(&now), Ok(Same::No));
         assert_eq!(row.looks_like(&said), Ok(Same::No));
         assert_eq!(row.looks_like(&opened), Ok(Same::No));
         assert_eq!(row.looks_like(&pictured), Ok(Same::No));
@@ -1149,44 +1153,37 @@ mod tests {
         assert_eq!(row.looks_like(&nothing), Ok(Same::No));
     }
 
-    fn leveled(says: &str, aside: &str) -> Row {
-        let Ok(said) = Row::said(says, Aside(aside));
-        let Ok(row) = said.leveled(Arc::new(|_| ()));
+    fn leveled(aside: Aside<'_>) -> Result<Row, Never> {
+        let Ok(said) = Row::text("Volume", aside);
 
-        row
+        said.with_level(Arc::new(|_| ()))
     }
 
     #[test]
     fn a_level_that_says_a_new_reading_is_drawn_again() {
-        let quiet = leveled("Volume", "40%");
-        let loud = leveled("Volume", "60%");
+        let Ok(quiet) = leveled(Aside("40%"));
+        let Ok(loud) = leveled(Aside("60%"));
 
         assert_eq!(quiet.looks_like(&loud), Ok(Same::No));
-        assert_eq!(quiet.looks_like(&quiet.clone()), Ok(Same::Yes));
+        assert_eq!(quiet.looks_like(&quiet), Ok(Same::Yes));
     }
 
-    fn press(icon: Icon, now: Active) -> ButtonPress {
-        let Ok(press) = ButtonPress::new(icon, now, |_| ());
+    fn strip() -> Result<Vec<ButtonPress>, Never> {
+        let Ok(shuffle) = ButtonPress::new(Icon::Shuffle, Active::No, |_| ());
+        let Ok(pause) = ButtonPress::new(Icon::Pause, Active::No, |_| ());
+        let Ok(repeat) = ButtonPress::new(Icon::Repeat, Active::Yes, |_| ());
 
-        press
+        Ok(vec![shuffle, pause, repeat])
     }
 
-    fn strip() -> Vec<ButtonPress> {
-        vec![
-            press(Icon::Shuffle, Active::No),
-            press(Icon::Pause, Active::No),
-            press(Icon::Repeat, Active::Yes),
-        ]
-    }
+    fn standing_on(at: u32) -> Result<Row, Never> {
+        let Ok(presses) = strip();
 
-    fn pressing(presses: Vec<ButtonPress>, at: u32) -> Row {
-        let Ok(row) = Row::pressing(presses, at);
-
-        row
+        Row::pressing(presses, at)
     }
 
     #[test]
-    fn a_strip_of_presses_takes_the_one_being_stood_on() {
+    fn a_strip_of_presses_takes_the_one_being_stood_on() -> Result<(), Failure> {
         let taken = Arc::new(std::sync::atomic::AtomicU32::new(9));
         let presses: Vec<ButtonPress> = (0..3)
             .map(|at| {
@@ -1198,69 +1195,85 @@ mod tests {
                 press
             })
             .collect();
-        let row = pressing(presses, 2);
+        let Ok(row) = Row::pressing(presses, 2);
 
         let act = match row.does {
             Some(Handler::Call(act)) => act,
-            Some(Handler::Run(_)) | None => panic!("a strip with nothing to press"),
+            Some(Handler::Run(_)) | None => return Err(Failure::from("a strip with nothing to press")),
         };
 
         act(&Nowhere);
 
         assert_eq!(taken.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        Ok(())
     }
 
     #[test]
-    fn standing_past_the_end_of_a_strip_stands_on_the_last_press() {
-        let row = pressing(strip(), 40);
+    fn standing_past_the_end_of_a_strip_stands_on_the_last_press() -> Result<(), Failure> {
+        let Ok(row) = standing_on(40);
+        let across = row.buttons.ok_or("a strip")?;
 
-        assert_eq!(row.buttons.expect("a strip").at, 2);
+        assert_eq!(across.at, 2);
+
+        Ok(())
     }
 
     #[test]
     fn a_strip_walked_along_is_drawn_again() {
-        let here = pressing(strip(), 0);
-        let there = pressing(strip(), 1);
+        let Ok(here) = standing_on(0);
+        let Ok(there) = standing_on(1);
+        let Ok(here_again) = standing_on(0);
 
         assert_eq!(here.looks_like(&there), Ok(Same::No));
-        assert_eq!(here.looks_like(&pressing(strip(), 0)), Ok(Same::Yes));
+        assert_eq!(here.looks_like(&here_again), Ok(Same::Yes));
     }
 
     #[test]
-    fn a_press_that_has_come_on_is_drawn_again() {
-        let off = pressing(strip(), 1);
-        let mut lit = strip();
-        lit[0].now = Active::Yes;
+    fn a_press_that_has_come_on_is_drawn_again() -> Result<(), Failure> {
+        let Ok(off) = standing_on(1);
+        let Ok(mut lit) = strip();
+        let first = lit.first_mut().ok_or("a strip with nothing in it")?;
 
-        assert_eq!(off.looks_like(&pressing(lit, 1)), Ok(Same::No));
+        first.now = Active::Yes;
+
+        let Ok(lit) = Row::pressing(lit, 1);
+
+        assert_eq!(off.looks_like(&lit), Ok(Same::No));
+
+        Ok(())
     }
 
-    fn pages() -> Vec<Page> {
-        ["Battery", "Sound", "Wi-Fi"]
+    fn pages() -> Result<Vec<Page>, Never> {
+        Ok(["Battery", "Sound", "Wi-Fi"]
             .map(|title| {
                 let Ok(page) = Page::new(title, Rows::Fixed(Vec::new()));
 
                 page
             })
-            .to_vec()
+            .to_vec())
     }
 
     #[test]
     fn a_tab_is_found_by_the_word_on_it_however_it_is_written() {
-        assert_eq!(find(&pages(), Some("sound")), Ok(1));
-        assert_eq!(find(&pages(), Some("  Wi-Fi ")), Ok(2));
+        let Ok(pages) = pages();
+
+        assert_eq!(find(&pages, Some("sound")), Ok(1));
+        assert_eq!(find(&pages, Some("  Wi-Fi ")), Ok(2));
     }
 
     #[test]
     fn a_name_nothing_answers_to_opens_the_first_tab() {
-        assert_eq!(find(&pages(), Some("Telepathy")), Ok(0));
-        assert_eq!(find(&pages(), None), Ok(0));
+        let Ok(pages) = pages();
+
+        assert_eq!(find(&pages, Some("Telepathy")), Ok(0));
+        assert_eq!(find(&pages, None), Ok(0));
     }
 
     #[test]
     fn a_row_that_says_now_is_the_one_in_effect() {
-        let Ok(marked) = Row::said("Balanced", Aside(NOW));
-        let Ok(plain) = Row::said("Balanced", Aside(""));
+        let Ok(marked) = Row::text("Balanced", Aside(NOW));
+        let Ok(plain) = Row::text("Balanced", Aside(""));
 
         assert_eq!(marked.now(), Ok(Active::Yes));
         assert_eq!(plain.now(), Ok(Active::No));
@@ -1268,8 +1281,8 @@ mod tests {
 
     #[test]
     fn rows_are_asked_for_at_the_moment_they_are_drawn() {
-        let Ok(rows) = Rows::asked(|| {
-            let Ok(row) = Row::said("Speakers", Aside("half"));
+        let Ok(rows) = Rows::computed(|| {
+            let Ok(row) = Row::text("Speakers", Aside("half"));
 
             vec![row]
         });

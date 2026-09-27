@@ -44,6 +44,7 @@
 
 use std::fmt;
 
+use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
@@ -193,22 +194,38 @@ impl Value {
         Ok(Value::Word(text.to_string()))
     }
 
-    pub fn held(shape: &str, value: Value) -> Result<Value, Never> {
+    pub fn variant(shape: &str, value: Value) -> Result<Value, Never> {
         Ok(Value::Variant { shape: shape.to_string(), value: Box::new(value) })
     }
 
-    fn unheld(&self) -> Result<&Value, Never> {
-        let mut here = self;
+    fn inner(&self) -> Result<&Value, Never> {
+        let innermost = std::iter::successors(Some(self), |here| match here {
+            Value::Variant { value, .. } => Some(value.as_ref()),
+            Value::Word(_)
+            | Value::Path(_)
+            | Value::Shape(_)
+            | Value::Byte(_)
+            | Value::Truth(_)
+            | Value::Signed16(_)
+            | Value::Unsigned16(_)
+            | Value::Signed32(_)
+            | Value::Unsigned32(_)
+            | Value::Signed64(_)
+            | Value::Unsigned64(_)
+            | Value::Fraction(_)
+            | Value::List(_)
+            | Value::Group(_) => None,
+        })
+        .last();
 
-        while let Value::Variant { value, .. } = here {
-            here = value;
-        }
-
-        Ok(here)
+        Ok(match innermost {
+            Some(innermost) => innermost,
+            None => self,
+        })
     }
 
     pub fn text(&self) -> Result<Option<&str>, Never> {
-        let Ok(here) = self.unheld();
+        let Ok(here) = self.inner();
 
         Ok(match here {
             Value::Word(text) | Value::Path(text) | Value::Shape(text) => Some(text),
@@ -228,7 +245,7 @@ impl Value {
     }
 
     pub fn listed(&self) -> Result<Option<&[Value]>, Never> {
-        let Ok(here) = self.unheld();
+        let Ok(here) = self.inner();
 
         Ok(match here {
             Value::List(held) => Some(held),
@@ -275,7 +292,7 @@ impl Value {
     }
 
     pub fn counted(&self) -> Result<Option<i64>, Never> {
-        let Ok(here) = self.unheld();
+        let Ok(here) = self.inner();
 
         Ok(match here {
             Value::Byte(value) => Some(i64::from(*value)),
@@ -376,37 +393,50 @@ enum Opening {
 }
 
 fn onward(shape: &mut Walk) -> Result<(), Error> {
-    let mut open: Vec<Opening> = Vec::new();
+    let walked = iterate((shape, Vec::new()), |(shape, mut open)| {
+        Ok(match past(shape, &mut open) {
+            Ok(Finished::Whole) => Step::Halt(Ok(())),
+            Ok(Finished::Part) => Step::Again((shape, open)),
+            Err(fault) => Step::Halt(Err(fault)),
+        })
+    });
 
-    loop {
-        let head = shape.head()?;
+    match walked {
+        Ok(walked) => walked,
+        Err(Endless) => Err(Error::Short),
+    }
+}
 
-        match head {
-            'a' => open.push(Opening::List),
-            '(' => open.push(Opening::Group(')')),
-            '{' => open.push(Opening::Group('}')),
+fn past(shape: &mut Walk, open: &mut Vec<Opening>) -> Result<Finished, Error> {
+    let head = shape.head()?;
 
-            other => {
-                match open.last() == Some(&Opening::Group(other)) {
-                    true => {
-                        let _ = open.pop();
-                    }
-                    false => {
-                        let _ = edge(other)?;
-                    }
-                }
+    match head {
+        'a' => open.push(Opening::List),
+        '(' => open.push(Opening::Group(')')),
+        '{' => open.push(Opening::Group('}')),
 
-                while open.last() == Some(&Opening::List) {
+        other => {
+            match open.last() == Some(&Opening::Group(other)) {
+                true => {
                     let _ = open.pop();
                 }
-
-                match open.is_empty() {
-                    true => return Ok(()),
-                    false => {}
+                false => {
+                    let _ = edge(other)?;
                 }
+            }
+
+            open.truncate(
+                open.len().saturating_sub(open.iter().rev().take_while(|opening| **opening == Opening::List).count()),
+            );
+
+            match open.is_empty() {
+                true => return Ok(Finished::Whole),
+                false => {}
             }
         }
     }
+
+    Ok(Finished::Part)
 }
 
 #[derive(Clone, Debug)]
@@ -447,7 +477,7 @@ impl<'a> Reading<'a> {
         Ok(())
     }
 
-    fn taking(&mut self, many: u32) -> Result<&'a [u8], Error> {
+    fn take(&mut self, many: u32) -> Result<&'a [u8], Error> {
         let to = match self.at.checked_add(many) {
             Some(to) => to,
             None => return Err(Error::Short),
@@ -467,7 +497,7 @@ impl<'a> Reading<'a> {
     }
 
     fn byte(&mut self) -> Result<u8, Error> {
-        let taken = self.taking(1)?;
+        let taken = self.take(1)?;
 
         match taken.first() {
             Some(byte) => Ok(*byte),
@@ -477,7 +507,7 @@ impl<'a> Reading<'a> {
 
     fn two(&mut self) -> Result<[u8; 2], Error> {
         self.onto(Edge::Two)?;
-        let taken = self.taking(2)?;
+        let taken = self.take(2)?;
 
         match <[u8; 2]>::try_from(taken) {
             Ok(taken) => Ok(taken),
@@ -487,7 +517,7 @@ impl<'a> Reading<'a> {
 
     fn four(&mut self) -> Result<[u8; 4], Error> {
         self.onto(Edge::Four)?;
-        let taken = self.taking(4)?;
+        let taken = self.take(4)?;
 
         match <[u8; 4]>::try_from(taken) {
             Ok(taken) => Ok(taken),
@@ -497,7 +527,7 @@ impl<'a> Reading<'a> {
 
     fn eight(&mut self) -> Result<[u8; 8], Error> {
         self.onto(Edge::Eight)?;
-        let taken = self.taking(8)?;
+        let taken = self.take(8)?;
 
         match <[u8; 8]>::try_from(taken) {
             Ok(taken) => Ok(taken),
@@ -527,7 +557,7 @@ impl<'a> Reading<'a> {
     }
 
     fn text(&mut self, many: u32) -> Result<String, Error> {
-        let taken = self.taking(many)?;
+        let taken = self.take(many)?;
         let text = match std::str::from_utf8(taken) {
             Ok(text) => text.to_string(),
             Err(_fault) => return Err(Error::NotUtf8),
@@ -543,29 +573,37 @@ impl<'a> Reading<'a> {
 
     fn values(&mut self, shape: &str) -> Result<Vec<Value>, Error> {
         let Ok(walking) = Walk::over(shape);
-        let mut open = vec![Reads { frame: ReadFrame::Body, walking, held: Vec::new() }];
+        let open = vec![Reads { frame: ReadFrame::Body, walking, held: Vec::new() }];
 
-        loop {
-            let top = match open.last_mut() {
-                Some(top) => top,
-                None => return Err(Error::Short),
-            };
+        let read = iterate((self, open), |(this, mut open)| {
+            Ok(match this.advanced(&mut open) {
+                Ok(Some(held)) => Step::Halt(Ok(held)),
+                Ok(None) => Step::Again((this, open)),
+                Err(fault) => Step::Halt(Err(fault)),
+            })
+        });
 
-            let step = self.step(top)?;
-
-            match step {
-                ReadStep::Opened(inner) => open.push(inner),
-                ReadStep::Read(value) => top.held.push(value),
-                ReadStep::Closed => {
-                    let finished = closed(&mut open)?;
-
-                    match finished {
-                        Some(held) => return Ok(held),
-                        None => {}
-                    }
-                }
-            }
+        match read {
+            Ok(read) => read,
+            Err(Endless) => Err(Error::Short),
         }
+    }
+
+    fn advanced(&mut self, open: &mut Vec<Reads>) -> Result<Option<Vec<Value>>, Error> {
+        let top = match open.last_mut() {
+            Some(top) => top,
+            None => return Err(Error::Short),
+        };
+
+        let step = self.step(top)?;
+
+        match step {
+            ReadStep::Opened(inner) => open.push(inner),
+            ReadStep::Read(value) => top.held.push(value),
+            ReadStep::Closed => return closed(open),
+        }
+
+        Ok(None)
     }
 
     fn step(&mut self, top: &mut Reads) -> Result<ReadStep, Error> {
@@ -818,29 +856,37 @@ impl Writing {
 
     fn values(&mut self, shape: &str, value: &[Value]) -> Result<(), Error> {
         let Ok(walking) = Walk::over(shape);
-        let mut open = vec![Writes { frame: WriteFrame::Body, walking, items: value.iter() }];
+        let open = vec![Writes { frame: WriteFrame::Body, walking, items: value.iter() }];
 
-        loop {
-            let top = match open.last_mut() {
-                Some(top) => top,
-                None => return Err(Error::Short),
-            };
+        let written = iterate((self, open), |(this, mut open)| {
+            Ok(match this.advanced(&mut open) {
+                Ok(Finished::Whole) => Step::Halt(Ok(())),
+                Ok(Finished::Part) => Step::Again((this, open)),
+                Err(fault) => Step::Halt(Err(fault)),
+            })
+        });
 
-            let step = self.step(top)?;
-
-            match step {
-                WriteStep::Opened(inner) => open.push(inner),
-                WriteStep::Wrote => {}
-                WriteStep::Closed => {
-                    let finished = self.closed(&mut open)?;
-
-                    match finished {
-                        Finished::Whole => return Ok(()),
-                        Finished::Part => {}
-                    }
-                }
-            }
+        match written {
+            Ok(written) => written,
+            Err(Endless) => Err(Error::Short),
         }
+    }
+
+    fn advanced(&mut self, open: &mut Vec<Writes<'_>>) -> Result<Finished, Error> {
+        let top = match open.last_mut() {
+            Some(top) => top,
+            None => return Err(Error::Short),
+        };
+
+        let step = self.step(top)?;
+
+        match step {
+            WriteStep::Opened(inner) => open.push(inner),
+            WriteStep::Wrote => {}
+            WriteStep::Closed => return self.closed(open),
+        }
+
+        Ok(Finished::Part)
     }
 
     fn step<'v>(&mut self, top: &mut Writes<'v>) -> Result<WriteStep<'v>, Error> {
@@ -1069,7 +1115,7 @@ pub enum ValidationError {
 }
 
 impl ValidationError {
-    pub fn named(self) -> Result<&'static str, Never> {
+    pub fn error_name(self) -> Result<&'static str, Never> {
         Ok(match self {
             ValidationError::Failed => "org.freedesktop.DBus.Error.Failed",
             ValidationError::UnknownMethod => "org.freedesktop.DBus.Error.UnknownMethod",
@@ -1129,7 +1175,7 @@ impl Message {
 
     pub fn complaining(&self, complaint: ValidationError, why: &str) -> Result<Message, Never> {
         let Ok(value) = Value::word(why);
-        let Ok(named) = complaint.named();
+        let Ok(named) = complaint.error_name();
 
         Ok(Message {
             kind: Kind::ErrorReply,
@@ -1201,7 +1247,7 @@ impl Message {
                 | Field::Shape => Value::Word(value.to_string()),
             };
 
-            let Ok(held) = Value::held(shape, carried);
+            let Ok(held) = Value::variant(shape, carried);
 
             fields.push(Value::Group(vec![Value::Byte(code), held]));
         }
@@ -1209,7 +1255,7 @@ impl Message {
         match self.reply_to {
             Some(serial) => {
                 let Ok(code) = Field::ReplyTo.code();
-                let Ok(held) = Value::held("u", Value::Unsigned32(serial));
+                let Ok(held) = Value::variant("u", Value::Unsigned32(serial));
 
                 fields.push(Value::Group(vec![Value::Byte(code), held]));
             }
@@ -1220,7 +1266,7 @@ impl Message {
             true => {}
             false => {
                 let Ok(code) = Field::Shape.code();
-                let Ok(held) = Value::held("g", Value::Shape(self.shape.clone()));
+                let Ok(held) = Value::variant("g", Value::Shape(self.shape.clone()));
 
                 fields.push(Value::Group(vec![Value::Byte(code), held]));
             }
@@ -1323,7 +1369,7 @@ pub fn read(bytes: &[u8]) -> Result<Message, Error> {
         };
 
         for one in held {
-            let Ok(()) = kept(&mut message, &one);
+            let Ok(()) = apply_header_field(&mut message, &one);
         }
     }
 
@@ -1338,7 +1384,7 @@ pub fn read(bytes: &[u8]) -> Result<Message, Error> {
     Ok(message)
 }
 
-fn kept(message: &mut Message, one: &Value) -> Result<(), Never> {
+fn apply_header_field(message: &mut Message, one: &Value) -> Result<(), Never> {
     let held = match one {
         Value::Group(held) => held,
         Value::Byte(_)
@@ -1411,7 +1457,9 @@ fn kept(message: &mut Message, one: &Value) -> Result<(), Never> {
 mod tests {
     use super::*;
 
-    fn notifying() -> Message {
+    type Failure = Box<dyn std::error::Error>;
+
+    fn notifying() -> Result<Message, Never> {
         let Ok(call) = Message::call(&Whom {
             to: "org.freedesktop.Notifications",
             at: "/org/freedesktop/Notifications",
@@ -1438,14 +1486,14 @@ mod tests {
             ],
         );
 
-        call
+        Ok(call)
     }
 
     #[test]
-    fn a_message_written_here_is_read_back_as_itself() {
-        let call = notifying();
-        let bytes = call.bytes(7).unwrap();
-        let heard = read(&bytes).unwrap();
+    fn a_message_written_here_is_read_back_as_itself() -> Result<(), Error> {
+        let Ok(call) = notifying();
+        let bytes = call.bytes(7)?;
+        let heard = read(&bytes)?;
 
         assert_eq!(heard.kind, Kind::Call);
         assert_eq!(heard.serial, 7);
@@ -1453,109 +1501,134 @@ mod tests {
         assert_eq!(heard.path.as_deref(), Some("/org/freedesktop/Notifications"));
         assert_eq!(heard.shape, "susssasa{sv}i");
         assert_eq!(heard.values, call.values);
+
+        Ok(())
     }
 
     #[test]
-    fn the_length_in_the_head_is_the_length_of_the_whole_message() {
+    fn the_length_in_the_head_is_the_length_of_the_whole_message() -> Result<(), Failure> {
         let signal = Signal { at: "/a", on: "b.c", name: "D" };
+        let Ok(notifying) = notifying();
+        let Ok(signalling) = Message::signal(&signal);
 
-        for message in [notifying(), Message::signal(&signal).unwrap()] {
-            let bytes = message.bytes(3).unwrap();
+        for message in [notifying, signalling] {
+            let bytes = message.bytes(3)?;
+            let whole = u32::try_from(bytes.len())?;
 
-            assert_eq!(length(&bytes), Ok(u32::try_from(bytes.len()).unwrap()));
+            assert_eq!(length(&bytes), Ok(whole));
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_body_starts_at_a_multiple_of_eight() {
-        let bytes = notifying().bytes(1).unwrap();
-        let fields = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        let body = HEAD + fields;
-        let whole = u32::try_from(bytes.len()).unwrap();
+    fn a_body_starts_at_a_multiple_of_eight() -> Result<(), Failure> {
+        let Ok(message) = notifying();
+        let bytes = message.bytes(1)?;
+        let fields = bytes.get(12..16).and_then(|four| four.first_chunk::<4>()).ok_or("a head")?;
+        let body = HEAD.saturating_add(u32::from_le_bytes(*fields));
+        let whole = u32::try_from(bytes.len())?;
+        let Ok(mut counting) = Writing::new();
 
-        assert_eq!(length(&bytes).unwrap(), whole);
+        counting.values("susssasa{sv}i", &message.values)?;
+
+        let counted = u32::try_from(counting.bytes.len())?;
+
+        assert_eq!(length(&bytes), Ok(whole));
         assert!(body <= whole);
-        assert_eq!(whole - body.next_multiple_of(8), {
-            let mut counting = Writing::new().unwrap();
-            counting.values("susssasa{sv}i", &notifying().values).unwrap();
-            u32::try_from(counting.bytes.len()).unwrap()
-        });
+        assert_eq!(whole.checked_sub(body.next_multiple_of(8)), Some(counted));
+
+        Ok(())
     }
 
     #[test]
-    fn a_string_carries_its_length_and_its_nul() {
-        let mut writing = Writing::new().unwrap();
+    fn a_string_carries_its_length_and_its_nul() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
 
-        writing.values("s", &[Value::Word("ok".to_string())]).unwrap();
+        writing.values("s", &[Value::Word("ok".to_string())])?;
 
         assert_eq!(writing.bytes, vec![2, 0, 0, 0, b'o', b'k', 0]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_number_after_a_byte_is_padded_out_to_its_own_width() {
-        let mut writing = Writing::new().unwrap();
+    fn a_number_after_a_byte_is_padded_out_to_its_own_width() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
 
-        writing.values("yu", &[Value::Byte(1), Value::Unsigned32(2)]).unwrap();
+        writing.values("yu", &[Value::Byte(1), Value::Unsigned32(2)])?;
 
         assert_eq!(writing.bytes, vec![1, 0, 0, 0, 2, 0, 0, 0]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_structure_after_a_byte_starts_eight_along() {
-        let mut writing = Writing::new().unwrap();
+    fn a_structure_after_a_byte_starts_eight_along() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
         let group = Value::Group(vec![Value::Byte(9)]);
 
-        writing.values("y(y)", &[Value::Byte(1), group]).unwrap();
+        writing.values("y(y)", &[Value::Byte(1), group])?;
 
         assert_eq!(writing.bytes, vec![1, 0, 0, 0, 0, 0, 0, 0, 9]);
+
+        Ok(())
     }
 
     #[test]
-    fn an_empty_list_is_a_length_of_nothing() {
-        let mut writing = Writing::new().unwrap();
+    fn an_empty_list_is_a_length_of_nothing() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
 
-        writing.values("as", &[Value::List(Vec::new())]).unwrap();
+        writing.values("as", &[Value::List(Vec::new())])?;
 
         assert_eq!(writing.bytes, vec![0, 0, 0, 0]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_list_says_how_long_its_contents_are_and_not_how_many_there_are() {
-        let mut writing = Writing::new().unwrap();
+    fn a_list_says_how_long_its_contents_are_and_not_how_many_there_are() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
         let held = Value::List(vec![Value::Unsigned32(1), Value::Unsigned32(2)]);
 
-        writing.values("au", &[held]).unwrap();
+        writing.values("au", &[held])?;
 
         assert_eq!(writing.bytes, vec![8, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_list_of_structures_is_padded_before_the_first_one_is_written() {
-        let mut writing = Writing::new().unwrap();
+    fn a_list_of_structures_is_padded_before_the_first_one_is_written() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
         let held = Value::List(vec![Value::Group(vec![Value::Byte(7)])]);
 
-        writing.values("a(y)", &[held]).unwrap();
+        writing.values("a(y)", &[held])?;
 
         assert_eq!(writing.bytes, vec![1, 0, 0, 0, 0, 0, 0, 0, 7]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_variant_carries_the_shape_of_what_is_in_it() {
-        let mut writing = Writing::new().unwrap();
+    fn a_variant_carries_the_shape_of_what_is_in_it() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
         let held = Value::Variant { shape: "u".to_string(), value: Box::new(Value::Unsigned32(5)) };
 
-        writing.values("v", std::slice::from_ref(&held)).unwrap();
+        writing.values("v", std::slice::from_ref(&held))?;
 
         assert_eq!(writing.bytes, vec![1, b'u', 0, 0, 5, 0, 0, 0]);
 
         let mut reading = Reading { bytes: &writing.bytes, at: 0, order: Order::Little };
 
-        assert_eq!(reading.values("v").unwrap(), vec![held]);
+        assert_eq!(reading.values("v"), Ok(vec![held]));
+
+        Ok(())
     }
 
     #[test]
-    fn a_hint_this_knows_nothing_about_is_walked_past_rather_than_stopping_the_message() {
-        let mut writing = Writing::new().unwrap();
+    fn a_hint_this_knows_nothing_about_is_walked_past_rather_than_stopping_the_message() -> Result<(), Error> {
+        let Ok(mut writing) = Writing::new();
         let odd = Value::Variant {
             shape: "(iiii)".to_string(),
             value: Box::new(Value::Group(vec![
@@ -1573,28 +1646,39 @@ mod tests {
             ]),
         ]);
 
-        writing.values("a{sv}", std::slice::from_ref(&hints)).unwrap();
+        writing.values("a{sv}", std::slice::from_ref(&hints))?;
 
         let mut reading = Reading { bytes: &writing.bytes, at: 0, order: Order::Little };
 
-        assert_eq!(reading.values("a{sv}").unwrap(), vec![hints]);
+        assert_eq!(reading.values("a{sv}"), Ok(vec![hints]));
+
+        Ok(())
     }
 
     #[test]
-    fn the_same_message_read_the_other_way_round_is_the_same_message() {
-        let little = notifying().bytes(11).unwrap();
-        let mut big = little.clone();
+    fn the_same_message_read_the_other_way_round_is_the_same_message() -> Result<(), Failure> {
+        let Ok(message) = notifying();
+        let little = message.bytes(11)?;
+        let (start, mut rest) = little.split_first_chunk::<4>().ok_or("a head")?;
+        let (_little, kept) = start.split_first().ok_or("a byte order")?;
+        let mut big = vec![BIG];
 
-        big[0] = BIG;
+        big.extend_from_slice(kept);
 
-        for at in [4usize, 8, 12] {
-            let four: [u8; 4] = little[at..at + 4].try_into().unwrap();
-            let swapped = u32::from_le_bytes(four).to_be_bytes();
+        for _field in ["body", "serial", "fields"] {
+            let (word, after) = rest.split_first_chunk::<4>().ok_or("a head")?;
 
-            big[at..at + 4].copy_from_slice(&swapped);
+            big.extend(u32::from_le_bytes(*word).to_be_bytes());
+            rest = after;
         }
 
-        assert_eq!(length(&big), Ok(u32::try_from(big.len()).unwrap()));
+        big.extend_from_slice(rest);
+
+        let whole = u32::try_from(big.len())?;
+
+        assert_eq!(length(&big), Ok(whole));
+
+        Ok(())
     }
 
     #[test]
@@ -1605,35 +1689,46 @@ mod tests {
     }
 
     #[test]
-    fn a_message_that_stops_in_the_middle_says_so_rather_than_answering() {
-        let bytes = notifying().bytes(1).unwrap();
+    fn a_message_that_stops_in_the_middle_says_so_rather_than_answering() -> Result<(), Failure> {
+        let Ok(message) = notifying();
+        let bytes = message.bytes(1)?;
 
-        for many in [1usize, 5, 16, 40] {
-            assert!(read(&bytes[..many]).is_err(), "{many}");
+        for many in [1_u32, 5, 16, 40] {
+            let Ok(many) = console_core_number_conversion::index(many);
+            let part = bytes.get(..many).ok_or("a message longer than that")?;
+
+            assert_eq!(read(part), Err(Error::Short), "{many}");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn a_reply_says_what_it_is_replying_to() {
-        let call = notifying();
+    fn a_reply_says_what_it_is_replying_to() -> Result<(), Error> {
+        let Ok(call) = notifying();
         let Ok(answer) = call.answering();
         let Ok(answer) = answer.carrying("u", vec![Value::Unsigned32(4)]);
-        let bytes = answer.bytes(2).unwrap();
-        let heard = read(&bytes).unwrap();
+        let bytes = answer.bytes(2)?;
+        let heard = read(&bytes)?;
 
         assert_eq!(heard.kind, Kind::Answer);
         assert_eq!(heard.reply_to, Some(call.serial));
         assert_eq!(heard.values, vec![Value::Unsigned32(4)]);
+
+        Ok(())
     }
 
     #[test]
-    fn a_complaint_carries_a_name_and_a_sentence() {
-        let Ok(fault) = notifying().complaining(ValidationError::Failed, "no");
-        let bytes = fault.bytes(2).unwrap();
-        let heard = read(&bytes).unwrap();
+    fn a_complaint_carries_a_name_and_a_sentence() -> Result<(), Error> {
+        let Ok(call) = notifying();
+        let Ok(fault) = call.complaining(ValidationError::Failed, "no");
+        let bytes = fault.bytes(2)?;
+        let heard = read(&bytes)?;
 
         assert_eq!(heard.kind, Kind::ErrorReply);
         assert_eq!(heard.fault.as_deref(), Some("org.freedesktop.DBus.Error.Failed"));
         assert_eq!(heard.values, vec![Value::Word("no".to_string())]);
+
+        Ok(())
     }
 }

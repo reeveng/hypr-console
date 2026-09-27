@@ -9,6 +9,7 @@ license.workspace = true
 console-core-never.workspace = true
 
 [dev-dependencies]
+console-core-atomic-writes.workspace = true
 console-core-temporary-directories.workspace = true
 
 [lints]

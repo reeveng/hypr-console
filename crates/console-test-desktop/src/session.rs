@@ -71,7 +71,7 @@ pub enum Names {
     SomethingElse,
 }
 
-pub fn named(name: &str) -> Result<Names, Never> {
+pub fn classify_socket(name: &str) -> Result<Names, Never> {
     let rest = match name.strip_prefix("wayland-") {
         Some(rest) => rest,
         None => return Ok(Names::SomethingElse),
@@ -104,7 +104,7 @@ pub fn what_it_bound(said: &str) -> Result<Option<String>, Never> {
         None => return Ok(None),
     };
 
-    let Ok(names) = named(&name);
+    let Ok(names) = classify_socket(&name);
 
     Ok(match names {
         Names::ADisplay => Some(name),
@@ -118,7 +118,7 @@ fn until<T>(
 ) -> Result<Option<T>, Never> {
     let Ok(patience) = Schedule::asking_every(patience, BREATH);
 
-    console_waiting::found_handed(patience, &mut look, |look| Ok(look()))
+    console_waiting::until_some_handed(patience, &mut look, |look| Ok(look()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,8 +161,17 @@ pub fn lines(at: &Path) -> Result<u64, Never> {
 const NOT_A_LINE: u64 = 0;
 
 pub fn wait_for_more_than(at: &Path, already: u64, patience: Duration) -> Result<Wrote, Never> {
+    wait_for_count_past(at, already, patience, lines)
+}
+
+fn wait_for_count_past(
+    at: &Path,
+    already: u64,
+    patience: Duration,
+    count: fn(&Path) -> Result<u64, Never>,
+) -> Result<Wrote, Never> {
     let Ok(found) = until(patience, || {
-        let Ok(now) = lines(at);
+        let Ok(now) = count(at);
 
         match now > already {
             true => Some(()),
@@ -174,6 +183,29 @@ pub fn wait_for_more_than(at: &Path, already: u64, patience: Duration) -> Result
         Some(()) => Wrote::Some,
         None => Wrote::None,
     })
+}
+
+pub fn presses(at: &Path) -> Result<u64, Never> {
+    let read = match std::fs::read_to_string(at) {
+        Ok(read) => read,
+        Err(_unreadable) => return Ok(NOT_PRESSED),
+    };
+
+    Ok(match read.lines().last().map(console_panel::description::read) {
+        Some(Ok(told)) => told.presses,
+        Some(Err(unread)) => {
+            eprintln!("console-desktop: {}: {unread}", at.display());
+
+            NOT_PRESSED
+        },
+        None => NOT_PRESSED,
+    })
+}
+
+const NOT_PRESSED: u64 = 0;
+
+pub fn wait_for_presses_past(at: &Path, already: u64, patience: Duration) -> Result<Wrote, Never> {
+    wait_for_count_past(at, already, patience, presses)
 }
 
 pub fn wait_for_written(at: &Path, patience: Duration) -> Result<Wrote, Never> {
@@ -323,18 +355,30 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(dylint_lib = "explicit026_env_read_once", allow(explicit026_env_read_once, reason = "which compositor this test runs under is said by the environment and nowhere else"))]
     fn the_compositor_running_this_screen_is_never_one_of_the_dead() {
-        let ours = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
-        if ours.is_empty() {
-            return;
+        let signature = match std::env::var("HYPRLAND_INSTANCE_SIGNATURE") {
+            Ok(signature) => signature,
+            Err(_not_under_one) => return,
+        };
+
+        match signature.is_empty() {
+            true => return,
+            false => {}
         }
-        let dead = dead_instances().expect("the dead");
-        assert!(!dead.iter().any(|path| path.ends_with(&ours)));
+
+        let Ok(dead) = dead_instances();
+
+        assert!(!dead.iter().any(|path| path.ends_with(&signature)));
     }
 
     #[test]
     fn a_socket_named_after_a_display_is_not_the_display() {
-        let named = |name: &str| named(name).expect("a name is read");
+        let named = |name: &str| {
+            let Ok(named) = classify_socket(name);
+
+            named
+        };
 
         assert_eq!(named("wayland-1"), Names::ADisplay);
         assert_eq!(named("wayland-12"), Names::ADisplay);
@@ -352,25 +396,22 @@ mod tests {
 
     #[test]
     fn a_compositor_says_which_display_it_bound_on_the_second_line() {
-        let bound = |said: &str| what_it_bound(said).expect("what it wrote down");
-
-        assert_eq!(bound("2015407\nwayland-1\n"), Some("wayland-1".to_string()));
-        assert_eq!(bound("2015407\nwayland-12"), Some("wayland-12".to_string()));
+        assert_eq!(what_it_bound("2015407\nwayland-1\n"), Ok(Some("wayland-1".to_string())));
+        assert_eq!(what_it_bound("2015407\nwayland-12"), Ok(Some("wayland-12".to_string())));
     }
 
     #[test]
     fn a_lock_caught_half_written_names_no_display() {
-        let bound = |said: &str| what_it_bound(said).expect("what it wrote down");
-
-        assert_eq!(bound(""), None);
-        assert_eq!(bound("2015407\n"), None, "the pid is written before the display is");
-        assert_eq!(bound("2015407\nwayl"), None, "and the display is written a byte at a time");
+        assert_eq!(what_it_bound(""), Ok(None));
+        assert_eq!(what_it_bound("2015407\n"), Ok(None), "the pid is written before the display is");
+        assert_eq!(what_it_bound("2015407\nwayl"), Ok(None), "and the display is written a byte at a time");
     }
 
     #[test]
     fn a_stage_is_abandoned_only_when_the_session_it_names_has_ended() {
-        let ours = crate::stage().expect("this session's stage");
-        let abandoned = abandoned().expect("the abandoned stages");
-        assert!(!abandoned.contains(&ours), "this session's own stage is not abandoned");
+        let Ok(stage) = crate::stage();
+        let Ok(abandoned) = abandoned();
+
+        assert!(!abandoned.contains(&stage), "this session's own stage is not abandoned");
     }
 }

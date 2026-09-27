@@ -92,6 +92,7 @@ programs! {
     Locale, "locale", Origin::Arch;
     LocaleGen, "locale-gen", Origin::Arch;
     Localectl, "localectl", Origin::Arch;
+    Loginctl, "loginctl", Origin::Arch;
     Logger, "logger", Origin::Arch;
     Ls, "ls", Origin::Arch;
     Mkdir, "mkdir", Origin::Arch;
@@ -175,7 +176,7 @@ impl std::fmt::Display for Unprinted {
 
 impl std::error::Error for Unprinted {}
 
-pub fn printed<Word: AsRef<str>>(arguments: &[Word]) -> Result<String, Unprinted> {
+pub fn capture_output<Word: AsRef<str>>(arguments: &[Word]) -> Result<String, Unprinted> {
     let (program, rest) = match arguments.split_first() {
         Some((program, rest)) => (program, rest),
         None => return Err(Unprinted::Absent),
@@ -252,15 +253,17 @@ fn runnable(at: &Path) -> Result<Installed, Never> {
 mod tests {
     use super::*;
 
-    fn words(said: &[&str]) -> Vec<String> {
-        said.iter().map(|word| (*word).to_string()).collect()
-    }
+    type Failure = Box<dyn std::error::Error>;
 
     #[test]
-    fn what_a_program_printed_is_handed_back_and_one_that_cannot_run_says_so() {
-        assert_eq!(printed(&words(&["sh", "-c", "printf said"])).expect("it ran"), "said");
-        assert!(matches!(printed::<&str>(&[]), Err(Unprinted::Absent)));
-        assert!(matches!(printed(&words(&["definitely-not-a-program-anybody-installed"])), Err(Unprinted::Unran(..))));
+    fn what_a_program_printed_is_handed_back_and_one_that_cannot_run_says_so() -> Result<(), Failure> {
+        let said = capture_output(&["sh", "-c", "printf said"])?;
+
+        assert_eq!(said, "said");
+        assert!(matches!(capture_output::<&str>(&[]), Err(Unprinted::Absent)));
+        assert!(matches!(capture_output(&["definitely-not-a-program-anybody-installed"]), Err(Unprinted::Unran(..))));
+
+        Ok(())
     }
 
     #[test]
@@ -283,14 +286,17 @@ mod tests {
     }
 
     #[test]
-    fn a_file_nobody_can_run_is_not_a_program() {
-        let folder = console_core_temporary_directories::fresh("installed").expect("a folder of this test's own");
+    fn a_file_nobody_can_run_is_not_a_program() -> Result<(), Failure> {
+        let folder = console_core_temporary_directories::fresh("installed")?;
         let at = folder.join("unrunnable");
-        std::fs::write(&at, "").expect("a file to look at");
+
+        console_core_atomic_writes::whole(&at, b"")?;
 
         assert_eq!(installed(&at.to_string_lossy()), Ok(Installed::No));
 
-        std::fs::remove_dir_all(&folder).expect("the folder taken away");
+        std::fs::remove_dir_all(&folder)?;
+
+        Ok(())
     }
 
     #[test]

@@ -72,7 +72,7 @@ fn words_said(words: &[String]) -> Result<String, Never> {
     let every: Vec<String> = words
         .iter()
         .map(|word| {
-            let Ok(word) = quoted(word);
+            let Ok(word) = json_string(word);
 
             word
         })
@@ -184,7 +184,7 @@ pub struct Line {
 }
 
 impl Line {
-    pub fn wearing(&self, name: &str) -> Result<Option<&Spot>, Never> {
+    pub fn spot(&self, name: &str) -> Result<Option<&Spot>, Never> {
         Ok(self.spots.iter().find(|spot| spot.name == name))
     }
 }
@@ -203,6 +203,7 @@ pub struct Description {
     pub room: (i32, i32),
     pub lines: Vec<Line>,
     pub spots: Vec<Spot>,
+    pub presses: u64,
 }
 
 impl Description {
@@ -210,7 +211,7 @@ impl Description {
         Ok(self.spots.iter().chain(self.lines.iter().flat_map(|line| line.spots.iter())).collect())
     }
 
-    pub fn wearing(&self, name: &str) -> Result<Option<&Spot>, Never> {
+    pub fn spot(&self, name: &str) -> Result<Option<&Spot>, Never> {
         let Ok(every) = self.every_spot();
 
         Ok(every.into_iter().find(|spot| spot.name == name))
@@ -251,7 +252,7 @@ pub fn wrote(told: &Description, where_to: Option<&str>) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let Ok(said) = said(told);
+    let Ok(said) = serialize(told);
     let line = format!("{said}\n");
 
     #[cfg_attr(
@@ -272,7 +273,7 @@ pub fn wrote(told: &Description, where_to: Option<&str>) -> Result<(), Never> {
     Ok(())
 }
 
-fn quoted(said: &str) -> Result<String, Never> {
+fn json_string(said: &str) -> Result<String, Never> {
     Ok(serde_json::Value::String(said.to_string()).to_string())
 }
 
@@ -280,7 +281,7 @@ fn spots_said(spots: &[Spot]) -> Result<String, Never> {
     let every: Vec<String> = spots
         .iter()
         .map(|spot| {
-            let Ok(name) = quoted(&spot.name);
+            let Ok(name) = json_string(&spot.name);
 
             format!(
                 "{{\"name\":{},\"at\":[{},{}],\"big\":[{},{}],\"scrolls\":{}}}",
@@ -300,14 +301,14 @@ fn spots_said(spots: &[Spot]) -> Result<String, Never> {
     Ok(format!("[{}]", every.join(",")))
 }
 
-pub fn said(told: &Description) -> Result<String, Never> {
+pub fn serialize(told: &Description) -> Result<String, Never> {
     let mut out = String::new();
     let lines: Vec<String> = told
         .lines
         .iter()
         .map(|line| {
-            let Ok(says) = quoted(&line.says);
-            let Ok(aside) = quoted(&line.aside);
+            let Ok(says) = json_string(&line.says);
+            let Ok(aside) = json_string(&line.aside);
             let Ok(spots) = spots_said(&line.spots);
             let Ok(cells) = words_said(&line.cells);
             let Ok(drew) = words_said(&line.drew);
@@ -341,13 +342,13 @@ pub fn said(told: &Description) -> Result<String, Never> {
             )
         })
         .collect();
-    let Ok(panel) = quoted(&told.panel);
-    let Ok(tab) = quoted(&told.tab);
+    let Ok(panel) = json_string(&told.panel);
+    let Ok(tab) = json_string(&told.tab);
     let Ok(spots) = spots_said(&told.spots);
 
     let _ = write!(
         out,
-        "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"spots\":{},\"lines\":[{}]}}",
+        "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"presses\":{},\"spots\":{},\"lines\":[{}]}}",
         panel,
         tab,
         match told.out {
@@ -356,6 +357,7 @@ pub fn said(told: &Description) -> Result<String, Never> {
         },
         told.room.0,
         told.room.1,
+        told.presses,
         spots,
         lines.join(",")
     );
@@ -486,6 +488,10 @@ pub fn read(said: &str) -> Result<Description, RenderError> {
             Some(false) | None => Output::No,
         },
         room,
+        presses: match held.get("presses").and_then(|held| held.as_u64()) {
+            Some(presses) => presses,
+            None => 0,
+        },
         spots: {
             let Ok(spots) = spots_in(&held);
 
@@ -563,21 +569,27 @@ pub fn every(said: &str) -> Result<Vec<Description>, RenderError> {
 mod tests {
     use super::*;
 
-    fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Spot {
-        Spot { name: name.to_string(), at, big, scrolls: Scrolls::No }
+    type Failure = Box<dyn std::error::Error>;
+
+    fn spot(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
+        Ok(Spot { name: name.to_string(), at, big, scrolls: Scrolls::No })
     }
 
-    fn scrolling(name: &str, at: (i32, i32), big: (i32, i32)) -> Spot {
-        Spot { name: name.to_string(), at, big, scrolls: Scrolls::Yes }
+    fn scrolling(name: &str, at: (i32, i32), big: (i32, i32)) -> Result<Spot, Never> {
+        Ok(Spot { name: name.to_string(), at, big, scrolls: Scrolls::Yes })
     }
 
-    fn told() -> Description {
-        Description {
+    fn sample() -> Result<Description, Never> {
+        let Ok(shut) = spot("shut", (954, 14), (56, 44));
+        let Ok(beside) = spot("else", (900, 300), (40, 30));
+
+        Ok(Description {
             panel: "viewer-panel".to_string(),
             tab: "Looking".to_string(),
             out: Output::No,
             room: (1024, 640),
-            spots: vec![spot("shut", (954, 14), (56, 44))],
+            presses: 3,
+            spots: vec![shut],
             lines: vec![
                 Line {
                     at: 0,
@@ -599,98 +611,135 @@ mod tests {
                     bare: Bare::No,
                     heading: Heading::No,
                     standing: Standing::Beside,
-                    spots: vec![spot("else", (900, 300), (40, 30))],
+                    spots: vec![beside],
                     cells: vec!["1".to_string(), "2".to_string()],
                     drew: vec!["beach.jpg".to_string(), "2 of 7".to_string()],
                 },
             ],
-        }
+        })
     }
 
     #[test]
-    fn what_was_drawn_survives_the_trip_through_a_file() {
-        let Ok(said) = said(&told());
+    fn what_was_drawn_survives_the_trip_through_a_file() -> Result<(), Failure> {
+        let Ok(told) = sample();
+        let Ok(said) = serialize(&told);
+        let read = read(&said)?;
 
-        assert_eq!(read(&said).expect("what was drawn"), told());
+        assert_eq!(read, told);
+
+        Ok(())
     }
 
     #[test]
-    fn a_run_is_read_back_as_the_draws_it_was() {
-        let Ok(said) = said(&told());
+    fn a_run_is_read_back_as_the_draws_it_was() -> Result<(), Failure> {
+        let Ok(told) = sample();
+        let Ok(said) = serialize(&told);
         let run = format!("{said}\n{said}\n");
+        let every = every(&run)?;
 
-        assert_eq!(every(&run).expect("two draws").len(), 2);
+        assert_eq!(every.len(), 2);
+
+        Ok(())
     }
 
     #[test]
     fn a_line_that_is_not_this_files_own_is_said_rather_than_skipped() {
-        assert!(every("{\"panel\":\"x\"}").is_err());
-        assert!(read("not json at all").is_err());
+        assert!(matches!(every("{\"panel\":\"x\"}"), Err(RenderError::NoRoom)));
+        assert!(matches!(read("not json at all"), Err(RenderError::Unparsed(..))));
     }
 
     #[test]
-    fn a_mark_is_found_by_the_name_it_is_drawn_under() {
-        let told = told();
-
-        let shut = match told.wearing("shut") {
-            Ok(Some(shut)) => shut,
-            Ok(None) | Err(_) => panic!("the way out is drawn"),
-        };
+    fn a_mark_is_found_by_the_name_it_is_drawn_under() -> Result<(), Failure> {
+        let Ok(told) = sample();
+        let Ok(shut) = told.spot("shut");
+        let shut = shut.ok_or("the way out is not drawn")?;
 
         let Ok(middle) = shut.middle();
-        let line = match told.line_saying("beach.jpg") {
-            Ok(Some(line)) => line,
-            Ok(None) | Err(_) => panic!("the row is drawn"),
-        };
+        let Ok(line) = told.line_saying("beach.jpg");
+        let line = line.ok_or("the row is not drawn")?;
 
-        let Ok(worn) = line.wearing("else");
+        let Ok(worn) = line.spot("else");
 
         assert_eq!(middle, (982, 36));
         assert!(worn.is_some());
-        assert_eq!(told.wearing("nothing-is-called-this"), Ok(None));
+        assert_eq!(told.spot("nothing-is-called-this"), Ok(None));
+
+        Ok(())
     }
 
     #[test]
     fn a_mark_inside_the_screen_can_be_reached_and_one_hanging_off_it_cannot() {
         let room = (1024, 640);
-        assert_eq!(reachable(&spot("shut", (954, 14), (56, 44)), room), Ok(Reachable::Yes));
-        assert_eq!(reachable(&spot("shut", (0, 0), (1024, 640)), room), Ok(Reachable::Yes));
+
+        let Ok(mark) = spot("shut", (954, 14), (56, 44));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
+
+        let Ok(mark) = spot("shut", (0, 0), (1024, 640));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
     }
 
     #[test]
     fn the_fault_this_was_written_for_is_one_this_can_see() {
         let room = (1024, 640);
-        assert_eq!(reachable(&spot("shut", (982, 14), (56, 44)), room), Ok(Reachable::No));
-        assert_eq!(reachable(&spot("shut", (-4, 14), (56, 44)), room), Ok(Reachable::No));
-        assert_eq!(reachable(&spot("shut", (900, 620), (56, 44)), room), Ok(Reachable::No));
+
+        let Ok(mark) = spot("shut", (982, 14), (56, 44));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
+
+        let Ok(mark) = spot("shut", (-4, 14), (56, 44));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
+
+        let Ok(mark) = spot("shut", (900, 620), (56, 44));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
     }
 
     #[test]
     fn a_mark_the_thumb_can_scroll_to_is_a_mark_a_hand_can_reach() {
         let room = (1024, 640);
-        assert_eq!(reachable(&scrolling("else", (865, 4805), (44, 29)), room), Ok(Reachable::Yes));
-        assert_eq!(reachable(&spot("else", (865, 4805), (44, 29)), room), Ok(Reachable::No));
+
+        let Ok(mark) = scrolling("else", (865, 4805), (44, 29));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::Yes));
+
+        let Ok(mark) = spot("else", (865, 4805), (44, 29));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
     }
 
     #[test]
     fn scrolling_does_not_excuse_a_mark_off_the_side() {
         let room = (1024, 640);
-        assert_eq!(reachable(&scrolling("else", (1000, 300), (44, 29)), room), Ok(Reachable::No));
-        assert_eq!(reachable(&scrolling("else", (-4, 300), (44, 29)), room), Ok(Reachable::No));
+
+        let Ok(mark) = scrolling("else", (1000, 300), (44, 29));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
+
+        let Ok(mark) = scrolling("else", (-4, 300), (44, 29));
+
+        assert_eq!(reachable(&mark, room), Ok(Reachable::No));
     }
 
     #[test]
     fn a_mark_with_no_size_is_a_mark_nothing_can_land_on() {
-        assert_eq!(reachable(&spot("else", (10, 10), (0, 30)), (1024, 640)), Ok(Reachable::No));
-        assert_eq!(reachable(&spot("else", (10, 10), (40, 0)), (1024, 640)), Ok(Reachable::No));
+        let Ok(mark) = spot("else", (10, 10), (0, 30));
+
+        assert_eq!(reachable(&mark, (1024, 640)), Ok(Reachable::No));
+
+        let Ok(mark) = spot("else", (10, 10), (40, 0));
+
+        assert_eq!(reachable(&mark, (1024, 640)), Ok(Reachable::No));
     }
 
     #[test]
     fn a_row_that_offers_something_and_wears_nothing_is_the_fault_being_looked_for() {
-        let told = told();
+        let Ok(told) = sample();
 
         for line in &told.lines {
-            let Ok(worn) = line.wearing("else");
+            let Ok(worn) = line.spot("else");
 
             let answered = worn.is_some() || line.bare == Bare::Yes;
 

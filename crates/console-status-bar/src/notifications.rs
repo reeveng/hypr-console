@@ -73,69 +73,79 @@ mod tests {
    "urgency":"low","actions":{}}
 ]"#;
 
-    fn of(said: &str) -> Waiting {
+    fn of(said: &str) -> Result<Waiting, Never> {
         let Ok(held) = read(said);
-        let Ok(waiting) = Waiting::of(&held, DoNotDisturb::Off);
-
-        waiting
-    }
-
-    fn bell(waiting: Waiting) -> Reading {
-        let Ok(reading) = notifications(waiting);
-
-        reading
+        Waiting::of(&held, DoNotDisturb::Off)
     }
 
     #[test]
     fn what_the_daemon_is_holding_is_counted() {
-        assert_eq!(of(THREE).many, 3);
-        assert_eq!(of("[\n]").many, 0);
+        let Ok(three) = of(THREE);
+
+        assert_eq!(three.many, 3);
+
+        let Ok(none) = of("[\n]");
+
+        assert_eq!(none.many, 0);
     }
 
     #[test]
     fn a_fault_is_the_one_thing_that_waits_and_it_says_so() {
-        assert_eq!(of(THREE).wrong, Error::Yes);
+        let Ok(three) = of(THREE);
+
+        assert_eq!(three.wrong, Error::Yes);
+
         let quiet = r#"[{"id":2,"summary":"One","urgency":"low"}]"#;
-        assert_eq!(of(quiet).wrong, Error::No);
+        let Ok(waiting) = of(quiet);
+
+        assert_eq!(waiting.wrong, Error::No);
     }
 
     #[test]
     fn an_answer_that_is_not_a_list_is_not_a_fault_of_its_own() {
         for said in ["", "\n", "no", "{}", "[]"] {
-            assert_eq!(of(said).many, 0, "{said:?}");
+            let Ok(waiting) = of(said);
+
+            assert_eq!(waiting.many, 0, "{said:?}");
         }
     }
 
     #[test]
     fn a_bell_with_nothing_under_it_says_so_and_carries_no_number() {
-        let reading = bell(Waiting::default());
+        let Ok(reading) = notifications(Waiting::default());
+
         assert_eq!(reading.tone, Tone::Secondary);
         assert!(!reading.icon.contains(char::is_numeric), "{:?}", reading.icon);
     }
 
     #[test]
     fn a_bell_with_something_under_it_is_a_different_bell() {
-        let one = bell(Waiting { many: 1, ..Waiting::default() });
+        let Ok(one) = notifications(Waiting { many: 1, ..Waiting::default() });
+        let Ok(none) = notifications(Waiting::default());
+        let Ok(three) = notifications(Waiting { many: 3, ..Waiting::default() });
+
         assert_eq!(one.tone, Tone::Plain);
-        assert_ne!(one.icon, bell(Waiting::default()).icon);
-        assert_eq!(bell(Waiting { many: 3, ..Waiting::default() }).icon, one.icon);
+        assert_ne!(one.icon, none.icon);
+        assert_eq!(three.icon, one.icon);
     }
 
     #[test]
     fn a_fault_among_them_colors_the_bell() {
-        let ringing = bell(Waiting { many: 3, wrong: Error::Yes, do_not_disturb: DoNotDisturb::Off });
+        let Ok(ringing) = notifications(Waiting { many: 3, wrong: Error::Yes, do_not_disturb: DoNotDisturb::Off });
 
         assert_eq!(ringing.tone, Tone::Error);
     }
 
     #[test]
     fn quiet_and_waiting_and_held_back_are_not_drawn_the_same() {
-        let quiet = bell(Waiting::default());
-        let ringing = bell(Waiting { many: 1, ..Waiting::default() });
-        let held = bell(Waiting { many: 1, do_not_disturb: DoNotDisturb::On, ..Waiting::default() });
+        let Ok(quiet) = notifications(Waiting::default());
+        let Ok(ringing) = notifications(Waiting { many: 1, ..Waiting::default() });
+        let Ok(held) = notifications(Waiting { many: 1, do_not_disturb: DoNotDisturb::On, ..Waiting::default() });
+        let Ok(off) = notifications(Waiting { do_not_disturb: DoNotDisturb::On, ..Waiting::default() });
+
         assert_ne!(quiet.icon, ringing.icon);
         assert_ne!(ringing.icon, held.icon);
-        assert_ne!(quiet.icon, bell(Waiting { do_not_disturb: DoNotDisturb::On, ..Waiting::default() }).icon);
+        assert_ne!(quiet.icon, off.icon);
     }
 
     #[test]
@@ -147,15 +157,19 @@ mod tests {
             Waiting { many: 1, do_not_disturb: DoNotDisturb::On, ..Waiting::default() },
             Waiting { do_not_disturb: DoNotDisturb::On, ..Waiting::default() },
         ];
+
         for waiting in states {
-            assert_eq!(bell(waiting).icon.chars().count(), 1, "{waiting:?}");
-            assert_eq!(bell(waiting).beside, None, "{waiting:?}");
+            let Ok(bell) = notifications(waiting);
+
+            assert_eq!(bell.icon.chars().count(), 1, "{waiting:?}");
+            assert_eq!(bell.beside, None, "{waiting:?}");
         }
     }
 
     #[test]
     fn a_bell_that_is_holding_them_back_is_struck_through_and_still_says_wrong() {
-        let held = bell(Waiting { many: 2, wrong: Error::Yes, do_not_disturb: DoNotDisturb::On });
+        let Ok(held) = notifications(Waiting { many: 2, wrong: Error::Yes, do_not_disturb: DoNotDisturb::On });
+
         assert_eq!(held.icon, OFF);
         assert_eq!(held.tone, Tone::Error);
     }

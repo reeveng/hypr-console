@@ -35,7 +35,7 @@ pub fn size(bytes: u64) -> Result<String, Never> {
 }
 
 pub fn about(of: Size<u32>, bytes: u64) -> Result<String, Never> {
-    let Ok(shape) = fitting::said(of);
+    let Ok(shape) = fitting::format_size(of);
     let Ok(held) = size(bytes);
     let Ok(megapixels) = fitting::megapixels(of);
 
@@ -56,7 +56,7 @@ pub fn under(kind: Kind, of: Size<u32>, bytes: u64, along: Along) -> Result<Stri
 
             match along.at > 0 || along.whole > 0 {
                 true => {
-                    let Ok(playing) = crate::playing::said(along);
+                    let Ok(playing) = crate::playing::format_position(along);
 
                     said.push(playing);
                 },
@@ -65,7 +65,7 @@ pub fn under(kind: Kind, of: Size<u32>, bytes: u64, along: Along) -> Result<Stri
 
             match pixels > 0 {
                 true => {
-                    let Ok(shape) = fitting::said(of);
+                    let Ok(shape) = fitting::format_size(of);
 
                     said.push(shape);
                 },
@@ -89,33 +89,19 @@ pub fn wont_open(name: &str) -> Result<String, Never> {
 mod tests {
     use super::*;
 
-    fn sized(wide: u32, tall: u32) -> Size<u32> {
-        Size { width: wide, height: tall }
-    }
-
-    fn along(at: u64, whole: u64) -> Along {
-        Along { at, whole }
-    }
-
-    fn said_of(kind: Kind, of: Size<u32>, bytes: u64, along: Along) -> String {
-        let Ok(said) = under(kind, of, bytes, along);
-
-        said
-    }
-
     #[test]
     fn a_size_is_said_in_the_units_a_disk_is_sold_in() {
-        assert_eq!(size(0), Ok("0 bytes".to_string()));
-        assert_eq!(size(999), Ok("999 bytes".to_string()));
-        assert_eq!(size(1_000), Ok("1.0 kB".to_string()));
-        assert_eq!(size(4_200_000), Ok("4.2 MB".to_string()));
-        assert_eq!(size(2_500_000_000), Ok("2.5 GB".to_string()));
-        assert_eq!(size(3_000_000_000_000), Ok("3.0 TB".to_string()));
+        assert_eq!(size(0), Ok(String::from("0 bytes")));
+        assert_eq!(size(999), Ok(String::from("999 bytes")));
+        assert_eq!(size(1_000), Ok(String::from("1.0 kB")));
+        assert_eq!(size(4_200_000), Ok(String::from("4.2 MB")));
+        assert_eq!(size(2_500_000_000), Ok(String::from("2.5 GB")));
+        assert_eq!(size(3_000_000_000_000), Ok(String::from("3.0 TB")));
     }
 
     #[test]
     fn a_photograph_says_its_shape_its_count_and_its_room() {
-        let Ok(said) = about(sized(4000, 3000), 4_200_000);
+        let Ok(said) = about(Size { width: 4000, height: 3000 }, 4_200_000);
 
         assert!(said.contains("4000 x 3000"), "{said}");
         assert!(said.contains("12 megapixels"), "{said}");
@@ -124,7 +110,7 @@ mod tests {
 
     #[test]
     fn something_smaller_than_a_megapixel_does_not_say_so() {
-        let Ok(said) = about(sized(32, 32), 900);
+        let Ok(said) = about(Size { width: 32, height: 32 }, 900);
 
         assert!(!said.contains("megapixel"), "{said}");
         assert!(said.contains("32 x 32"), "{said}");
@@ -132,7 +118,7 @@ mod tests {
 
     #[test]
     fn a_film_says_where_it_has_got_to_first() {
-        let said = said_of(Kind::Film, sized(1920, 1080), 700_000_000, along(0, 7325));
+        let Ok(said) = under(Kind::Film, Size { width: 1920, height: 1080 }, 700_000_000, Along { at: 0, whole: 7325 });
 
         assert!(said.starts_with("0:00 of 2:02:05"), "{said}");
         assert!(said.contains("1920 x 1080"), "{said}");
@@ -140,14 +126,14 @@ mod tests {
 
     #[test]
     fn a_film_part_way_through_says_both_ends_of_it() {
-        let said = said_of(Kind::Film, sized(0, 0), 700_000_000, along(65, 7325));
+        let Ok(said) = under(Kind::Film, Size { width: 0, height: 0 }, 700_000_000, Along { at: 65, whole: 7325 });
 
         assert!(said.starts_with("1:05 of 2:02:05"), "{said}");
     }
 
     #[test]
     fn a_film_of_unread_length_says_what_it_knows() {
-        let said = said_of(Kind::Film, sized(1920, 1080), 700_000_000, along(12, 0));
+        let Ok(said) = under(Kind::Film, Size { width: 1920, height: 1080 }, 700_000_000, Along { at: 12, whole: 0 });
 
         assert!(!said.contains(" of "), "{said}");
         assert!(said.starts_with("0:12"), "{said}");
@@ -156,26 +142,25 @@ mod tests {
 
     #[test]
     fn a_film_nothing_has_read_yet_says_only_how_much_room_it_takes() {
-        let said = said_of(Kind::Film, sized(0, 0), 7_800, Along::default());
+        let Ok(said) = under(Kind::Film, Size { width: 0, height: 0 }, 7_800, Along::default());
 
         assert_eq!(said, "7.8 kB");
     }
 
     #[test]
     fn a_picture_with_no_shape_read_says_only_how_much_room_it_takes() {
-        let said = said_of(Kind::Picture, sized(0, 0), 2_500, Along::default());
+        let Ok(said) = under(Kind::Picture, Size { width: 0, height: 0 }, 2_500, Along::default());
 
         assert_eq!(said, "2.5 kB");
     }
 
     #[test]
     fn a_picture_and_a_film_are_said_differently() {
-        let of = sized(1920, 1080);
+        let of = Size { width: 1920, height: 1080 };
+        let Ok(picture) = under(Kind::Picture, of, 100, Along::default());
+        let Ok(film) = under(Kind::Film, of, 100, Along { at: 0, whole: 7325 });
 
-        assert_ne!(
-            said_of(Kind::Picture, of, 100, Along::default()),
-            said_of(Kind::Film, of, 100, along(0, 7325))
-        );
+        assert_ne!(picture, film);
     }
 
     #[test]

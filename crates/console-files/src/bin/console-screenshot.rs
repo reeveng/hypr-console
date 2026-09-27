@@ -21,11 +21,11 @@ use console_core_external_programs::Program;
 use console_core_places::Folder;
 use console_core_never::Never;
 
-pub fn named(when: &str) -> Result<String, Never> {
+pub fn file_name_for(when: &str) -> Result<String, Never> {
     Ok(format!("screenshot-{when}.png"))
 }
 
-fn when() -> Result<String, Never> {
+fn timestamp() -> Result<String, Never> {
     let Ok(mut asking) = Program::Date.command();
 
     Ok(match asking.arg("+%Y-%m-%d-%H%M%S").output() {
@@ -61,9 +61,9 @@ fn main() -> std::process::ExitCode {
         }
     }
 
-    let Ok(when) = when();
+    let Ok(when) = timestamp();
 
-    let Ok(named) = named(&when);
+    let Ok(named) = file_name_for(&when);
 
     let at = into.join(named);
 
@@ -93,9 +93,9 @@ mod tests {
 
     #[test]
     fn a_picture_is_named_for_the_moment_it_was_taken() {
-        let Ok(one) = named("2026-08-31-142309");
+        let Ok(one) = file_name_for("2026-08-31-142309");
 
-        let Ok(other) = named("2026-01-02-000000");
+        let Ok(other) = file_name_for("2026-01-02-000000");
 
         assert_eq!(one, "screenshot-2026-08-31-142309.png");
 
@@ -103,6 +103,6 @@ mod tests {
 
         two.sort();
 
-        assert_eq!(two[0], other);
+        assert_eq!(two.first(), Some(&other));
     }
 }

@@ -122,12 +122,12 @@ pub struct Where {
 }
 
 impl Where {
-    pub fn made(&self) -> Result<PathBuf, Never> {
+    pub fn compare_dir(&self) -> Result<PathBuf, Never> {
         Ok(self.kept.join("compare"))
     }
 
     pub fn clips(&self) -> Result<PathBuf, Never> {
-        let Ok(made) = self.made();
+        let Ok(made) = self.compare_dir();
 
         Ok(made.join("clips"))
     }
@@ -151,7 +151,7 @@ impl Where {
     }
 
     pub fn report(&self) -> Result<PathBuf, Never> {
-        let Ok(made) = self.made();
+        let Ok(made) = self.compare_dir();
 
         Ok(made.join(format!("said-{}.txt", self.stamp)))
     }
@@ -292,7 +292,7 @@ impl Program for Compare {
 
             (Step::Sizing, Event::Custom(CompareEvent::Looked(seen))) => {
                 let state = Comparing { there: seen.to_vec(), ..state.clone() };
-                let Ok(left) = missing(&state);
+                let Ok(left) = missing_downloads(&state);
 
                 fetching(&state, &left)
             }
@@ -301,7 +301,7 @@ impl Program for Compare {
 
             (Step::Getting(left), Event::Replied(answer)) => match answer.status {
                 ExitStatus::Success => {
-                    let Ok(stepped) = stepped(state, Step::Moving(left.clone()));
+                    let Ok(stepped) = with_step(state, Step::Moving(left.clone()));
                     let Ok(moved) = moved(left);
 
                     Update::new(stepped, vec![Effect::Run(moved)])
@@ -316,7 +316,7 @@ impl Program for Compare {
             (Step::Locating, Event::Custom(CompareEvent::Looked(seen))) => built(state, seen),
 
             (Step::Clearing, Event::Replied(_)) => {
-                let Ok(stepped) = stepped(state, Step::Cloning);
+                let Ok(stepped) = with_step(state, Step::Cloning);
                 let Ok(making) = making(&state.at);
                 let Ok(shown) = shown(&making);
                 let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
@@ -325,7 +325,7 @@ impl Program for Compare {
             }
 
             (Step::Cloning, Event::Replied(_)) => {
-                let Ok(stepped) = stepped(state, Step::Setting);
+                let Ok(stepped) = with_step(state, Step::Setting);
                 let Ok(cloning) = cloning(&state.at);
 
                 Update::new(stepped, vec![Effect::Stream(cloning)])
@@ -334,7 +334,7 @@ impl Program for Compare {
             (Step::Setting, Event::Replied(answer)) => match answer.status {
                 ExitStatus::Failure(_) => badly(state, "llama.cpp would not come down"),
                 ExitStatus::Success => {
-                    let Ok(stepped) = stepped(state, Step::Compiling);
+                    let Ok(stepped) = with_step(state, Step::Compiling);
                     let Ok(configuring) = configuring(&state.at);
 
                     Update::new(stepped, vec![Effect::Stream(configuring)])
@@ -344,7 +344,7 @@ impl Program for Compare {
             (Step::Compiling, Event::Replied(answer)) => match answer.status {
                 ExitStatus::Failure(_) => badly(state, "the second engine would not configure"),
                 ExitStatus::Success => {
-                    let Ok(stepped) = stepped(state, Step::Copying);
+                    let Ok(stepped) = with_step(state, Step::Copying);
                     let Ok(compiling) = compiling(&state.at);
 
                     Update::new(stepped, vec![Effect::Stream(compiling)])
@@ -354,8 +354,8 @@ impl Program for Compare {
             (Step::Copying, Event::Replied(answer)) => match answer.status {
                 ExitStatus::Failure(_) => badly(state, "the second engine would not build"),
                 ExitStatus::Success => {
-                    let Ok(stepped) = stepped(state, Step::Naming);
-                    let Ok(made) = made(&state.at);
+                    let Ok(stepped) = with_step(state, Step::Naming);
+                    let Ok(made) = llama_binary(&state.at);
                     let Ok(from) = shown(&made);
                     let Ok(llama) = state.at.llama();
                     let Ok(into) = coming(&llama);
@@ -366,7 +366,7 @@ impl Program for Compare {
             },
 
             (Step::Naming, Event::Replied(_)) => {
-                let Ok(stepped) = stepped(state, Step::Sweeping);
+                let Ok(stepped) = with_step(state, Step::Sweeping);
                 let Ok(llama) = state.at.llama();
                 let Ok(from) = coming(&llama);
                 let Ok(into) = shown(&llama);
@@ -376,7 +376,7 @@ impl Program for Compare {
             }
 
             (Step::Sweeping, Event::Replied(_)) => {
-                let Ok(stepped) = stepped(state, Step::Finished);
+                let Ok(stepped) = with_step(state, Step::Finished);
                 let Ok(making) = making(&state.at);
                 let Ok(shown) = shown(&making);
                 let Ok(sweeping) = Command::external(ExternalProgram::Rm, &["-rf", &shown]);
@@ -428,10 +428,10 @@ fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
     match state.job {
         Task::Record => {
             let Ok(clips) = fitted::<_, u32>(CLIPS.len());
-            let Ok(stepped) = stepped(state, Step::Recording((0..clips).collect(), RecordingPhase::Waiting));
+            let Ok(stepped) = with_step(state, Step::Recording((0..clips).collect(), RecordingPhase::Waiting));
             let Ok(clips) = state.at.clips();
             let Ok(shown) = shown(&clips);
-            let Ok(asking) = asking(0);
+            let Ok(asking) = prompt_for_clip(0);
             let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
 
             Update::new(
@@ -444,7 +444,7 @@ fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
         }
 
         Task::Models | Task::Fetch => {
-            let Ok(stepped) = stepped(state, Step::Sizing);
+            let Ok(stepped) = with_step(state, Step::Sizing);
             let Ok(shown) = shown(&state.at.kept);
             let Ok(fetches) = fetches(&state.at);
             let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
@@ -456,10 +456,10 @@ fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
             ])
         }
 
-        Task::Build => asked(state),
+        Task::Build => locate_llama(state),
 
         Task::Compare => {
-            let Ok(stepped) = stepped(state, Step::Looking);
+            let Ok(stepped) = with_step(state, Step::Looking);
             let Ok(everything) = everything(&state.at);
 
             Update::new(stepped, vec![Effect::Custom(CompareEffect::Look(everything))])
@@ -478,7 +478,7 @@ fn fetching(
     match left.first() {
         None => match state.job {
             Task::Fetch => {
-                let Ok(stepped) = stepped(state, Step::Locating);
+                let Ok(stepped) = with_step(state, Step::Locating);
                 let Ok(llama) = state.at.llama();
 
                 Update::new(stepped, vec![
@@ -489,8 +489,8 @@ fn fetching(
             Task::Record | Task::Models | Task::Build | Task::Compare => after(state),
         },
         Some((from, into)) => {
-            let Ok(stepped) = stepped(state, Step::Getting(left.to_vec()));
-            let Ok(named) = named(into);
+            let Ok(stepped) = with_step(state, Step::Getting(left.to_vec()));
+            let Ok(named) = file_name(into);
             let Ok(getting) = getting(from, into);
 
             Update::new(stepped, vec![
@@ -501,8 +501,8 @@ fn fetching(
     }
 }
 
-fn asked(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
-    let Ok(stepped) = stepped(state, Step::Locating);
+fn locate_llama(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
+    let Ok(stepped) = with_step(state, Step::Locating);
     let Ok(llama) = state.at.llama();
 
     Update::new(stepped, vec![
@@ -516,7 +516,7 @@ fn built(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, Comp
 
     match is {
         Some(Found::Runnable) => {
-            let Ok(stepped) = stepped(state, Step::Finished);
+            let Ok(stepped) = with_step(state, Step::Finished);
 
             Update::new(stepped, vec![
                 Effect::Print("   already built".to_string()),
@@ -524,7 +524,7 @@ fn built(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, Comp
             ])
         }
         Some(Found::Absent | Found::There) | None => {
-            let Ok(stepped) = stepped(state, Step::Clearing);
+            let Ok(stepped) = with_step(state, Step::Clearing);
             let Ok(making) = making(&state.at);
             let Ok(shown) = shown(&making);
             let Ok(clearing) = Command::external(ExternalProgram::Rm, &["-rf", &shown]);
@@ -550,7 +550,7 @@ fn recording(
 
     match (at, ear, event) {
         (Some(at), RecordingPhase::Waiting, Event::Chosen(_)) => {
-            let Ok(stepped) = stepped(state, Step::Recording(left.to_vec(), RecordingPhase::Recording));
+            let Ok(stepped) = with_step(state, Step::Recording(left.to_vec(), RecordingPhase::Recording));
             let Ok(name) = name(at);
             let Ok(clip) = state.at.clip(name);
             let Ok(asking) = Prompt::unless("  listening, ENTER to stop", Choice::Yes);
@@ -563,10 +563,10 @@ fn recording(
 
         (Some(_), RecordingPhase::Recording, Event::Chosen(_)) => {
             let rest: Vec<u32> = left.iter().skip(1).copied().collect();
-            let Ok(stepped) = stepped(state, Step::Recording(rest.clone(), RecordingPhase::Waiting));
+            let Ok(stepped) = with_step(state, Step::Recording(rest.clone(), RecordingPhase::Waiting));
             let next = match rest.first() {
                 Some(next) => {
-                    let Ok(asking) = asking(*next);
+                    let Ok(asking) = prompt_for_clip(*next);
 
                     asking
                 }
@@ -589,7 +589,7 @@ fn recording(
     }
 }
 
-fn asking(at: u32) -> Result<Vec<Effect<CompareEffect>>, Never> {
+fn prompt_for_clip(at: u32) -> Result<Vec<Effect<CompareEffect>>, Never> {
     let Ok(at) = index(at);
 
     Ok(match CLIPS.get(at) {
@@ -633,7 +633,7 @@ fn looked(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, Com
                     "Nothing has been recorded yet: cargo run --bin voice-compare -- --record",
                 ),
                 false => {
-                    let Ok(stepped) = stepped(&state, Step::DetectingBackend);
+                    let Ok(stepped) = with_step(&state, Step::DetectingBackend);
                     let Ok(probe) = backend_probe(&state);
 
                     Update::new(stepped, vec![Effect::Custom(CompareEffect::Ran(probe))])
@@ -656,8 +656,8 @@ fn backend_detected(state: &Comparing, said: &str) -> Result<Update<Comparing, C
     ];
     let Ok(left) = walking(state);
     let state = Comparing { report: opening.clone(), ..state.clone() };
-    let Ok(stepped) = stepped(&state, Step::Working(left.clone()));
-    let Ok(going) = going(&state, &left);
+    let Ok(stepped) = with_step(&state, Step::Working(left.clone()));
+    let Ok(going) = next_effects(&state, &left);
 
     Update::new(
         stepped,
@@ -693,15 +693,15 @@ fn working(
             report.push(line.clone());
 
             let state = Comparing { report, ..state.clone() };
-            let Ok(stepped) = stepped(&state, Step::Working(rest.clone()));
+            let Ok(stepped) = with_step(&state, Step::Working(rest.clone()));
             let next = match rest.is_empty() {
                 false => {
-                    let Ok(going) = going(&state, &rest);
+                    let Ok(going) = next_effects(&state, &rest);
 
                     going
                 }
                 true => {
-                    let Ok(written) = written(&state);
+                    let Ok(written) = write_report(&state);
 
                     written
                 }
@@ -712,7 +712,7 @@ fn working(
     }
 }
 
-fn going(state: &Comparing, left: &[Work]) -> Result<Vec<Effect<CompareEffect>>, Never> {
+fn next_effects(state: &Comparing, left: &[Work]) -> Result<Vec<Effect<CompareEffect>>, Never> {
     Ok(match left.first() {
         Some(Work::Detect(clip)) => {
             let Ok(detecting) = detecting(state, *clip);
@@ -720,7 +720,7 @@ fn going(state: &Comparing, left: &[Work]) -> Result<Vec<Effect<CompareEffect>>,
             vec![Effect::Custom(CompareEffect::Ran(detecting))]
         }
         Some(Work::Hear(hear)) => {
-            let Ok(hearing) = hearing(state, *hear);
+            let Ok(hearing) = whisper_arguments(state, *hear);
 
             match hearing {
                 Some(arguments) => vec![Effect::Custom(CompareEffect::Timed(arguments))],
@@ -731,7 +731,7 @@ fn going(state: &Comparing, left: &[Work]) -> Result<Vec<Effect<CompareEffect>>,
     })
 }
 
-fn written(state: &Comparing) -> Result<Vec<Effect<CompareEffect>>, Never> {
+fn write_report(state: &Comparing) -> Result<Vec<Effect<CompareEffect>>, Never> {
     let Ok(at) = state.at.report();
     let Ok(shown) = shown(&at);
 
@@ -778,7 +778,7 @@ pub fn fetches(at: &Where) -> Result<Vec<(String, PathBuf)>, Never> {
     Ok(every)
 }
 
-pub fn missing(state: &Comparing) -> Result<Vec<(String, PathBuf)>, Never> {
+pub fn missing_downloads(state: &Comparing) -> Result<Vec<(String, PathBuf)>, Never> {
     let Ok(fetches) = fetches(&state.at);
 
     Ok(fetches
@@ -957,7 +957,7 @@ fn backend_probe(state: &Comparing) -> Result<Vec<String>, Never> {
     ])
 }
 
-pub fn hearing(state: &Comparing, hear: Hear) -> Result<Option<Vec<String>>, Never> {
+pub fn whisper_arguments(state: &Comparing, hear: Hear) -> Result<Option<Vec<String>>, Never> {
     let Hear { clip, model } = hear;
     let Ok(model) = index(model);
 
@@ -1044,12 +1044,12 @@ fn moved(left: &[(String, PathBuf)]) -> Result<Command, Never> {
 }
 
 fn making(at: &Where) -> Result<PathBuf, Never> {
-    let Ok(made) = at.made();
+    let Ok(made) = at.compare_dir();
 
     Ok(made.join("llama.cpp"))
 }
 
-fn made(at: &Where) -> Result<PathBuf, Never> {
+fn llama_binary(at: &Where) -> Result<PathBuf, Never> {
     let Ok(making) = making(at);
 
     Ok(making.join("build/bin/llama-mtmd-cli"))
@@ -1132,14 +1132,14 @@ fn coming(at: &Path) -> Result<String, Never> {
     Ok(format!("{shown}.coming"))
 }
 
-fn named(at: &Path) -> Result<String, Never> {
+fn file_name(at: &Path) -> Result<String, Never> {
     Ok(match at.file_name() {
         Some(named) => named.to_string_lossy().to_string(),
         None => String::new(),
     })
 }
 
-fn stepped(state: &Comparing, step: Step) -> Result<Comparing, Never> {
+fn with_step(state: &Comparing, step: Step) -> Result<Comparing, Never> {
     Ok(Comparing { step, ..state.clone() })
 }
 
@@ -1153,130 +1153,50 @@ mod tests {
 
     use super::*;
 
-    fn whisper(at: &Where) -> PathBuf {
-        let Ok(whisper) = at.whisper();
-
-        whisper
-    }
-
-    fn llama(at: &Where) -> PathBuf {
-        let Ok(llama) = at.llama();
-
-        llama
-    }
-
-    fn model(at: &Where, file: &str) -> PathBuf {
-        let Ok(model) = at.model(file);
-
-        model
-    }
-
-    fn clip(at: &Where, name: &str) -> PathBuf {
-        let Ok(clip) = at.clip(name);
-
-        clip
-    }
-
-    fn clips(at: &Where) -> PathBuf {
-        let Ok(clips) = at.clips();
-
-        clips
-    }
-
-    fn walking(state: &Comparing) -> Vec<Work> {
-        let Ok(walking) = super::walking(state);
-
-        walking
-    }
-
-    fn hearing(state: &Comparing, hear: Hear) -> Option<Vec<String>> {
-        let Ok(hearing) = super::hearing(state, hear);
-
-        hearing
-    }
-
-    fn detected(said: &str) -> Option<String> {
-        let Ok(detected) = super::detected(said);
-
-        detected
-    }
-
-    fn graphics(said: &str) -> Option<String> {
-        let Ok(graphics) = super::graphics(said);
-
-        graphics
-    }
-
-    fn fetches(at: &Where) -> Vec<(String, PathBuf)> {
-        let Ok(fetches) = super::fetches(at);
-
-        fetches
-    }
-
-    fn cloning(at: &Where) -> Command {
-        let Ok(cloning) = super::cloning(at);
-
-        cloning
-    }
-
-    fn configuring(at: &Where) -> Command {
-        let Ok(configuring) = super::configuring(at);
-
-        configuring
-    }
-
-    fn row(model: u32, took: &Timing) -> String {
-        let Ok(row) = super::row(model, took);
-
-        row
-    }
-
-    fn header(clip: u32, said: &str) -> String {
-        let Ok(header) = super::header(clip, said);
-
-        header
-    }
-
-    fn at() -> Where {
-        Where {
+    fn place() -> Result<Where, Never> {
+        Ok(Where {
             kept: PathBuf::from("/home/someone/.local/share/console/voice"),
             host: "handheld".to_string(),
             stamp: "2026-09-05-1730".to_string(),
+        })
+    }
+
+    fn holding(there: Vec<Candidate>) -> Result<Comparing, Never> {
+        let Ok(at) = place();
+
+        Ok(Comparing { job: Task::Compare, step: Step::Looking, at, there, report: Vec::new() })
+    }
+
+    fn all_of(every: &[PathBuf], is: Found) -> Result<Vec<Candidate>, Never> {
+        Ok(every.iter().map(|at| Candidate { at: at.clone(), is }).collect())
+    }
+
+    fn everything_there() -> Result<Vec<Candidate>, Never> {
+        let Ok(at) = place();
+        let Ok(whisper) = at.whisper();
+        let Ok(llama) = at.llama();
+        let Ok(mut there) = all_of(&[whisper, llama], Found::Runnable);
+        let Ok(projector) = at.model(QWEN_MMPROJ);
+
+        for one in &MODELS {
+            let Ok(model) = at.model(one.file);
+
+            there.push(Candidate { at: model, is: Found::There });
         }
-    }
 
-    fn holding(there: Vec<Candidate>) -> Comparing {
-        Comparing {
-            job: Task::Compare,
-            step: Step::Looking,
-            at: at(),
-            there,
-            report: Vec::new(),
+        there.push(Candidate { at: projector, is: Found::There });
+
+        for one in &CLIPS {
+            let Ok(clip) = at.clip(one.name);
+
+            there.push(Candidate { at: clip, is: Found::There });
         }
+
+        Ok(there)
     }
 
-    fn all_of(every: &[PathBuf], is: Found) -> Vec<Candidate> {
-        every.iter().map(|at| Candidate { at: at.clone(), is }).collect()
-    }
-
-    fn everything_there() -> Vec<Candidate> {
-        let at = at();
-        let mut there = all_of(&[whisper(&at), llama(&at)], Found::Runnable);
-
-        there.extend(all_of(
-            &MODELS.iter().map(|one| model(&at, one.file)).collect::<Vec<PathBuf>>(),
-            Found::There,
-        ));
-        there.push(Candidate { at: model(&at, QWEN_MMPROJ), is: Found::There });
-        there.extend(all_of(
-            &CLIPS.iter().map(|one| clip(&at, one.name)).collect::<Vec<PathBuf>>(),
-            Found::There,
-        ));
-        there
-    }
-
-    fn given(job: &str) -> Arguments {
-        let at = at();
+    fn given(job: &str) -> Result<Arguments, Never> {
+        let Ok(at) = place();
         let mut words = vec![
             at.kept.to_string_lossy().to_string(),
             at.host.clone(),
@@ -1290,12 +1210,13 @@ mod tests {
 
         let Ok(arguments) = Arguments::of(&words.iter().map(String::as_str).collect::<Vec<&str>>());
 
-        arguments
+        Ok(arguments)
     }
 
     #[test]
     fn a_word_this_does_not_take_is_refused_rather_than_read_as_a_comparison() {
-        let Ok(said) = run::<Compare>(&given("--everything"), &[Event::Opened]);
+        let Ok(everything) = given("--everything");
+        let Ok(said) = run::<Compare>(&everything, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
         assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Failure(_)))));
@@ -1320,12 +1241,15 @@ mod tests {
 
     #[test]
     fn a_machine_with_no_hearing_of_its_own_stops_rather_than_measuring_the_packaged_one() {
-        let at = at();
+        let Ok(at) = place();
+        let Ok(given) = given("");
+        let Ok(whisper) = at.whisper();
+
         let Ok(said) = run::<Compare>(
-            &given(""),
+            &given,
             &[
                 Event::Opened,
-                Event::Custom(CompareEvent::Looked(vec![Candidate { at: whisper(&at), is: Found::Absent }])),
+                Event::Custom(CompareEvent::Looked(vec![Candidate { at: whisper, is: Found::Absent }])),
             ],
         );
 
@@ -1339,12 +1263,15 @@ mod tests {
 
     #[test]
     fn nothing_recorded_stops_before_a_single_model_is_loaded() {
-        let at = at();
+        let Ok(at) = place();
+        let Ok(given) = given("");
+        let Ok(whisper) = at.whisper();
+
         let Ok(said) = run::<Compare>(
-            &given(""),
+            &given,
             &[
                 Event::Opened,
-                Event::Custom(CompareEvent::Looked(vec![Candidate { at: whisper(&at), is: Found::Runnable }])),
+                Event::Custom(CompareEvent::Looked(vec![Candidate { at: whisper, is: Found::Runnable }])),
             ],
         );
 
@@ -1359,20 +1286,24 @@ mod tests {
 
     #[test]
     fn every_clip_is_read_by_every_model_and_the_language_is_guessed_once_per_clip() {
-        let state = holding(everything_there());
-        let left = walking(&state);
+        let Ok(everything_there) = everything_there();
+        let Ok(state) = holding(everything_there);
+        let Ok(left) = walking(&state);
         assert_eq!(left.iter().filter(|work| matches!(work, Work::Detect(_))).count(), CLIPS.len());
         assert_eq!(left.iter().filter(|work| matches!(work, Work::Hear(_))).count(), CLIPS.len().saturating_mul(MODELS.len()));
     }
 
     #[test]
     fn a_clip_that_was_never_recorded_is_skipped_rather_than_measured_as_silence() {
-        let at = at();
-        let mut there = everything_there();
+        let Ok(at) = place();
+        let Ok(mut there) = everything_there();
 
-        there.retain(|seen| seen.at != clip(&at, "th-tones"));
+        let Ok(tones) = at.clip("th-tones");
 
-        let left = walking(&holding(there));
+        there.retain(|seen| seen.at != tones);
+
+        let Ok(holding) = holding(there);
+        let Ok(left) = walking(&holding);
 
         assert!(
             left.iter().all(|work| !matches!(work, Work::Detect(6))),
@@ -1382,61 +1313,77 @@ mod tests {
 
     #[test]
     fn a_model_that_was_never_fetched_is_not_run() {
-        let at = at();
-        let mut there = everything_there();
+        let Ok(at) = place();
+        let Ok(mut there) = everything_there();
 
-        there.retain(|seen| seen.at != model(&at, "ggml-large-v3.bin"));
+        let Ok(large) = at.model("ggml-large-v3.bin");
 
-        let state = holding(there);
+        there.retain(|seen| seen.at != large);
+
+        let Ok(state) = holding(there);
+        let Ok(unheard) = whisper_arguments(&state, Hear { clip: 0, model: 2 });
 
         assert!(
-            hearing(&state, Hear { clip: 0, model: 2 }).is_none(),
+            unheard.is_none(),
             "a model that is not there was run"
         );
-        assert!(hearing(&state, Hear { clip: 0, model: 0 }).is_some());
+
+        let Ok(hearing) = whisper_arguments(&state, Hear { clip: 0, model: 0 });
+
+        assert!(hearing.is_some());
     }
 
     #[test]
     fn the_second_model_is_not_run_when_the_engine_for_it_was_never_built() {
-        let at = at();
-        let mut there = everything_there();
+        let Ok(at) = place();
+        let Ok(mut there) = everything_there();
 
-        there.retain(|seen| seen.at != llama(&at));
+        let Ok(llama) = at.llama();
 
-        assert!(hearing(&holding(there), Hear { clip: 0, model: 3 }).is_none());
+        there.retain(|seen| seen.at != llama);
+
+        let Ok(holding) = holding(there);
+        let Ok(hearing) = whisper_arguments(&holding, Hear { clip: 0, model: 3 });
+
+        assert!(hearing.is_none());
     }
 
     #[test]
-    fn whisper_is_given_the_language_the_clip_was_spoken_in_and_the_threads_dictate_gives_it() {
-        let arguments =
-            hearing(&holding(everything_there()), Hear { clip: 2, model: 0 }).unwrap_or_default();
+    fn whisper_is_given_the_language_the_clip_was_spoken_in_and_the_threads_dictate_gives_it() -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(everything_there) = everything_there();
+        let Ok(holding) = holding(everything_there);
+        let Ok(hearing) = whisper_arguments(&holding, Hear { clip: 2, model: 0 });
+        let arguments = hearing.ok_or("whisper is not asked to hear the clip")?;
 
         assert!(arguments.windows(2).any(|pair| pair == ["--language".to_string(), "th".to_string()]));
         assert!(arguments.windows(2).any(|pair| pair == ["--threads".to_string(), THREADS.to_string()]));
+
+        Ok(())
     }
 
     #[test]
     fn what_whisper_guessed_is_the_last_thing_it_said_about_a_language() {
         let said = "whisper_init: hello\nauto-detected language: nl (p = 0.9)\n";
 
-        assert_eq!(detected(said), Some("nl".to_string()));
-        assert_eq!(detected("nothing about it"), None);
+        assert_eq!(detected(said), Ok(Some("nl".to_string())));
+        assert_eq!(detected("nothing about it"), Ok(None));
     }
 
     #[test]
     fn a_run_with_no_graphics_line_is_said_to_have_had_none() {
-        assert_eq!(graphics("ggml_vulkan: 0 = AMD Radeon"), Some("ggml_vulkan: 0 = AMD Radeon".to_string()));
-        assert_eq!(graphics("ggml_vulkan: found no devices"), None);
-        assert_eq!(graphics("whisper: nothing to say"), None);
+        assert_eq!(graphics("ggml_vulkan: 0 = AMD Radeon"), Ok(Some("ggml_vulkan: 0 = AMD Radeon".to_string())));
+        assert_eq!(graphics("ggml_vulkan: found no devices"), Ok(None));
+        assert_eq!(graphics("whisper: nothing to say"), Ok(None));
     }
 
     #[test]
     fn every_model_it_would_fetch_has_somewhere_to_fetch_it_from() {
-        let every = fetches(&at());
+        let Ok(at) = place();
+        let Ok(every) = fetches(&at);
 
         for (from, into) in &every {
             assert!(from.starts_with("https://"), "{from} is not somewhere to fetch from");
-            assert!(into.starts_with(&at().kept));
+            assert!(into.starts_with(&at.kept));
         }
 
         assert!(
@@ -1447,9 +1394,12 @@ mod tests {
 
     #[test]
     fn a_model_lands_beside_its_name_and_is_moved_onto_it_only_once_it_is_whole() {
-        let every = fetches(&at());
+        let Ok(at) = place();
+        let Ok(every) = fetches(&at);
+        let Ok(models) = given("--models");
+
         let Ok(said) = run::<Compare>(
-            &given("--models"),
+            &models,
             &[
                 Event::Opened,
                 Event::Custom(CompareEvent::Looked(
@@ -1457,26 +1407,32 @@ mod tests {
                 )),
             ],
         );
-        let Ok(effects) = said.effects();
-        let watched: Vec<Command> = effects
-            .iter()
-            .filter_map(|effect| match effect {
-                Effect::Stream(runs) | Effect::Run(runs) => Some(runs.clone()),
-                _ => None,
-            })
-            .collect();
 
-        assert!(
-            watched.iter().any(|runs| runs.arguments.iter().any(|word| word.ends_with(".coming"))),
-            "a model was written straight onto its own name"
-        );
+        let Ok(effects) = said.effects();
+        let set_aside = effects.iter().flat_map(|effect| match effect {
+            Effect::Stream(runs) | Effect::Run(runs) => runs.arguments.as_slice(),
+            Effect::Prompt(_)
+            | Effect::Spawn(_)
+            | Effect::Subscribe(_)
+            | Effect::Unsubscribe(_)
+            | Effect::Write(_)
+            | Effect::Notify(_)
+            | Effect::Print(_)
+            | Effect::Stop(_)
+            | Effect::Custom(_) => &[],
+        }).any(|word| word.ends_with(".coming"));
+
+        assert!(set_aside, "a model was written straight onto its own name");
     }
 
     #[test]
     fn a_model_already_there_is_not_fetched_again() {
-        let every = fetches(&at());
+        let Ok(at) = place();
+        let Ok(every) = fetches(&at);
+        let Ok(models) = given("--models");
+
         let Ok(said) = run::<Compare>(
-            &given("--models"),
+            &models,
             &[
                 Event::Opened,
                 Event::Custom(CompareEvent::Looked(
@@ -1497,12 +1453,16 @@ mod tests {
 
     #[test]
     fn an_engine_already_built_is_not_built_again() {
-        let at = at();
+        let Ok(at) = place();
+        let Ok(build) = given("--build");
+
+        let Ok(llama) = at.llama();
+
         let Ok(said) = run::<Compare>(
-            &given("--build"),
+            &build,
             &[
                 Event::Opened,
-                Event::Custom(CompareEvent::Looked(vec![Candidate { at: llama(&at), is: Found::Runnable }])),
+                Event::Custom(CompareEvent::Looked(vec![Candidate { at: llama, is: Found::Runnable }])),
             ],
         );
 
@@ -1516,7 +1476,10 @@ mod tests {
 
     #[test]
     fn the_second_engine_is_built_at_a_tag_and_never_at_a_branch() {
-        let arguments = cloning(&at()).arguments;
+        let Ok(at) = place();
+        let Ok(cloning) = cloning(&at);
+
+        let arguments = cloning.arguments;
 
         assert!(arguments.windows(2).any(|pair| pair == ["--branch".to_string(), LLAMA_AT.to_string()]));
         assert!(LLAMA_AT.starts_with('v'), "{LLAMA_AT} does not name a tag");
@@ -1524,7 +1487,10 @@ mod tests {
 
     #[test]
     fn the_second_engine_is_built_against_this_machines_graphics_and_links_nothing_it_might_find() {
-        let arguments = configuring(&at()).arguments;
+        let Ok(at) = place();
+        let Ok(configuring) = configuring(&at);
+
+        let arguments = configuring.arguments;
 
         assert!(arguments.contains(&"-DGGML_VULKAN=ON".to_string()));
         assert!(arguments.contains(&"-DBUILD_SHARED_LIBS=OFF".to_string()));
@@ -1532,37 +1498,42 @@ mod tests {
 
     #[test]
     fn recording_waits_for_a_press_before_it_listens_and_for_another_before_it_stops() {
+        let Ok(record) = given("--record");
+
         let Ok(said) = run::<Compare>(
-            &given("--record"),
+            &record,
             &[Event::Opened, Event::Chosen(Choice::Yes), Event::Chosen(Choice::Yes)],
         );
+
         let Ok(effects) = said.effects();
 
-        let before_the_end: Vec<&Effect<CompareEffect>> = effects
+        let listened_before_the_end = effects
             .iter()
             .take_while(|effect| !matches!(effect, Effect::Custom(CompareEffect::Enough)))
-            .collect();
+            .any(|effect| matches!(effect, Effect::Custom(CompareEffect::Record(_))));
 
         assert!(
             effects.iter().filter(|effect| matches!(effect, Effect::Prompt(_))).count() >= 3,
             "it did not wait to be told to start and to stop"
         );
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Custom(CompareEffect::Enough))));
-        assert!(before_the_end.iter().any(|effect| matches!(effect, Effect::Custom(CompareEffect::Record(_)))));
+        assert!(listened_before_the_end);
     }
 
     #[test]
     fn every_clip_is_recorded_into_its_own_name_under_the_clips_directory() {
-        let at = at();
+        let Ok(at) = place();
 
         for one in &CLIPS {
-            assert_eq!(clip(&at, one.name), clips(&at).join(format!("{}.wav", one.name)));
+            let Ok(clips) = at.clips();
+
+            assert_eq!(at.clip(one.name), Ok(clips.join(format!("{}.wav", one.name))));
         }
     }
 
     #[test]
     fn a_row_says_the_best_and_the_first_because_the_first_is_a_cost_paid_once_a_boot() {
-        let line = row(0, &Timing { first: 3400, best: 900, said: "Settings".to_string() });
+        let Ok(line) = row(0, &Timing { first: 3400, best: 900, said: "Settings".to_string() });
 
         assert!(line.contains("900 ms"));
         assert!(line.contains("first  3400 ms"));
@@ -1571,7 +1542,12 @@ mod tests {
 
     #[test]
     fn a_language_guessed_wrong_is_marked_where_a_person_reading_will_see_it() {
-        assert!(header(1, "auto-detected language: en").contains("<-- wrong"));
-        assert!(!header(1, "auto-detected language: nl").contains("<-- wrong"));
+        let Ok(english) = header(1, "auto-detected language: en");
+
+        assert!(english.contains("<-- wrong"));
+
+        let Ok(dutch) = header(1, "auto-detected language: nl");
+
+        assert!(!dutch.contains("<-- wrong"));
     }
 }

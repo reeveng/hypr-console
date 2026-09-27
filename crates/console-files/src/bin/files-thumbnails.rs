@@ -36,7 +36,7 @@ fn main() {
         }
     };
 
-    let Ok(cache) = Base::Cache.hers();
+    let Ok(cache) = Base::Cache.user();
 
     let cache = match cache {
         Some(cache) => cache,
@@ -63,7 +63,7 @@ fn main() {
 
     let Ok(wanting) = wanting(Path::new(&folder), &store);
 
-    let every = console_concurrency::map(&wanting, |(thing, kind)| made(thing, kind, &store));
+    let every = console_concurrency::map(&wanting, |(thing, kind)| make_thumbnail(thing, kind, &store));
 
     match every {
         Ok(_every_one_tried) => {},
@@ -99,7 +99,7 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
             size: 0,
         };
         let worth = entry.worth_a_picture()?;
-        let found = thumbnails::found(store, &path)?;
+        let found = thumbnails::find_thumbnail(store, &path)?;
 
         match worth == Worth::APicture && found.is_none() {
             true => wanting.push((path, entry.kind)),
@@ -110,7 +110,7 @@ fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never>
     Ok(wanting)
 }
 
-fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
+fn make_thumbnail(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
     let address = thumbnails::address(thing)?;
 
     let address = match address {
@@ -132,7 +132,7 @@ fn made(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
         false => &[None],
     };
 
-    let drawn = drawn(thing, &part, into_it)?;
+    let drawn = extract_frame(thing, &part, into_it)?;
 
     match drawn {
         Made::APicture => {
@@ -188,7 +188,7 @@ enum Made {
         reason = "the list is where in a film to look, and each try runs only when the one before it drew nothing: ffmpeg cannot be asked for a second seek when the first lands past the end"
     )
 )]
-fn drawn(thing: &Path, part: &Path, into_it: &[Option<&str>]) -> Result<Made, Never> {
+fn extract_frame(thing: &Path, part: &Path, into_it: &[Option<&str>]) -> Result<Made, Never> {
     for at in into_it {
         let Ok(mut asking) = Program::Ffmpeg.command();
 

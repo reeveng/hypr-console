@@ -59,7 +59,7 @@ use clippy_utils::diagnostics::span_lint_hir_and_then;
 use rustc_hir::def::Res;
 use rustc_hir::intravisit::{Visitor, walk_expr};
 use rustc_hir::{Block, Expr, ExprKind, HirId, Mutability, Node, PatKind, QPath, StmtKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::hir::nested_filter::OnlyBodies;
 use rustc_middle::ty::{self, GenericArgKind, TyCtxt};
 use rustc_span::Span;
@@ -73,10 +73,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT027_NO_NEEDLESS_COLLECTION,
     Deny,
     "a collection allocated only so that it can be walked once and dropped"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // Everything a collection is asked immediately after being made, where the
@@ -215,10 +211,6 @@ fn say(cx: &LateContext<'_>, of: HirId, at: Span, what: &str, instead: &str) {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit027NoNeedlessCollection {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }
@@ -241,10 +233,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit027NoNeedlessCollection {
     }
 
     fn check_block(&mut self, cx: &LateContext<'tcx>, block: &'tcx Block<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         for (at, stmt) in block.stmts.iter().enumerate() {
             let StmtKind::Let(binding) = stmt.kind else {
                 continue;

@@ -7,7 +7,7 @@ extern crate rustc_span;
 
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Stmt, StmtKind};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 
 dylint_linting::declare_late_lint! {
@@ -18,10 +18,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT005_HANDLE_FALLIBLE,
     Deny,
     "a `Result` used as a statement is a failure no one handled"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // `Result`, whatever it is called at the point of use. Asking the type rather
@@ -37,9 +33,6 @@ fn is_result(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit005HandleFallible {
     fn check_stmt(&mut self, cx: &LateContext<'tcx>, stmt: &'tcx Stmt<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
         let StmtKind::Semi(expr) = stmt.kind else {
             return;
         };

@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 console-core-checksums.workspace = true
 console-core-never.workspace = true
+console-core-iteration.workspace = true
 console-core-number-conversion.workspace = true
 
 [lints]

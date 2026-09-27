@@ -1,0 +1,23 @@
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/main.rs:3:5
+   |
+LL | /     while n > 0 {
+LL | |         n = n.saturating_sub(1);
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+   = note: `#[deny(explicit053_no_while)]` on by default
+
+error: `while` ends the loop on a false answer that has no name here
+  --> $DIR/main.rs:14:5
+   |
+LL | /     while let Some(one) = held.pop() {
+LL | |         sum = sum.saturating_add(one);
+LL | |     }
+   | |_____^
+   |
+   = help: walk it with a `for` over the list or the source of events, or an iterator word that says where it stops
+
+error: aborting due to 2 previous errors
+

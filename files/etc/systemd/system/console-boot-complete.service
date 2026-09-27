@@ -1,0 +1,33 @@
+[Unit]
+Description=Boot complete
+# Limine's menu waits ten seconds at every boot, and it is there for one boot:
+# the one after a machine did not come up, when a snapshot is the way back and
+# a finger on the screen is the only way to choose it. The rest of the time it
+# is ten seconds of a menu nobody reads. This is GRUB's recordfail in the Boot
+# Loader Interface's words, and systemd's boot-complete.target has the same
+# shape: a boot that got this far says the next one needs no menu, and a boot
+# that did not get this far says nothing.
+#
+# It works because Limine erases LoaderConfigTimeoutOneShot as it reads it. So
+# every boot consumes what the one before left, a boot that dies anywhere --
+# in the kernel, in the initramfs, before the login window -- leaves nothing,
+# and the boot after it falls back to limine.conf's own timeout and shows the
+# menu. limine.conf is not touched, which is what #136 asked of any change
+# here.
+#
+# `menu-disabled` and not `0`, although bootctl documents the two as the same:
+# Limine reads a one-shot zero as "no timeout at all" and holds the menu open
+# until somebody chooses (`handle_timeout` in its common/lib/bli.c).
+#
+# Pulled in by the login window's unit rather than enabled, the same way the
+# login window is found: nothing on this machine enables a system unit.
+After=display-manager.service
+
+[Service]
+Type=oneshot
+# Only a boot of the ordinary root says so. A boot of a snapshot came up, and
+# the next boot still wants the menu, because the menu is the only way back out
+# of one: Limine remembers the last entry booted and would otherwise return to
+# the snapshot, silently, for good.
+ExecCondition=/usr/bin/sh -c 'test "$(/usr/bin/findmnt -no FSROOT /)" = /@'
+ExecStart=/usr/bin/bootctl set-timeout-oneshot menu-disabled

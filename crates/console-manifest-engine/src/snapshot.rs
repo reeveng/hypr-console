@@ -46,7 +46,7 @@ pub enum Snapshot {
 }
 
 impl Snapshot {
-    pub fn said(&self) -> Result<String, Never> {
+    pub fn describe(&self) -> Result<String, Never> {
         Ok(match self {
             Snapshot::Made { configuration, number } => format!("{configuration} #{number}"),
             Snapshot::Not { configuration, why } => format!("{configuration}: {why}"),
@@ -58,7 +58,7 @@ pub fn before(what: &str) -> Result<Vec<Snapshot>, Never> {
     Ok(KEPT
         .into_iter()
         .map(|configuration| {
-            let Ok(made) = made(configuration, &["--type", "pre"], Description(what));
+            let Ok(made) = create(configuration, &["--type", "pre"], Description(what));
 
             made
         })
@@ -70,7 +70,7 @@ pub fn after(before: &[Snapshot], what: &str) -> Result<Vec<Snapshot>, Never> {
         .iter()
         .filter_map(|held| match held {
             Snapshot::Made { configuration, number } => {
-                let Ok(made) = made(configuration, &["--type", "post", "--pre-number", number], Description(what));
+                let Ok(made) = create(configuration, &["--type", "post", "--pre-number", number], Description(what));
 
                 Some(made)
             }
@@ -82,7 +82,7 @@ pub fn after(before: &[Snapshot], what: &str) -> Result<Vec<Snapshot>, Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Description<'a>(&'a str);
 
-fn made(configuration: &str, kind: &[&str], what: Description<'_>) -> Result<Snapshot, Never> {
+fn create(configuration: &str, kind: &[&str], what: Description<'_>) -> Result<Snapshot, Never> {
     let Ok(snapper) = Program::Snapper.name();
 
     let arguments: Vec<&str> = [snapper, "-c", configuration, "create"]
@@ -91,7 +91,7 @@ fn made(configuration: &str, kind: &[&str], what: Description<'_>) -> Result<Sna
         .chain(["--cleanup-algorithm", "number", "--print-number", "--description", what.0])
         .collect();
 
-    let Ok(answered) = machine::answered(&arguments);
+    let Ok(answered) = machine::run_captured(&arguments);
 
     match answered.ran {
         Ran::Fine => {},
@@ -124,16 +124,16 @@ mod tests {
 
     #[test]
     fn a_configuration_that_was_taken_is_named_by_its_number() {
-        let held = Snapshot::Made { configuration: "root".into(), number: "412".into() };
-        let Ok(said) = held.said();
+        let held = Snapshot::Made { configuration: "root".to_string(), number: "412".to_string() };
+        let Ok(said) = held.describe();
 
         assert_eq!(said, "root #412");
     }
 
     #[test]
     fn a_configuration_that_was_not_taken_carries_the_reason() {
-        let held = Snapshot::Not { configuration: "home".into(), why: "Unknown config.".into() };
-        let Ok(said) = held.said();
+        let held = Snapshot::Not { configuration: "home".to_string(), why: "Unknown config.".to_string() };
+        let Ok(said) = held.describe();
 
         assert_eq!(said, "home: Unknown config.");
     }
@@ -141,8 +141,8 @@ mod tests {
     #[test]
     fn the_end_is_only_asked_of_the_configurations_that_had_a_beginning() {
         let before = vec![
-            Snapshot::Not { configuration: "root".into(), why: "Unknown config.".into() },
-            Snapshot::Not { configuration: "home".into(), why: "Unknown config.".into() },
+            Snapshot::Not { configuration: "root".to_string(), why: "Unknown config.".to_string() },
+            Snapshot::Not { configuration: "home".to_string(), why: "Unknown config.".to_string() },
         ];
 
         let Ok(after) = after(&before, "console apply");

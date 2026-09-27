@@ -44,12 +44,6 @@ dylint_linting::declare_late_lint! {
     "an infallible function should still return `Result<T, Never>`"
 }
 
-// Tests are exempt, as everywhere in this suite: the harness build of a target
-// is skipped, and the ordinary build of the same code is linted as production.
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
-}
-
 // A method that implements a trait did not choose its own signature, which is
 // the reasoning EXPLICIT007 and EXPLICIT008 already skip an impl for.
 // `Drop::drop` answers with nothing and `Default::default` answers with `Self`
@@ -69,6 +63,17 @@ fn implements_a_trait(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefI
 // rather than by the name, so a helper someone called `main` is still asked.
 fn is_the_entry_point(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
     matches!(cx.tcx.entry_fn(()), Some((entry, _)) if entry == def_id.to_def_id())
+        || is_the_entry_point_under_a_harness(cx, def_id)
+}
+
+// The harness build of a binary puts its own `main` in as the entry point, so
+// the one the binary wrote is asked by where it stands instead: a `main` at the
+// root of a crate built with `--test` is the entry point of the ordinary build
+// of that same crate.
+fn is_the_entry_point_under_a_harness(cx: &LateContext<'_>, def_id: rustc_hir::def_id::LocalDefId) -> bool {
+    cx.sess().opts.test
+        && cx.tcx.opt_item_name(def_id.to_def_id()) == Some(rustc_span::sym::main)
+        && cx.tcx.parent_module_from_def_id(def_id).is_top_level_module()
 }
 
 // An `extern` function's shape belongs to whoever calls it, which here is C:
@@ -109,9 +114,6 @@ impl<'tcx> LateLintPass<'tcx> for Explicit002InfallibleResult {
         _span: rustc_span::Span,
         def_id: rustc_hir::def_id::LocalDefId,
     ) {
-        if is_test_build(cx) {
-            return;
-        }
         if matches!(kind, rustc_hir::intravisit::FnKind::Closure) {
             return;
         }
@@ -124,13 +126,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit002InfallibleResult {
         if is_the_entry_point(cx, def_id) {
             return;
         }
-        let hir_id = cx.tcx.local_def_id_to_hir_id(def_id);
-        if cx
-            .tcx
-            .hir_attrs(hir_id)
-            .iter()
-            .any(|a| a.has_name(rustc_span::sym::test))
-        {
+        if clippy_utils::is_test_function(cx.tcx, def_id) {
             return;
         }
         if returns_result(cx, def_id) {

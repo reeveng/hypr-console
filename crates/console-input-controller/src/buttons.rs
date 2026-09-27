@@ -45,35 +45,30 @@ mod tests {
     use super::*;
     use crate::actions::Action;
 
-    fn table() -> Table {
-        let Ok(ours) = Table::ours();
+    fn what(mode: Mode, button: &str) -> Result<Option<Action>, Never> {
+        let Ok(table) = Table::ours();
+        let Ok(found) = job_for(&table, mode, &[], button);
 
-        ours
-    }
-
-    fn what(mode: Mode, button: &str) -> Option<Action> {
-        let Ok(found) = job_for(&table(), mode, &[], button);
-
-        found.map(|job| job.action)
+        Ok(found.map(|job| job.action))
     }
 
     #[test]
     fn a_back_button_runs_what_it_is_for() {
-        assert_eq!(what(Mode::Desktop, "left-paddle-top"), Some(Action::Menu));
-        assert_eq!(what(Mode::Desktop, "legion-right"), Some(Action::Settings));
+        assert_eq!(what(Mode::Desktop, "left-paddle-top"), Ok(Some(Action::Menu)));
+        assert_eq!(what(Mode::Desktop, "legion-right"), Ok(Some(Action::Settings)));
     }
 
     #[test]
     fn nothing_is_acted_on_where_this_daemon_is_not_the_one_reading() {
         for mode in [Mode::Keyboard, Mode::Prompt] {
-            assert_eq!(what(mode, "left-paddle-top"), None, "{mode:?}");
-            assert_eq!(what(mode, "a"), None, "{mode:?}");
+            assert_eq!(what(mode, "left-paddle-top"), Ok(None), "{mode:?}");
+            assert_eq!(what(mode, "a"), Ok(None), "{mode:?}");
         }
     }
 
     #[test]
     fn a_button_with_nothing_on_it_does_nothing() {
-        assert_eq!(what(Mode::Desktop, "l3"), None);
-        assert_eq!(what(Mode::Desktop, "right-paddle-3"), None);
+        assert_eq!(what(Mode::Desktop, "l3"), Ok(None));
+        assert_eq!(what(Mode::Desktop, "right-paddle-3"), Ok(None));
     }
 }

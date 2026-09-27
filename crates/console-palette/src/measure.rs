@@ -22,7 +22,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub fn named(name: &str) -> Result<Self, Never> {
+    pub fn parse(name: &str) -> Result<Self, Never> {
         Ok(match name {
             "edge" => Kind::Edge,
             "seen" => Kind::Seen,
@@ -140,7 +140,7 @@ pub fn measure(configuration: &Configuration, palette: &Palette) -> Result<Vec<R
 
             each.iter().flat_map(move |front| {
                 pair.back.iter().map(move |back| {
-                    let Ok(kind) = Kind::named(&pair.kind);
+                    let Ok(kind) = Kind::parse(&pair.kind);
 
                     let Ok(wants) = kind.wants_lightness_contrast();
 
@@ -208,23 +208,21 @@ mod tests {
 
     #[test]
     fn anything_unnamed_is_text() {
-        assert_eq!(Kind::named("text"), Ok(Kind::Text));
-        assert_eq!(Kind::named(""), Ok(Kind::Text));
-        assert_eq!(Kind::named("edge"), Ok(Kind::Edge));
+        assert_eq!(Kind::parse("text"), Ok(Kind::Text));
+        assert_eq!(Kind::parse(""), Ok(Kind::Text));
+        assert_eq!(Kind::parse("edge"), Ok(Kind::Edge));
     }
 
     #[test]
     fn the_closest_call_is_the_least_room_and_not_the_lowest_ratio() {
         let row = |asked, got| Row {
-            front: "a".into(), back: "b".into(), asked, got,
+            front: String::from("a"), back: String::from("b"), asked, got,
             asked_lightness_contrast: 0.0, got_lightness_contrast: 0.0,
             kind: Kind::Text, where_: String::new(),
         };
         let bar = row(1.05, 1.30);
         let ink = row(7.0, 7.05);
-
         let Ok(closest) = ink.room();
-
         let Ok(widest) = bar.room();
 
         assert!(closest < widest);
@@ -233,7 +231,7 @@ mod tests {
     #[test]
     fn a_pairing_short_in_either_measure_is_short() {
         let row = |got, got_lightness_contrast| Row {
-            front: "a".into(), back: "b".into(), asked: 7.0, got,
+            front: String::from("a"), back: String::from("b"), asked: 7.0, got,
             asked_lightness_contrast: 75.0, got_lightness_contrast,
             kind: Kind::Text, where_: String::new(),
         };
@@ -245,6 +243,7 @@ mod tests {
     #[test]
     fn a_pairing_only_seen_is_asked_for_no_lightness_contrast_at_all() {
         assert_eq!(Kind::Seen.wants_lightness_contrast(), Ok(Contrast::NotAsked));
+
         for kind in [Kind::Text, Kind::Edge, Kind::Muted] {
             assert_eq!(kind.wants_lightness_contrast(), Ok(Contrast::Wanted), "{kind:?} should have to declare one");
         }

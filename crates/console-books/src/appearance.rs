@@ -116,7 +116,7 @@ pub struct Settings<'a> {
 
 impl Appearance {
     #[must_use]
-    pub fn chosen() -> Result<Appearance, Never> {
+    pub fn current() -> Result<Appearance, Never> {
         let background = console_defaults::setting(BACKGROUND)?;
         let text = console_defaults::setting(TEXT)?;
         let typeface = console_defaults::setting(TYPEFACE)?;
@@ -156,7 +156,7 @@ fn paint(said: Option<&str>) -> Result<Paint, Never> {
 }
 
 #[must_use]
-pub fn written(paint: Paint) -> Result<String, Never> {
+pub fn serialize(paint: Paint) -> Result<String, Never> {
     Ok(match paint {
         Paint::Desktop => DESKTOP.to_string(),
         Paint::Chosen(color) => format!("{} {} {}", color.lightness, color.chroma, color.hue),
@@ -169,7 +169,7 @@ impl ColorRole {
             ColorRole::Background => BACKGROUND,
             ColorRole::Text => TEXT,
         };
-        let Ok(value) = written(paint);
+        let Ok(value) = serialize(paint);
 
         console_defaults::set(console_defaults::Setting { key, value: &value })
     }
@@ -211,9 +211,11 @@ mod tests {
 
     #[test]
     fn a_colour_is_read_back_exactly_as_it_was_written() {
-        for row in grid().expect("the grid") {
+        let Ok(grid) = grid();
+
+        for row in grid {
             for color in row {
-                let Ok(kept) = written(Paint::Chosen(color));
+                let Ok(kept) = serialize(Paint::Chosen(color));
                 let Ok(read) = Appearance::read(Settings { background: Some(&kept), ..Settings::default() });
 
                 assert_eq!(read.background, Paint::Chosen(color), "{kept}");
@@ -239,19 +241,27 @@ mod tests {
     }
 
     #[test]
-    fn the_grid_is_grays_from_white_to_black_and_then_every_hue_pale_to_deep() {
-        let grid = grid().expect("the grid");
-        let grays = grid.first().expect("a row of grays");
+    fn the_grid_is_grays_from_white_to_black_and_then_every_hue_pale_to_deep() -> Result<(), &'static str> {
+        let Ok(grid) = grid();
+        let grays = grid.first().ok_or("a row of grays")?;
 
-        assert_eq!(grid.len(), 1 + SHADES.len());
+        assert_eq!(grid.len(), SHADES.len().saturating_add(1));
         assert!(grid.iter().all(|row| row.len() == 10), "every row is as wide as the others");
         assert!(grays.iter().all(|gray| gray.chroma == 0.0), "a gray has no hue in it");
-        assert!(grays.windows(2).all(|pair| pair[0].lightness > pair[1].lightness), "the grays go from white to black");
+        assert!(
+            grays.windows(2).all(|pair| pair.first().zip(pair.last()).is_some_and(|(this, next)| this.lightness > next.lightness)),
+            "the grays go from white to black"
+        );
         assert_eq!(grays.first().map(|gray| gray.lightness), Some(WHITE));
         assert_eq!(grays.last().map(|gray| gray.lightness), Some(BLACK));
 
         for row in grid.iter().skip(1) {
-            assert!(row.windows(2).all(|pair| pair[0].hue < pair[1].hue), "the hues go round once");
+            assert!(
+                row.windows(2).all(|pair| pair.first().zip(pair.last()).is_some_and(|(this, next)| this.hue < next.hue)),
+                "the hues go round once"
+            );
         }
+
+        Ok(())
     }
 }

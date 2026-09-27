@@ -61,7 +61,7 @@
 //! rest -- be asserted with no screen anywhere near it.
 
 use console_core_color::Oklch;
-use console_core_color::palette::{PaletteError, named};
+use console_core_color::palette::{PaletteError, find_color};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
@@ -265,15 +265,15 @@ pub const SPENDS: [&str; 9] =
 
 impl Wearing {
     pub fn out_of(spent: &BTreeMap<String, String>) -> Result<Wearing, PaletteError> {
-        let ground = named(spent, "ground")?;
-        let text = named(spent, "text")?;
-        let soft = named(spent, "soft")?;
-        let pink = named(spent, "pink")?;
-        let night = named(spent, "night")?;
-        let butter = named(spent, "butter")?;
-        let coral = named(spent, "coral")?;
-        let leaf = named(spent, "leaf")?;
-        let fill = named(spent, "fill")?;
+        let ground = find_color(spent, "ground")?;
+        let text = find_color(spent, "text")?;
+        let soft = find_color(spent, "soft")?;
+        let pink = find_color(spent, "pink")?;
+        let night = find_color(spent, "night")?;
+        let butter = find_color(spent, "butter")?;
+        let coral = find_color(spent, "coral")?;
+        let leaf = find_color(spent, "leaf")?;
+        let fill = find_color(spent, "fill")?;
 
         Ok(Wearing { ground, text, soft, pink, night, butter, coral, leaf, fill })
     }
@@ -567,6 +567,7 @@ impl Rendered {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     const SPENT: &str = "ground=2b2029\ntext=f7e7f3\nsoft=e5cde0\npink=ff9ecb\nnight=231b26\nbutter=f2d692\ncoral=ff8f8f\nleaf=9fd88f\nfill=723b5f";
 
@@ -574,22 +575,17 @@ mod tests {
 
     const ACROSS: u32 = SCREEN.width;
 
-    fn fitting() -> Fitting {
-        let Ok(fitting) = Fitting::of(18);
-
-        fitting
+    fn fitting() -> Result<Fitting, Never> {
+        Fitting::of(18)
     }
 
-    pub(super) fn wearing() -> Wearing {
+    fn sample_palette() -> Result<Wearing, PaletteError> {
         let Ok(spent) = console_core_color::palette::read(SPENT);
 
-        match Wearing::out_of(&spent) {
-            Ok(wearing) => wearing,
-            Err(why) => panic!("a whole palette should dress a bar: {why}"),
-        }
+        Wearing::out_of(&spent)
     }
 
-    fn slot(spans: Vec<Span>, action: Option<BarAction>) -> Measured {
+    fn slot(spans: Vec<Span>, action: Option<BarAction>) -> Result<Measured, Never> {
         let runs = spans
             .iter()
             .map(|one| match one.face {
@@ -599,139 +595,157 @@ mod tests {
             })
             .collect();
 
-        Measured {
+        Ok(Measured {
             slot: Slot { spans, tone: Tone::Plain, lit: Lit::No, action },
             runs,
-        }
+        })
     }
 
-    fn icon(icon: &str, action: Option<BarAction>) -> Measured {
-        slot(vec![Span { text: icon.to_string(), face: Face::Icon }], action)
+    fn icon(icon: &str, action: Option<BarAction>) -> Result<Measured, Never> {
+        slot(vec![Span { text: String::from(icon), face: Face::Icon }], action)
     }
 
-    fn lit(measured: Measured) -> Measured {
-        Measured { slot: Slot { lit: Lit::Yes, ..measured.slot }, ..measured }
+    fn lit(measured: Measured) -> Result<Measured, Never> {
+        Ok(Measured { slot: Slot { lit: Lit::Yes, ..measured.slot }, ..measured })
     }
 
-    fn bar(left: Vec<Measured>, middle: Vec<Measured>, right: Vec<Measured>) -> Bar {
-        Bar { left, middle, right, filling: Filling::None }
+    fn bar(left: Vec<Measured>, middle: Vec<Measured>, right: Vec<Measured>) -> Result<Bar, Never> {
+        Ok(Bar { left, middle, right, filling: Filling::None })
     }
 
-    fn drawn(bar: &Bar) -> Rendered {
-        let Ok(drawn) = along(bar, &wearing(), SCREEN);
+    fn render(bar: &Bar) -> Result<Rendered, PaletteError> {
+        let wearing = sample_palette()?;
+        let Ok(drawn) = along(bar, &wearing, SCREEN);
 
-        drawn
+        Ok(drawn)
     }
 
-    fn panels(drawn: &Rendered) -> Vec<Panel> {
-        let Ok(panels) = console_core_shapes::panels(&drawn.shapes);
-
-        panels
+    fn panels(drawn: &Rendered) -> Result<Vec<Panel>, Never> {
+        console_core_shapes::panels(&drawn.shapes)
     }
 
-    fn words(drawn: &Rendered) -> Vec<Text> {
-        let Ok(words) = console_core_shapes::texts(&drawn.shapes);
-
-        words
+    fn words(drawn: &Rendered) -> Result<Vec<Text>, Never> {
+        console_core_shapes::texts(&drawn.shapes)
     }
 
-    fn far(panel: &Panel) -> i32 {
+    fn far(panel: &Panel) -> Result<i32, Never> {
         let Ok(wide) = fitted::<u32, i32>(panel.size.width);
 
-        panel.at.x.saturating_add(wide)
+        Ok(panel.at.x.saturating_add(wide))
     }
 
-    fn workspace(named: &str, id: i64, lit: Lit) -> Measured {
-        let one = slot(
-            vec![Span { text: named.to_string(), face: Face::Reading }],
+    fn workspace(named: &str, id: i64, lit: Lit) -> Result<Measured, Never> {
+        let Ok(one) = slot(
+            vec![Span { text: String::from(named), face: Face::Reading }],
             Some(BarAction::Workspace(id)),
         );
 
-        Measured { slot: Slot { lit, ..one.slot }, ..one }
+        Ok(Measured { slot: Slot { lit, ..one.slot }, ..one })
     }
 
-    fn reading(icon: &str, beside: &str, item: StatusItem) -> Measured {
+    fn reading((icon, beside): (&str, &str), item: StatusItem) -> Result<Measured, Never> {
         slot(
             vec![
-                Span { text: icon.to_string(), face: Face::Icon },
-                Span { text: beside.to_string(), face: Face::Small },
+                Span { text: String::from(icon), face: Face::Icon },
+                Span { text: String::from(beside), face: Face::Small },
             ],
             Some(BarAction::Settings(item)),
         )
     }
 
-    fn a_bar_of_everything() -> Bar {
+    fn a_bar_of_everything() -> Result<Bar, Never> {
+        let Ok(launcher) = icon("\u{f003b}", Some(BarAction::Launcher));
+        let Ok(keyboard) = icon("\u{f030c}", Some(BarAction::Keyboard));
+        let Ok(first) = workspace("1", 1, Lit::No);
+        let Ok(second) = workspace("2", 2, Lit::No);
+        let Ok(third) = workspace("3", 3, Lit::Yes);
+        let Ok(another) = workspace("+", 4, Lit::No);
+        let Ok(clock) = slot(
+            vec![Span { text: String::from("Sun 20 Sep  02:15"), face: Face::Clock }],
+            Some(BarAction::Calendar),
+        );
+        let Ok(music) = icon("\u{f075a}", Some(BarAction::Music));
+        let Ok(sound) = reading(("\u{f057e}", "60%"), StatusItem::Sound);
+        let Ok(bluetooth) = icon("\u{f00af}", Some(BarAction::Settings(StatusItem::Bluetooth)));
+        let Ok(battery) = reading(("\u{f0079}", "95%"), StatusItem::Battery);
+        let Ok(notifications) = icon("\u{f009c}", Some(BarAction::Notifications));
+
         bar(
-            vec![
-                icon("\u{f003b}", Some(BarAction::Launcher)),
-                icon("\u{f030c}", Some(BarAction::Keyboard)),
-                workspace("1", 1, Lit::No),
-                workspace("2", 2, Lit::No),
-                workspace("3", 3, Lit::Yes),
-                workspace("+", 4, Lit::No),
-            ],
-            vec![slot(
-                vec![Span { text: "Sun 20 Sep  02:15".to_string(), face: Face::Clock }],
-                Some(BarAction::Calendar),
-            )],
-            vec![
-                icon("\u{f075a}", Some(BarAction::Music)),
-                reading("\u{f057e}", "60%", StatusItem::Sound),
-                icon("\u{f00af}", Some(BarAction::Settings(StatusItem::Bluetooth))),
-                reading("\u{f0079}", "95%", StatusItem::Battery),
-                icon("\u{f009c}", Some(BarAction::Notifications)),
-            ],
+            vec![launcher, keyboard, first, second, third, another],
+            vec![clock],
+            vec![music, sound, bluetooth, battery, notifications],
         )
     }
 
-    fn does_of(slots: &[Measured]) -> Vec<Option<BarAction>> {
-        slots.iter().map(|one| one.slot.action).collect()
+    fn does_of(slots: &[Measured]) -> Result<Vec<Option<BarAction>>, Never> {
+        Ok(slots.iter().map(|one| one.slot.action).collect())
+    }
+
+    fn runs_of(slots: &[Measured]) -> Result<Vec<u32>, Never> {
+        Ok(slots
+            .iter()
+            .map(|one| {
+                let Ok(runs) = fitted(one.runs.len());
+
+                runs
+            })
+            .collect())
     }
 
     #[test]
     fn a_bar_with_the_room_for_everything_sheds_nothing() {
-        let whole = a_bar_of_everything();
-        let Ok(shed) = shed(&whole, fitting(), ACROSS);
+        let Ok(whole) = a_bar_of_everything();
+        let Ok(fitting) = fitting();
+        let Ok(shed) = shed(&whole, fitting, ACROSS);
 
         assert_eq!(shed, whole);
     }
 
-    fn runs_of(slots: &[Measured]) -> Vec<u32> {
-        slots.iter().map(|one| u32::try_from(one.runs.len()).unwrap()).collect()
-    }
-
     #[test]
     fn a_bar_with_no_room_keeps_the_workspace_you_are_on_and_drops_the_rest() {
-        let whole = a_bar_of_everything();
-        let Ok(needs) = needs(&whole, fitting());
-        let Ok(shed) = shed(&whole, fitting(), needs.saturating_sub(100));
+        let Ok(whole) = a_bar_of_everything();
+        let Ok(fitting) = fitting();
+        let Ok(needs) = needs(&whole, fitting);
+        let Ok(shed) = shed(&whole, fitting, needs.saturating_sub(100));
+        let Ok(kept) = does_of(&shed.left);
+        let Ok(shed_runs) = runs_of(&shed.right);
+        let Ok(whole_runs) = runs_of(&whole.right);
+        let Ok(shed_middle) = does_of(&shed.middle);
+        let Ok(whole_middle) = does_of(&whole.middle);
 
         assert_eq!(
-            does_of(&shed.left),
+            kept,
             [Some(BarAction::Launcher), Some(BarAction::Keyboard), Some(BarAction::Workspace(3))],
             "the workspaces no one is on should have gone first"
         );
-        assert_eq!(runs_of(&shed.right), runs_of(&whole.right), "a reading lost its words too soon");
-        assert_eq!(does_of(&shed.middle), does_of(&whole.middle), "the clock was taken away");
+        assert_eq!(shed_runs, whole_runs, "a reading lost its words too soon");
+        assert_eq!(shed_middle, whole_middle, "the clock was taken away");
     }
 
     #[test]
     fn a_bar_with_still_less_room_keeps_the_readings_and_drops_what_they_say() {
-        let whole = a_bar_of_everything();
-        let Ok(folded) = shed(&whole, fitting(), 0);
+        let Ok(whole) = a_bar_of_everything();
+        let Ok(fitting) = fitting();
+        let Ok(folded) = shed(&whole, fitting, 0);
+        let Ok(folded_right) = does_of(&folded.right);
+        let Ok(whole_right) = does_of(&whole.right);
+        let Ok(folded_runs) = runs_of(&folded.right);
+        let Ok(folded_middle) = does_of(&folded.middle);
+        let Ok(whole_middle) = does_of(&whole.middle);
 
-        assert_eq!(does_of(&folded.right), does_of(&whole.right), "a reading was taken away");
-        assert_eq!(runs_of(&folded.right), [1, 1, 1, 1, 1], "a reading kept its words");
-        assert_eq!(does_of(&folded.middle), does_of(&whole.middle), "the clock was taken away");
+        assert_eq!(folded_right, whole_right, "a reading was taken away");
+        assert_eq!(folded_runs, [1, 1, 1, 1, 1], "a reading kept its words");
+        assert_eq!(folded_middle, whole_middle, "the clock was taken away");
     }
 
     #[test]
-    fn nothing_on_a_turned_screens_bar_is_drawn_over_anything_else() {
-        let whole = a_bar_of_everything();
+    fn nothing_on_a_turned_screens_bar_is_drawn_over_anything_else() -> Result<(), Box<dyn Error>> {
+        let Ok(whole) = a_bar_of_everything();
+        let wearing = sample_palette()?;
 
         for wide in [800_u32, 1024, 1280, 2048, 2560] {
             let room = Size { width: wide, height: wide.saturating_mul(2) };
-            let Ok(drawn) = along(&whole, &wearing(), room);
+            let Ok(drawn) = along(&whole, &wearing, room);
 
             for pair in drawn.touching.windows(2) {
                 match (pair.first(), pair.get(1)) {
@@ -749,11 +763,13 @@ mod tests {
                 }
             }
         }
+
+        Ok(())
     }
 
     #[test]
     fn the_shares_land_on_the_numbers_the_stylesheet_held() {
-        let one = fitting();
+        let Ok(one) = fitting();
         let Ok(tall) = one.height();
         let size = |face| {
             let Ok(font) = one.font(face);
@@ -812,31 +828,35 @@ mod tests {
 
     #[test]
     fn a_slab_is_what_it_says_and_the_padding_a_thumb_lands_on() {
-        let one = fitting();
-        let Ok(size) = slab(&icon("\u{f00af}", None), one);
+        let Ok(one) = fitting();
+        let Ok(bluetooth) = icon("\u{f00af}", None);
+        let Ok(size) = slab(&bluetooth, one);
 
-        assert_eq!(size.width, 14 + one.pad * 2);
-        assert_eq!(size.height, one.deep - one.margin * 2);
+        assert_eq!(size.width, one.pad.saturating_mul(2).saturating_add(14));
+        assert_eq!(size.height, one.deep.saturating_sub(one.margin.saturating_mul(2)));
     }
 
     #[test]
     fn a_slot_saying_two_things_puts_a_gap_between_them_and_pads_the_pair() {
-        let both = slot(
+        let Ok(both) = slot(
             vec![
-                Span { text: "\u{f0079}".to_string(), face: Face::Icon },
-                Span { text: "64%".to_string(), face: Face::Small },
+                Span { text: String::from("\u{f0079}"), face: Face::Icon },
+                Span { text: String::from("64%"), face: Face::Small },
             ],
             None,
         );
-        let fitting = fitting();
+        let Ok(fitting) = fitting();
         let Ok(one) = slab(&both, fitting);
+        let padded = fitting.pad.saturating_mul(2).saturating_add(fitting.between);
 
-        assert_eq!(one.width, 14 + fitting.between + 24 + fitting.pad * 2);
+        assert_eq!(one.width, padded.saturating_add(14).saturating_add(24));
     }
 
     #[test]
-    fn nothing_that_can_be_pressed_is_smaller_than_a_thumb() {
-        let drawn = drawn(&bar(vec![icon("\u{f0004}", Some(BarAction::Launcher))], vec![], vec![]));
+    fn nothing_that_can_be_pressed_is_smaller_than_a_thumb() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(bar) = bar(vec![launcher], vec![], vec![]);
+        let drawn = render(&bar)?;
 
         for touching in &drawn.touching {
             assert!(
@@ -845,104 +865,120 @@ mod tests {
                 touching.panel.size
             );
         }
+
         assert_eq!(drawn.touching.len(), 1);
+
+        Ok(())
     }
 
     #[test]
-    fn the_left_group_starts_at_the_left_edge_and_the_right_group_ends_at_the_right() {
-        let drawn = drawn(&bar(
-            vec![lit(icon("\u{f0004}", Some(BarAction::Launcher)))],
-            vec![],
-            vec![lit(icon("\u{f009c}", Some(BarAction::Notifications)))],
-        ));
-        let round = Round(fitting().round);
-        let slabs: Vec<Panel> =
-            panels(&drawn).into_iter().filter(|panel| panel.round == round).collect();
-        let Ok(margin) = fitted::<u32, i32>(fitting().margin);
+    fn the_left_group_starts_at_the_left_edge_and_the_right_group_ends_at_the_right() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(notifications) = icon("\u{f009c}", Some(BarAction::Notifications));
+        let Ok(launcher) = lit(launcher);
+        let Ok(notifications) = lit(notifications);
+        let Ok(bar) = bar(vec![launcher], vec![], vec![notifications]);
+        let drawn = render(&bar)?;
+        let Ok(fitting) = fitting();
+        let round = Round(fitting.round);
+        let Ok(panels) = panels(&drawn);
+        let slabs: Vec<Panel> = panels.into_iter().filter(|panel| panel.round == round).collect();
+        let Ok(margin) = fitted::<u32, i32>(fitting.margin);
         let Ok(across) = fitted::<u32, i32>(ACROSS);
 
         match slabs.as_slice() {
             [left, right] => {
+                let Ok(far) = far(right);
+
                 assert_eq!(left.at.x, margin, "the first slab is not against the left edge");
-                assert_eq!(
-                    far(right),
-                    across.saturating_sub(margin),
-                    "the last slab is not against the right edge"
-                );
+                assert_eq!(far, across.saturating_sub(margin), "the last slab is not against the right edge");
+
+                Ok(())
             }
-            _ => panic!("two lit slabs should be drawn: {slabs:?}"),
+            other => Err(Box::from(format!("two lit slabs should be drawn: {other:?}"))),
         }
     }
 
     #[test]
-    fn the_middle_is_the_middle_however_wide_the_screen_is() {
-        let clock = slot(vec![Span { text: "14:30".to_string(), face: Face::Clock }], None);
+    fn the_middle_is_the_middle_however_wide_the_screen_is() -> Result<(), Box<dyn Error>> {
+        let Ok(clock) = slot(vec![Span { text: String::from("14:30"), face: Face::Clock }], None);
         let one = [clock.clone()];
-        let bar = bar(vec![], vec![clock], vec![]);
+        let Ok(bar) = bar(vec![], vec![clock], vec![]);
+        let wearing = sample_palette()?;
 
         for wide in [640_u32, 1024, 1280] {
             let room = Size { width: wide, height: SCREEN.height };
             let Ok(fitting) = Fitting::of_em();
-            let Ok(drawn) = along(&bar, &wearing(), room);
+            let Ok(drawn) = along(&bar, &wearing, room);
             let Ok(one) = group(&one, fitting);
-            let run = match words(&drawn).first() {
-                Some(run) => run.at.x,
-                None => panic!("the clock should be drawn"),
-            };
+            let Ok(words) = words(&drawn);
+            let run = words.first().ok_or("the clock should be drawn")?;
             let Ok(from) = fitted::<u32, i32>(wide.saturating_sub(one).div_ceil(2));
             let Ok(into) = fitted::<u32, i32>(fitting.margin.saturating_add(fitting.pad));
 
-            assert_eq!(run, from.saturating_add(into), "at {wide} across");
+            assert_eq!(run.at.x, from.saturating_add(into), "at {wide} across");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn lighting_a_slot_moves_nothing_along_the_bar() {
-        let dark = bar(
-            vec![icon("\u{f0004}", Some(BarAction::Launcher)), icon("\u{f0311}", Some(BarAction::Keyboard))],
-            vec![],
-            vec![],
-        );
-        let alight = bar(
-            vec![
-                lit(icon("\u{f0004}", Some(BarAction::Launcher))),
-                icon("\u{f0311}", Some(BarAction::Keyboard)),
-            ],
-            vec![],
-            vec![],
-        );
+    fn lighting_a_slot_moves_nothing_along_the_bar() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(keyboard) = icon("\u{f0311}", Some(BarAction::Keyboard));
+        let Ok(lit_launcher) = lit(launcher.clone());
+        let Ok(dark) = bar(vec![launcher, keyboard.clone()], vec![], vec![]);
+        let Ok(alight) = bar(vec![lit_launcher, keyboard], vec![], vec![]);
+        let dark = render(&dark)?;
+        let alight = render(&alight)?;
+        let Ok(dark_words) = words(&dark);
+        let Ok(alight_words) = words(&alight);
 
-        let placed = |bar: &Bar| {
-            drawn(bar).touching.iter().map(|touching| touching.panel.at).collect::<Vec<_>>()
-        };
+        let placed = |drawn: &Rendered| drawn.touching.iter().map(|touching| touching.panel.at).collect::<Vec<_>>();
 
         assert_eq!(placed(&dark), placed(&alight));
         assert_eq!(
-            words(&drawn(&dark)).iter().map(|run| run.at).collect::<Vec<_>>(),
-            words(&drawn(&alight)).iter().map(|run| run.at).collect::<Vec<_>>()
+            dark_words.iter().map(|run| run.at).collect::<Vec<_>>(),
+            alight_words.iter().map(|run| run.at).collect::<Vec<_>>()
         );
+
+        Ok(())
     }
 
     #[test]
-    fn an_unlit_slot_draws_no_slab_and_the_bar_shows_through() {
-        let dark = drawn(&bar(vec![icon("\u{f0004}", Some(BarAction::Launcher))], vec![], vec![]));
-        let alight = drawn(&bar(vec![lit(icon("\u{f0004}", Some(BarAction::Launcher)))], vec![], vec![]));
+    fn an_unlit_slot_draws_no_slab_and_the_bar_shows_through() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(lit_launcher) = lit(launcher.clone());
+        let Ok(dark) = bar(vec![launcher], vec![], vec![]);
+        let Ok(alight) = bar(vec![lit_launcher], vec![], vec![]);
+        let dark = render(&dark)?;
+        let alight = render(&alight)?;
+        let Ok(dark) = panels(&dark);
+        let Ok(alight) = panels(&alight);
 
-        assert_eq!(panels(&dark).len(), 1, "an unlit slot drew something under itself");
-        assert_eq!(panels(&alight).len(), 2, "a lit slot drew no slab");
+        assert_eq!(dark.len(), 1, "an unlit slot drew something under itself");
+        assert_eq!(alight.len(), 2, "a lit slot drew no slab");
+
+        Ok(())
     }
 
     #[test]
-    fn a_lit_slot_wears_the_deepest_ink_because_it_is_standing_on_pink() {
-        let alight = drawn(&bar(vec![lit(icon("\u{f0004}", Some(BarAction::Launcher)))], vec![], vec![]));
-        let worn = wearing();
+    fn a_lit_slot_wears_the_deepest_ink_because_it_is_standing_on_pink() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(launcher) = lit(launcher);
+        let Ok(bar) = bar(vec![launcher], vec![], vec![]);
+        let alight = render(&bar)?;
+        let worn = sample_palette()?;
+        let Ok(words) = words(&alight);
 
-        assert_eq!(words(&alight).first().map(|run| run.ink), Some(worn.night));
+        assert_eq!(words.first().map(|run| run.ink), Some(worn.night));
+
+        Ok(())
     }
 
     #[test]
-    fn a_reading_and_a_thing_that_is_pressed_are_not_the_same_color_at_rest() {
-        let worn = wearing();
+    fn a_reading_and_a_thing_that_is_pressed_are_not_the_same_color_at_rest() -> Result<(), Box<dyn Error>> {
+        let worn = sample_palette()?;
         let ink = |tone| {
             let Ok(ink) = worn.ink(tone, Lit::No);
 
@@ -954,111 +990,130 @@ mod tests {
         assert_eq!(ink(Tone::Secondary), worn.soft);
         assert_ne!(ink(Tone::Plain), ink(Tone::Pressed));
         assert_ne!(ink(Tone::Plain), ink(Tone::Secondary));
+
+        Ok(())
     }
 
     #[test]
-    fn every_run_a_slot_says_is_drawn_and_not_only_the_first() {
-        let charge = slot(
-            vec![
-                Span { text: "\u{f0079}".to_string(), face: Face::Icon },
-                Span { text: "64%".to_string(), face: Face::Small },
-            ],
-            Some(BarAction::Settings(StatusItem::Battery)),
-        );
-        let drawn = drawn(&bar(vec![], vec![], vec![charge]));
-        let said: Vec<String> = words(&drawn).into_iter().map(|run| run.said).collect();
+    fn every_run_a_slot_says_is_drawn_and_not_only_the_first() -> Result<(), Box<dyn Error>> {
+        let Ok(charge) = reading(("\u{f0079}", "64%"), StatusItem::Battery);
+        let Ok(bar) = bar(vec![], vec![], vec![charge]);
+        let drawn = render(&bar)?;
+        let Ok(words) = words(&drawn);
+        let said: Vec<String> = words.into_iter().map(|run| run.said).collect();
 
-        assert_eq!(said, ["\u{f0079}".to_string(), "64%".to_string()]);
+        assert_eq!(said, [String::from("\u{f0079}"), String::from("64%")]);
+
+        Ok(())
     }
 
     #[test]
-    fn what_a_slot_says_is_centred_down_the_bar_whatever_height_it_came_out() {
-        let charge = slot(
+    fn what_a_slot_says_is_centred_down_the_bar_whatever_height_it_came_out() -> Result<(), Box<dyn Error>> {
+        let Ok(charge) = slot(
             vec![
-                Span { text: "\u{f0079}".to_string(), face: Face::Icon },
-                Span { text: "64%".to_string(), face: Face::Small },
+                Span { text: String::from("\u{f0079}"), face: Face::Icon },
+                Span { text: String::from("64%"), face: Face::Small },
             ],
             None,
         );
-        let drawn = drawn(&bar(vec![charge], vec![], vec![]));
-        let middles: Vec<u32> = words(&drawn)
+        let Ok(bar) = bar(vec![charge], vec![], vec![]);
+        let drawn = render(&bar)?;
+        let Ok(words) = words(&drawn);
+        let middles: Vec<u32> = words
             .iter()
             .zip([22_u32, 13])
             .map(|(run, tall)| {
-                let down = u32::try_from(run.at.y).unwrap_or(0);
+                let Ok(down) = fitted::<i32, u32>(run.at.y);
 
                 down.saturating_mul(2).saturating_add(tall)
             })
             .collect();
 
         match middles.as_slice() {
-            [icon, beside] => assert!(
-                icon.abs_diff(*beside) <= 1,
-                "the icon and the reading beside it sit on different lines: {icon} and {beside}"
-            ),
-            _ => panic!("two runs should be drawn: {middles:?}"),
+            [icon, beside] => {
+                assert!(
+                    icon.abs_diff(*beside) <= 1,
+                    "the icon and the reading beside it sit on different lines: {icon} and {beside}"
+                );
+
+                Ok(())
+            }
+            other => Err(Box::from(format!("two runs should be drawn: {other:?}"))),
         }
     }
 
     #[test]
-    fn a_thumb_on_the_second_icon_is_on_the_second_icon() {
-        let drawn = drawn(&bar(
-            vec![icon("\u{f0004}", Some(BarAction::Launcher)), icon("\u{f0311}", Some(BarAction::Keyboard))],
-            vec![],
-            vec![],
-        ));
-        let second = match drawn.touching.get(1) {
-            Some(touching) => touching.panel.at.x.saturating_add(2),
-            None => panic!("two slots should answer a tap"),
-        };
-        let Ok(found) = drawn.on(Point { x: second, y: 20 });
+    fn a_thumb_on_the_second_icon_is_on_the_second_icon() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(keyboard) = icon("\u{f0311}", Some(BarAction::Keyboard));
+        let Ok(bar) = bar(vec![launcher, keyboard], vec![], vec![]);
+        let drawn = render(&bar)?;
+        let second = drawn.touching.get(1).ok_or("two slots should answer a tap")?;
+        let Ok(found) = drawn.on(Point { x: second.panel.at.x.saturating_add(2), y: 20 });
 
         assert_eq!(found, Some(BarAction::Keyboard));
+
+        Ok(())
     }
 
     #[test]
-    fn a_thumb_on_the_bar_itself_is_on_nothing() {
-        let drawn = drawn(&bar(vec![icon("\u{f0004}", Some(BarAction::Launcher))], vec![], vec![]));
+    fn a_thumb_on_the_bar_itself_is_on_nothing() -> Result<(), Box<dyn Error>> {
+        let Ok(launcher) = icon("\u{f0004}", Some(BarAction::Launcher));
+        let Ok(bar) = bar(vec![launcher], vec![], vec![]);
+        let drawn = render(&bar)?;
         let Ok(middle) = drawn.on(Point { x: 500, y: 20 });
         let Ok(under) = drawn.on(Point { x: 20, y: 38 });
 
         assert_eq!(middle, None, "the empty middle of the bar opened something");
         assert_eq!(under, None, "the strip under the bar opened something");
+
+        Ok(())
     }
 
     #[test]
-    fn a_slot_that_only_reads_answers_no_tap_at_all() {
-        let clock = slot(vec![Span { text: "14:30".to_string(), face: Face::Clock }], None);
-        let drawn = drawn(&bar(vec![], vec![clock], vec![]));
+    fn a_slot_that_only_reads_answers_no_tap_at_all() -> Result<(), Box<dyn Error>> {
+        let Ok(clock) = slot(vec![Span { text: String::from("14:30"), face: Face::Clock }], None);
+        let Ok(bar) = bar(vec![], vec![clock], vec![]);
+        let drawn = render(&bar)?;
 
         assert!(drawn.touching.is_empty(), "the clock answered a tap");
+
+        Ok(())
     }
 
     #[test]
-    fn the_strip_is_the_last_rows_of_the_bar_and_is_drawn_nowhere_else() {
-        let fitting = fitting();
+    fn the_strip_is_the_last_rows_of_the_bar_and_is_drawn_nowhere_else() -> Result<(), Box<dyn Error>> {
+        let Ok(fitting) = fitting();
         let Ok(tall) = fitting.height();
-        let running = Bar { filling: Filling::At(500), ..bar(vec![], vec![], vec![]) };
-        let drawn = drawn(&running);
+        let Ok(empty) = bar(vec![], vec![], vec![]);
+        let running = Bar { filling: Filling::At(500), ..empty };
+        let drawn = render(&running)?;
         let Ok(down) = fitted::<u32, i32>(fitting.deep);
+        let Ok(panels) = panels(&drawn);
 
         assert_eq!(drawn.room, Size { width: ACROSS, height: tall });
 
-        match panels(&drawn).as_slice() {
+        match panels.as_slice() {
             [ground, strip] => {
                 assert_eq!(ground.size.height, tall, "the bar's own ground is not the whole surface");
                 assert_eq!(strip.at.y, down);
                 assert_eq!(strip.size.height, fitting.thin);
+
+                Ok(())
             }
-            other => panic!("a ground and a fill should be drawn: {other:?}"),
+            other => Err(Box::from(format!("a ground and a fill should be drawn: {other:?}"))),
         }
     }
 
     #[test]
-    fn nothing_fills_the_strip_while_nothing_is_running() {
-        let drawn = drawn(&bar(vec![], vec![], vec![]));
+    fn nothing_fills_the_strip_while_nothing_is_running() -> Result<(), Box<dyn Error>> {
+        let Ok(bar) = bar(vec![], vec![], vec![]);
+        let drawn = render(&bar)?;
+        let Ok(panels) = panels(&drawn);
 
-        assert_eq!(panels(&drawn).len(), 1, "something filled the strip with no apply running");
+        assert_eq!(panels.len(), 1, "something filled the strip with no apply running");
+
+        Ok(())
     }
 
     #[test]
@@ -1084,22 +1139,21 @@ mod tests {
     fn a_palette_that_does_not_spend_what_the_bar_wears_names_it() {
         let mut spent = BTreeMap::new();
 
-        spent.insert("ground".to_string(), "2b2029".to_string());
+        spent.insert(String::from("ground"), String::from("2b2029"));
 
         assert_eq!(Wearing::out_of(&spent), Err(PaletteError::Absent("text")));
     }
 
     #[test]
-    fn the_bar_wears_nothing_the_palette_is_not_asked_for() {
+    fn the_bar_wears_nothing_the_palette_is_not_asked_for() -> Result<(), PaletteError> {
         let mut spent = BTreeMap::new();
 
         for named in SPENDS {
-            spent.insert(named.to_string(), "2b2029".to_string());
+            spent.insert(String::from(named), String::from("2b2029"));
         }
 
-        match Wearing::out_of(&spent) {
-            Ok(_dressed) => {}
-            Err(why) => panic!("the names this bar spends should dress it: {why}"),
-        }
+        let _dressed = Wearing::out_of(&spent)?;
+
+        Ok(())
     }
 }

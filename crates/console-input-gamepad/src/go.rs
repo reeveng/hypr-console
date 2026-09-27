@@ -130,7 +130,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         })
     }
 
-    pub fn holding(&self) -> Result<Vec<&str>, Never> {
+    pub fn held_buttons(&self) -> Result<Vec<&str>, Never> {
         Ok(self.held.iter().map(String::as_str).collect())
     }
 

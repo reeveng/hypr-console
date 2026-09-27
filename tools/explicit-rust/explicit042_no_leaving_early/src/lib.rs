@@ -46,7 +46,7 @@ extern crate rustc_hir;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{Expr, ExprKind, QPath};
-use rustc_lint::{LateContext, LateLintPass, LintContext};
+use rustc_lint::{LateContext, LateLintPass};
 
 dylint_linting::declare_late_lint! {
     /// EXPLICIT042: `std::process::exit` leaves without unwinding, so nothing
@@ -56,10 +56,6 @@ dylint_linting::declare_late_lint! {
     pub EXPLICIT042_NO_LEAVING_EARLY,
     Deny,
     "leaving the process without unwinding; nothing held is dropped"
-}
-
-fn is_test_build(cx: &LateContext<'_>) -> bool {
-    cx.sess().opts.test
 }
 
 // Read off the resolved path, so a `use std::process::exit` is the same
@@ -78,10 +74,6 @@ fn leaves_without_unwinding(path: &str) -> Option<&'static str> {
 
 impl<'tcx> LateLintPass<'tcx> for Explicit042NoLeavingEarly {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
-        if is_test_build(cx) {
-            return;
-        }
-
         if expr.span.from_expansion() {
             return;
         }

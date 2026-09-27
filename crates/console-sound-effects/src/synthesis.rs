@@ -57,7 +57,7 @@ struct Sounding {
     partial: Option<Partial>,
 }
 
-fn sounding(voice: Voice) -> Result<Sounding, Never> {
+fn voice_envelope(voice: Voice) -> Result<Sounding, Never> {
     Ok(match voice {
         Voice::Tap => Sounding { wave: Wave::Sine, attack: 0.005, decay: 0.25, lowpass: 3500.0, gain: 0.2, partial: None },
         Voice::Bell => Sounding {
@@ -138,8 +138,8 @@ fn note(sound: Sounding, pitch: f64) -> Result<impl Iterator<Item = f64>, Never>
 }
 
 #[must_use]
-pub fn rendered(cue: &Cue, root: Degree) -> Result<Vec<u8>, Never> {
-    let Ok(sound) = sounding(cue.voice);
+pub fn render(cue: &Cue, root: Degree) -> Result<Vec<u8>, Never> {
+    let Ok(sound) = voice_envelope(cue.voice);
     let last = cue.notes.iter().map(|played| played.at).fold(0.0, f64::max);
     let Ok(length) = samples(last + sound.decay);
     let Ok(length) = index(length);
@@ -169,6 +169,19 @@ mod tests {
     use super::*;
     use crate::catalogue::Sound;
     use crate::Note;
+    use std::error::Error;
+
+    fn levels(bytes: &[u8]) -> Result<Vec<i16>, Never> {
+        let (pairs, _) = bytes.as_chunks::<2>();
+
+        Ok(pairs.iter().map(|pair| i16::from_le_bytes(*pair)).collect())
+    }
+
+    fn crossings(bytes: &[u8]) -> Result<u32, Never> {
+        let Ok(levels) = levels(bytes);
+
+        fitted(levels.iter().zip(levels.iter().skip(1)).filter(|(before, after)| **before < 0 && **after >= 0).count())
+    }
 
     #[test]
     fn five_degrees_are_an_octave() {
@@ -190,44 +203,42 @@ mod tests {
     #[test]
     fn a_cue_lasts_until_its_last_note_has_decayed() {
         let cue = Cue { voice: Voice::Tap, notes: &[Note { at: 0.0, degree: Degree(0) }, Note { at: 0.1, degree: Degree(2) }] };
-        let Ok(bytes) = rendered(&cue, Degree(0));
-        let Ok(sound) = sounding(Voice::Tap);
+        let Ok(bytes) = render(&cue, Degree(0));
+        let Ok(sound) = voice_envelope(Voice::Tap);
         let Ok(expected) = samples(0.1 + sound.decay);
 
-        assert_eq!(fitted::<_, u32>(bytes.len()), Ok(2 * expected));
+        assert_eq!(fitted::<_, u32>(bytes.len()), Ok(expected.saturating_mul(2)));
     }
 
     #[test]
-    fn a_cue_is_heard_and_then_is_silent() {
+    fn a_cue_is_heard_and_then_is_silent() -> Result<(), Box<dyn Error>> {
         let Ok(step) = Sound::Step.cue();
-        let Ok(bytes) = rendered(&step, Degree(0));
-        let levels: Vec<i16> = bytes.chunks(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]])).collect();
-        let loudest = levels.iter().map(|level| level.unsigned_abs()).max().expect("some samples");
-        let last = levels.last().expect("some samples").unsigned_abs();
+        let Ok(bytes) = render(&step, Degree(0));
+        let Ok(levels) = levels(&bytes);
+        let loudest = levels.iter().map(|level| level.unsigned_abs()).max().ok_or("no samples")?;
+        let last = levels.last().map(|level| level.unsigned_abs()).ok_or("no samples")?;
 
         assert!(loudest > 1000, "loudest was {loudest}");
         assert!(last < 100, "the tail ended at {last}");
+        Ok(())
     }
 
     #[test]
     fn a_rooted_cue_sounds_higher() {
-        let crossings = |bytes: Vec<u8>| {
-            let levels: Vec<i16> = bytes.chunks(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]])).collect();
-            fitted::<_, u32>(levels.windows(2).filter(|pair| pair[0] < 0 && pair[1] >= 0).count()).expect("counted")
-        };
-
         let Ok(step) = Sound::Step.cue();
-        let low = crossings(rendered(&step, Degree(0)).expect("rendered"));
-        let high = crossings(rendered(&step, Degree(5)).expect("rendered"));
+        let Ok(low) = render(&step, Degree(0));
+        let Ok(high) = render(&step, Degree(5));
+        let Ok(low) = crossings(&low);
+        let Ok(high) = crossings(&high);
 
-        assert!(high > low + low / 2, "{low} crossings against {high}");
+        assert!(high > low.saturating_add(low.div_euclid(2)), "{low} crossings against {high}");
     }
 
     #[test]
     fn a_cue_fits_in_a_pipe_so_writing_it_never_waits() {
         for voice in [Voice::Tap, Voice::Bell, Voice::Bass] {
             let cue = Cue { voice, notes: &[Note { at: 0.0, degree: Degree(0) }] };
-            let Ok(bytes) = rendered(&cue, Degree(0));
+            let Ok(bytes) = render(&cue, Degree(0));
 
             assert!(bytes.len() < 65_536, "{voice:?} is {} bytes", bytes.len());
         }

@@ -1,0 +1,39 @@
+[package]
+name = "console-overview"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_overview"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-overview"
+path = "src/bin/console-overview.rs"
+
+[dependencies]
+console-compositor.workspace = true
+console-core-color.workspace = true
+console-core-fonts.workspace = true
+console-core-geometry.workspace = true
+console-core-iteration.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-shapes.workspace = true
+console-core-walking.workspace = true
+console-core-places.workspace = true
+console-onscreen.workspace = true
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-response-times.workspace = true
+
+wayland-client = "0.31"
+
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-scanner = "0.31"
+
+[lints]
+workspace = true

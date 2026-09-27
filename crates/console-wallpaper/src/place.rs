@@ -38,7 +38,7 @@ pub fn table() -> Result<PathBuf, Never> {
     Ok(tree.join("theme/sky.toml"))
 }
 
-pub fn hers() -> Result<Option<PathBuf>, Never> {
+pub fn user() -> Result<Option<PathBuf>, Never> {
     let ours = Base::Share.ours()?;
 
     Ok(ours.map(|at| at.join("sky")))
@@ -50,19 +50,19 @@ pub fn dropped() -> Result<Option<PathBuf>, Never> {
     Ok(home.map(|at| at.join("Pictures/Wallpapers")))
 }
 
-pub fn asked() -> Result<Option<PathBuf>, Never> {
+pub fn config_path() -> Result<Option<PathBuf>, Never> {
     let ours = Base::Configuration.ours()?;
 
     Ok(ours.map(|at| at.join("sky.toml")))
 }
 
-fn kept() -> Result<Option<PathBuf>, Never> {
-    let cache = Base::Cache.hers()?;
+fn awww_cache() -> Result<Option<PathBuf>, Never> {
+    let cache = Base::Cache.user()?;
 
     Ok(cache.map(|at| at.join("awww")))
 }
 
-fn kept_as(picture: &Path) -> Result<Option<String>, Never> {
+fn cached_name(picture: &Path) -> Result<Option<String>, Never> {
     let said = match picture.to_str() {
         Some(said) => said,
         None => return Ok(None),
@@ -72,7 +72,7 @@ fn kept_as(picture: &Path) -> Result<Option<String>, Never> {
 }
 
 pub fn refresh(picture: &Path) -> Result<(), Never> {
-    let kept = kept()?;
+    let kept = awww_cache()?;
 
     match kept {
         Some(kept) => refresh_in(&kept, picture),
@@ -86,14 +86,14 @@ fn refresh_in(kept: &Path, picture: &Path) -> Result<(), Never> {
         Err(_not_resolved) => return Ok(()),
     };
 
-    let name = kept_as(&full)?;
+    let name = cached_name(&full)?;
 
     let name = match name {
         Some(name) => name,
         None => return Ok(()),
     };
 
-    let rendered = match written(&full) {
+    let rendered = match modified(&full) {
         Ok(rendered) => rendered,
         Err(_unwritten) => return Ok(()),
     };
@@ -108,7 +108,7 @@ fn refresh_in(kept: &Path, picture: &Path) -> Result<(), Never> {
                 Some(named) => named.to_string_lossy().to_string(),
                 None => continue 'over_frames,
             };
-            let stale = written(&frames).is_ok_and(|kept| kept < rendered);
+            let stale = modified(&frames).is_ok_and(|kept| kept < rendered);
 
             match named.starts_with(&name) && stale {
                 true => match std::fs::remove_file(&frames) {
@@ -135,14 +135,14 @@ fn listed(at: &Path) -> Result<Vec<PathBuf>, Never> {
         .collect())
 }
 
-fn written(at: &Path) -> std::io::Result<std::time::SystemTime> {
+fn modified(at: &Path) -> std::io::Result<std::time::SystemTime> {
     let about = at.metadata()?;
 
     about.modified()
 }
 
 pub fn picture(name: &str) -> Result<Option<(PathBuf, PathBuf)>, Never> {
-    let hers = hers()?;
+    let hers = user()?;
     let mine = hers.map(|at| at.join(name));
     let theirs = Path::new(CAME_WITH).join(name);
 
@@ -154,7 +154,7 @@ pub fn picture(name: &str) -> Result<Option<(PathBuf, PathBuf)>, Never> {
 }
 
 pub fn every() -> Result<Vec<String>, Never> {
-    let hers = hers()?;
+    let hers = user()?;
     let mut names: Vec<String> = Vec::new();
 
     for at in [hers, Some(PathBuf::from(CAME_WITH))].into_iter().flatten() {
@@ -208,7 +208,7 @@ pub fn every() -> Result<Vec<String>, Never> {
     Ok(names)
 }
 
-pub fn showing(query: &str) -> Result<String, Never> {
+pub fn current_picture(query: &str) -> Result<String, Never> {
     let named = query
         .rsplit_once("image: ")
         .map(|(_, path)| path.trim())
@@ -229,76 +229,82 @@ pub fn showing(query: &str) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn a_picture_is_a_moving_file_and_a_still_one_beside_it() {
         let at = Path::new(CAME_WITH).join("star-ride");
-        assert_eq!(
-            at.with_extension("webp").file_name().unwrap(),
-            "star-ride.webp"
-        );
-        assert_eq!(
-            at.with_extension("still.webp").file_name().unwrap(),
-            "star-ride.still.webp"
-        );
+
+        assert_eq!(at.with_extension("webp").file_name(), Some("star-ride.webp".as_ref()));
+        assert_eq!(at.with_extension("still.webp").file_name(), Some("star-ride.still.webp".as_ref()));
     }
 
     #[test]
     fn the_picture_on_the_screen_is_read_out_of_what_the_daemon_says() {
         let said = "skytest: eDP-1: 1920x1200, scale: 1, currently displaying: image: \
                     /usr/share/backgrounds/console/star-ride.webp";
-        assert_eq!(showing(said), Ok("star-ride".to_string()));
+        assert_eq!(current_picture(said), Ok("star-ride".to_string()));
     }
 
     #[test]
     fn the_still_of_a_picture_is_that_picture() {
         let said =
             "eDP-1: currently displaying: image: /usr/share/backgrounds/console/campfire.still.webp";
-        assert_eq!(showing(said), Ok("campfire".to_string()));
+        assert_eq!(current_picture(said), Ok("campfire".to_string()));
     }
 
     #[test]
     fn a_path_holding_a_colon_is_still_a_path() {
         let said = "eDP-1: currently displaying: image: /home/ada/Pictures/a: b/one.webp";
-        assert_eq!(showing(said), Ok("one".to_string()));
+        assert_eq!(current_picture(said), Ok("one".to_string()));
     }
 
     #[test]
     fn a_daemon_showing_no_picture_names_none() {
-        assert_eq!(showing(""), Ok(String::new()));
-        assert_eq!(showing("eDP-1: currently displaying: color: #110b12"), Ok(String::new()));
-        assert_eq!(showing("no daemon is running"), Ok(String::new()));
+        assert_eq!(current_picture(""), Ok(String::new()));
+        assert_eq!(current_picture("eDP-1: currently displaying: color: #110b12"), Ok(String::new()));
+        assert_eq!(current_picture("no daemon is running"), Ok(String::new()));
     }
 
     #[test]
     fn the_frames_of_a_picture_are_kept_under_its_path_with_the_slashes_flattened() {
         let at = Path::new("/usr/share/backgrounds/console/lazy-river.webp");
-        let Ok(name) = kept_as(at);
+        let Ok(name) = cached_name(at);
 
-        assert_eq!(name.unwrap(), "_usr_share_backgrounds_console_lazy-river.webp__");
+        assert_eq!(name.as_deref(), Some("_usr_share_backgrounds_console_lazy-river.webp__"));
     }
 
     #[test]
-    fn frames_older_than_the_picture_go_and_frames_newer_than_it_stay() {
-        let here = std::env::temp_dir().join(format!("console-wallpaper-kept-{}", std::process::id()));
+    fn frames_older_than_the_picture_go_and_frames_newer_than_it_stay() -> Result<(), Box<dyn Error>> {
+        let here = console_core_temporary_directories::fresh("wallpaper-kept")?;
         let kept = here.join("awww/0.12.1");
-        std::fs::create_dir_all(&kept).expect("somewhere to keep frames");
+
+        std::fs::create_dir_all(&kept)?;
+
         let picture = here.join("river.webp");
-        std::fs::write(&picture, b"a picture").expect("a picture");
 
-        let Ok(name) = kept_as(&picture.canonicalize().unwrap());
+        console_core_atomic_writes::whole(&picture, b"a picture")?;
 
-        let name = name.unwrap();
+        let canonical = picture.canonicalize()?;
+        let Ok(name) = cached_name(&canonical);
+        let name = name.ok_or("a picture with a name is kept under one")?;
         let stale = kept.join(format!("{name}2560x1600_crop_argb"));
         let fresh = kept.join(format!("{name}1920x1200_crop_argb"));
         let other = kept.join("_somewhere_else_snow.webp__2560x1600_crop_argb");
+
         for at in [&stale, &fresh, &other] {
-            std::fs::write(at, b"frames").expect("frames");
+            console_core_atomic_writes::whole(at, b"frames")?;
         }
-        let written = picture.metadata().unwrap().modified().unwrap();
-        touch(&stale, written - std::time::Duration::from_secs(60));
-        touch(&fresh, written + std::time::Duration::from_secs(60));
-        touch(&other, written - std::time::Duration::from_secs(60));
+
+        let metadata = picture.metadata()?;
+        let written = metadata.modified()?;
+        let minute = std::time::Duration::from_secs(60);
+        let before = written.checked_sub(minute).ok_or("a minute before the picture")?;
+        let after = written.checked_add(minute).ok_or("a minute after the picture")?;
+
+        touch(&stale, before)?;
+        touch(&fresh, after)?;
+        touch(&other, before)?;
 
         let Ok(()) = refresh_in(&here.join("awww"), &picture);
 
@@ -308,26 +314,30 @@ mod tests {
         );
         assert!(fresh.exists(), "frames of this picture were thrown away");
         assert!(other.exists(), "another picture's frames were thrown away");
-        let _ = std::fs::remove_dir_all(&here);
+
+        std::fs::remove_dir_all(&here)?;
+
+        Ok(())
     }
 
     #[test]
-    fn a_cache_that_is_not_there_is_nothing_to_throw_away() {
-        let here = std::env::temp_dir().join(format!("console-wallpaper-none-{}", std::process::id()));
-        std::fs::create_dir_all(&here).expect("somewhere");
+    fn a_cache_that_is_not_there_is_nothing_to_throw_away() -> Result<(), Box<dyn Error>> {
+        let here = console_core_temporary_directories::fresh("wallpaper-none")?;
         let picture = here.join("river.webp");
-        std::fs::write(&picture, b"a picture").expect("a picture");
+
+        console_core_atomic_writes::whole(&picture, b"a picture")?;
+
         let Ok(()) = refresh_in(&here.join("nothing-is-kept-here"), &picture);
-        let _ = std::fs::remove_dir_all(&here);
+
+        std::fs::remove_dir_all(&here)?;
+
+        Ok(())
     }
 
-    fn touch(at: &Path, when: std::time::SystemTime) {
-        let file = std::fs::File::options()
-            .write(true)
-            .open(at)
-            .expect("the file");
+    fn touch(at: &Path, when: std::time::SystemTime) -> Result<(), std::io::Error> {
+        let file = std::fs::File::open(at)?;
+
         file.set_times(std::fs::FileTimes::new().set_modified(when))
-            .expect("its time");
     }
 
     #[test]

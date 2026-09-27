@@ -113,10 +113,10 @@ pub const EVERY: [PadInput; 10] = [
 pub fn homeward() -> Result<PathBuf, Error> {
     let runtime = crate::runtime()?;
 
-    Ok(runtime.join(console_core_places::OURS).join("home.sock"))
+    Ok(runtime.join(console_core_places::APPLICATION).join("home.sock"))
 }
 
-pub fn telling(said: PadInput) -> Result<(), Error> {
+pub fn send_to_home(said: PadInput) -> Result<(), Error> {
     let at = homeward()?;
     let socket = UnixDatagram::unbound().map_err(Error::Unbound)?;
 
@@ -135,7 +135,7 @@ pub enum Woken {
 }
 
 impl Woken {
-    pub fn asked() -> Result<Self, Never> {
+    pub fn detect() -> Result<Self, Never> {
         Ok(match note(AWAKE).is_ok_and(|note| note.exists()) {
             true => Woken::Yes,
             false => Woken::No,
@@ -150,7 +150,7 @@ const CARRYING: &str = "home-carrying";
 fn note(named: &str) -> Result<PathBuf, Error> {
     let runtime = crate::runtime()?;
 
-    Ok(runtime.join(console_core_places::OURS).join(named))
+    Ok(runtime.join(console_core_places::APPLICATION).join(named))
 }
 
 enum Note<'a> {
@@ -158,7 +158,7 @@ enum Note<'a> {
     Closed,
 }
 
-fn noting(named: &str, said: Note) -> Result<(), Error> {
+fn write_note(named: &str, said: Note) -> Result<(), Error> {
     let note = note(named)?;
 
     match note.parent() {
@@ -181,8 +181,8 @@ fn noting(named: &str, said: Note) -> Result<(), Error> {
     }
 }
 
-pub fn waking(awake: Woken) -> Result<(), Error> {
-    noting(
+pub fn set_awake(awake: Woken) -> Result<(), Error> {
+    write_note(
         AWAKE,
         match awake {
             Woken::Yes => Note::Message("awake\n"),
@@ -198,7 +198,7 @@ pub enum Hand {
 }
 
 impl Hand {
-    pub fn asked() -> Result<Self, Never> {
+    pub fn detect() -> Result<Self, Never> {
         Ok(match note(CARRYING).is_ok_and(|note| note.exists()) {
             true => Hand::Carries,
             false => Hand::Empty,
@@ -206,8 +206,8 @@ impl Hand {
     }
 }
 
-pub fn carrying(hand: Hand) -> Result<(), Error> {
-    noting(
+pub fn set_hand(hand: Hand) -> Result<(), Error> {
+    write_note(
         CARRYING,
         match hand {
             Hand::Carries => Note::Message("carrying\n"),
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn no_two_of_them_are_the_same_word() {
         for (at, said) in EVERY.iter().enumerate() {
-            for other in &EVERY[at + 1..] {
+            for other in EVERY.iter().skip(at.saturating_add(1)) {
                 let Ok(one) = said.word();
                 let Ok(another) = other.word();
 

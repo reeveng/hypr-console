@@ -227,6 +227,15 @@ literals:
 # never written down and never skipped, because that is not a tree at all.
 # The mark lives beside the deploy lock in the git directory, so writing it
 # does not dirty what it describes.
+#
+# The map, the rename check and the word count go first: they are the ones a
+# change most often breaks, and each answers in seconds where the tests take
+# minutes, so a red one is heard before the long wait rather than after it.
+#
+# The tests, clippy and the rules are asked only of the crates the change since
+# the last passed tree can reach -- `just reached` says which and why. The
+# build and the checks stay whole: the build is cargo's own to keep small, and
+# the checks are seconds.
 
 # everything that must hold before a deploy
 ready:
@@ -239,14 +248,17 @@ ready:
         ":$tree") echo "ready already passed on this tree ($tree), nothing to ask again"; exit 0 ;;
         *) ;;
     esac
-    just alone cargo build --quiet --locked --workspace --all-features
-    just alone cargo test --quiet --locked --workspace --all-features
-    just alone cargo clippy --quiet --locked --workspace --all-targets --all-features -- -D warnings
-    just alone cargo run --quiet --bin console-check
-    just explicit-gate
     just map
     git diff --exit-code --stat -- docs/architecture/facts.jsonl docs/architecture/map.dot
     just rename check
+    just alone cargo test --quiet --locked -p console-vocabulary --test the_words
+    just alone cargo build --quiet --locked --workspace --all-features
+    scope="$(just reached "$(cat "$passed" 2>/dev/null || true)")"
+    echo "the tests, clippy and the rules are asked of: $scope"
+    just alone cargo test --quiet --locked $scope --all-features
+    just alone cargo clippy --quiet --locked $scope --all-targets --all-features -- -D warnings
+    just alone cargo run --quiet --bin console-check
+    just explicit-gate $scope
     case "$loose:$(git status --porcelain):$(git rev-parse 'HEAD^{tree}')" in
         "::$tree") echo "$tree" > "$passed" ;;
         *) echo "ready passed, but the tree was not committed and still, so the pass is not written down" ;;
@@ -257,20 +269,26 @@ ready:
 # `plan` writes `renames.plan` -- every place a retired word is still defined,
 # with the table's options beside it -- and keeps every choice already written
 # there. `apply` hands each settled line to rust-analyzer, which renames that
-# definition and exactly the uses that refer to it. `check` fails while a
-# retired word is defined anywhere the plan did not keep it.
+# definition and exactly the uses that refer to it. `pick` is the plan's open
+# lines one at a time, the code around each on screen and a key per option,
+# written back into the plan as each is answered. `check` fails while a
+# retired word is defined anywhere the plan did not keep it, except a word
+# under a `(walking)` heading, which it counts instead.
+#
+# `at FILE:LINE OLD NEW` is the same rename for any one name, whatever it is
+# and whether or not the table knows the word: a function, a field, a local, a
+# parameter. Several triples in one call share one rust-analyzer start.
 rename *arguments:
     @cargo run --quiet --release --manifest-path tools/rename-words/Cargo.toml -- {{arguments}}
 
 # The EXPLICIT_* rules, counted rather than enforced.
 #
 # Deliberately not in `ready`, because what it counts is the warned tier:
-# production code is held to the denied rules by `just explicit-gate`, and this
+# the tree is held to the denied rules by `just explicit-gate`, and this
 # is where a rule the code has not caught up with says how far there is left to
 # go. Nothing stands there today -- 047 and 048 were the last two and came out
 # together -- so what this prints is a clean run until someone writes the next
-# rule ahead of the code. It is the whole tree rather than production alone, which is the
-# other half of why it is worth running even when the tier is empty.
+# rule ahead of the code.
 # tools/explicit-rust/README.md says what each rule is for.
 #
 # Capped to warnings so the run reaches every crate. Left uncapped it stops at
@@ -318,13 +336,12 @@ explicit:
 # code. `just explicit` says where the workspace actually stands, today, and it
 # is the only thing that should be believed about the distance.
 #
-# Tests are exempt inside the lints themselves, so this is production code and
-# nothing else. A test that panics is a test that fails, which is what a test
-# is for.
+# Tests are held to the same rules as production code, so this runs over
+# every target rather than the libraries and binaries alone.
 
 # The ALLOW list this recipe once carried is gone for good: a rule's tier now
-# lives in its own crate, as the level in `declare_late_lint!`. Every rule in
-# the suite is Deny and fails this gate; nothing stands warned. A rule moves
+# lives in its own crate, as the level in `declare_late_lint!`. A Deny rule
+# fails this gate and a Warn rule only prints. A rule moves
 # from Warn to Deny in its own source when the last call site that broke it is
 # fixed, and it never moves back.
 #
@@ -380,7 +397,7 @@ explicit:
 # that talks to the firmware only exists when it is built for it; that run
 # wants `rustup target add --toolchain` of the suite's nightly for
 # `x86_64-unknown-uefi`.
-explicit-gate:
+explicit-gate *scope="--workspace":
     #!/usr/bin/env sh
     set -eu
     PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
@@ -389,8 +406,62 @@ explicit-gate:
         echo "explicit-gate: rustup is not on PATH; the lint suite cannot name its toolchain" >&2
         exit 1
     }
-    cargo dylint --all -- --locked --all-targets --all-features
-    cargo dylint --all -- --locked -p console-kernel --target x86_64-unknown-uefi
+    cargo dylint --all -- --locked --all-targets --all-features {{scope}}
+    case " {{scope}} " in
+        *" --workspace "*|*" console-kernel "*) cargo dylint --all -- --locked -p console-kernel --target x86_64-unknown-uefi ;;
+        *) ;;
+    esac
+
+# The crates a change since `since` can reach, as cargo's own flags, for `ready`
+# to ask rather than asking the whole workspace again.
+#
+# A crate is reached when a file under it changed, when a crate it depends on
+# was reached -- only its tests, when that crate is a dev-dependency, and then
+# nothing that depends on it in turn, since its own code did not change -- or
+# when it reads the tree outside itself -- `console-repository`,
+# everything that depends on it, and every source that walks up out of its own
+# directory -- because what those read is not in the graph cargo keeps. Those
+# are asked alone rather than with their dependents: what they read that a
+# dependent could also see is outside `crates/`, and a change there is the
+# whole workspace anyway. Anything that changed outside `crates/`, the lock and the workspace
+# manifest included, can reach any of them in ways nothing here can follow, and
+# so can a `since` that is not a tree git holds: the answer is then the whole
+# workspace. A pass is only written down on a committed tree, so each scoped
+# run stands on a tree that passed whole or passed the same way.
+[private]
+reached since="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tree="$(git rev-parse 'HEAD^{tree}')"
+    case "{{since}}" in
+        "") echo "--workspace"; exit 0 ;;
+        *) ;;
+    esac
+    git cat-file -e "{{since}}^{tree}" 2>/dev/null || { echo "--workspace"; exit 0; }
+    changed="$( { git diff --name-only "{{since}}" "$tree"; git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u)"
+    grep -qv '^crates/' <<<"$changed" && { echo "--workspace"; exit 0; }
+    metadata="$(cargo metadata --format-version 1 --no-deps --offline)"
+    declare -A dir_of users testers reached tested
+    while read -r name dir; do dir_of[$dir]="$name"; done < <(jq -r '.packages[] | "\(.name) \(.manifest_path | rtrimstr("/Cargo.toml") | split("/") | last)"' <<<"$metadata")
+    while read -r used user kind; do
+        case "$kind" in
+            dev) testers[$used]+=" $user" ;;
+            *) users[$used]+=" $user" ;;
+        esac
+    done < <(jq -r '.packages[] | .name as $user | .dependencies[] | select(.path != null) | "\(.name) \($user) \(.kind // "normal")"' <<<"$metadata")
+    waiting=()
+    while read -r dir; do waiting+=("${dir_of[$dir]}"); done < <(cut -d/ -f2 <<<"$changed" | sort -u)
+    tested[console-repository]=1
+    while read -r user; do tested[$user]=1; done < <(jq -r '.packages[] | select(any(.dependencies[]; .name == "console-repository")) | .name' <<<"$metadata")
+    while read -r dir; do tested[${dir_of[$dir]}]=1; done < <(grep -rlE '\.\./\.\.' crates/*/tests crates/*/src 2>/dev/null | cut -d/ -f2 | sort -u)
+    while (( ${#waiting[@]} )); do
+        name="${waiting[-1]}"; unset 'waiting[-1]'
+        [[ -n "${reached[$name]:-}" ]] && continue
+        reached[$name]=1
+        for tester in ${testers[$name]:-}; do tested[$tester]=1; done
+        for user in ${users[$name]:-}; do waiting+=("$user"); done
+    done
+    printf -- '-p %s ' $(printf '%s\n' "${!reached[@]}" "${!tested[@]}" | sort -u)
 
 # The kernel is a member of the workspace like any other crate, built here for
 # the firmware rather than for this machine. It runs in QEMU on OVMF with the

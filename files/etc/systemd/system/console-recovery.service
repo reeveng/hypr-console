@@ -22,6 +22,9 @@ ExecStartPre=-/usr/bin/systemctl reset-failed display-manager.service
 # next boot would skip the menu that holds the snapshots. Taking that back
 # puts the menu in front of the next boot, which is the one that wants it.
 ExecStartPre=-/usr/bin/bootctl set-timeout-oneshot ""
+# The generation's word too, and on the last try the way back is armed again.
+# Only on the ordinary root, for the reason console-boot-started.service gives.
+ExecStartPre=-/usr/bin/sh -c 'test "$(/usr/bin/findmnt -no FSROOT /)" = /@ && exec /usr/local/bin/console boot-failed'
 ExecStart=/usr/local/bin/recovery
 StandardInput=tty
 StandardOutput=tty

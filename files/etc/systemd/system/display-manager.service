@@ -15,6 +15,9 @@ OnFailure=console-recovery.service
 # A login window that started is a boot that came up, and the next one can
 # skip the boot menu. See console-boot-complete.service.
 Wants=console-boot-complete.service
+# And a boot that got as far as asking for it counts as a try. See
+# console-boot-started.service.
+Wants=console-boot-started.service
 StartLimitIntervalSec=60
 StartLimitBurst=3
 

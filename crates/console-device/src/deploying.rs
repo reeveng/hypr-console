@@ -26,6 +26,14 @@
 //! policy in one place. An engine older than the question is not a device
 //! without room: it says so with its own code and the deploy carries on.
 //!
+//! The device builds with its own toolchain, from pacman, and this one is what
+//! `just ready` passed with. A device behind it can fail halfway through the
+//! apply on a feature or a lint this machine took for granted, so its `cargo
+//! --version` is asked beside the room and a device that is older stops the
+//! deploy before anything is spent. `Cargo.lock` needs no such question: it
+//! travels in the history, so the crates are the same on both machines. An
+//! answer that does not read as a version is said and not held against it.
+//!
 //! ## The lock
 //!
 //! Several sessions share this working tree and none of them can see what the
@@ -55,6 +63,14 @@
 //! whose machine is about to change and whose screen the checks take over for
 //! several minutes. A device that has no card to raise yet -- the first deploy
 //! carrying one -- says so and the question falls back to this terminal.
+//!
+//! `--untested` sends the tree without `just ready` in front of it and without
+//! the checks behind it. The gate is the default because a deploy nobody
+//! thought about should still have passed it; this is for the person who has
+//! thought about it and is waiting on minutes of tests for a change they can
+//! see. What it does not skip is the committed tree, the toolchain and the
+//! room on the device, which are seconds and are the ones that fail halfway
+//! through an apply.
 
 use std::path::PathBuf;
 
@@ -72,7 +88,7 @@ pub const TREE: &str = console_repository::DEVICE_ROOT;
 
 pub const LOCK: &str = "console-deploy.lock";
 
-pub const KNOWN: [&str; 2] = ["--check", "--yes"];
+pub const KNOWN: [&str; 3] = ["--check", "--yes", "--untested"];
 
 pub fn card() -> Result<&'static str, Never> {
     InternalProgram::Confirm.name()
@@ -104,6 +120,14 @@ pub struct Going {
     pub lock: PathBuf,
     pub was: String,
     pub whom: String,
+    pub toolchain: String,
+    pub tests: Tests,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tests {
+    Run,
+    Skipped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +135,32 @@ pub enum How {
     Check,
     Confirm,
     Yes,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Here,
+    Device,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Release {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Toolchain {
+    Enough,
+    Behind,
+    Unread,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Toolchains<'a> {
+    pub here: &'a str,
+    pub device: &'a str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +177,7 @@ pub enum Step {
     Retaking,
     Still,
     Marking,
+    Toolchain(Side),
     Room,
     Ready,
     Fetching,
@@ -193,6 +244,7 @@ impl Program for Deploy {
             (None, None) => Initial::new(Deploying::Nowhere),
             (None, Some(host)) => {
                 let Ok(said) = asked_for(arguments);
+                let Ok(tests) = tests_asked_for(arguments);
 
                 Initial::new(Deploying::At(
                     Step::Rooting,
@@ -202,6 +254,8 @@ impl Program for Deploy {
                         lock: PathBuf::new(),
                         was: String::new(),
                         whom: String::new(),
+                        toolchain: String::new(),
+                        tests,
                     },
                 ))
             },
@@ -224,8 +278,9 @@ impl Program for Deploy {
                 state,
                 &format!(
                     "{word} is not a word console-deploy knows, and a deploy is not the \
-                     thing to learn that on. It takes --check, which sends nothing, and \
-                     --yes, which does not stop to ask."
+                     thing to learn that on. It takes --check, which sends nothing, \
+                     --yes, which does not stop to ask, and --untested, which sends \
+                     without asking what must hold."
                 ),
             ),
 
@@ -309,15 +364,41 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
 
         (Step::Marking, Event::Replied(answer)) => {
             let going = Going { was: answer.output.trim().to_string(), ..going.clone() };
-            let Ok(runs) = on(&going, "console room");
+            let Ok(asked) = Command::external(ExternalProgram::Cargo, &["--version"]);
 
-            Update::new(
-                Deploying::At(Step::Room, going),
-                vec![
-                    Effect::Print("== whether the device has room for what this builds".to_string()),
-                    Effect::Stream(runs),
-                ],
-            )
+            Update::new(Deploying::At(Step::Toolchain(Side::Here), going), vec![Effect::Run(asked)])
+        }
+
+        (Step::Toolchain(Side::Here), Event::Replied(answer)) => {
+            let going = Going { toolchain: answer.output.trim().to_string(), ..going.clone() };
+            let Ok(runs) = on(&going, "cargo --version");
+
+            Update::new(Deploying::At(Step::Toolchain(Side::Device), going), vec![Effect::Run(runs)])
+        }
+
+        (Step::Toolchain(Side::Device), Event::Replied(answer)) => {
+            let device = answer.output.trim();
+            let Ok(compared) = toolchain(Toolchains { here: &going.toolchain, device });
+
+            match compared {
+                Toolchain::Enough => room(going, Vec::new()),
+                Toolchain::Behind => stopped_at(
+                    step,
+                    going,
+                    &format!(
+                        "the device builds with {device}, which is older than {} that passed here; \
+                         update it first (pacman -Syu on the device)",
+                        going.toolchain
+                    ),
+                ),
+                Toolchain::Unread => room(
+                    going,
+                    vec![Effect::Print(format!(
+                        "  the toolchains could not be compared (here: {:?}, device: {device:?}); carrying on",
+                        going.toolchain
+                    ))],
+                ),
+            }
         }
 
         (Step::Room, Event::Replied(answer)) => {
@@ -325,12 +406,23 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             let onward = |going: &Going, first: Vec<Effect<DeployingEffect>>| {
                 let mut effects = first;
 
-                effects.push(Effect::Print(
-                    "\n== everything that must hold, before anything is sent".to_string(),
-                ));
-                effects.push(Effect::Stream(ready.clone()));
+                match going.tests {
+                    Tests::Run => {
+                        effects.push(Effect::Print(
+                            "\n== everything that must hold, before anything is sent".to_string(),
+                        ));
+                        effects.push(Effect::Stream(ready.clone()));
 
-                Update::new(Deploying::At(Step::Ready, going.clone()), effects)
+                        Update::new(Deploying::At(Step::Ready, going.clone()), effects)
+                    }
+                    Tests::Skipped => {
+                        effects.push(Effect::Print(
+                            "\n== nothing is tested: --untested sends this tree as it is".to_string(),
+                        ));
+
+                        fetched(going, effects)
+                    }
+                }
             };
 
             match answer.status {
@@ -356,17 +448,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
 
         (Step::Ready, Event::Replied(answer)) => match answer.status {
             ExitStatus::Failure(_) => stopped_at(step, going, "what must hold before a deploy does not"),
-            ExitStatus::Success => {
-                let Ok(runs) = fetching(&going.host);
-
-                Update::new(
-                    Deploying::At(Step::Fetching, going.clone()),
-                    vec![
-                        Effect::Print("\n== what the device has that this does not".to_string()),
-                        Effect::Run(runs),
-                    ],
-                )
-            },
+            ExitStatus::Success => fetched(going, Vec::new()),
         },
 
         (Step::Fetching, Event::Replied(answer)) => match answer.status {
@@ -630,9 +712,59 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
     }
 }
 
+fn fetched(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Update<Deploying, DeployingEffect>, Never> {
+    let Ok(runs) = fetching(&going.host);
+    let mut effects = first;
+
+    effects.push(Effect::Print("\n== what the device has that this does not".to_string()));
+    effects.push(Effect::Run(runs));
+
+    Update::new(Deploying::At(Step::Fetching, going.clone()), effects)
+}
+
+fn room(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Update<Deploying, DeployingEffect>, Never> {
+    let Ok(runs) = on(going, "console room");
+    let mut effects = first;
+
+    effects.push(Effect::Print("== whether the device has room for what this builds".to_string()));
+    effects.push(Effect::Stream(runs));
+
+    Update::new(Deploying::At(Step::Room, going.clone()), effects)
+}
+
+pub fn release(said: &str) -> Result<Option<Release>, Never> {
+    let number = said.split_whitespace().nth(1).and_then(|word| word.split('-').next());
+    let parts: Vec<Option<u32>> = number.into_iter().flat_map(|number| number.split('.')).map(|part| match part.parse::<u32>() {
+        Ok(number) => Some(number),
+        Err(_not_a_number) => None,
+    }).collect();
+
+    Ok(match parts.as_slice() {
+        [Some(major), Some(minor), Some(patch)] => Some(Release { major: *major, minor: *minor, patch: *patch }),
+        _not_three_numbers => None,
+    })
+}
+
+pub fn toolchain(both: Toolchains<'_>) -> Result<Toolchain, Never> {
+    let Ok(here) = release(both.here);
+    let Ok(device) = release(both.device);
+
+    Ok(match (here, device) {
+        (Some(here), Some(device)) => match device.cmp(&here) {
+            std::cmp::Ordering::Less => Toolchain::Behind,
+            std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => Toolchain::Enough,
+        },
+        (None, Some(_)) | (Some(_), None) | (None, None) => Toolchain::Unread,
+    })
+}
+
 fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
-    match going.how {
-        How::Yes => {
+    match (going.tests, going.how) {
+        (Tests::Skipped, How::Yes | How::Confirm | How::Check) => Update::new(
+            Deploying::At(Step::Pressing, going.clone()),
+            vec![Effect::Stop(Exit::Success)],
+        ),
+        (Tests::Run, How::Yes) => {
             let Ok(runs) = checking();
 
             Update::new(
@@ -643,7 +775,7 @@ fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> 
                 ],
             )
         },
-        How::Confirm | How::Check => {
+        (Tests::Run, How::Confirm | How::Check) => {
             let Ok(runs) = carding(going, Whether::Check);
 
             Update::new(
@@ -735,6 +867,15 @@ pub fn asked_for(arguments: &Arguments) -> Result<How, Never> {
         (Flag::Present, _) => How::Check,
         (Flag::Absent, Flag::Present) => How::Yes,
         (Flag::Absent, Flag::Absent) => How::Confirm,
+    })
+}
+
+pub fn tests_asked_for(arguments: &Arguments) -> Result<Tests, Never> {
+    let untested = arguments.flag("--untested")?;
+
+    Ok(match untested {
+        Flag::Present => Tests::Skipped,
+        Flag::Absent => Tests::Run,
     })
 }
 
@@ -836,6 +977,8 @@ mod tests {
     use console_program_contract::{Answer, Executable, Trace, run};
 
     use super::*;
+
+    const TOOLCHAIN: &str = "cargo 1.98.0 (6b9f1e3a4 2026-08-11)";
 
     fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Result<Option<u32>, Never> {
         Ok((0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at))
@@ -939,7 +1082,7 @@ mod tests {
             Step::Success(".git"),
             Step::Custom(DeployingEvent::Took),
             Step::Success(""),
-            Step::Success("abc123"),
+            Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
             Step::Success(""),
             Step::Success(""),
             Step::Success(""),
@@ -1067,12 +1210,13 @@ mod tests {
             .filter(|runs| runs.program == Executable::External(ExternalProgram::Ssh))
             .collect();
 
-        assert!(
-            before.iter().all(|runs| runs.arguments.last().map(String::as_str) == Some("console room")),
-            "the device was reached for something other than room before anything had to hold: \
-             {before:?}"
+        let asked_before: Vec<&str> = before.iter().filter_map(|runs| runs.arguments.last().map(String::as_str)).collect();
+
+        assert_eq!(
+            asked_before,
+            ["cargo --version", "console room"],
+            "the device was reached for something other than its toolchain and its room before anything had to hold"
         );
-        assert_eq!(before.len(), 1, "the device was asked about room more than once");
         assert!(fetch.is_some_and(|fetch| ready.is_some_and(|ready| ready < fetch)));
         assert_eq!(said.pushes, 0);
     }
@@ -1086,7 +1230,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Failure(NO_ROOM),
             ],
         );
@@ -1108,7 +1252,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Failure(NOT_ASKED),
             ],
         );
@@ -1129,7 +1273,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Failure(255),
             ],
         );
@@ -1147,7 +1291,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Success(""),
                 Step::Failure(1),
             ],
@@ -1166,7 +1310,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Success(""),
                 Step::Success(""),
                 Step::Success(""),
@@ -1195,7 +1339,7 @@ mod tests {
     fn a_yes_on_the_command_line_asks_no_one_anything() {
         let Ok(said) = as_far_as(
             &["--yes"],
-            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
         );
 
         assert!(
@@ -1347,7 +1491,7 @@ mod tests {
     fn the_engine_is_built_and_put_in_place_before_the_machine_is_asked_to_apply() {
         let Ok(said) = as_far_as(
             &["--yes"],
-            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
         );
 
         let words: Vec<String> =
@@ -1361,10 +1505,40 @@ mod tests {
     }
 
     #[test]
+    fn untested_sends_and_applies_without_asking_what_must_hold_or_pressing_a_feature() {
+        let Ok(said) = run_with(
+            &["root@handheld", "--yes", "--untested"],
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success(""),
+                Step::Success("f00d one thing, and a second thing"),
+                Step::Success(" one | 2 +-"),
+                Step::Success(""), Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""),
+            ],
+        );
+
+        let asked = said.asks;
+        let Ok(ready) = position(&asked, |runs| runs.program == Executable::External(ExternalProgram::Just));
+        let Ok(applied) = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
+        let Ok(told) = checking();
+        let Ok(pressed) = position(&asked, |runs| *runs == told);
+
+        assert_eq!((ready, pressed), (None, None));
+        assert!(applied.is_some(), "the apply was never reached");
+        assert_eq!(said.failure, None);
+    }
+
+    #[test]
     fn the_features_are_pressed_after_the_apply_and_never_before_it() {
         let Ok(said) = as_far_as(
             &["--yes"],
-            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
         );
 
         let asked = said.asks;
@@ -1383,7 +1557,7 @@ mod tests {
                 Step::Success("someone"),
                 Step::Success(""),
                 Step::Success(""),
-                Step::Success("abc123"),
+                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Success(""),
                 Step::Success(""),
                 Step::Success(""),
@@ -1408,5 +1582,39 @@ mod tests {
             cards.last().is_some_and(|last| applied.is_some_and(|applied| applied < *last)),
             "the device was asked about the checks before it had the release they run against"
         );
+    }
+
+    #[test]
+    fn a_device_on_an_older_toolchain_is_told_to_update_before_a_minute_is_spent_here() {
+        let Ok(said) = run_with(
+            &["root@handheld", "--yes"],
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Success(TOOLCHAIN),
+                Step::Success("cargo 1.97.2 (0a1b2c3d4 2026-07-02)"),
+            ],
+        );
+
+        assert_eq!(said.pushes, 0);
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("pacman -Syu")), "{:?}", said.failure);
+        assert!(
+            !said.asks.iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
+            "the device could not have built it and this machine went on to spend minutes proving itself"
+        );
+    }
+
+    #[test]
+    fn a_toolchain_is_compared_by_its_numbers_and_newer_on_the_device_is_enough() {
+        let Ok(same) = toolchain(Toolchains { here: TOOLCHAIN, device: TOOLCHAIN });
+        let Ok(newer) = toolchain(Toolchains { here: TOOLCHAIN, device: "cargo 1.100.0 (1 2026-12-01)" });
+        let Ok(beta) = toolchain(Toolchains { here: TOOLCHAIN, device: "cargo 1.98.0-beta.3 (1 2026-07-30)" });
+        let Ok(unread) = toolchain(Toolchains { here: TOOLCHAIN, device: "bash: cargo: command not found" });
+
+        assert_eq!((same, newer, unread), (Toolchain::Enough, Toolchain::Enough, Toolchain::Unread));
+        assert_eq!(beta, Toolchain::Enough, "a beta of the same release is read as that release");
     }
 }

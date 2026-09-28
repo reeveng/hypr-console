@@ -31,3 +31,6 @@ Type=oneshot
 # the snapshot, silently, for good.
 ExecCondition=/usr/bin/sh -c 'test "$(/usr/bin/findmnt -no FSROOT /)" = /@'
 ExecStart=/usr/bin/bootctl set-timeout-oneshot menu-disabled
+# And the newest generation is good: it came up, so no later boot goes back
+# from it, and a way back armed on this try is taken back.
+ExecStart=/usr/local/bin/console boot-complete

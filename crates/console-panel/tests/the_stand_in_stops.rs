@@ -14,6 +14,11 @@
 //! signal is delivered before `kill` returns and there is nothing to wait for:
 //! either the child is gone, or it is still here to say so. Being a program
 //! rather than a test, it is held to what a program is.
+//!
+//! Being its own harness, it answers the one question a runner asks before it
+//! runs anything: `--list` is the name of the one test here, in the terse
+//! shape nextest reads, and nothing at all when the list asked for is the
+//! ignored ones.
 
 use std::fmt;
 use std::io::{self, BufRead, BufReader};
@@ -22,6 +27,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, ExitCode, ExitStatus};
 
+use console_core_never::Never;
 use console_core_temporary_directories::Unmade;
 use console_panel::handoff::{self, DrawnBy};
 
@@ -58,8 +64,42 @@ enum Verdict {
     Survived,
 }
 
+const NAME: &str = "a_panel_that_draws_itself_after_standing_in_stops_when_asked";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Listing {
+    Run,
+    Every,
+    Ignored,
+}
+
+fn listing(asked: &[String]) -> Result<Listing, Never> {
+    let list = asked.iter().any(|word| word == "--list");
+    let ignored = asked.iter().any(|word| word == "--ignored");
+
+    Ok(match (list, ignored) {
+        (true, true) => Listing::Ignored,
+        (true, false) => Listing::Every,
+        (false, true | false) => Listing::Run,
+    })
+}
+
 fn main() -> ExitCode {
-    let mut asked = std::env::args().skip(1);
+    let every: Vec<String> = std::env::args().skip(1).collect();
+
+    let Ok(asked_for) = listing(&every);
+
+    match asked_for {
+        Listing::Every => {
+            println!("{NAME}: test");
+
+            return ExitCode::SUCCESS;
+        },
+        Listing::Ignored => return ExitCode::SUCCESS,
+        Listing::Run => {},
+    }
+
+    let mut asked = every.into_iter();
 
     let ran = match (asked.next(), asked.next()) {
         (Some(flag), Some(at)) => match flag == CHILD {
@@ -71,7 +111,7 @@ fn main() -> ExitCode {
 
     match ran {
         Ok(Verdict::Stopped) => {
-            println!("test a_panel_that_draws_itself_after_standing_in_stops_when_asked ... ok");
+            println!("test {NAME} ... ok");
 
             ExitCode::SUCCESS
         },

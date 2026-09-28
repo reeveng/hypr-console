@@ -49,25 +49,10 @@ default:
 # A machine with no user manager to ask runs the command as it always did, and
 # says so once rather than failing at something that is not the test.
 
-most := "32G"
-
-threads := "8192"
 
 [private]
 alone +command:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    unit="console-run-$$"
-    if ! command -v systemd-run >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
-        echo "no user manager here, so this run is not in a group of its own" >&2
-        {{command}}
-        exit $?
-    fi
-    systemd-run --user --scope --quiet --unit="$unit" \
-        -p MemoryHigh={{most}} -p TasksMax={{threads}} -- {{command}}
-    status=$?
-    systemctl --user stop --no-block "$unit.scope" >/dev/null 2>&1
-    exit $status
+    @cargo x alone {{command}}
 
 # How the running desktop is connected, drawn again.
 #
@@ -98,28 +83,7 @@ alone +command:
 
 # draw how the running desktop is connected
 map:
-    #!/usr/bin/env sh
-    set -eu
-    PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-    export PATH
-    command -v rustup >/dev/null 2>&1 || {
-        echo "map: rustup is not on PATH; the lint suite cannot name its toolchain" >&2
-        exit 1
-    }
-    facts="$PWD/target/architecture/facts"
-    rm -rf "$facts"
-    for checked in target/architecture/dylint/target/*/; do
-        [ -d "$checked" ] && cargo clean --quiet --workspace --target-dir "$checked"
-    done
-    CARGO_TARGET_DIR=target/architecture CONSOLE_ARCHITECTURE_FACTS="$facts" \
-        cargo dylint --quiet --path tools/explicit-rust --pattern architecture_facts -- \
-        --quiet --locked --workspace --lib --bins --all-features
-    cargo run --quiet --locked --bin console-architecture -- "$facts"
-    if command -v dot >/dev/null 2>&1; then
-        dot -Tsvg docs/architecture/map.dot -o docs/architecture/map.svg
-    else
-        echo "map: no graphviz here, so docs/architecture/map.svg is as it was" >&2
-    fi
+    @cargo x map
 
 # write the palette into every file that spends it
 theme:
@@ -142,11 +106,16 @@ sky:
 # rules against whichever build happened to be lying there -- which is why it
 # refuses to run at all when it finds one, and why the answer is to build
 # rather than to make the check quieter.
+#
+# The run is nextest's rather than `cargo test`'s. `cargo test` walks the test
+# binaries one after another, and with a crate per job that is most of the
+# wait; nextest runs every test in a process of its own, all binaries at once.
+# The one thing it does not run is a doctest, and this tree has none, since a
+# doc comment is a comment.
 
 # every test that can run on this machine
 test:
-    @just alone cargo build --quiet --workspace --all-features
-    @just alone cargo test --quiet --workspace --all-features
+    @cargo x test
 
 # The tree's own accent, printed rather than enforced.
 #
@@ -233,36 +202,13 @@ literals:
 # minutes, so a red one is heard before the long wait rather than after it.
 #
 # The tests, clippy and the rules are asked only of the crates the change since
-# the last passed tree can reach -- `just reached` says which and why. The
+# the last passed tree can reach -- `cargo x reached` says which and why. The
 # build and the checks stay whole: the build is cargo's own to keep small, and
 # the checks are seconds.
 
 # everything that must hold before a deploy
 ready:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    passed="$(git rev-parse --git-common-dir)/console-ready"
-    tree="$(git rev-parse 'HEAD^{tree}')"
-    loose="$(git status --porcelain)"
-    case "$loose:$(cat "$passed" 2>/dev/null || true)" in
-        ":$tree") echo "ready already passed on this tree ($tree), nothing to ask again"; exit 0 ;;
-        *) ;;
-    esac
-    just map
-    git diff --exit-code --stat -- docs/architecture/facts.jsonl docs/architecture/map.dot
-    just rename check
-    just alone cargo test --quiet --locked -p console-vocabulary --test the_words
-    just alone cargo build --quiet --locked --workspace --all-features
-    scope="$(just reached "$(cat "$passed" 2>/dev/null || true)")"
-    echo "the tests, clippy and the rules are asked of: $scope"
-    just alone cargo test --quiet --locked $scope --all-features
-    just alone cargo clippy --quiet --locked $scope --all-targets --all-features -- -D warnings
-    just alone cargo run --quiet --bin console-check
-    just explicit-gate $scope
-    case "$loose:$(git status --porcelain):$(git rev-parse 'HEAD^{tree}')" in
-        "::$tree") echo "$tree" > "$passed" ;;
-        *) echo "ready passed, but the tree was not committed and still, so the pass is not written down" ;;
-    esac
+    @cargo x ready
 
 # The words `vocabulary.conf` retired, renamed one definition at a time.
 #
@@ -397,71 +343,8 @@ explicit:
 # that talks to the firmware only exists when it is built for it; that run
 # wants `rustup target add --toolchain` of the suite's nightly for
 # `x86_64-unknown-uefi`.
-explicit-gate *scope="--workspace":
-    #!/usr/bin/env sh
-    set -eu
-    PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
-    export PATH
-    command -v rustup >/dev/null 2>&1 || {
-        echo "explicit-gate: rustup is not on PATH; the lint suite cannot name its toolchain" >&2
-        exit 1
-    }
-    cargo dylint --all -- --locked --all-targets --all-features {{scope}}
-    case " {{scope}} " in
-        *" --workspace "*|*" console-kernel "*) cargo dylint --all -- --locked -p console-kernel --target x86_64-unknown-uefi ;;
-        *) ;;
-    esac
-
-# The crates a change since `since` can reach, as cargo's own flags, for `ready`
-# to ask rather than asking the whole workspace again.
-#
-# A crate is reached when a file under it changed, when a crate it depends on
-# was reached -- only its tests, when that crate is a dev-dependency, and then
-# nothing that depends on it in turn, since its own code did not change -- or
-# when it reads the tree outside itself -- `console-repository`,
-# everything that depends on it, and every source that walks up out of its own
-# directory -- because what those read is not in the graph cargo keeps. Those
-# are asked alone rather than with their dependents: what they read that a
-# dependent could also see is outside `crates/`, and a change there is the
-# whole workspace anyway. Anything that changed outside `crates/`, the lock and the workspace
-# manifest included, can reach any of them in ways nothing here can follow, and
-# so can a `since` that is not a tree git holds: the answer is then the whole
-# workspace. A pass is only written down on a committed tree, so each scoped
-# run stands on a tree that passed whole or passed the same way.
-[private]
-reached since="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tree="$(git rev-parse 'HEAD^{tree}')"
-    case "{{since}}" in
-        "") echo "--workspace"; exit 0 ;;
-        *) ;;
-    esac
-    git cat-file -e "{{since}}^{tree}" 2>/dev/null || { echo "--workspace"; exit 0; }
-    changed="$( { git diff --name-only "{{since}}" "$tree"; git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u)"
-    grep -qv '^crates/' <<<"$changed" && { echo "--workspace"; exit 0; }
-    metadata="$(cargo metadata --format-version 1 --no-deps --offline)"
-    declare -A dir_of users testers reached tested
-    while read -r name dir; do dir_of[$dir]="$name"; done < <(jq -r '.packages[] | "\(.name) \(.manifest_path | rtrimstr("/Cargo.toml") | split("/") | last)"' <<<"$metadata")
-    while read -r used user kind; do
-        case "$kind" in
-            dev) testers[$used]+=" $user" ;;
-            *) users[$used]+=" $user" ;;
-        esac
-    done < <(jq -r '.packages[] | .name as $user | .dependencies[] | select(.path != null) | "\(.name) \($user) \(.kind // "normal")"' <<<"$metadata")
-    waiting=()
-    while read -r dir; do waiting+=("${dir_of[$dir]}"); done < <(cut -d/ -f2 <<<"$changed" | sort -u)
-    tested[console-repository]=1
-    while read -r user; do tested[$user]=1; done < <(jq -r '.packages[] | select(any(.dependencies[]; .name == "console-repository")) | .name' <<<"$metadata")
-    while read -r dir; do tested[${dir_of[$dir]}]=1; done < <(grep -rlE '\.\./\.\.' crates/*/tests crates/*/src 2>/dev/null | cut -d/ -f2 | sort -u)
-    while (( ${#waiting[@]} )); do
-        name="${waiting[-1]}"; unset 'waiting[-1]'
-        [[ -n "${reached[$name]:-}" ]] && continue
-        reached[$name]=1
-        for tester in ${testers[$name]:-}; do tested[$tester]=1; done
-        for user in ${users[$name]:-}; do waiting+=("$user"); done
-    done
-    printf -- '-p %s ' $(printf '%s\n' "${!reached[@]}" "${!tested[@]}" | sort -u)
+explicit-gate *scope:
+    @cargo x rules {{scope}}
 
 # The kernel is a member of the workspace like any other crate, built here for
 # the firmware rather than for this machine. It runs in QEMU on OVMF with the
@@ -568,6 +451,10 @@ check:
 # put this on the device and apply it
 deploy:
     cargo run --quiet --bin console-deploy
+
+# put this on the device and apply it, asking nothing of the tests
+release:
+    cargo run --quiet --bin console-deploy -- --untested
 
 # move a device still called legion over, once
 migrate:

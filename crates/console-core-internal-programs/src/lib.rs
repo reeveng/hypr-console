@@ -99,6 +99,7 @@ ours! {
     KeyboardToggle, "keyboard-toggle";
     Launcher, "launcher";
     LoginGreeter, "login-greeter";
+    LoginWindow, "login-window";
     MappingPanel, "mapping-panel";
     MusicIndex, "music-index";
     MusicOnward, "music-onward";

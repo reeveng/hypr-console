@@ -11,7 +11,11 @@
 //! and a run that makes a chore is a run people stop asking for.
 //!
 //! It is read once, before anything is pressed, and put back once, after the
-//! last check. Not between checks: a check that turns the brightness up is
+//! last check. Between the two the sound is at nothing: a run opens panels,
+//! plays their sounds and walks the music player, and somebody sitting beside
+//! the device heard all of it at their own level while only the two volume
+//! checks turned it down, each for its own step. The level found is the one
+//! handed back, as it always was. Not between checks: a check that turns the brightness up is
 //! entitled to leave it up for the check after it, and `Device::fresh` is
 //! already the tidy between two checks -- a pad let go of, a menu closed, the
 //! router back on. This is the one at the end, and it is about the machine's
@@ -276,6 +280,14 @@ fn restore(stage: &mut Device, putting: &Restore) -> Result<Outcome, Never> {
         }
         Restore::Workspace(name) => stage.go_to(name),
     }
+}
+
+const SILENT: i64 = 0;
+
+pub fn silence(stage: &mut Device) -> Result<Outcome, Never> {
+    let Ok(()) = stage.volume_to(SILENT);
+
+    set_level(stage, Device::volume, SILENT)
 }
 
 pub fn back(stage: &mut Device, was: &Found) -> Result<Provided, Never> {

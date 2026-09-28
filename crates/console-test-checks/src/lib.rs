@@ -37,6 +37,7 @@ pub mod language;
 pub mod launcher;
 pub mod music;
 pub mod notifications;
+pub mod overview;
 pub mod panel;
 pub mod pointer;
 pub mod resource_usage;
@@ -133,7 +134,7 @@ impl From<Unchecked> for Why {
     }
 }
 
-pub const CHECKS: [&Check; 68] = [
+pub const CHECKS: [&Check; 69] = [
     &workspaces::RIGHT,
     &workspaces::LEFT,
     &workspaces::TAPPED,
@@ -202,6 +203,7 @@ pub const CHECKS: [&Check; 68] = [
     &control_center::PULLED,
     &boot::PAD,
     &boot::MENU,
+    &overview::UNDER,
 ];
 
 pub fn select(words: &[String]) -> Result<Vec<&'static Check>, Never> {

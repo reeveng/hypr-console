@@ -42,6 +42,7 @@ console-resume.workspace = true
 console-settings.workspace = true
 console-waiting.workspace = true
 console-onscreen.workspace = true
+console-overview.workspace = true
 console-events.workspace = true
 console-repository.workspace = true
 console-panel.workspace = true
@@ -52,7 +53,7 @@ console-login-greeter.workspace = true
 console-login-pattern.workspace = true
 console-login-window.workspace = true
 serde = { version = "1", features = ["derive"] }
-toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
 
 [lints]
 workspace = true

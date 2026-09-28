@@ -234,7 +234,7 @@ fn out_of_the_way() -> Result<(), Never> {
     }
 
     let Ok(_said) = console_compositor::request(
-        console_compositor::Request::Eval,
+        console_compositor::Request::Script,
         r#"hl.window_rule({ name = "the nested desktop stays out of the way", match = { class = "aquamarine" }, workspace = "special:console-desktop silent" })"#,
     );
 

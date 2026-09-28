@@ -157,8 +157,8 @@ fn publish(repository: &Path, where_: &Path) -> Result<(), Unpublished> {
     let Ok(written) = tree::manifest(&held);
 
     write(&manifest, &written)?;
-    write(&where_.join("docs/forks.md"), papers::FORKS)?;
-    write(&where_.join("README.md"), papers::README)
+    write(&where_.join(papers::FORKS_AT), papers::FORKS)?;
+    write(&where_.join(papers::README_AT), papers::README)
 }
 
 fn carry(source: &Path, target: &Path) -> Result<(), Unpublished> {

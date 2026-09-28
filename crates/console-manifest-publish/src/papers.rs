@@ -13,4 +13,8 @@ pub const NOT_PUBLISHED: &str = include_str!("../papers/not-published.txt");
 
 pub const FORKS: &str = include_str!("../papers/forks.md");
 
+pub const FORKS_AT: &str = "docs/forks.md";
+
 pub const README: &str = include_str!("../papers/readme.md");
+
+pub const README_AT: &str = "README.md";

@@ -53,7 +53,7 @@ pub fn hash(palette: &str) -> Result<String, Never> {
     }
 
     asked.update(palette.as_bytes());
-    Ok(format!("{:x}", asked.finalize()))
+    Ok(asked.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 #[cfg(test)]

@@ -35,6 +35,7 @@ impl Fingers {
     pub fn handle_touch(&mut self, touch: Touch) -> Result<Option<PointerEvent>, Never> {
         Ok(match touch {
             Touch::Down { id, at } => {
+                self.pressed.retain(|(which, _)| *which != id);
                 self.pressed.push((id, at));
 
                 match self.pressed.len() {
@@ -145,6 +146,24 @@ mod tests {
                 Touch::Up { id: 2 },
             ]),
             Ok(vec![PointerEvent::Down { at: (0.0, 0.0) }, PointerEvent::Up]),
+        );
+    }
+
+    #[test]
+    fn a_finger_whose_lift_never_came_does_not_turn_the_next_tap_into_a_pinch() {
+        let mut fingers = Fingers::default();
+
+        assert_eq!(
+            handle_touches(&mut fingers, &[
+                Touch::Down { id: 0, at: (10.0, 10.0) },
+                Touch::Down { id: 0, at: (40.0, 10.0) },
+                Touch::Up { id: 0 },
+            ]),
+            Ok(vec![
+                PointerEvent::Down { at: (10.0, 10.0) },
+                PointerEvent::Down { at: (40.0, 10.0) },
+                PointerEvent::Up,
+            ]),
         );
     }
 }

@@ -56,6 +56,7 @@ digraph desktop {
   "crate:console-settings" [label="console-settings", shape=ellipse];
   "crate:console-sound-effects" [label="console-sound-effects", shape=ellipse];
   "crate:console-status-bar" [label="console-status-bar\nkeeps a clock: deadline", shape=ellipse];
+  "crate:console-tasks" [label="console-tasks", shape=ellipse];
   "crate:console-test-checks" [label="console-test-checks", shape=ellipse];
   "crate:console-test-desktop" [label="console-test-desktop", shape=ellipse];
   "crate:console-test-stages" [label="console-test-stages", shape=ellipse];
@@ -78,6 +79,7 @@ digraph desktop {
   "internal:KeyboardToggle" [label="KeyboardToggle", shape=box, style=rounded];
   "internal:Launcher" [label="Launcher", shape=box, style=rounded];
   "internal:LoginGreeter" [label="LoginGreeter", shape=box, style=rounded];
+  "internal:LoginWindow" [label="LoginWindow", shape=box, style=rounded];
   "internal:MappingPanel" [label="MappingPanel", shape=box, style=rounded];
   "internal:MusicIndex" [label="MusicIndex", shape=box, style=rounded];
   "internal:MusicOnward" [label="MusicOnward", shape=box, style=rounded];
@@ -97,6 +99,7 @@ digraph desktop {
   "program:Alacritty" [label="alacritty", shape=component];
   "program:Awww" [label="awww", shape=component];
   "program:Bluetoothctl" [label="bluetoothctl", shape=component];
+  "program:Bootctl" [label="bootctl", shape=component];
   "program:Busctl" [label="busctl", shape=component];
   "program:Cal" [label="cal", shape=component];
   "program:Cargo" [label="cargo", shape=component];
@@ -107,6 +110,7 @@ digraph desktop {
   "program:Date" [label="date", shape=component];
   "program:DbusDaemon" [label="dbusdaemon", shape=component];
   "program:Df" [label="df", shape=component];
+  "program:Dot" [label="dot", shape=component];
   "program:Du" [label="du", shape=component];
   "program:Env" [label="env", shape=component];
   "program:Ffmpeg" [label="ffmpeg", shape=component];
@@ -145,6 +149,7 @@ digraph desktop {
   "program:Rm" [label="rm", shape=component];
   "program:RsvgConvert" [label="rsvgconvert", shape=component];
   "program:Runuser" [label="runuser", shape=component];
+  "program:Rustup" [label="rustup", shape=component];
   "program:Scp" [label="scp", shape=component];
   "program:SevenZip" [label="sevenzip", shape=component];
   "program:Sh" [label="sh", shape=component];
@@ -318,8 +323,10 @@ digraph desktop {
   "crate:console-input-mapping" -> "internal:Asking" [label="starts", style=solid];
   "crate:console-launcher" -> "program:XdgOpen" [label="runs", style=solid];
   "crate:console-login-window" -> "internal:LoginGreeter" [label="starts", style=solid];
+  "crate:console-login-window" -> "internal:LoginWindow" [label="starts", style=solid];
   "crate:console-login-window" -> "program:Systemctl" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "a unix socket" [label="binds", style=solid];
+  "crate:console-manifest-engine" -> "program:Bootctl" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Cargo" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Date" [label="runs", style=solid];
   "crate:console-manifest-engine" -> "program:Df" [label="runs", style=solid];
@@ -440,6 +447,11 @@ digraph desktop {
   "crate:console-status-bar" -> "topic:Notifications" [label="subscribes", style=solid];
   "crate:console-status-bar" -> "topic:Player" [label="subscribes", style=solid];
   "crate:console-status-bar" -> "topic:Sound" [label="subscribes", style=solid];
+  "crate:console-tasks" -> "program:Cargo" [label="runs", style=solid];
+  "crate:console-tasks" -> "program:Dot" [label="runs", style=solid];
+  "crate:console-tasks" -> "program:Git" [label="runs", style=solid];
+  "crate:console-tasks" -> "program:Rustup" [label="runs", style=solid];
+  "crate:console-tasks" -> "program:SystemdRun" [label="runs", style=solid];
   "crate:console-test-checks" -> "program:Alacritty" [label="runs", style=solid];
   "crate:console-test-checks" -> "program:NotifySend" [label="runs", style=solid];
   "crate:console-test-checks" -> "program:Ps" [label="runs", style=solid];

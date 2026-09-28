@@ -1,0 +1,2 @@
+[alias]
+x = "run --quiet --package console-tasks --bin console-tasks --"

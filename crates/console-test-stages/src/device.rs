@@ -67,6 +67,8 @@ use crate::picture::{Picture, where_};
 
 const NOTHING_SAID: &str = "";
 
+const EMPTY_WORKSPACE: &str = "empty";
+
 const NO_WINDOWS: i64 = 0;
 
 
@@ -833,6 +835,24 @@ impl Device {
         )
     }
 
+    pub fn to_an_empty_workspace(&mut self) -> Result<Outcome, Never> {
+        let Ok(lua) = console_compositor::onto(EMPTY_WORKSPACE, console_compositor::Carrying::None);
+        let Ok(quoted) = shell_quote(&lua);
+        let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
+
+        self.until::<Never>(
+            |seen| {
+                let Ok(held) = seen.windows_here();
+
+                Ok(match held {
+                    NO_WINDOWS => Ready::Yes,
+                    _ => Ready::NotYet,
+                })
+            },
+            A_MOMENT,
+        )
+    }
+
     pub fn open(&mut self, command: &str, seconds: f64) -> Result<Outcome, Never> {
         let Ok(which) = self.opening(command, seconds);
 
@@ -955,6 +975,20 @@ impl Device {
         let Ok(clients) = console_compositor::clients(&found);
 
         Ok(clients.cloned().collect())
+    }
+
+    pub fn windows_open(&mut self) -> Result<Vec<console_compositor::Window>, Never> {
+        let Ok(said) = self.hypr("clients -j");
+        let Ok(found) = read(&said);
+
+        Ok(match found {
+            Some(found) => {
+                let Ok(open) = console_compositor::windows_open(&found);
+
+                open
+            }
+            None => Vec::new(),
+        })
     }
 
     pub fn windows(&mut self) -> Result<Vec<String>, Never> {

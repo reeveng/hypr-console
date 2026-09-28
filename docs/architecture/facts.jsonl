@@ -638,6 +638,7 @@
 {"kind":"links","package":"console-login-window","target":"login-window","what":"console_program_lifetime"}
 {"kind":"runs","package":"console-login-window","target":"login-window","what":"Systemctl"}
 {"kind":"starts","package":"console-login-window","target":"login-window","what":"LoginGreeter"}
+{"kind":"starts","package":"console-login-window","target":"login-window","what":"LoginWindow"}
 {"kind":"builds","package":"console-manifest-engine","target":"console","what":"console"}
 {"kind":"links","package":"console-manifest-engine","target":"console","what":"console_awake"}
 {"kind":"links","package":"console-manifest-engine","target":"console","what":"console_bus"}
@@ -653,6 +654,7 @@
 {"kind":"links","package":"console-manifest-engine","target":"console","what":"console_repository"}
 {"kind":"links","package":"console-manifest-engine","target":"console","what":"console_session"}
 {"kind":"links","package":"console-manifest-engine","target":"console","what":"console_sound_effects"}
+{"kind":"runs","package":"console-manifest-engine","target":"console","what":"Bootctl"}
 {"kind":"runs","package":"console-manifest-engine","target":"console","what":"Cargo"}
 {"kind":"runs","package":"console-manifest-engine","target":"console","what":"Date"}
 {"kind":"runs","package":"console-manifest-engine","target":"console","what":"Df"}
@@ -1408,6 +1410,15 @@
 {"kind":"names","package":"console-status-bar","target":"lib","what":"Network"}
 {"kind":"names","package":"console-status-bar","target":"lib","what":"Notifications"}
 {"kind":"names","package":"console-status-bar","target":"lib","what":"Sound"}
+{"kind":"builds","package":"console-tasks","target":"console-tasks","what":"console_tasks"}
+{"kind":"links","package":"console-tasks","target":"console-tasks","what":"console_program_lifetime"}
+{"kind":"links","package":"console-tasks","target":"console-tasks","what":"console_repository"}
+{"kind":"runs","package":"console-tasks","target":"console-tasks","what":"Cargo"}
+{"kind":"runs","package":"console-tasks","target":"console-tasks","what":"Dot"}
+{"kind":"runs","package":"console-tasks","target":"console-tasks","what":"Git"}
+{"kind":"runs","package":"console-tasks","target":"console-tasks","what":"Rustup"}
+{"kind":"runs","package":"console-tasks","target":"console-tasks","what":"SystemdRun"}
+{"kind":"builds","package":"console-tasks","target":"lib","what":"console_tasks"}
 {"kind":"builds","package":"console-test-checks","target":"console-check","what":"console_check"}
 {"kind":"links","package":"console-test-checks","target":"console-check","what":"console_applications"}
 {"kind":"links","package":"console-test-checks","target":"console-check","what":"console_awake"}

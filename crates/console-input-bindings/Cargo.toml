@@ -14,7 +14,7 @@ console-core-words.workspace = true
 console-input-gamepad.workspace = true
 console-input-event-devices.workspace = true
 serde = { version = "1", features = ["derive"] }
-toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true

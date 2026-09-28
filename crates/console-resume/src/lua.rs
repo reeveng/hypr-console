@@ -22,7 +22,7 @@ use console_compositor::{DispatchResult, Request};
 use console_core_never::Never;
 
 pub fn eval(lua: &str) -> Result<DispatchResult, Never> {
-    console_compositor::request(Request::Eval, lua)
+    console_compositor::request(Request::Script, lua)
 }
 
 pub fn dispatch(dispatcher: &str) -> Result<DispatchResult, Never> {

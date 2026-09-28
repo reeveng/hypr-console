@@ -14,10 +14,17 @@
 //! refused: the secret, then whether the account may log in now. [`trusted`]
 //! is the same without the secret, for the two logins nobody types -- the
 //! greeter's own session, and the autologin a machine boots into. What it
-//! hands back can be [`Transaction::opened`] into a [`Session`], which is the
+//! hands back can be [`Transaction::open_session`] into a [`Session`], which is the
 //! half pam_systemd hears -- the session logind registers, the runtime
 //! directory, the seat -- and dropping the session closes it in the order PAM
 //! asks: the session, then the credentials, then the transaction.
+//!
+//! **The greeter's session has no credentials.** Its rules deny `auth`
+//! outright, and `pam_setcred` walks the `auth` stack, so asking to establish
+//! credentials there is `PAM_CRED_ERR` every time. The first boot that ran the
+//! login window stopped there six times over and fell to a text console. So
+//! the caller says which kind of session it is opening, and one with no
+//! credentials never asks for them or deletes them.
 //!
 //! **The secret is not kept.** It lives in the conversation for as long as the
 //! transaction might ask for it, it is handed to libpam as a copy libpam
@@ -105,8 +112,15 @@ pub struct Transaction {
     last: c_int,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credentials {
+    Establish,
+    Without,
+}
+
 pub struct Session {
     transaction: Transaction,
+    credentials: Credentials,
 }
 
 pub fn authenticate(request: Request<'_>, secret: &str) -> Result<Transaction, LoginError> {
@@ -200,7 +214,7 @@ impl Transaction {
         Ok(self.state.messages.borrow().clone())
     }
 
-    pub fn open_session(mut self, terminal: &str, environment: &[(&str, &str)]) -> Result<Session, LoginError> {
+    pub fn open_session(mut self, terminal: &str, environment: &[(&str, &str)], credentials: Credentials) -> Result<Session, LoginError> {
         let Ok(terminal) = c_string(terminal, Stage::SettingEnvironment);
         let terminal = terminal?;
 
@@ -233,10 +247,14 @@ impl Transaction {
             }
         }
 
-        self.step(Stage::Credentials, pam::pam_setcred, pam::ESTABLISH_CRED)?;
+        match credentials {
+            Credentials::Establish => self.step(Stage::Credentials, pam::pam_setcred, pam::ESTABLISH_CRED)?,
+            Credentials::Without => {}
+        }
+
         self.step(Stage::OpeningSession, pam::pam_open_session, 0)?;
 
-        Ok(Session { transaction: self })
+        Ok(Session { transaction: self, credentials })
     }
 }
 
@@ -295,8 +313,14 @@ impl Drop for Session {
         // SAFETY: the handle of the transaction this session holds, which is
         // ended after this, when the field drops.
         let _ = unsafe { pam::pam_close_session(handle, 0) };
-        // SAFETY: as above.
-        let _ = unsafe { pam::pam_setcred(handle, pam::DELETE_CRED) };
+
+        match self.credentials {
+            Credentials::Establish => {
+                // SAFETY: as above.
+                let _ = unsafe { pam::pam_setcred(handle, pam::DELETE_CRED) };
+            }
+            Credentials::Without => {}
+        }
     }
 }
 

@@ -29,10 +29,12 @@
 //! a machine nobody looks at again, and one wrongly called unfinished costs an
 //! apply somebody was going to run anyway.
 //!
-//! What is not here: counting a boot that never came up, and going back when
-//! the count runs out. Both need a machine that has been started and stopped
-//! rather than arithmetic, and the boot entry they would choose is not
-//! reachable from the pad yet.
+//! A generation that finished is not yet one that came up. The line also keeps
+//! the root snapshot taken before the apply, how many boots have tried it, and
+//! whether one of them came up, which is what `boots` decides with. A line
+//! written before any of that was kept reads as no snapshot, no tries and not
+//! yet good, which is the same answer a machine that has not rebooted since
+//! gives.
 
 use std::path::Path;
 
@@ -44,6 +46,9 @@ pub const KEPT: &str = "/var/lib/console/generations";
 
 const FINISHED: &str = "finished";
 const STARTED: &str = "started";
+const GOOD: &str = "good";
+const PENDING: &str = "pending";
+const NONE: &str = "-";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -68,6 +73,31 @@ impl State {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Boot {
+    Pending,
+    Good,
+}
+
+impl Boot {
+    fn word(self) -> Result<&'static str, Never> {
+        Ok(match self {
+            Boot::Pending => PENDING,
+            Boot::Good => GOOD,
+        })
+    }
+
+    fn read(said: &str) -> Result<Boot, Never> {
+        Ok(match said.trim() == GOOD {
+            true => Boot::Good,
+            false => Boot::Pending,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SnapshotNumber(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Commit<'a>(pub &'a str);
 
 const UNSAID: &str = "unknown";
@@ -77,13 +107,21 @@ pub struct Generation {
     pub number: u32,
     pub commit: String,
     pub state: State,
+    pub before: Option<SnapshotNumber>,
+    pub tries: u32,
+    pub boot: Boot,
 }
 
 impl Generation {
     pub fn serialize(&self) -> Result<String, Never> {
         let Ok(word) = self.state.word();
+        let Ok(boot) = self.boot.word();
+        let before = match self.before {
+            Some(SnapshotNumber(number)) => number.to_string(),
+            None => NONE.to_string(),
+        };
 
-        Ok(format!("{} {word}\n", self.commit))
+        Ok(format!("{} {word} {before} {} {boot}\n", self.commit, self.tries))
     }
 
     pub fn label(&self) -> Result<String, Never> {
@@ -91,15 +129,15 @@ impl Generation {
     }
 
     pub fn finished(&self) -> Result<Generation, Never> {
-        Ok(Generation {
-            number: self.number,
-            commit: self.commit.clone(),
-            state: State::Finished,
-        })
+        Ok(Generation { state: State::Finished, ..self.clone() })
     }
 }
 
-pub fn next(kept: &[Generation], commit: Commit<'_>) -> Result<Generation, Never> {
+pub fn newest(kept: &[Generation]) -> Result<Option<&Generation>, Never> {
+    Ok(kept.iter().max_by_key(|one| one.number))
+}
+
+pub fn next(kept: &[Generation], commit: Commit<'_>, before: Option<SnapshotNumber>) -> Result<Generation, Never> {
     let highest = match kept.iter().map(|one| one.number).max() {
         Some(highest) => highest,
         None => 0,
@@ -114,11 +152,15 @@ pub fn next(kept: &[Generation], commit: Commit<'_>) -> Result<Generation, Never
         number: highest.saturating_add(1),
         commit: named.to_string(),
         state: State::Started,
+        before,
+        tries: 0,
+        boot: Boot::Pending,
     })
 }
 
 pub fn unfinished(kept: &[Generation]) -> Result<Option<&Generation>, Never> {
-    let newest = match kept.iter().max_by_key(|one| one.number) {
+    let Ok(newest) = newest(kept);
+    let newest = match newest {
         Some(newest) => newest,
         None => return Ok(None),
     };
@@ -134,15 +176,31 @@ fn one(number: u32, held: &str) -> Result<Generation, Never> {
         Some(said) => said,
         None => "",
     };
-
-    let (commit, word) = match said.split_once(' ') {
-        Some((commit, word)) => (commit, word),
-        None => (said, STARTED),
+    let mut words = said.split_whitespace();
+    let commit = match words.next() {
+        Some(commit) => commit,
+        None => "",
     };
+    let Ok(state) = State::read(match words.next() {
+        Some(word) => word,
+        None => STARTED,
+    });
+    let before = match words.next().map(str::parse::<u32>) {
+        Some(Ok(number)) => Some(SnapshotNumber(number)),
+        Some(Err(_not_a_number)) => None,
+        None => None,
+    };
+    let tries = match words.next().map(str::parse::<u32>) {
+        Some(Ok(tries)) => tries,
+        Some(Err(_not_a_number)) => 0,
+        None => 0,
+    };
+    let Ok(boot) = Boot::read(match words.next() {
+        Some(word) => word,
+        None => PENDING,
+    });
 
-    let Ok(state) = State::read(word);
-
-    Ok(Generation { number, commit: commit.trim().to_string(), state })
+    Ok(Generation { number, commit: commit.to_string(), state, before, tries, boot })
 }
 
 pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
@@ -195,12 +253,12 @@ mod tests {
     use super::*;
 
     fn started(number: u32, commit: &str) -> Result<Generation, Never> {
-        Ok(Generation { number, commit: commit.to_string(), state: State::Started })
+        Ok(Generation { number, commit: commit.to_string(), state: State::Started, before: None, tries: 0, boot: Boot::Pending })
     }
 
     #[test]
     fn a_machine_that_has_never_applied_gets_the_first_generation() {
-        let Ok(next) = next(&[], Commit("a1b2c3d"));
+        let Ok(next) = next(&[], Commit("a1b2c3d"), None);
 
         assert_eq!(Ok(next), started(1, "a1b2c3d"));
     }
@@ -210,14 +268,14 @@ mod tests {
         let Ok(seventh) = started(7, "a1b2c3d");
         let Ok(second) = started(2, "0ff0ff0");
         let kept = vec![seventh, second];
-        let Ok(next) = next(&kept, Commit("beefbee"));
+        let Ok(next) = next(&kept, Commit("beefbee"), None);
 
         assert_eq!(next.number, 8);
     }
 
     #[test]
     fn a_tree_that_would_not_say_which_commit_is_still_a_generation() {
-        let Ok(next) = next(&[], Commit("  "));
+        let Ok(next) = next(&[], Commit("  "), None);
 
         assert_eq!(next.commit, UNSAID);
     }
@@ -258,6 +316,26 @@ mod tests {
         let Ok(done) = twelfth.finished();
         let Ok(serialize) = done.serialize();
         let Ok(read) = one(12, &serialize);
+
+        assert_eq!(read, done);
+    }
+
+    #[test]
+    fn a_generation_that_came_up_is_read_back_with_its_snapshot_and_tries() {
+        let Ok(twelfth) = started(12, "a1b2c3d");
+        let Ok(done) = twelfth.finished();
+        let good = Generation { before: Some(SnapshotNumber(184)), tries: 2, boot: Boot::Good, ..done };
+        let Ok(serialize) = good.serialize();
+        let Ok(read) = one(12, &serialize);
+
+        assert_eq!(read, good);
+    }
+
+    #[test]
+    fn a_line_written_before_boots_were_counted_has_no_snapshot_and_has_not_come_up() {
+        let Ok(read) = one(12, "a1b2c3d finished\n");
+        let Ok(twelfth) = started(12, "a1b2c3d");
+        let Ok(done) = twelfth.finished();
 
         assert_eq!(read, done);
     }

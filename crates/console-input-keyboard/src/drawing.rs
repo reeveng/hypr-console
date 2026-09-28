@@ -207,8 +207,8 @@ mod tests {
         drop(surface);
 
         assert_eq!(
-            bytes.chunks_exact(4).nth(210),
-            Some([0x00, 0x00, 0xff, 0xff].as_slice()),
+            bytes.as_chunks::<4>().0.get(210),
+            Some(&[0x00, 0x00, 0xff, 0xff]),
             "the pixel at ten across and ten down is red"
         );
 

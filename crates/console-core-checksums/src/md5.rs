@@ -82,13 +82,7 @@ fn padded(said: &[u8]) -> Result<Vec<u8>, Never> {
 }
 
 fn words(block: &[u8]) -> Result<Vec<u32>, Never> {
-    Ok(block
-        .chunks_exact(4)
-        .map(|four| match four {
-            [a, b, c, d] => u32::from_le_bytes([*a, *b, *c, *d]),
-            _the_chunk_is_four_wide => 0,
-        })
-        .collect())
+    Ok(block.as_chunks::<4>().0.iter().map(|four| u32::from_le_bytes(*four)).collect())
 }
 
 fn mixed(round: u32, held: [u32; 4]) -> Result<(u32, u32), Never> {

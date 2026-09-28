@@ -57,6 +57,8 @@ pub enum Unapplied {
     MigrationStopped(Moment, Box<Unapplied>),
     Undone(console_manifest_migrations::Undone),
     Pruning(PathBuf, String),
+    NoBootEntry(u32),
+    OneShotRefused(String),
 }
 
 impl fmt::Display for Unapplied {
@@ -165,6 +167,11 @@ impl fmt::Display for Unapplied {
                 "{} left the manifest and could not be moved to the attic: {said}",
                 at.display()
             ),
+            Unapplied::NoBootEntry(number) => write!(
+                to,
+                "snapshot {number} has no entry in the boot menu, so the next boot cannot be sent back to it"
+            ),
+            Unapplied::OneShotRefused(said) => write!(to, "bootctl would not set the next boot: {said}"),
         }
     }
 }

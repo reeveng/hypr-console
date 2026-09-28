@@ -251,7 +251,7 @@ fn paint(pixels: &mut [u8], device: Size<u32>, _scale: Scale) -> Result<(), Neve
     for (down, row) in pixels.chunks_exact_mut(stride).enumerate() {
         let Ok(down) = fitted::<_, u32>(down);
 
-        for (across, pixel) in row.chunks_exact_mut(4).enumerate() {
+        for (across, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let Ok(across) = fitted::<_, u32>(across);
             let Ok(ink) = ink(At { x: across, y: down, width: wide, height: tall });
 

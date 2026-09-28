@@ -283,10 +283,7 @@ fn smaller(captured: &mut Captured, widest: u32) -> Result<Pixels, Never> {
         .chunks(row)
         .step_by(skip)
         .flat_map(|line| {
-            line.chunks_exact(4).step_by(skip).take(across).flat_map(|pixel| match pixel {
-                [blue, green, red, _alpha] => [*red, *green, *blue, OPAQUE],
-                _shorter_than_a_pixel => [0, 0, 0, 0],
-            })
+            line.as_chunks::<4>().0.iter().step_by(skip).take(across).flat_map(|[blue, green, red, _alpha]| [*red, *green, *blue, OPAQUE])
         })
         .collect();
 

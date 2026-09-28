@@ -11,6 +11,7 @@
 //! point: a desktop assembled by hand is one no one can put back together.
 
 mod alone;
+mod boots;
 mod build;
 mod building;
 mod buttons;
@@ -69,6 +70,22 @@ fn main() -> ExitCode {
     let (command, rest) = asked
         .split_first()
         .map_or(("check", nothing), |(one, rest)| (one.as_str(), rest));
+
+    let boot = match command {
+        "boot-started" => Some(boots::Event::Started),
+        "boot-complete" => Some(boots::Event::Complete),
+        "boot-failed" => Some(boots::Event::Failed),
+        _ => None,
+    };
+
+    match boot {
+        Some(boot) => {
+            let Ok(said) = report(recorded(boot));
+
+            return said;
+        }
+        None => {}
+    }
 
     let (root, rest) = match (command, rest.split_first()) {
         ("list" | "check" | "migrate" | "room", Some((flag, [at, more @ ..]))) => match flag.as_str() {
@@ -141,7 +158,9 @@ console apply     bring the machine back to it
 console room      whether there is room on the disk for the next apply
 console buttons   write the profiles again, with this device's buttons in them
 console save      take a file edited in place back into the source
-console migrate   run what this machine has not run; --pending only says what";
+console migrate   run what this machine has not run; --pending only says what
+console boot-started, boot-complete, boot-failed
+                  what a boot says about the newest generation";
 
 fn read(root: &Path) -> Result<Manifest, Unapplied> {
     let at = root.join(manifest::MARK);
@@ -962,7 +981,8 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
     let Ok(()) = told_what_there_is_to_come_back_to(&was);
     let Ok(commit) = commit(root);
     let kept = generations::read(Path::new(generations::KEPT))?;
-    let Ok(running) = generations::next(&kept, generations::Commit(&commit));
+    let Ok(before) = snapshot::root(&was);
+    let Ok(running) = generations::next(&kept, generations::Commit(&commit), before);
 
     generations::remember(Path::new(generations::KEPT), &running)?;
 
@@ -1066,6 +1086,58 @@ fn apply(root: &Path, manifest: &Manifest) -> Result<(), Unapplied> {
     println!("\n{GREEN}Done.{OFF}");
 
     Ok(())
+}
+
+fn recorded(event: boots::Event) -> Result<(), Unapplied> {
+    let at = Path::new(generations::KEPT);
+    let kept = generations::read(at)?;
+    let Ok(decided) = boots::decide(event, &kept);
+
+    match &decided.generation {
+        Some(generation) => {
+            generations::remember(at, generation)?;
+
+            let Ok(named) = generation.label();
+
+            println!("generation {named}: tried {} of {}, {:?}", generation.tries, boots::TRIES, generation.boot);
+        }
+        None => {}
+    }
+
+    let Ok(bootctl) = Program::Bootctl.name();
+
+    match decided.one_shot {
+        boots::OneShot::Leave => Ok(()),
+        boots::OneShot::Clear => one_shot(&[bootctl, "set-oneshot", ""]),
+        boots::OneShot::Snapshot(generations::SnapshotNumber(number)) => {
+            let config = Path::new(console_boot_entries::CONFIG);
+            let Ok(held) = console_core_atomic_writes::read(config);
+            let said = match held {
+                Stored::Text(said) => said,
+                Stored::Absent => return Err(Unapplied::NoBootEntry(number)),
+                Stored::Failed(fault) => return Err(Unapplied::Unsaid(config.to_path_buf(), fault)),
+            };
+            let Ok(entries) = console_boot_entries::entries(&said);
+            let Ok(found) = console_boot_entries::snapshot(&entries, number);
+            let entry = match found {
+                Some(entry) => entry,
+                None => return Err(Unapplied::NoBootEntry(number)),
+            };
+
+            println!("the next boot goes back to snapshot {number}, {}", entry.identifier);
+
+            one_shot(&[bootctl, "set-oneshot", &entry.identifier])
+        }
+    }
+}
+
+fn one_shot(arguments: &[&str]) -> Result<(), Unapplied> {
+    let Ok(answered) = machine::run_captured(arguments);
+
+    match answered.ran {
+        Ran::Fine => Ok(()),
+        Ran::Badly => Err(Unapplied::OneShotRefused(answered.said.trim().to_string())),
+    }
 }
 
 fn timed(going: going::Going, applying: std::time::Instant, whoever: &str) -> Result<(), Never> {

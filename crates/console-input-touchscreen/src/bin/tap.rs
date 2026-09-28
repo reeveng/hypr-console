@@ -171,9 +171,9 @@ fn run() -> Result<(), Untouched> {
 }
 
 fn parse_points(said: &[String], screen: &console_screen::Screen) -> Result<Vec<Point<u32>>, Untouched> {
-    let pairs = said.chunks_exact(2);
+    let (pairs, left_over) = said.as_chunks::<2>();
 
-    match (said.is_empty(), pairs.remainder().is_empty()) {
+    match (said.is_empty(), left_over.is_empty()) {
         (false, true) => {}
         (true, _) | (false, false) => return Err(Untouched::NotTwoWords),
     }
@@ -182,10 +182,7 @@ fn parse_points(said: &[String], screen: &console_screen::Screen) -> Result<Vec<
     let mut spots: Vec<Point<u32>> = Vec::new();
 
     for pair in pairs {
-        let (across, down) = match pair {
-            [across, down] => (across, down),
-            _not_two_words => return Err(Untouched::NotTwoWords),
-        };
+        let [across, down] = pair;
         let across = number(across)?;
         let down = number(down)?;
         let at = Point { x: across, y: down };

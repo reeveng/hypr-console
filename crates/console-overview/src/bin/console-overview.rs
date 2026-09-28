@@ -278,7 +278,14 @@ fn stepped(
         nexts.push(next);
     }
 
-    Ok(nexts)
+    let (redraws, mut once): (Vec<Next>, Vec<Next>) = nexts.into_iter().partition(|next| matches!(next, Next::Redraw));
+
+    match redraws.is_empty() {
+        true => {},
+        false => once.push(Next::Redraw),
+    }
+
+    Ok(once)
 }
 
 fn step_key(showing: &mut Showing, key: Key) -> Result<Next, Never> {
@@ -497,7 +504,7 @@ fn looked(room: Size<u32>) -> Result<Option<(Overview, Option<PlaceId>)>, Never>
 }
 
 fn ask(lua: &str) -> Result<(), Never> {
-    let Ok(answered) = console_compositor::request(Request::Dispatch, lua);
+    let Ok(answered) = console_compositor::request(Request::Script, lua);
 
     match answered {
         DispatchResult::Success => {},
@@ -594,11 +601,15 @@ fn draw(surface: &mut Surface, wearing: &Wearing, showing: &Showing) -> Result<(
         Showing::Open { laid, front, touch, choosing, pictures } => {
             let Ok(by_the_pad) = held_by_the_pad(laid, choosing);
             let Ok(chosen) = chosen_window(laid, choosing);
-            let held = match touch {
-                Touch::Dragging(held, _) => Some(held),
-                Touch::Lifted | Touch::Pressed { .. } | Touch::Resizing { .. } => by_the_pad.as_ref(),
+            let (held, landing) = match touch {
+                Touch::Dragging(held, _) => {
+                    let Ok(landing) = console_overview::landing(laid, held);
+
+                    (Some(held), landing)
+                }
+                Touch::Lifted | Touch::Pressed { .. } | Touch::Resizing { .. } => (by_the_pad.as_ref(), None),
             };
-            let drawn = Scene { overview: laid, front: *front, held, chosen: chosen.as_deref(), pictures, wearing };
+            let drawn = Scene { overview: laid, front: *front, held, landing, chosen: chosen.as_deref(), pictures, wearing };
             let Ok(shapes) = render(&drawn, &Pango);
 
             shapes
@@ -641,5 +652,22 @@ mod tests {
         let opened: Vec<&str> = nexts.iter().filter(|next| matches!(next, Next::Open)).map(|_| "open").collect();
 
         assert_eq!(opened, ["open"], "every open hides the overview and shows it again, so a second one is a flicker");
+    }
+
+    #[test]
+    fn moves_that_arrive_together_are_drawn_once() {
+        let Ok(laid) = console_overview::overview(&[], Size { width: 1000, height: 1600 });
+        let mut showing = Showing::Open {
+            laid: Box::new(laid),
+            front: None,
+            touch: Touch::Lifted,
+            choosing: Box::new(Choosing::Untouched),
+            pictures: BTreeMap::new(),
+        };
+        let keys = [Key::Right, Key::Left, Key::Right, Key::Left];
+        let Ok(after) = stepped(&mut showing, None, Vec::new(), keys.into_iter());
+        let drawn: Vec<&str> = after.iter().filter(|next| matches!(next, Next::Redraw)).map(|_| "drawn").collect();
+
+        assert_eq!(drawn, ["drawn"], "every redraw paints the same last state, and a paint slower than the moves arriving falls further behind with each one");
     }
 }

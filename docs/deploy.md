@@ -70,8 +70,15 @@ lockfile and a lockfile that is behind would fail there instead -- halfway
 through an apply, on a handheld -- the emulated checks, and the EXPLICIT rules
 the workspace already keeps.
 
-Before those minutes are spent, the device is asked one thing: whether it has
-room. The apply at the far end builds the whole desktop on the device's own
+Before those minutes are spent, the device is asked two things. The first is
+which toolchain it builds with. It builds this tree with its own `cargo`, from
+pacman, and the one here is what `just ready` passed with; a device behind it can
+fail halfway through the apply on a feature or a lint this machine took for
+granted, so its `cargo --version` is read against this one's and an older device
+stops the deploy with the update to run. `Cargo.lock` needs no such question,
+because it travels in the history and the crates are the same on both ends.
+
+The second is whether it has room. The apply at the far end builds the whole desktop on the device's own
 disk, beside the games and the videos and whatever the download panel last
 fetched, and a disk that fills partway through a build stops somewhere no one
 chose and reads as something else entirely. So `console room` is asked over ssh

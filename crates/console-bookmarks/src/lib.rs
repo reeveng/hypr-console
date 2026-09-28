@@ -102,7 +102,9 @@ pub fn slug(id: &str) -> Result<String, Never> {
 fn bytes(said: &str) -> Result<Vec<u8>, Never> {
     let digits: Vec<char> = said.chars().collect();
     let read: Result<Vec<u8>, _> = digits
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u8::from_str_radix(&pair.iter().collect::<String>(), 16))
         .collect();
 

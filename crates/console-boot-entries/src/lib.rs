@@ -25,6 +25,11 @@
 //! `if_arch` skip an entry the same way and are not read here: nothing on this
 //! machine writes them, and one that did would shift a duplicate's number
 //! rather than lose an entry.
+//!
+//! A snapshot's entry is found by the number limine-snapper-sync writes at the
+//! front of its title, before the `│`, on the level just above the kernel,
+//! and the first entry under it is the one a boot asks for: the kernel the
+//! snapshot was taken with.
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -257,6 +262,22 @@ fn identifier(path: &str) -> Result<String, Never> {
     })
 }
 
+const BESIDE: char = '\u{2502}';
+
+pub fn snapshot(entries: &[Entry], number: u32) -> Result<Option<&Entry>, Never> {
+    Ok(entries.iter().find(|entry| {
+        let above = entry.levels.iter().rev().nth(1).map(|level| level.title.split_once(BESIDE));
+
+        match above {
+            Some(Some((front, _when))) => match front.trim().parse::<u32>() {
+                Ok(found) => found == number,
+                Err(_not_a_snapshot) => false,
+            },
+            Some(None) | None => false,
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +348,25 @@ path: boot():/EFI/BOOT/BOOTX64.EFI
                 comments: vec!["console apply e79c18f5".to_string()],
             })
         );
+    }
+
+    #[test]
+    fn a_snapshot_is_found_by_the_number_at_the_front_of_its_title() {
+        let Ok(found) = entries(DEVICE);
+        let Ok(six) = snapshot(&found, 6);
+        let Ok(missing) = snapshot(&found, 18);
+
+        assert_eq!(six.map(|entry| entry.identifier.as_str()), Some("CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify"));
+        assert_eq!(missing, None);
+    }
+
+    #[test]
+    fn a_kernel_whose_name_is_a_number_is_not_a_snapshot() {
+        let config = "/Linux\n//6\nprotocol: linux\n";
+        let Ok(found) = entries(config);
+        let Ok(six) = snapshot(&found, 6);
+
+        assert_eq!(six, None);
     }
 
     #[test]

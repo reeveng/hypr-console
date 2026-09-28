@@ -15,7 +15,7 @@ console-core-checksums.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 
 [lints]
 workspace = true

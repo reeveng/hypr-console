@@ -355,7 +355,7 @@ pub fn from_portable_pixmap(bytes: &[u8]) -> Result<Option<Pixels>, Never> {
 
     let mut rgba: Vec<u8> = Vec::new();
 
-    for pixel in remaining.chunks_exact(3) {
+    for pixel in remaining.as_chunks::<3>().0 {
         rgba.extend_from_slice(pixel);
         rgba.push(u8::MAX);
     }

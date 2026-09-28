@@ -3,7 +3,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use console_login_session::{Request, LoginError, Rules, Stage, authenticate, trusted};
+use console_login_session::{Credentials, Request, LoginError, Rules, Stage, authenticate, trusted};
 
 const SERVICE: &str = "console-login-test";
 
@@ -79,7 +79,7 @@ fn a_session_opens_with_what_it_was_handed_and_closes_when_dropped() -> Result<(
     let request = Request { service: SERVICE, person: &person, rules: Rules::Directory(&folder) };
     let transaction = authenticate(request, "tat").map_err(|why| format!("the right pattern was refused: {why}"))?;
     let session = transaction
-        .open_session("tty7", &[("XDG_SESSION_CLASS", "user"), ("XDG_VTNR", "1")])
+        .open_session("tty7", &[("XDG_SESSION_CLASS", "user"), ("XDG_VTNR", "1")], Credentials::Establish)
         .map_err(|why| format!("the session would not open: {why}"))?;
     let Ok(environment) = session.environment();
 
@@ -87,6 +87,50 @@ fn a_session_opens_with_what_it_was_handed_and_closes_when_dropped() -> Result<(
     assert!(environment.contains(&"XDG_VTNR=1".to_string()), "{environment:?}");
 
     Ok(())
+}
+
+fn greeter_rules() -> Result<PathBuf, Box<dyn Error>> {
+    let folder = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("greeter");
+    let stack = "auth required pam_deny.so\n\
+                 account required pam_permit.so\n\
+                 password required pam_deny.so\n\
+                 session required pam_permit.so\n";
+
+    fs::create_dir_all(&folder)?;
+    console_core_atomic_writes::whole(&folder.join(SERVICE), stack.as_bytes())?;
+
+    Ok(folder)
+}
+
+#[test]
+fn the_greeter_session_opens_under_rules_that_deny_every_credential() -> Result<(), Box<dyn Error>> {
+    let folder = greeter_rules()?;
+    let person = person()?;
+    let request = Request { service: SERVICE, person: &person, rules: Rules::Directory(&folder) };
+    let transaction = trusted(request).map_err(|why| format!("the greeter was refused before its session: {why}"))?;
+
+    transaction
+        .open_session("tty1", &[("XDG_SESSION_CLASS", "greeter")], Credentials::Without)
+        .map_err(|why| format!("the greeter's session would not open: {why}"))?;
+
+    Ok(())
+}
+
+#[test]
+fn asking_those_rules_for_credentials_is_what_stopped_the_first_boot() -> Result<(), Box<dyn Error>> {
+    let folder = greeter_rules()?;
+    let person = person()?;
+    let request = Request { service: SERVICE, person: &person, rules: Rules::Directory(&folder) };
+    let transaction = trusted(request).map_err(|why| format!("the greeter was refused before its session: {why}"))?;
+
+    match transaction.open_session("tty1", &[("XDG_SESSION_CLASS", "greeter")], Credentials::Establish) {
+        Ok(_) => Err(Box::from("pam_deny gave credentials, so the greeter's rules are not what this test thinks")),
+        Err(why) => {
+            assert!(matches!(why, LoginError::PamFailure { stage: Stage::Credentials, .. }), "{why:?}");
+
+            Ok(())
+        }
+    }
 }
 
 #[test]

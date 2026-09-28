@@ -163,7 +163,7 @@ impl Inside {
         }
 
         let Ok(made) = nested::made_headless(screen);
-        let Ok(_said) = self.request(Request::Eval, &made);
+        let Ok(_said) = self.request(Request::Script, &made);
         let Ok(sized) = self.wait_for_mode(screen);
 
         match sized {
@@ -174,7 +174,7 @@ impl Inside {
         }
 
         let Ok(_disabled) =
-            self.request(Request::Eval, r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#);
+            self.request(Request::Script, r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#);
         let Ok(alone) = self.wait_for_monitors(WINDOWED, Ready::NotYet);
 
         match alone {

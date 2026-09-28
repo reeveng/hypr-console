@@ -422,16 +422,14 @@ fn premultiplied(pixels: &Pixels) -> Result<Vec<u8>, Never> {
     for line in pixels.bytes.chunks(step) {
         let mut many = 0u32;
 
-        'over_pixels: for pixel in line.chunks_exact(4) {
+        'over_pixels: for pixel in line.as_chunks::<4>().0 {
             match many < across {
                 true => many = many.saturating_add(1),
                 false => break 'over_pixels,
             }
 
-            let ([red, green, blue], alpha) = match pixel {
-                [red, green, blue, alpha] => ([*red, *green, *blue], Alpha(*alpha)),
-                _shorter_than_a_pixel => break 'over_pixels,
-            };
+            let [red, green, blue, alpha] = *pixel;
+            let alpha = Alpha(alpha);
 
             let Ok(red) = lit(red, alpha);
             let Ok(green) = lit(green, alpha);

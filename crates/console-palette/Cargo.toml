@@ -20,7 +20,7 @@ console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde", "preserve_order"] }
 
 [dev-dependencies]
 console-core-directory-listing.workspace = true

@@ -35,9 +35,12 @@
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
+use crate::generations::SnapshotNumber;
 use crate::machine::{self, Ran};
 
-pub const KEPT: [&str; 2] = ["root", "home"];
+const ROOT: &str = "root";
+
+pub const KEPT: [&str; 2] = [ROOT, "home"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Snapshot {
@@ -77,6 +80,19 @@ pub fn after(before: &[Snapshot], what: &str) -> Result<Vec<Snapshot>, Never> {
             Snapshot::Not { .. } => None,
         })
         .collect())
+}
+
+pub fn root(taken: &[Snapshot]) -> Result<Option<SnapshotNumber>, Never> {
+    Ok(taken.iter().find_map(|held| match held {
+        Snapshot::Made { configuration, number } => match configuration == ROOT {
+            true => match number.parse::<u32>() {
+                Ok(number) => Some(SnapshotNumber(number)),
+                Err(_not_a_number) => None,
+            },
+            false => None,
+        },
+        Snapshot::Not { .. } => None,
+    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +144,25 @@ mod tests {
         let Ok(said) = held.describe();
 
         assert_eq!(said, "root #412");
+    }
+
+    #[test]
+    fn the_generation_keeps_the_root_snapshot_and_not_the_home_one() {
+        let taken = vec![
+            Snapshot::Made { configuration: "home".to_string(), number: "90".to_string() },
+            Snapshot::Made { configuration: "root".to_string(), number: "184".to_string() },
+        ];
+        let Ok(root) = root(&taken);
+
+        assert_eq!(root, Some(SnapshotNumber(184)));
+    }
+
+    #[test]
+    fn a_root_that_could_not_be_taken_leaves_nothing_to_go_back_to() {
+        let taken = vec![Snapshot::Not { configuration: "root".to_string(), why: "Unknown config.".to_string() }];
+        let Ok(root) = root(&taken);
+
+        assert_eq!(root, None);
     }
 
     #[test]

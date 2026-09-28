@@ -192,9 +192,9 @@ fn painted(filling: Filling) -> Result<(Vec<u8>, Size<u32>), Box<dyn Error>> {
 fn at(pixels: &[u8], device: Size<u32>, on: Point<u32>) -> Result<[u8; 3], Never> {
     let Ok(position) = index(on.y.saturating_mul(device.width).saturating_add(on.x));
 
-    Ok(match pixels.chunks_exact(4).nth(position) {
+    Ok(match pixels.as_chunks::<4>().0.get(position) {
         Some([blue, green, red, _alpha]) => [*red, *green, *blue],
-        Some(_) | None => [0, 0, 0],
+        None => [0, 0, 0],
     })
 }
 

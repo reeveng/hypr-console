@@ -63,6 +63,7 @@ programs! {
     Alacritty, "alacritty", Origin::Package("alacritty");
     Awww, "awww", Origin::Package("awww");
     Bluetoothctl, "bluetoothctl", Origin::Package("bluez-utils");
+    Bootctl, "bootctl", Origin::Arch;
     Busctl, "busctl", Origin::Arch;
     Cal, "cal", Origin::Arch;
     Cargo, "cargo", Origin::Package("rust");
@@ -73,6 +74,7 @@ programs! {
     Date, "date", Origin::Arch;
     DbusDaemon, "dbus-daemon", Origin::Arch;
     Df, "df", Origin::Arch;
+    Dot, "dot", Origin::Developing;
     Du, "du", Origin::Arch;
     Echo, "echo", Origin::Arch;
     Env, "env", Origin::Arch;
@@ -112,6 +114,7 @@ programs! {
     Rm, "rm", Origin::Arch;
     RsvgConvert, "rsvg-convert", Origin::Package("librsvg");
     Runuser, "runuser", Origin::Arch;
+    Rustup, "rustup", Origin::Developing;
     Scp, "scp", Origin::Developing;
     SevenZip, "7z", Origin::Package("7zip");
     Sh, "sh", Origin::Arch;

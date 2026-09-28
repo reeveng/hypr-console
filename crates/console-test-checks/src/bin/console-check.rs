@@ -262,6 +262,14 @@ fn on_the_device(
         true => None,
         false => {
             let Ok(was) = putting_back::observe(&mut stage);
+            let Ok(silenced) = putting_back::silence(&mut stage);
+
+            match silenced {
+                console_test_stages::device::Outcome::Happened => {}
+                console_test_stages::device::Outcome::RanOut => {
+                    println!("{}the sound would not go down, so this run is heard{}", ink.dim, ink.off);
+                }
+            }
 
             Some(was)
         }

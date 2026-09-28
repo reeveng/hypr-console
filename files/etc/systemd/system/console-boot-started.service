@@ -1,0 +1,25 @@
+[Unit]
+Description=Boot started
+# A try counted against the newest generation, before the login window that
+# would say it came up. An apply does not restart the machine, so a boot is the
+# only thing that ever finds out whether what it wrote comes up; the third that
+# does not sends the next boot to the snapshot taken before the apply. The rule
+# is `console_manifest_engine`'s boots module and is arithmetic; this is only
+# where a boot says it happened.
+#
+# Pulled in by the login window's unit and ordered before it, the same way
+# console-boot-complete.service is, so a boot that dies before the login window
+# is even asked for counts nothing and gets the menu instead. It is a oneshot
+# that stays active so the login window restarting does not count a second try.
+DefaultDependencies=no
+After=local-fs.target sys-firmware-efi-efivars.mount
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Only a boot of the ordinary root counts. A snapshot is a machine from before
+# the generations it would be counting, and writing into it is writing into the
+# way back.
+ExecCondition=/usr/bin/sh -c 'test "$(/usr/bin/findmnt -no FSROOT /)" = /@'
+ExecStart=/usr/local/bin/console boot-started

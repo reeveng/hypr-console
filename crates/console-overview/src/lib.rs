@@ -8,8 +8,12 @@
 //! overview all give: swipe up from the bottom edge, and each place is a card
 //! with its windows standing in it the way they stand on the screen.
 //!
-//! A window dragged onto another card joins that place beside what is there,
-//! onto the last card it gets a place of its own, and anywhere along the top,
+//! A window dragged onto another card joins that place on the side of the
+//! window under the finger that the finger is nearest -- near its top edge it
+//! goes above it, near its right edge beside it on the right -- and the half it
+//! will take is lit while it is held there, so where it lands is shown before
+//! the finger lifts and moving a little further changes it. Onto the last card
+//! it gets a place of its own, and anywhere along the top,
 //! where a box saying so comes up, it closes -- a thumb aims at a band, not a
 //! button. The line between two windows in a card is
 //! dragged to resize the split. A tap goes to what it landed on, and a tap on
@@ -366,8 +370,59 @@ fn hit_within(card: &Card, at: Point<f64>) -> Result<Hit, Never> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Above,
+    Below,
+    Left,
+    Right,
+}
+
+impl Side {
+    pub fn nearest(frame: Frame, at: Point<f64>) -> Result<Side, Never> {
+        let across = ((at.x - frame.at.x) / frame.size.width.max(f64::EPSILON)).clamp(0.0, 1.0);
+        let down = ((at.y - frame.at.y) / frame.size.height.max(f64::EPSILON)).clamp(0.0, 1.0);
+        let (_, side) = [(1.0 - across, Side::Right), (down, Side::Above), (1.0 - down, Side::Below)]
+            .into_iter()
+            .fold((across, Side::Left), |nearer, next| match next.0 < nearer.0 {
+                true => next,
+                false => nearer,
+            });
+
+        Ok(side)
+    }
+
+    pub fn half(self, frame: Frame) -> Result<Frame, Never> {
+        let wide = frame.size.width / 2.0;
+        let tall = frame.size.height / 2.0;
+
+        Ok(match self {
+            Side::Above => Frame { at: frame.at, size: Size { width: frame.size.width, height: tall } },
+            Side::Below => Frame {
+                at: Point { x: frame.at.x, y: frame.at.y + tall },
+                size: Size { width: frame.size.width, height: tall },
+            },
+            Side::Left => Frame { at: frame.at, size: Size { width: wide, height: frame.size.height } },
+            Side::Right => Frame {
+                at: Point { x: frame.at.x + wide, y: frame.at.y },
+                size: Size { width: wide, height: frame.size.height },
+            },
+        })
+    }
+
+    fn preselected(self) -> Result<&'static str, Never> {
+        Ok(match self {
+            Side::Above => "preselect u",
+            Side::Below => "preselect d",
+            Side::Left => "preselect l",
+            Side::Right => "preselect r",
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Drop {
     Onto(PlaceId),
+    Beside { place: PlaceId, window: String, side: Side },
     New,
     Close,
     Back,
@@ -380,7 +435,14 @@ pub fn dropped(overview: &Overview, from: PlaceId, at: Point<f64>) -> Result<Dro
         Hit::Close => return Ok(Drop::Close),
         Hit::None => return Ok(Drop::Back),
         Hit::Card(target) => target,
-        Hit::Tile { from: under, .. } => Target::Place(under),
+        Hit::Tile { address, from: under, frame } => {
+            let Ok(side) = Side::nearest(frame, at);
+
+            return Ok(match under == from {
+                true => Drop::Back,
+                false => Drop::Beside { place: under, window: address, side },
+            });
+        }
         Hit::Divider { .. } => match overview.cards.iter().find(|card| card.frame.holds(at) == Ok(Holds::Yes)) {
             Some(card) => card.target,
             None => return Ok(Drop::Back),
@@ -446,21 +508,73 @@ fn window_named(address: &str) -> Result<String, Never> {
     quote(&format!("address:{address}"))
 }
 
+pub fn landing(overview: &Overview, held: &Dragged) -> Result<Option<Frame>, Never> {
+    let own = overview
+        .cards
+        .iter()
+        .flat_map(|card| card.tiles.iter().map(move |tile| (card.target, tile)))
+        .find(|(_, tile)| tile.address == held.address);
+
+    let from = match own {
+        Some((Target::Place(from), _)) => from,
+        Some((Target::New, _)) | None => return Ok(None),
+    };
+
+    let Ok(landed) = dropped(overview, from, held.stroke.at);
+    let card_of = |wanted: Target| overview.cards.iter().find(|card| card.target == wanted).map(|card| card.frame);
+
+    Ok(match landed {
+        Drop::Beside { window, side, .. } => {
+            let under = overview.cards.iter().flat_map(|card| card.tiles.iter()).find(|tile| tile.address == window);
+
+            under.map(|tile| {
+                let Ok(half) = side.half(tile.frame);
+
+                half
+            })
+        }
+        Drop::Onto(id) => card_of(Target::Place(id)),
+        Drop::New => card_of(Target::New),
+        Drop::Close | Drop::Back => None,
+    })
+}
+
+fn dispatched(dispatcher: &str) -> Result<String, Never> {
+    Ok(format!("hl.dispatch({dispatcher})"))
+}
+
 pub fn carried(address: &str, drop: Drop) -> Result<Option<String>, Never> {
     let Ok(window) = window_named(address);
 
     Ok(match drop {
         Drop::Onto(PlaceId(id)) => {
             let Ok(place) = quote(&id.to_string());
+            let Ok(moving) = dispatched(&format!("hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"));
 
-            Some(format!("hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"))
+            Some(moving)
+        }
+        Drop::Beside { place: PlaceId(id), window: beside, side } => {
+            let Ok(place) = quote(&id.to_string());
+            let Ok(neighbour) = window_named(&beside);
+            let Ok(preselect) = side.preselected();
+            let Ok(side_asked) = quote(preselect);
+            let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ window = {neighbour} }})"));
+            let Ok(choosing) = dispatched(&format!("hl.dsp.layout({side_asked})"));
+            let Ok(moving) = dispatched(&format!("hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"));
+
+            Some(format!("{focusing} {choosing} {moving}"))
         }
         Drop::New => {
             let Ok(place) = quote(EMPTY_PLACE);
+            let Ok(moving) = dispatched(&format!("hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"));
 
-            Some(format!("hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"))
+            Some(moving)
         }
-        Drop::Close => Some(format!("hl.dsp.window.close({{ window = {window} }})")),
+        Drop::Close => {
+            let Ok(closing) = dispatched(&format!("hl.dsp.window.close({{ window = {window} }})"));
+
+            Some(closing)
+        }
         Drop::Back => None,
     })
 }
@@ -469,7 +583,7 @@ pub fn resized(overview: &Overview, left: &str, by: f64) -> Result<String, Never
     let Ok(window) = window_named(left);
     let Ok(across) = whole_i32(by / overview.shrink.max(f64::EPSILON));
 
-    Ok(format!("hl.dsp.window.resize({{ window = {window}, x = {across}, y = 0, relative = true }})"))
+    dispatched(&format!("hl.dsp.window.resize({{ window = {window}, x = {across}, y = 0, relative = true }})"))
 }
 
 pub fn gone_to(hit: &Hit) -> Result<Option<String>, Never> {
@@ -477,17 +591,21 @@ pub fn gone_to(hit: &Hit) -> Result<Option<String>, Never> {
         Hit::Tile { address, .. } => {
             let Ok(window) = window_named(address);
 
-            Some(format!("hl.dsp.focus({{ window = {window} }})"))
+            let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ window = {window} }})"));
+
+            Some(focusing)
         }
         Hit::Card(Target::Place(PlaceId(id))) => {
             let Ok(place) = quote(&id.to_string());
+            let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ workspace = {place} }})"));
 
-            Some(format!("hl.dsp.focus({{ workspace = {place} }})"))
+            Some(focusing)
         }
         Hit::Card(Target::New) => {
             let Ok(place) = quote(EMPTY_PLACE);
+            let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ workspace = {place} }})"));
 
-            Some(format!("hl.dsp.focus({{ workspace = {place} }})"))
+            Some(focusing)
         }
         Hit::Divider { .. } | Hit::Close | Hit::None => None,
     })
@@ -747,6 +865,7 @@ pub struct Scene<'a> {
     pub overview: &'a Overview,
     pub front: Option<PlaceId>,
     pub held: Option<&'a Dragged>,
+    pub landing: Option<Frame>,
     pub chosen: Option<&'a str>,
     pub pictures: &'a BTreeMap<String, Pixels>,
     pub wearing: &'a Wearing,
@@ -873,6 +992,16 @@ fn render_held(drawn: &Scene<'_>, measure: &dyn Measure) -> Result<Vec<Shape>, N
     let Ok(by) = held.stroke.by();
     let Ok(following) = held.frame.moved(by);
     let mut shapes = vec![Shape::Panel(band), said];
+
+    match drawn.landing {
+        Some(landing) => {
+            let Ok(lit) = landing.panel(TILE_ROUND, wearing.fill, Edge::Of { wide: CARD_EDGE, color: wearing.pink });
+
+            shapes.push(Shape::Panel(lit));
+        }
+        None => {},
+    }
+
     let tile = drawn.overview.cards.iter().flat_map(|card| card.tiles.iter()).find(|tile| tile.address == held.address);
 
     match tile {
@@ -1009,14 +1138,57 @@ mod tests {
     }
 
     #[test]
-    fn a_window_dropped_on_another_card_goes_to_that_place() -> Result<(), &'static str> {
+    fn a_window_dropped_near_an_edge_of_another_window_goes_on_that_side_of_it() -> Result<(), &'static str> {
         let Ok(laid) = laid_out();
         let Ok(other) = card(&laid, Target::Place(PlaceId(3)));
         let other = other.ok_or("no card for that target")?;
+        let first = other.tiles.first().ok_or("a window in that card")?;
+        let there = first.frame;
+        let Ok(centre) = middle(there);
+        let near = |x: f64, y: f64| Point { x: there.at.x + there.size.width * x, y: there.at.y + there.size.height * y };
+        let beside = |side: Side| Ok(Drop::Beside { place: PlaceId(3), window: "c".to_string(), side });
 
-        let Ok(centre) = middle(other.frame);
+        assert_eq!(dropped(&laid, PlaceId(1), near(0.5, 0.1)), beside(Side::Above));
+        assert_eq!(dropped(&laid, PlaceId(1), near(0.5, 0.9)), beside(Side::Below));
+        assert_eq!(dropped(&laid, PlaceId(1), near(0.1, 0.5)), beside(Side::Left));
+        assert_eq!(dropped(&laid, PlaceId(1), near(0.9, 0.5)), beside(Side::Right));
+        assert_eq!(dropped(&laid, PlaceId(1), near(0.8, 0.95)), beside(Side::Below));
+        assert!(matches!(dropped(&laid, PlaceId(1), centre), Ok(Drop::Beside { place: PlaceId(3), .. })));
 
-        assert_eq!(dropped(&laid, PlaceId(1), centre), Ok(Drop::Onto(PlaceId(3))));
+        Ok(())
+    }
+
+    #[test]
+    fn a_window_dropped_beside_another_asks_for_that_side_of_it_before_it_moves() {
+        assert_eq!(
+            carried("0x1", Drop::Beside { place: PlaceId(3), window: "0x2".to_string(), side: Side::Below }),
+            Ok(Some(
+                r#"hl.dispatch(hl.dsp.focus({ window = "address:0x2" })) hl.dispatch(hl.dsp.layout("preselect d")) hl.dispatch(hl.dsp.window.move({ window = "address:0x1", workspace = "3", follow = false }))"#
+                    .to_string()
+            )),
+        );
+    }
+
+    #[test]
+    fn the_half_a_window_will_take_is_lit_while_it_is_held_there() -> Result<(), &'static str> {
+        let Ok(laid) = laid_out();
+        let Ok(own) = card(&laid, Target::Place(PlaceId(1)));
+        let own = own.ok_or("no card for that target")?;
+        let held = own.tiles.first().ok_or("a window to hold")?;
+        let Ok(other) = card(&laid, Target::Place(PlaceId(3)));
+        let other = other.ok_or("no card for that target")?;
+        let first = other.tiles.first().ok_or("a window in that card")?;
+        let there = first.frame;
+        let Ok(from) = middle(held.frame);
+        let low = Point { x: there.at.x + there.size.width / 2.0, y: there.at.y + there.size.height * 0.9 };
+        let dragged = Dragged { address: held.address.clone(), frame: held.frame, stroke: Stroke { from, at: low } };
+        let Ok(lower) = Side::Below.half(there);
+
+        assert_eq!(landing(&laid, &dragged), Ok(Some(lower)));
+
+        let home = Dragged { stroke: Stroke { from, at: from }, ..dragged };
+
+        assert_eq!(landing(&laid, &home), Ok(None));
 
         Ok(())
     }
@@ -1057,7 +1229,7 @@ mod tests {
         assert_eq!(dropped(&laid, PlaceId(1), Point { x: 4.0, y: laid.close.at.y + laid.close.size.height + 4.0 }), Ok(Drop::Close));
         assert_eq!(
             carried("0x1", Drop::Close),
-            Ok(Some(r#"hl.dsp.window.close({ window = "address:0x1" })"#.to_string()))
+            Ok(Some(r#"hl.dispatch(hl.dsp.window.close({ window = "address:0x1" }))"#.to_string()))
         );
     }
 
@@ -1094,7 +1266,7 @@ mod tests {
     fn moving_a_window_names_it_and_does_not_follow_it() {
         assert_eq!(
             carried("0x1", Drop::Onto(PlaceId(3))),
-            Ok(Some(r#"hl.dsp.window.move({ window = "address:0x1", workspace = "3", follow = false })"#.to_string()))
+            Ok(Some(r#"hl.dispatch(hl.dsp.window.move({ window = "address:0x1", workspace = "3", follow = false }))"#.to_string()))
         );
         assert_eq!(carried("0x1", Drop::Back), Ok(None));
     }
@@ -1106,7 +1278,7 @@ mod tests {
 
         assert_eq!(
             resized(&laid, "0x1", by),
-            Ok(r#"hl.dsp.window.resize({ window = "address:0x1", x = 10, y = 0, relative = true })"#.to_string())
+            Ok(r#"hl.dispatch(hl.dsp.window.resize({ window = "address:0x1", x = 10, y = 0, relative = true }))"#.to_string())
         );
     }
 
@@ -1132,7 +1304,7 @@ mod tests {
         assert_eq!(first, Choosing::Window(0));
         assert_eq!(stay, Chose::Stay);
         assert_eq!(chosen_window(&laid, &second), Ok(Some("b".to_string())));
-        assert_eq!(went, Chose::AskAndPutAway(r#"hl.dsp.focus({ window = "address:b" })"#.to_string()));
+        assert_eq!(went, Chose::AskAndPutAway(r#"hl.dispatch(hl.dsp.focus({ window = "address:b" }))"#.to_string()));
         assert_eq!(chose(&laid, &Choosing::Window(2), Key::Right).map(|(to, _)| to), Ok(Choosing::Window(0)));
     }
 
@@ -1146,7 +1318,7 @@ mod tests {
         assert_eq!(back, Choosing::Window(0));
         assert_eq!(
             dropped_there,
-            Chose::Ask(r#"hl.dsp.window.move({ window = "address:a", workspace = "3", follow = false })"#.to_string())
+            Chose::Ask(r#"hl.dispatch(hl.dsp.window.move({ window = "address:a", workspace = "3", follow = false }))"#.to_string())
         );
         assert!(matches!(held_by_the_pad(&laid, &aimed), Ok(Some(Dragged { ref address, .. })) if address == "a"));
     }
@@ -1159,7 +1331,7 @@ mod tests {
         let Ok((_, closed)) = chose(&laid, &up, Key::Choose);
         let Ok((put_back, nothing)) = chose(&laid, &up, Key::Back);
 
-        assert_eq!(closed, Chose::Ask(r#"hl.dsp.window.close({ window = "address:b" })"#.to_string()));
+        assert_eq!(closed, Chose::Ask(r#"hl.dispatch(hl.dsp.window.close({ window = "address:b" }))"#.to_string()));
         assert_eq!((put_back, nothing), (Choosing::Window(1), Chose::Stay));
     }
 
@@ -1173,6 +1345,6 @@ mod tests {
 
     #[test]
     fn tapping_the_new_card_goes_to_an_empty_desktop() {
-        assert_eq!(gone_to(&Hit::Card(Target::New)), Ok(Some(r#"hl.dsp.focus({ workspace = "empty" })"#.to_string())));
+        assert_eq!(gone_to(&Hit::Card(Target::New)), Ok(Some(r#"hl.dispatch(hl.dsp.focus({ workspace = "empty" }))"#.to_string())));
     }
 }

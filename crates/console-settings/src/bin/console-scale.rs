@@ -377,7 +377,7 @@ fn refused(
         None => standing.scale,
     };
     let Ok(lua) = size::lua(Output(named), &standing, scale);
-    let Ok(done) = console_compositor::request(console_compositor::Request::Eval, &lua);
+    let Ok(done) = console_compositor::request(console_compositor::Request::Script, &lua);
 
     Ok(match done {
         DispatchResult::Success => None,

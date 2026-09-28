@@ -261,11 +261,10 @@ pub fn level(wav: &[u8]) -> Result<Level, Never> {
 
     let Ok(frame) = index(FRAME);
     let mut frames: Vec<f32> = sound
-        .chunks_exact(2)
-        .map(|pair| match pair {
-            [low, high] => f32::from(i16::from_le_bytes([*low, *high])) / 32768.0,
-            _ => 0.0,
-        })
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| f32::from(i16::from_le_bytes(*pair)) / 32768.0)
         .collect::<Vec<f32>>()
         .chunks_exact(frame)
         .map(|frame| (frame.iter().map(|one| one * one).sum::<f32>() / f32::from(FRAME)).sqrt())

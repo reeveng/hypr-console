@@ -349,23 +349,19 @@ impl Display {
         Ok(self.size)
     }
 
-    pub fn shown(&mut self, frame: &[u8]) -> Result<(), Never> {
+    pub fn mapped(&mut self) -> Result<Mapping<'_>, Never> {
         let Ok(long) = index(self.long);
 
-        // SAFETY: the mapping `on` made, `long` bytes, alive until `Drop`.
-        let target = unsafe { std::slice::from_raw_parts_mut(self.at.cast::<u8>(), long) };
-        let Ok(row) = index(self.size.width.saturating_mul(4));
-        let Ok(pitch) = index(self.pitch);
+        // SAFETY: the mapping `on` made, `long` bytes, alive until `Drop`, and borrowed from `self` so it cannot outlive it.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(self.at.cast::<u8>(), long) };
 
-        for (from, to) in frame.chunks_exact(row.max(1)).zip(target.chunks_exact_mut(pitch.max(1))) {
-            match to.get_mut(..row) {
-                Some(to) => to.copy_from_slice(from),
-                None => {}
-            }
-        }
-
-        Ok(())
+        Ok(Mapping { bytes, pitch: self.pitch })
     }
+}
+
+pub struct Mapping<'a> {
+    pub bytes: &'a mut [u8],
+    pub pitch: u32,
 }
 
 impl Drop for Display {

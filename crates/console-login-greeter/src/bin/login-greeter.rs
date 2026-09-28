@@ -2,7 +2,9 @@
 //! display, the pad, the touchscreen and the two pipes to the login window.
 //!
 //! It waits on the pad and on its stdin together, and draws again only when
-//! what it decided changed. It stops when the window says welcome, and fails
+//! what it decided changed -- once for everything that woke it, not once per
+//! event, because a finger dragged across the dots arrives as a run of moves
+//! and a whole frame drawn for each of them is a line that trails the finger. It stops when the window says welcome, and fails
 //! when the window goes away, because a greeter nobody is listening to is a
 //! screen that lies about being able to let anybody in.
 
@@ -14,13 +16,13 @@ use console_core_color::palette::{Wearing, WearingError};
 use console_core_geometry::{Point, Size};
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_draw_painting::{Cannot, Frame, onto};
+use console_draw_painting::Cannot;
 use console_input_event_devices::devices::{Devices, Ready};
 use console_input_event_devices::touches::ScreenTouch;
-use console_login_greeter::display::{Display, Unshown};
+use console_login_greeter::display::{Display, Mapping, Unshown};
 use console_login_greeter::greeting::{Greeter, GreeterEffect, GreeterEvent, Greeting};
-use console_login_greeter::picture::{in_the_room, picture};
-use console_login_greeter::turn::{drawn_at, on_the_picture, rotate};
+use console_login_greeter::picture::{in_the_room, painted};
+use console_login_greeter::turn::{changed, drawn_at, laid_into, on_the_picture};
 use console_login_pattern::Touch;
 use console_login_window::protocol::{ToGreeter, line_from_greeter, to_greeter};
 use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
@@ -28,8 +30,14 @@ use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program,
 struct Running<'a> {
     devices: Devices,
     display: Display,
+    frames: Frames,
     greeting: Greeting,
     from_window: BufReader<io::StdinLock<'a>>,
+}
+
+struct Frames {
+    shown: Vec<u8>,
+    drawing: Vec<u8>,
 }
 
 enum GreeterError {
@@ -94,14 +102,14 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
     let stdin = io::stdin();
     let from_window = BufReader::new(stdin.lock());
 
-    match draw(&mut display, &greeting, &wearing) {
-        Ok(()) => {}
+    let frames = match draw(&mut display, Frames { shown: Vec::new(), drawing: Vec::new() }, &greeting, &wearing) {
+        Ok(frames) => frames,
         Err(why) => return Ok(Err(why)),
-    }
+    };
 
-    let state = Running { devices, display, greeting, from_window };
+    let state = Running { devices, display, frames, greeting, from_window };
 
-    let greeted = iterate(state, |Running { mut devices, mut display, mut greeting, mut from_window }| {
+    let greeted = iterate(state, |Running { mut devices, mut display, mut frames, mut greeting, mut from_window }| {
         let woke = match devices.wait(Some(stdin.as_fd())) {
             Ok(woke) => woke,
             Err(why) => return Ok(Step::Halt(Err(GreeterError::Waiting(why)))),
@@ -124,19 +132,12 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
             Ready::No => {}
         }
 
+        let shown = greeting.clone();
+
         for event in queue {
             let Update { state: next, effects } = Greeter::update(&greeting, &event);
-            let changed = next != greeting;
 
             greeting = next;
-
-            match changed {
-                true => match draw(&mut display, &greeting, &wearing) {
-                    Ok(()) => {}
-                    Err(why) => return Ok(Step::Halt(Err(why))),
-                },
-                false => {}
-            }
 
             for effect in effects {
                 match effect {
@@ -169,7 +170,15 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
             }
         }
 
-        Ok(Step::Again(Running { devices, display, greeting, from_window }))
+        match greeting == shown {
+            true => {}
+            false => match draw(&mut display, frames, &greeting, &wearing) {
+                Ok(drawn) => frames = drawn,
+                Err(why) => return Ok(Step::Halt(Err(why))),
+            },
+        }
+
+        Ok(Step::Again(Running { devices, display, frames, greeting, from_window }))
     });
 
     Ok(match greeted {
@@ -220,21 +229,21 @@ fn lines(from_window: &mut BufReader<io::StdinLock<'_>>) -> Result<Vec<ToGreeter
     }
 }
 
-fn draw(display: &mut Display, greeting: &Greeting, wearing: &Wearing) -> Result<(), GreeterError> {
+fn draw(display: &mut Display, frames: Frames, greeting: &Greeting, wearing: &Wearing) -> Result<Frames, GreeterError> {
     let Ok(panel) = display.size();
     let Ok(canvas) = drawn_at(panel);
-    let Ok(shapes) = picture(greeting, wearing, canvas);
-    let Ok(long) = console_core_number_conversion::index(u64::from(canvas.width).saturating_mul(u64::from(canvas.height)).saturating_mul(4));
-    let mut pixels = vec![0_u8; long];
-    let frame = Frame { device: canvas, points: Size { width: canvas.width, height: canvas.height } };
+    let Frames { shown, drawing } = frames;
+    let Ok(painted) = painted(drawing, greeting, wearing, canvas);
+    let pixels = painted.map_err(GreeterError::Drawing)?;
+    let Ok(band) = changed(&shown, &pixels, canvas);
 
-    match onto(&mut pixels, frame, &shapes) {
-        Ok(()) => {}
-        Err(why) => return Err(GreeterError::Drawing(why)),
+    match band {
+        Some(rows) => {
+            let Ok(Mapping { bytes, pitch }) = display.mapped();
+            let Ok(()) = laid_into(&pixels, panel, rows, bytes, pitch);
+        }
+        None => {}
     }
 
-    let Ok(laid) = rotate(&pixels, panel);
-    let Ok(()) = display.shown(&laid);
-
-    Ok(())
+    Ok(Frames { shown: pixels, drawing: shown })
 }

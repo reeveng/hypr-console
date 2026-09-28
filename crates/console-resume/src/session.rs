@@ -64,6 +64,16 @@
 //! wrong place, and the rule prefix meant to have settled it is applied as the
 //! window maps rather than after the program has decided what it wanted.
 //!
+//! ## A maximized window comes back sharing its place
+//!
+//! Nothing on this desktop maximizes any more: a window alone on a place fills
+//! it because the layout gives it the whole of it, and one maximized over a
+//! place it shares hides whatever else is there. Sessions written down while
+//! every window was maximized still say so, and putting that back left a
+//! browser covering the windows carried onto its place after it. So maximized
+//! is written down as it was and put back as tiled. Filling the screen is not
+//! the same request -- a film asked for it -- and it still comes back.
+//!
 //! ## A program with no window is not in a session
 //!
 //! What is written down is what the compositor can be asked about, and a
@@ -424,15 +434,22 @@ fn restore_field<T: PartialEq>(
     asked_of_the_compositor(asking, &real.title)
 }
 
-fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<(), Never> {
-    let Ok(differs) = differs(real, saved, |window| window.filling);
+fn put_back_as(saved: Filling) -> Result<Filling, Never> {
+    Ok(match saved {
+        Filling::Maximized | Filling::None => Filling::None,
+        Filling::Screen => Filling::Screen,
+    })
+}
 
-    match differs {
-        Differs::No => return Ok(()),
-        Differs::Yes => {},
+fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<(), Never> {
+    let Ok(wanted) = put_back_as(saved.filling);
+
+    match real.filling == wanted {
+        true => return Ok(()),
+        false => {},
     }
 
-    let mode = match saved.filling {
+    let mode = match real.filling {
         Filling::Maximized => "maximized",
         Filling::Screen | Filling::None => "fullscreen",
     };
@@ -1080,6 +1097,13 @@ mod tests {
         filling.filling = Filling::Screen;
 
         assert_eq!(placement(&filling), Ok(Placing::ByTheLayout));
+    }
+
+    #[test]
+    fn a_window_saved_maximized_comes_back_sharing_its_place_and_one_filling_the_screen_still_fills_it() {
+        assert_eq!(put_back_as(Filling::Maximized), Ok(Filling::None));
+        assert_eq!(put_back_as(Filling::Screen), Ok(Filling::Screen));
+        assert_eq!(put_back_as(Filling::None), Ok(Filling::None));
     }
 
     #[test]

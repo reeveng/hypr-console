@@ -50,7 +50,7 @@
 //! said so, because a refusal that exits zero and never says *error* is
 //! indistinguishable from being taken.
 //!
-//! So a keyword is `hl.config` or `hl.device` through [`Request::Eval`], a
+//! So a keyword is `hl.config` or `hl.device` through [`Request::Script`], a
 //! dispatcher is the `hl.dsp.*` object [`Request::Dispatch`] already wraps,
 //! and the two verbs that are hyprctl's own rather than the config's --
 //! `switchxkblayout` among them -- are called as themselves, with no verb in
@@ -602,7 +602,7 @@ pub enum Request {
     #[words(word = "dispatch")]
     Dispatch,
     #[words(word = "eval")]
-    Eval,
+    Script,
 }
 
 const SWITCH: &str = "switchxkblayout";
@@ -707,13 +707,13 @@ pub struct Layouts<'a>(pub &'a str);
 pub fn set_layouts(name: &str, layouts: Layouts<'_>) -> Result<DispatchResult, Never> {
     let Ok(lua) = device_layouts(name, layouts);
 
-    request(Request::Eval, &lua)
+    request(Request::Script, &lua)
 }
 
 pub fn set_layouts_with(command: Command, name: &str, layouts: Layouts<'_>) -> Result<DispatchResult, Never> {
     let Ok(lua) = device_layouts(name, layouts);
 
-    request_with(command, Request::Eval, &lua)
+    request_with(command, Request::Script, &lua)
 }
 
 fn device_layouts(name: &str, layouts: Layouts<'_>) -> Result<String, Never> {

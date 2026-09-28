@@ -293,6 +293,11 @@ fn cleared(stage: &mut Device) -> CheckResult {
 
 fn arranging_there(stage: &mut Device) -> CheckResult {
     cleared(stage)?;
+
+    let Ok(emptied) = stage.to_an_empty_workspace();
+
+    happened(emptied, || "no empty workspace would come to the front to show the home screen on".to_string())?;
+
     let Ok(before) = home_layout(stage);
     let Ok(holding) = before.occupancy();
 

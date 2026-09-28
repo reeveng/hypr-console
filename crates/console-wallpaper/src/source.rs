@@ -36,7 +36,7 @@ pub fn cache_path() -> Result<Option<PathBuf>, Never> {
 pub fn checksum(at: &Path) -> Result<String, Unpainted> {
     let held = std::fs::read(at)
         .map_err(|fault| Unpainted::Read(at.to_path_buf(), fault))?;
-    Ok(format!("{:x}", Sha256::digest(&held)))
+    Ok(Sha256::digest(&held).iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 pub fn is_the_one(at: &Path, wanted: &str) -> Result<bool, Unpainted> {

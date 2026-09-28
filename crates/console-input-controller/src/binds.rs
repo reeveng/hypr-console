@@ -404,7 +404,7 @@ pub fn send(sent: &[BindCommand]) -> Result<Went, Never> {
 
     for one in sent {
         let Ok(said) = one.command();
-        let Ok(done) = console_compositor::request(console_compositor::Request::Eval, &said);
+        let Ok(done) = console_compositor::request(console_compositor::Request::Script, &said);
 
         let Ok(through) = complained(done, &said);
 

@@ -37,8 +37,8 @@ console-screen.workspace = true
 console-weather.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-toml = { version = "0.9", default-features = false, features = ["parse", "serde", "preserve_order", "display"] }
+sha2 = "0.11"
+toml = { version = "1", default-features = false, features = ["parse", "serde", "preserve_order", "display"] }
 
 [lints]
 workspace = true

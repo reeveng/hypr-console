@@ -28,7 +28,7 @@ fn font() -> Result<Font, Never> {
 }
 
 fn inked_pixels(pixels: &[u8]) -> Result<u32, Never> {
-    fitted(pixels.chunks_exact(4).filter(|pixel| *pixel != NOTHING).count())
+    fitted(pixels.as_chunks::<4>().0.iter().filter(|pixel| **pixel != NOTHING).count())
 }
 
 fn slab() -> Result<Vec<u8>, Never> {
@@ -41,7 +41,7 @@ fn slab() -> Result<Vec<u8>, Never> {
 fn at(pixels: &[u8], point: Point<u32>) -> Result<Option<[u8; 4]>, Never> {
     let Ok(position) = index(point.y.saturating_mul(WIDE).saturating_add(point.x));
 
-    Ok(pixels.chunks_exact(4).nth(position).and_then(<[u8]>::first_chunk::<4>).copied())
+    Ok(pixels.as_chunks::<4>().0.get(position).copied())
 }
 
 fn color(six: &str) -> Result<Oklch, Box<dyn Error>> {

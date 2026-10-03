@@ -30,7 +30,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Exit, Flag, Initial, Program, Update, Event};
+use console_core_state_machine::{Machine, Queue};
+use console_program_contract::{Arguments, Effect, Exit, Flag, Event};
 
 use crate::covered::Covered;
 use console_weather::conditions::Weather;
@@ -104,65 +105,53 @@ pub enum WallpaperEffect {
 
 pub struct Sun;
 
-impl Program for Sun {
+impl Machine for Sun {
+    type Input = Arguments;
     type State = Sky;
-    type Event = WallpaperEvent;
-    type Effect = WallpaperEffect;
+    type Request = Event<WallpaperEvent>;
+    type Effect = Effect<WallpaperEffect>;
 
-    fn init(arguments: &Arguments) -> Initial<Sky> {
+    fn initialize(arguments: &Arguments, _previous: Option<Sky>, _effects: &mut Effects) -> Result<Sky, Never> {
         let Ok(going) = Going::of(arguments);
-        let Ok(opening) = Initial::new(Sky {
-            showing: None,
-            covered_since: None,
-            weather: None,
-            going,
-        });
 
-        opening
+        Ok(Sky { showing: None, covered_since: None, weather: None, going })
     }
 
-    fn update(state: &Sky, event: &Event<WallpaperEvent>) -> Update<Sky, WallpaperEffect> {
-        let heard = match event {
-            Event::Custom(heard) => heard,
+    fn handle(state: Sky, event: Event<WallpaperEvent>, effects: &mut Effects) -> Result<Sky, Never> {
+        match event {
+            Event::Custom(WallpaperEvent::Weather(weather)) => Ok(Sky { weather: weather.or(state.weather), ..state }),
+
+            Event::Custom(WallpaperEvent::Rendered { at, went: Rendered::Yes }) => Ok(Sky { showing: Some(at), ..state }),
+
+            Event::Custom(WallpaperEvent::Rendered { at: _, went: Rendered::No }) => {
+                let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::Again(TRY_AGAIN)));
+
+                Ok(state)
+            }
+
+            Event::Custom(WallpaperEvent::Looked { seconds, covered, chosen }) => {
+                looked(state, seconds, covered, chosen.as_ref(), effects)
+            }
+
             Event::Opened
             | Event::Changed(_)
             | Event::Tick(_, _)
             | Event::Replied(_)
             | Event::Chosen(_)
-            | Event::Stopping => {
-                let Ok(nothing) = Update::none(state.clone());
-
-                return nothing;
-            }
-        };
-
-        let Ok(turn) = match heard {
-            WallpaperEvent::Weather(weather) => {
-                Update::none(Sky { weather: weather.or(state.weather), ..state.clone() })
-            }
-
-            WallpaperEvent::Rendered { at, went } => match went {
-                Rendered::Yes => {
-                    Update::none(Sky { showing: Some(at.clone()), ..state.clone() })
-                }
-                Rendered::No => Update::new(state.clone(), vec![Effect::Custom(WallpaperEffect::Again(TRY_AGAIN))]),
-            },
-
-            WallpaperEvent::Looked { seconds, covered, chosen } => {
-                looked(state, *seconds, *covered, chosen.as_ref())
-            }
-        };
-
-        turn
+            | Event::Stopping => Ok(state),
+        }
     }
 }
 
+type Effects = Queue<Effect<WallpaperEffect>>;
+
 fn looked(
-    state: &Sky,
+    state: Sky,
     seconds: f64,
     covered: Covered,
     chosen: Option<&Chosen>,
-) -> Result<Update<Sky, WallpaperEffect>, Never> {
+    effects: &mut Effects,
+) -> Result<Sky, Never> {
     let covered_since = match covered {
         Covered::Yes => state.covered_since.or(Some(seconds)),
         Covered::No => None,
@@ -174,16 +163,18 @@ fn looked(
         false => Away::NotYet,
     };
 
-    let mut effects = match chosen {
-        Some(chosen) => putting(state, chosen, away)?,
+    let put = match chosen {
+        Some(chosen) => putting(&state, chosen, away)?,
         None => Vec::new(),
     };
+    let Ok(()) = effects.offer_all(put);
+    let sky = Sky { covered_since, ..state };
 
-    match state.going {
+    match sky.going {
         Going::Once => {
-            effects.push(Effect::Stop(Exit::Success));
+            let Ok(()) = effects.offer(Effect::Stop(Exit::Success));
 
-            return Update::new(Sky { covered_since, ..state.clone() }, effects);
+            return Ok(sky);
         }
         Going::KeepGoing => {},
     }
@@ -192,10 +183,9 @@ fn looked(
         Some(left) => LOOK_AGAIN.min(Duration::from_secs_f64(left.max(SOONEST.as_secs_f64()))),
         None => LOOK_AGAIN,
     };
+    let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::Again(waiting)));
 
-    effects.push(Effect::Custom(WallpaperEffect::Again(waiting)));
-
-    Update::new(Sky { covered_since, ..state.clone() }, effects)
+    Ok(sky)
 }
 
 fn putting(state: &Sky, chosen: &Chosen, away: Away) -> Result<Vec<Effect<WallpaperEffect>>, Never> {
@@ -259,7 +249,7 @@ pub fn wake(effects: &[Effect<WallpaperEffect>]) -> Result<Option<Duration>, Nev
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Trace, run_from};
+    use console_core_state_machine::{Trace, Transition, run_from};
 
     use super::*;
 
@@ -270,10 +260,12 @@ mod tests {
     }
 
     fn sky() -> Result<Sky, Never> {
-        Ok(Sun::init(&Arguments::default()).state)
+        let Ok(Transition { state, effects: _ }) = Sun::initial_transition(&Arguments::default(), None);
+
+        Ok(state)
     }
 
-    fn said(from: &Sky, steps: Vec<Step>) -> Result<Trace<Sky, WallpaperEvent, WallpaperEffect>, Never> {
+    fn said(from: &Sky, steps: Vec<Step>) -> Result<Trace<Sky, Event<WallpaperEvent>, Effect<WallpaperEffect>>, Never> {
         let events: Vec<Event<WallpaperEvent>> = steps
             .into_iter()
             .map(|step| match step {
@@ -291,7 +283,7 @@ mod tests {
             .map(Event::Custom)
             .collect();
 
-        run_from::<Sun>(from, &events)
+        run_from::<Sun>(from.clone(), &events)
     }
 
     #[test]
@@ -422,7 +414,7 @@ mod tests {
     fn now_puts_one_up_and_stops() {
         let Ok(arguments) = Arguments::of(&[NOW]);
 
-        let once = Sun::init(&arguments).state;
+        let Ok(Transition { state: once, effects: _ }) = Sun::initial_transition(&arguments, None);
 
         let Ok(after) = said(&once, vec![Step::Looked(0.0, Covered::No)]);
         let Ok(effects) = after.effects();

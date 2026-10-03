@@ -4,18 +4,21 @@
 //! `/dev/input` is watched and a node that appears is opened; one that stops
 //! answering is dropped. What waits is `poll` over all of them and over one
 //! more descriptor the caller hands in, which is how the greeter hears the
-//! login window and a press in the same wait. Nothing here has a timeout,
-//! because nothing a person does arrives on a schedule. A node that is a
-//! touchscreen is asked its axes when it is opened, and a finger on it wakes
-//! the wait the way a press does.
+//! login window and a press in the same wait. Nothing a person does arrives on
+//! a schedule, so a wait with no patience lasts until something is pressed; a
+//! caller drawing something that moves on its own -- the greeter's clock --
+//! hands in how long until it moves, and a wait that runs out wakes with
+//! nothing in it. A node that is a touchscreen is asked its axes when it is
+//! opened, and a finger on it wakes the wait the way a press does.
 
 use std::collections::HashSet;
-use std::ffi::{CString, c_ulong};
+use std::ffi::{CString, c_int, c_ulong};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use console_core_iteration::Step;
 use console_core_never::Never;
@@ -125,9 +128,9 @@ impl Devices {
         Ok(())
     }
 
-    pub fn wait(&mut self, also: Option<BorrowedFd<'_>>) -> io::Result<Woke> {
+    pub fn wait(&mut self, also: Option<BorrowedFd<'_>>, patience: Option<Duration>) -> io::Result<Woke> {
         let ended = console_core_iteration::iterate(self, |devices| {
-            Ok(match devices.waited(also) {
+            Ok(match devices.waited(also, patience) {
                 Ok(Some(woke)) => Step::Halt(Ok(woke)),
                 Ok(None) => Step::Again(devices),
                 Err(fault) => Step::Halt(Err(fault)),
@@ -140,19 +143,27 @@ impl Devices {
         }
     }
 
-    fn waited(&mut self, also: Option<BorrowedFd<'_>>) -> io::Result<Option<Woke>> {
+    fn waited(&mut self, also: Option<BorrowedFd<'_>>, patience: Option<Duration>) -> io::Result<Option<Woke>> {
         let mut waiting = vec![Waiting { descriptor: self.told.as_raw_fd(), events: IN, returned: 0 }];
 
         waiting.extend(also.map(|also| Waiting { descriptor: also.as_raw_fd(), events: IN, returned: 0 }));
         waiting.extend(self.held.iter().map(|device| Waiting { descriptor: device.file.as_raw_fd(), events: IN, returned: 0 }));
 
         let Ok(many) = fitted::<_, c_ulong>(waiting.len());
+        let Ok(milliseconds) = match patience {
+            Some(patience) => fitted::<u128, c_int>(patience.as_millis()),
+            None => Ok(-1),
+        };
 
         // SAFETY: `many` entries, all of them live descriptors this
         // struct or the caller holds for the length of the call.
-        let polled = unsafe { kernel::poll(waiting.as_mut_ptr(), many, -1) };
+        let polled = unsafe { kernel::poll(waiting.as_mut_ptr(), many, milliseconds) };
+        let ready = check(polled)?;
 
-        check(polled)?;
+        match (ready, patience) {
+            (0, Some(_)) => return Ok(Some(Woke { presses: Vec::new(), touches: Vec::new(), also: Ready::No })),
+            (_, Some(_) | None) => {}
+        }
 
         let stirred: HashSet<RawFd> = waiting
             .iter()

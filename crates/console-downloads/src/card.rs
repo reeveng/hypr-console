@@ -21,9 +21,10 @@
 //! What is here is the machine: the folders, the pictures on the disk, and
 //! whether a thing has already arrived. Where each tab is standing and what a
 //! press does about it is `crate::standing`, which is a
-//! `console_program_contract::Program`. The actor is what makes that state
-//! reachable from a closure on GTK's thread; it steps by asking `update`, and
-//! the effects are carried out in the callback holding the surface.
+//! `console_core_state_machine::Machine`. The actor is what makes that state
+//! reachable from a closure on GTK's thread; a press is handed to it with
+//! `send`, and the effects it answers with are carried out in the callback
+//! holding the surface.
 
 use std::path::Path;
 
@@ -35,44 +36,20 @@ use crate::standing::{
 };
 use crate::store::{self, Kind};
 use console_core_never::Never;
-use console_panel::actor::{self, Address, Answer};
+use console_actor::Actor;
 use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows, Showing};
 use console_panel::card::Card;
-use console_program_contract::{Arguments, Effect, Program, Update, Event};
+use console_program_contract::{Arguments, Effect, Event};
 
-enum Message {
-    Event(DownloadsEvent, Answer<Vec<Effect<DownloadsEffect>>>),
-    At { tab: u32, answer: Answer<Tab> },
-}
-
-struct Actor(Standing);
-
-impl actor::Machine for Actor {
-    type Message = Message;
-
-    fn step(self, message: Message) -> Self {
-        match message {
-            Message::Event(heard, answer) => {
-                let Update { state, effects } = Downloads::update(&self.0, &Event::Custom(heard));
-                let _ = answer.say(effects);
-
-                Actor(state)
-            }
-            Message::At { tab, answer } => {
-                let Ok(at) = self.0.at(tab);
-                let _ = answer.say(at);
-
-                self
-            },
-        }
-    }
-}
-
-type Panel = Address<Message>;
+type Panel = Actor<Downloads>;
 
 fn at(held: &Panel, tab: u32) -> Result<Tab, Never> {
-    Ok(match held.ask(|answer| Message::At { tab, answer }) {
-        Ok(tab) => tab,
+    Ok(match held.get() {
+        Ok(standing) => {
+            let Ok(at) = standing.at(tab);
+
+            at
+        }
         Err(_the_actor_has_gone) => {
             eprintln!("downloads: the panel's own state is missing, so it drew as it opened");
 
@@ -82,7 +59,7 @@ fn at(held: &Panel, tab: u32) -> Result<Tab, Never> {
 }
 
 fn decided(held: &Panel, heard: DownloadsEvent) -> Result<Vec<Effect<DownloadsEffect>>, Never> {
-    Ok(match held.ask(|answer| Message::Event(heard, answer)) {
+    Ok(match held.send(Event::Custom(heard)) {
         Ok(effects) => effects,
         Err(_the_actor_has_gone) => {
             eprintln!("downloads: the panel's own state is missing, so the press did nothing");
@@ -379,8 +356,7 @@ fn page(held: &Panel, tab: u32, kind: Kind) -> Result<Page, Never> {
 pub const WHO: &str = "downloads";
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let initial = Downloads::init(&Arguments::default());
-    let Ok(card) = Card::supervised(move || Actor(initial.state.clone()), pages);
+    let Ok(card) = Card::supervised::<Downloads, _>(Arguments::default(), pages);
 
     card.opening_at(arguments.first().map(String::as_str))
 }

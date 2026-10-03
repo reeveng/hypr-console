@@ -2,7 +2,7 @@
 //!
 //! `CONSOLE_HOST` has no default, because an address is someone's machine and
 //! this tree does not carry one. The programs in `console-device` may not read
-//! it: they are `console_program_contract::Program`s and a value that arrives
+//! it: they are `console_core_state_machine::Machine`s and a value that arrives
 //! through the side of one is a value no transcript can put a different answer
 //! in. So it is read out here, by the binaries, and handed in as the first word
 //! of an arguments. It is its own crate because the publish and the device

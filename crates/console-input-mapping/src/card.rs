@@ -44,16 +44,17 @@ use crate::table;
 use console_button_guide::guide::{Section, in_front, reference};
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_input_controller::mode::{Woken, Mode};
+use console_input_controller::mode::{Focused, Woken, Mode};
 use console_panel::page::{Aside, Handler, Page, Row, Rows, Showing, Subject};
 use console_panel::card::{Card, Door};
 use console_input_bindings::bound::{Binding, EVERY, Input};
-use console_program_contract::{Arguments, Effect, Program, Update, Event, FileWrite};
+use console_core_state_machine::{Machine, Transition};
+use console_program_contract::{Arguments, Effect, Event, FileWrite};
 
 const DOOR: &str = "buttons";
 
 fn press(setting: &Setting, heard: MappingEvent, showing: &dyn Showing) -> Result<(), Never> {
-    let Update { effects, .. } = Setup::update(setting, &Event::Custom(heard));
+    let Ok(Transition { state: _, effects }) = Setup::transition(setting.clone(), Event::Custom(heard));
 
     for effect in &effects {
         let Ok(()) = carry(effect, showing);
@@ -259,8 +260,8 @@ pub fn door(_argv: &[String]) -> Result<Door, Never> {
 pub fn card(_argv: &[String]) -> Result<Card, Never> {
     let Ok(arguments) = opening();
 
-    let opened = Setup::init(&arguments);
-    let Update { effects, .. } = Setup::update(&opened.state, &Event::Opened);
+    let Ok(opened) = Setup::initial_transition(&arguments, None);
+    let Ok(Transition { state: _, effects }) = Setup::transition(opened.state, Event::Opened);
 
     let writings = effects.iter().filter_map(|effect| {
         let Ok(writing) = effect.as_file_write();
@@ -313,6 +314,10 @@ fn front() -> Result<Mode, Never> {
         }
     };
     let Ok(awake) = Woken::detect();
+    let focused = match console_onscreen::in_front() {
+        Ok(focused) => focused,
+        Err(_the_compositor_would_not_say_which_window_is_in_front) => Focused::SomethingElse,
+    };
 
-    Mode::detect(&screens, awake)
+    Mode::detect(&screens, awake, focused)
 }

@@ -373,13 +373,6 @@ mod tests {
         found.ok_or_else(|| Box::from(format!("no centre for {key}")))
     }
 
-    #[cfg_attr(
-        dylint_lib = "explicit051_no_machine_width",
-        allow(
-            explicit051_no_machine_width,
-            reason = "an array's length is a usize by the language, and the array is what lets each test name its keys where it destructures them"
-        )
-    )]
     fn each<T, const N: usize>(keys: [char; N], one: fn(char) -> Result<T, Failure>) -> Result<[T; N], Failure> {
         let found = keys.into_iter().map(one).collect::<Result<Vec<T>, Failure>>()?;
         let found: [T; N] = found.try_into().map_err(|_not_as_many| "as many answers as keys")?;

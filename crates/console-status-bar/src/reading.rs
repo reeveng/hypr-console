@@ -53,7 +53,7 @@ impl Reading {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Words)]
 pub enum StatusItem {
     #[words(tab = "Battery")]
     Battery,
@@ -97,7 +97,7 @@ impl StatusItem {
                 network(Readings { devices: &devices, wifi: &wifi })
             },
             StatusItem::Sound => {
-                let Ok(level) = run_output(Program::Wpctl, &["get-volume", "@DEFAULT_AUDIO_SINK@"]);
+                let Ok(level) = run_output(Program::Wpctl, &["get-volume", SINK]);
 
                 sound(&level)
             },
@@ -341,14 +341,42 @@ pub fn network(asked: Readings<'_>) -> Result<Reading, Never> {
 const BARS: [&str; 4] =
     ["\u{f091f}", "\u{f0922}", "\u{f0925}", "\u{f0928}"];
 
-const SILENT: &str = "\u{f075f}";
+pub const SILENT: &str = "\u{f075f}";
 
-pub fn sound(said: &str) -> Result<Reading, Never> {
-    let told = said.split_whitespace().nth(1).and_then(|said| {
+pub const SINK: &str = "@DEFAULT_AUDIO_SINK@";
+
+fn loudness(said: &str) -> Result<Option<f64>, Never> {
+    Ok(said.split_whitespace().nth(1).and_then(|said| {
         let Ok(told) = number::<f64>(said);
 
         told
-    });
+    }))
+}
+
+pub fn level(said: &str) -> Result<Option<Reading>, Never> {
+    let Ok(told) = loudness(said);
+
+    let volume = match told {
+        Some(volume) => volume,
+        None => return Ok(None),
+    };
+
+    let Ok(percent) = whole_u32(volume * 100.0);
+    let Ok(reading) = sound(said);
+    let Ok(beside) = wide(&format!("{percent}%"));
+    let Ok(level) = reading.and(beside);
+
+    Ok(Some(level))
+}
+
+pub fn read_level() -> Result<Option<Reading>, Never> {
+    let Ok(said) = run_output(Program::Wpctl, &["get-volume", SINK]);
+
+    level(&said)
+}
+
+pub fn sound(said: &str) -> Result<Reading, Never> {
+    let Ok(told) = loudness(said);
 
     let volume = match told {
         Some(volume) => volume,
@@ -731,5 +759,18 @@ mod tests {
 
         assert_ne!(quiet.icon, middling.icon);
         assert_ne!(middling.icon, loud.icon);
+    }
+
+    #[test]
+    fn a_level_carries_its_number_and_a_sink_nobody_answered_for_has_no_level() {
+        let Ok(half) = level("Volume: 0.50");
+        let Ok(muted) = level("Volume: 0.35 [MUTED]");
+        let Ok(nothing) = level("");
+        let Ok(heard) = sound("Volume: 0.50");
+
+        assert_eq!(half.as_ref().and_then(|half| half.beside.as_deref()), Some("50%\u{2007}"));
+        assert_eq!(half.map(|half| half.icon), Some(heard.icon));
+        assert_eq!(muted.map(|muted| muted.icon), Some(String::from(SILENT)));
+        assert_eq!(nothing, None);
     }
 }

@@ -63,7 +63,8 @@ fn main() {
 
     let Ok(wanting) = wanting(Path::new(&folder), &store);
 
-    let every = console_concurrency::map(&wanting, |(thing, kind)| make_thumbnail(thing, kind, &store));
+    let Ok(cores) = console_concurrency::Cores::counted();
+    let every = console_concurrency::map(cores, &wanting, |(thing, kind)| make_thumbnail(thing, kind, &store));
 
     match every {
         Ok(_every_one_tried) => {},

@@ -134,6 +134,7 @@ pub fn worth_waking_for(line: &str) -> Result<Worth, Never> {
         | CompositorEvent::WindowFloated
         | CompositorEvent::WindowPinned
         | CompositorEvent::ScreenFocused
+        | CompositorEvent::WindowFocused
         | CompositorEvent::ConfigurationReloaded
         | CompositorEvent::Ignored => Worth::Ignoring,
     })

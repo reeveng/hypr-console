@@ -70,31 +70,40 @@ One crate, `console-program-contract`, and it is written. This document called
 it `console-turn` for a year, which was the wrong name for the one crate every
 other program depends on: a name that has to be learned before it can be read.
 
+It began as a trait of its own, `Program`, with an `init`, an `update` and an
+`Update` it handed back. It is now `console_core_state_machine::Machine`, the
+one every machine on the desktop is written to, and `docs/state-machines.md`
+argues for that shape. A program is the machine whose input is its
+`Arguments`, whose requests are `Event`s and whose effects are `Effect`s:
+
 ```rust
-/// A program: what it holds, what reaches it, what it does about that.
-pub trait Program {
-    /// What it holds. Replaced only by `update`, never reached into from
-    /// outside. `PartialEq` is how the loop knows anything changed.
-    type State: Clone + Debug + PartialEq;
+pub trait Machine {
+    /// What it was started with. A program's is its `Arguments`.
+    type Input;
 
-    /// The events only this program can be told, and the effects only it can
-    /// ask for. `console_core_never::Never` where there are none, which is most.
-    type Event: Clone + Debug + PartialEq;
-    type Effect: Clone + Debug + PartialEq;
+    /// What it holds. Replaced only by `handle`, never reached into from outside.
+    type State;
 
-    /// What it starts holding, and what it wants said to it.
-    fn opening(arguments: &Arguments) -> Opening<Self::State>;
+    /// What reaches it. A program's is `Event<its own events>`.
+    type Request;
 
-    /// One event in, and what it decided.
+    /// What it asks for. A program's is `Effect<its own effects>`, and
+    /// `console_core_never::Never` is its own where it has none, which is most.
+    type Effect;
+
+    /// What it starts holding. What it wants said to it is an
+    /// `Effect::Subscribe` offered here, rather than a list kept beside the state.
+    fn initialize(input: &Self::Input, previous: Option<Self::State>, effects: &mut Queue<Self::Effect>)
+        -> Result<Self::State, Never>;
+
+    /// One event in, the state it holds now, and what it wants done offered.
     ///
     /// Pure. No clock, no filesystem, no process, no environment. Everything
-    /// it is allowed to know is in `state` or in `event`, which is what makes a
+    /// it is allowed to know is in `state` or in `request`, which is what makes a
     /// transcript a proof rather than an anecdote.
-    fn update(state: &Self::State, event: &Event<Self::Event>) -> Update<Self::State, Self::Effect>;
+    fn handle(state: Self::State, request: Self::Request, effects: &mut Queue<Self::Effect>)
+        -> Result<Self::State, Never>;
 }
-
-/// One turn: what it holds now, and what it wants done.
-pub struct Update<S, F> { pub state: S, pub effects: Vec<Effect<F>> }
 ```
 
 Four things in that are not what this document asked for, and each of them is a

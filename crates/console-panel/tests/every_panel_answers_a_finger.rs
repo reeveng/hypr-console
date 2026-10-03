@@ -78,6 +78,11 @@ fn the_calculator() -> Result<(), Error> {
 }
 
 #[test]
+fn the_notes() -> Result<(), Error> {
+    held_to_the_contract("notes", &[])
+}
+
+#[test]
 fn the_calendar() -> Result<(), Error> {
     held_to_the_contract("calendar-panel", &[])
 }

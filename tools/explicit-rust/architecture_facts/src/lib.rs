@@ -103,7 +103,7 @@ fn classify(krate: &str, path: &str) -> Option<Class> {
         }
         ("console_events", "again::layers") => Some(Class::SubscribesTo("Compositor")),
         ("console_panel", "Page::with_subscription") => Some(Class::Subscribes),
-        ("console_program_contract", "Subscription::Topic" | "Effect::Subscribe") => Some(Class::Subscribes),
+        ("console_program_contract", "Subscription::Topic") => Some(Class::Subscribes),
         ("console_program_contract", "Subscription::Timer" | "Timer::new") => Some(Class::Timer("contract")),
         ("console_compositor", "Socket::Events" | "Socket::Requests") => Some(Class::Socket),
         ("console_compositor", _) if ASKING.contains(&last.as_str()) => Some(Class::Asks),

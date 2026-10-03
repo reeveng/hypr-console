@@ -27,6 +27,8 @@ console-login-pattern.workspace = true
 console-login-window.workspace = true
 console-program-contract.workspace = true
 console-screen.workspace = true
+console-core-state-machine.workspace = true
+console-status-bar.workspace = true
 
 [lints]
 workspace = true

@@ -53,9 +53,8 @@ use console_core_never::Never;
 
 const THE_PROFILE: &str = "the profile";
 
-use console_program_contract::{
-    Arguments, Effect, Exit, Flag, Initial, Program, Timer, Command, Update, Subscription, ExitStatus, Event,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Exit, Flag, Timer, Command, Subscription, ExitStatus, Event};
 
 const BUS: &str = "org.shadowblip.InputPlumber";
 
@@ -142,75 +141,97 @@ pub struct Attempt {
 
 pub struct Profile;
 
-impl Program for Profile {
+impl Machine for Profile {
+    type Input = Arguments;
     type State = Attempt;
-    type Event = console_core_never::Never;
-    type Effect = ProfileEffect;
+    type Request = Event<console_core_never::Never>;
+    type Effect = Effect<ProfileEffect>;
 
-    fn init(arguments: &Arguments) -> Initial<Attempt> {
-        let Ok(subscriptions) = ProfileState::of(arguments);
-        let Ok(given) = arguments.flag(PAD);
-        let Ok(pad) = has(given);
-        let holding = Attempt { subscriptions, pad, step: Step::Initial, tried: 0 };
-        let Ok(file) = holding.subscriptions.file();
+    fn initialize(arguments: &Arguments, _previous: Option<Attempt>, effects: &mut Effects) -> Result<Attempt, Never> {
+        let Ok(opening) = initial(arguments);
 
-        let Ok(opening) = match (file, pad) {
-            (Some(_), Has::Yes) => Initial::with_subscriptions(holding, vec![Subscription::Timer(AGAIN)]),
-            (Some(_), Has::No) | (None, _) => Initial::new(holding),
-        };
-
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Attempt, event: &Event<console_core_never::Never>) -> Update<Attempt, ProfileEffect> {
-        let Ok(turn) = match (state.pad, &state.subscriptions, event) {
-            (_, ProfileState::Error(word), Event::Opened) => Update::new(
-                state.clone(),
-                vec![Effect::Stop(Exit::Failure(format!(
-                    "{word}: usage: controller-profile [router|game]"
-                )))],
-            ),
+    fn handle(state: Attempt, event: Event<console_core_never::Never>, effects: &mut Effects) -> Result<Attempt, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            (Has::No, ProfileState::Attempt | ProfileState::Router | ProfileState::Game, Event::Opened) => Update::new(
-                state.clone(),
-                vec![Effect::Print(NO_PAD.to_string()), Effect::Stop(Exit::Success)],
-            ),
-
-            (Has::Yes, ProfileState::Attempt, Event::Opened) => {
-                let Ok(reading) = reading();
-
-                Update::new(
-                    Attempt { step: Step::Sender, ..state.clone() },
-                    vec![Effect::Run(reading)],
-                )
-            }
-
-            (Has::Yes, ProfileState::Router | ProfileState::Game, Event::Opened) => {
-                let Ok(reading) = reading();
-                let Ok(buzzing) = buzzing(&state.subscriptions);
-
-                Update::new(
-                    Attempt { step: Step::Waiting, ..state.clone() },
-                    buzzing.into_iter().chain([Effect::Run(reading)]).collect(),
-                )
-            }
-
-            (_, _, Event::Replied(answer)) => on_exit(state, &answer.status, &answer.output),
-
-            (_, _, Event::Tick(_, _)) => tried(state),
-
-            (_, _, Event::Changed(_) | Event::Chosen(_) | Event::Stopping | Event::Custom(_)) => {
-                Update::none(state.clone())
-            }
-        };
-
-        turn
+        decided.offered(effects)
     }
 }
 
-fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Attempt, ProfileEffect>, Never> {
+type Effects = Queue<Effect<ProfileEffect>>;
+
+fn initial(arguments: &Arguments) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
+    let Ok(subscriptions) = ProfileState::of(arguments);
+    let Ok(given) = arguments.flag(PAD);
+    let Ok(pad) = has(given);
+    let holding = Attempt { subscriptions, pad, step: Step::Initial, tried: 0 };
+    let Ok(file) = holding.subscriptions.file();
+
+    #[cfg_attr(
+        dylint_lib = "explicit043_no_unmatched_listen",
+        allow(
+            explicit043_no_unmatched_listen,
+            reason = "the bus is asked again on this clock until the profile loads or will not, and either one stops the program, so it ticks exactly as long as the program runs"
+        )
+    )]
+    let Ok(opening) = match (file, pad) {
+        (Some(_), Has::Yes) => Transition::new(holding, vec![Effect::Subscribe(Subscription::Timer(AGAIN))]),
+        (Some(_), Has::No) | (None, _) => Transition::without_effects(holding),
+    };
+
+    Ok(opening)
+}
+
+fn decide(state: &Attempt, event: &Event<console_core_never::Never>) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
+    let Ok(turn) = match (state.pad, &state.subscriptions, event) {
+        (_, ProfileState::Error(word), Event::Opened) => Transition::new(
+            state.clone(),
+            vec![Effect::Stop(Exit::Failure(format!(
+                "{word}: usage: controller-profile [router|game]"
+            )))],
+        ),
+
+        (Has::No, ProfileState::Attempt | ProfileState::Router | ProfileState::Game, Event::Opened) => Transition::new(
+            state.clone(),
+            vec![Effect::Print(NO_PAD.to_string()), Effect::Stop(Exit::Success)],
+        ),
+
+        (Has::Yes, ProfileState::Attempt, Event::Opened) => {
+            let Ok(reading) = reading();
+
+            Transition::new(
+                Attempt { step: Step::Sender, ..state.clone() },
+                vec![Effect::Run(reading)],
+            )
+        }
+
+        (Has::Yes, ProfileState::Router | ProfileState::Game, Event::Opened) => {
+            let Ok(reading) = reading();
+            let Ok(buzzing) = buzzing(&state.subscriptions);
+
+            Transition::new(
+                Attempt { step: Step::Waiting, ..state.clone() },
+                buzzing.into_iter().chain([Effect::Run(reading)]).collect(),
+            )
+        }
+
+        (_, _, Event::Replied(answer)) => on_exit(state, &answer.status, &answer.output),
+
+        (_, _, Event::Tick(_, _)) => tried(state),
+
+        (_, _, Event::Changed(_) | Event::Chosen(_) | Event::Stopping | Event::Custom(_)) => {
+            Transition::without_effects(state.clone())
+        }
+    };
+
+    Ok(turn)
+}
+
+fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
     match (state.step, went) {
-        (Step::Waiting, ExitStatus::Failure(_)) => Update::none(state.clone()),
+        (Step::Waiting, ExitStatus::Failure(_)) => Transition::without_effects(state.clone()),
 
         (Step::Waiting, ExitStatus::Success) => {
             let Ok(file) = state.subscriptions.file();
@@ -219,17 +240,17 @@ fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Atte
             Some(file) => {
                 let Ok(loading) = loading(&file);
 
-                Update::new(
+                Transition::new(
                     Attempt { step: Step::Loading, ..state.clone() },
                     vec![Effect::Run(loading)],
                 )
             }
-            None => Update::new(state.clone(), vec![Effect::Stop(Exit::Success)]),
+            None => Transition::new(state.clone(), vec![Effect::Stop(Exit::Success)]),
             }
         },
 
         (Step::Loading, ExitStatus::Success) => {
-            Update::new(state.clone(), vec![Effect::Stop(Exit::Success)])
+            Transition::new(state.clone(), vec![Effect::Stop(Exit::Success)])
         }
 
         (Step::Loading, ExitStatus::Failure(_)) => {
@@ -239,7 +260,7 @@ fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Atte
                 None => THE_PROFILE.to_string(),
             };
 
-            Update::new(
+            Transition::new(
                 state.clone(),
                 vec![Effect::Stop(Exit::Failure(format!("{named} would not load")))],
             )
@@ -248,7 +269,7 @@ fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Atte
         (Step::Sender, ExitStatus::Success) => {
             let Ok(named) = parse_profile_name(said);
 
-            Update::new(
+            Transition::new(
                 state.clone(),
                 vec![
                     Effect::Print(match named {
@@ -260,27 +281,27 @@ fn on_exit(state: &Attempt, went: &ExitStatus, said: &str) -> Result<Update<Atte
             )
         }
 
-        (Step::Sender, ExitStatus::Failure(_)) => Update::new(
+        (Step::Sender, ExitStatus::Failure(_)) => Transition::new(
             state.clone(),
             vec![Effect::Stop(Exit::Failure(
                 "InputPlumber is not on the bus, so nothing can say which profile is on".to_string(),
             ))],
         ),
 
-        (Step::Initial, _) => Update::none(state.clone()),
+        (Step::Initial, _) => Transition::without_effects(state.clone()),
     }
 }
 
-fn tried(state: &Attempt) -> Result<Update<Attempt, ProfileEffect>, Never> {
+fn tried(state: &Attempt) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
     let tried = state.tried.saturating_add(1);
 
     match tried < MOST {
         true => {
             let Ok(reading) = reading();
 
-            Update::new(Attempt { tried, ..state.clone() }, vec![Effect::Run(reading)])
+            Transition::new(Attempt { tried, ..state.clone() }, vec![Effect::Run(reading)])
         }
-        false => Update::new(
+        false => Transition::new(
             Attempt { tried, ..state.clone() },
             vec![Effect::Stop(Exit::Failure(
                 "InputPlumber never appeared on the bus".to_string(),
@@ -332,7 +353,8 @@ pub fn parse_profile_name(said: &str) -> Result<Option<String>, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, run};
+    use console_program_contract::Answer;
+    use console_core_state_machine::run;
 
     use super::*;
 
@@ -447,11 +469,10 @@ mod tests {
     #[test]
     fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() {
         let Ok(router) = Arguments::of(&["router"]);
-        let init = Profile::init(&router);
         let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
-        assert_eq!(init.subscriptions, Vec::new());
+        assert_eq!(said.initialized, Vec::new());
         assert!(!effects.iter().any(|effect| matches!(effect, Effect::Run(_))), "{effects:?}");
     }
 
@@ -472,14 +493,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        dylint_lib = "explicit043_no_unmatched_listen",
+        allow(explicit043_no_unmatched_listen, reason = "the subscription is named as what the program is expected to ask for, and nothing is subscribed to here")
+    )]
     fn nothing_waits_for_a_bus_it_is_only_asking_about() {
         let Ok(pad) = Arguments::of(&[PAD]);
         let Ok(game) = Arguments::of(&["game", PAD]);
 
-        let asking = Profile::init(&pad);
-        let loading = Profile::init(&game);
+        let Ok(asking) = run::<Profile>(&pad, &[]);
+        let Ok(loading) = run::<Profile>(&game, &[]);
 
-        assert_eq!(asking.subscriptions, Vec::new());
-        assert_eq!(loading.subscriptions, vec![Subscription::Timer(AGAIN)]);
+        assert_eq!(asking.initialized, Vec::new());
+        assert_eq!(loading.initialized, vec![Effect::Subscribe(Subscription::Timer(AGAIN))]);
     }
 }

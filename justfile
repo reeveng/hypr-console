@@ -428,9 +428,8 @@ shot:
 
 # write down the real devices again
 capture:
-    ssh {{ HOST }} cargo run --release --locked --quiet \
-      --manifest-path /etc/console/Cargo.toml --bin capture-devices \
-      > crates/console-input-gamepad/fixtures/devices.json
+    ssh {{ HOST }} "cd /etc/console && cargo run --release --locked --quiet \
+      --bin capture-devices" > crates/console-input-gamepad/fixtures/devices.json
     git diff --stat crates/console-input-gamepad/fixtures/devices.json
 
 # What the device measured for itself in its last check run, carried back here

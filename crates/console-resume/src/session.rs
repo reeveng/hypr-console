@@ -329,6 +329,7 @@ fn note(changes: &Noted, stirred: &CompositorEvent) -> Result<(), Never> {
         | CompositorEvent::LayerClosed
         | CompositorEvent::WorkspaceChanged
         | CompositorEvent::ScreenFocused
+        | CompositorEvent::WindowFocused
         | CompositorEvent::ConfigurationReloaded
         | CompositorEvent::Ignored => return Ok(()),
     };
@@ -853,6 +854,7 @@ impl Sessions {
                     | CompositorEvent::LayerClosed
                     | CompositorEvent::WorkspaceChanged
                     | CompositorEvent::ScreenFocused
+                    | CompositorEvent::WindowFocused
                     | CompositorEvent::ConfigurationReloaded
                     | CompositorEvent::Ignored => continue,
                 };

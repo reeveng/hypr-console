@@ -25,6 +25,7 @@ console-launcher.workspace = true
 console-music.workspace = true
 console-core-internal-programs.workspace = true
 console-core-never.workspace = true
+console-notes.workspace = true
 console-notifications.workspace = true
 console-panel.workspace = true
 console-settings.workspace = true

@@ -20,9 +20,8 @@ use std::path::{Path, PathBuf};
 
 use console_input_bindings::moved::Tasks;
 use console_core_never::Never;
-use console_program_contract::{
-    Arguments, Effect, Flag, Initial, Program, Command, Update, Event, FileWrite,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Flag, Command, Event, FileWrite};
 
 use crate::rows::{Part, question};
 
@@ -73,73 +72,88 @@ pub enum MappingEffect {
 
 pub struct Setup;
 
-impl Program for Setup {
+impl Machine for Setup {
+    type Input = Arguments;
     type State = Setting;
-    type Event = MappingEvent;
-    type Effect = MappingEffect;
+    type Request = Event<MappingEvent>;
+    type Effect = Effect<MappingEffect>;
 
-    fn init(arguments: &Arguments) -> Initial<Setting> {
-        let Ok(after) = arguments.after(TABLE);
+    fn initialize(arguments: &Arguments, _previous: Option<Setting>, effects: &mut Effects) -> Result<Setting, Never> {
+        let Ok(opening) = initial(arguments);
 
-        let setting = match after {
-            Some(said) => {
-                let Ok(first) = arguments.flag(FIRST);
-                let Ok(written) = arguments.flag(WRITTEN);
-                let Ok(empty) = Empty::of(first, written);
-
-                Setting::Initial { at: PathBuf::from(said), empty }
-            }
-            None => Setting::Nowhere,
-        };
-
-        let Ok(opening) = Initial::new(setting);
-
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Setting, event: &Event<MappingEvent>) -> Update<Setting, MappingEffect> {
-        let Ok(turn) = match (state, event) {
-            (Setting::Initial { at, empty }, Event::Opened) => {
-                let Ok(nothing) = emptied(at);
+    fn handle(state: Setting, event: Event<MappingEvent>, effects: &mut Effects) -> Result<Setting, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-                let effects = match empty {
-                    Empty::Write => vec![Effect::Write(nothing)],
-                    Empty::Leave => Vec::new(),
-                };
-
-                Update::new(Setting::Set { at: at.clone() }, effects)
-            }
-
-            (Setting::Set { .. }, Event::Custom(MappingEvent::Requested(part))) => {
-                let Ok(asked) = question(part);
-                let Ok(word) = part.on.word();
-                let Ok(asking) = Command::internal(ASKING, &[&part.slug, word]);
-
-                Update::new(
-                    state.clone(),
-                    vec![Effect::Custom(MappingEffect::Note(asked)), Effect::Run(asking)],
-                )
-            }
-
-            (Setting::Set { .. }, Event::Custom(MappingEvent::Restore)) => {
-                Update::new(state.clone(), vec![Effect::Custom(MappingEffect::Sure)])
-            }
-
-            (Setting::Set { at }, Event::Custom(MappingEvent::Sure)) => {
-                let Ok(nothing) = emptied(at);
-
-                Update::new(state.clone(), vec![Effect::Write(nothing)])
-            }
-
-            (Setting::Nowhere, Event::Custom(_)) => {
-                Update::new(state.clone(), vec![Effect::Custom(MappingEffect::Note(NOWHERE.to_string()))])
-            }
-
-            (_, _) => Update::none(state.clone()),
-        };
-
-        turn
+        decided.offered(effects)
     }
+}
+
+type Effects = Queue<Effect<MappingEffect>>;
+
+fn initial(arguments: &Arguments) -> Result<Transition<Setting, Effect<MappingEffect>>, Never> {
+    let Ok(after) = arguments.after(TABLE);
+
+    let setting = match after {
+        Some(said) => {
+            let Ok(first) = arguments.flag(FIRST);
+            let Ok(written) = arguments.flag(WRITTEN);
+            let Ok(empty) = Empty::of(first, written);
+
+            Setting::Initial { at: PathBuf::from(said), empty }
+        }
+        None => Setting::Nowhere,
+    };
+
+    let Ok(opening) = Transition::without_effects(setting);
+
+    Ok(opening)
+}
+
+fn decide(state: &Setting, event: &Event<MappingEvent>) -> Result<Transition<Setting, Effect<MappingEffect>>, Never> {
+    let Ok(turn) = match (state, event) {
+        (Setting::Initial { at, empty }, Event::Opened) => {
+            let Ok(nothing) = emptied(at);
+
+            let effects = match empty {
+                Empty::Write => vec![Effect::Write(nothing)],
+                Empty::Leave => Vec::new(),
+            };
+
+            Transition::new(Setting::Set { at: at.clone() }, effects)
+        }
+
+        (Setting::Set { .. }, Event::Custom(MappingEvent::Requested(part))) => {
+            let Ok(asked) = question(part);
+            let Ok(word) = part.on.word();
+            let Ok(asking) = Command::internal(ASKING, &[&part.slug, word]);
+
+            Transition::new(
+                state.clone(),
+                vec![Effect::Custom(MappingEffect::Note(asked)), Effect::Run(asking)],
+            )
+        }
+
+        (Setting::Set { .. }, Event::Custom(MappingEvent::Restore)) => {
+            Transition::new(state.clone(), vec![Effect::Custom(MappingEffect::Sure)])
+        }
+
+        (Setting::Set { at }, Event::Custom(MappingEvent::Sure)) => {
+            let Ok(nothing) = emptied(at);
+
+            Transition::new(state.clone(), vec![Effect::Write(nothing)])
+        }
+
+        (Setting::Nowhere, Event::Custom(_)) => {
+            Transition::new(state.clone(), vec![Effect::Custom(MappingEffect::Note(NOWHERE.to_string()))])
+        }
+
+        (_, _) => Transition::without_effects(state.clone()),
+    };
+
+    Ok(turn)
 }
 
 fn emptied(at: &Path) -> Result<FileWrite, Never> {
@@ -151,7 +165,7 @@ fn emptied(at: &Path) -> Result<FileWrite, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::run;
+    use console_core_state_machine::run;
 
     use super::*;
 

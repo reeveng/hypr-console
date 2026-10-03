@@ -106,6 +106,7 @@ programs! {
     Pactl, "pactl", Origin::Package("libpulse");
     Pdfinfo, "pdfinfo", Origin::Package("poppler");
     Pdftoppm, "pdftoppm", Origin::Package("poppler");
+    Pdftotext, "pdftotext", Origin::Package("poppler");
     Pkill, "pkill", Origin::Arch;
     Powerprofilesctl, "powerprofilesctl", Origin::Package("power-profiles-daemon");
     Ps, "ps", Origin::Arch;
@@ -125,6 +126,7 @@ programs! {
     Su, "su", Origin::Arch;
     Sudo, "sudo", Origin::Package("sudo");
     Systemctl, "systemctl", Origin::Arch;
+    Tesseract, "tesseract", Origin::Package("tesseract");
     SystemdInhibit, "systemd-inhibit", Origin::Arch;
     SystemdRun, "systemd-run", Origin::Arch;
     Timedatectl, "timedatectl", Origin::Arch;

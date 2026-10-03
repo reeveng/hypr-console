@@ -19,20 +19,31 @@
 //! the unit would otherwise fail before it was ready and be started again
 //! every second, and the settings already show the same fault on the row
 //! where it can be mended.
+//!
+//! The bar over the ring is drawn on the same surface, because nothing else
+//! comes up over a held lock: the clock, the sound and the battery, read when
+//! the lock is taken and again as the minute turns, and the row that puts the
+//! machine to sleep or stops it. What a press on it asks for is run here, as
+//! the person whose session is locked.
 
 use std::process::ExitCode;
 
-use console_core_color::palette::{Wearing, WearingError};
+use console_core_color::palette::{self, Wearing, WearingError};
+use console_core_geometry::Size;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_draw_painting::{Rendered, painter};
 use console_draw_surface::{Closed, KeyboardEvent, Lock, Surface, SurfaceError, Unlocked};
 use console_lock_screen::{Wanted, respond, desired};
-use console_login_greeter::greeting::{Greeter, GreeterEffect, GreeterEvent, Greeting};
-use console_login_greeter::picture::render;
-use console_login_greeter::session::{press, touch};
+use console_login_greeter::bar;
+use console_login_greeter::greeting::{GreeterEffect, GreeterEvent, GreeterState, Greeter};
+use console_login_greeter::picture::{Worn, over_a_session};
+use console_login_greeter::session::{heard, press};
 use console_login_window::stored_pattern::{self, Hash, PatternStoreError};
-use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
+use console_core_state_machine::{Machine, Transition};
+use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_status_bar::clock::{self, Standing};
+use console_status_bar::showing;
 
 const WHO: &str = "lock-screen";
 
@@ -106,9 +117,18 @@ fn ran() -> Result<Result<(), LockScreenError>, Never> {
     })
 }
 
+fn worn() -> Result<(Wearing, showing::Wearing), WearingError> {
+    let spent = palette::spent()?;
+    let ring = Wearing::out_of(&spent)?;
+    let bar = showing::Wearing::out_of(&spent)?;
+
+    Ok((ring, bar))
+}
+
 fn lock(hash: &Hash) -> Result<(), LockScreenError> {
-    let worn = Wearing::worn().map_err(LockScreenError::Palette);
-    let wearing = worn?;
+    let worn = worn().map_err(LockScreenError::Palette);
+    let (ring, bar) = worn?;
+    let worn = Worn { ring: &ring, bar: &bar };
     let connected = Surface::connect();
     let mut surface = connected.map_err(LockScreenError::Surface)?;
     let locking = surface.lock(WHO);
@@ -120,11 +140,23 @@ fn lock(hash: &Hash) -> Result<(), LockScreenError> {
     }
 
     let Ok(arguments) = Arguments::of(&[]);
-    let Initial { state, subscriptions: _ } = Greeter::init(&arguments);
-    let locked = LockBehavior { surface, greeting: state, rendered: Rendered::default(), notified: Notified::No, welcomed: Welcomed::No };
+    let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&arguments, None);
+    let Ok(standing) = clock::current();
+    let Ok(read_out) = bar::read_all();
+    let Ok((state, _welcomed)) = answered(Answering { state, welcomed: Welcomed::No }, read_out, hash);
+    let nothing_drawn = showing::Rendered { shapes: Vec::new(), room: Size { width: 0, height: 0 }, touching: Vec::new() };
+    let locked = LockBehavior {
+        surface,
+        state,
+        standing,
+        rendered: Rendered::default(),
+        bar: nothing_drawn,
+        notified: Notified::No,
+        welcomed: Welcomed::No,
+    };
 
     let ended = iterate(locked, |locked| {
-        Ok(match round(locked, &wearing, hash) {
+        Ok(match round(locked, worn, hash) {
             Ok(Step::Again(locked)) => Step::Again(locked),
             Ok(Step::Halt(())) => Step::Halt(Ok(())),
             Err(fault) => Step::Halt(Err(fault)),
@@ -139,15 +171,17 @@ fn lock(hash: &Hash) -> Result<(), LockScreenError> {
 
 struct LockBehavior {
     surface: Surface,
-    greeting: Greeting,
+    state: GreeterState,
+    standing: Standing,
     rendered: Rendered,
+    bar: showing::Rendered,
     notified: Notified,
     welcomed: Welcomed,
 }
 
-fn round(locked: LockBehavior, wearing: &Wearing, hash: &Hash) -> Result<Step<LockBehavior, ()>, LockScreenError> {
-    let LockBehavior { mut surface, greeting, mut rendered, mut notified, welcomed } = locked;
-    let Ok(()) = draw(&mut surface, &greeting, wearing, &mut rendered);
+fn round(locked: LockBehavior, worn: Worn<'_>, hash: &Hash) -> Result<Step<LockBehavior, ()>, LockScreenError> {
+    let LockBehavior { mut surface, state, standing, mut rendered, bar, mut notified, welcomed } = locked;
+    let Ok(bar) = draw(&mut surface, Drawing { state: &state, worn, rendered: &mut rendered, bar });
     let Ok(lock) = surface.locked();
 
     match (lock, notified) {
@@ -175,7 +209,8 @@ fn round(locked: LockBehavior, wearing: &Wearing, hash: &Hash) -> Result<Step<Lo
         (Lock::Acquired, Welcomed::No) | (Lock::Waiting | Lock::Denied, Welcomed::Yes | Welcomed::No) => {}
     }
 
-    let waited = surface.wait(&[], None);
+    let Ok(patience) = clock::until_the_minute_turns();
+    let waited = surface.wait(&[], Some(patience));
 
     waited.map_err(LockScreenError::Surface)?;
 
@@ -195,22 +230,23 @@ fn round(locked: LockBehavior, wearing: &Wearing, hash: &Hash) -> Result<Step<Lo
         press.map(GreeterEvent::Pressed)
     });
     let touched = pointer.into_iter().filter_map(|event| {
-        let Ok(touch) = touch(event, logical);
+        let Ok(heard) = heard(event, logical, &bar);
 
-        touch.map(GreeterEvent::Touched)
+        heard
     });
-    let Ok((greeting, welcomed)) = answered(Answering { greeting, welcomed }, pressed.chain(touched).collect(), hash);
+    let Ok((standing, read_out)) = bar::again(standing);
+    let Ok((state, welcomed)) = answered(Answering { state, welcomed }, pressed.chain(touched).chain(read_out).collect(), hash);
 
-    Ok(Step::Again(LockBehavior { surface, greeting, rendered, notified, welcomed }))
+    Ok(Step::Again(LockBehavior { surface, state, standing, rendered, bar, notified, welcomed }))
 }
 
 struct Answering {
-    greeting: Greeting,
+    state: GreeterState,
     welcomed: Welcomed,
 }
 
-fn answered(answering: Answering, events: Vec<GreeterEvent>, hash: &Hash) -> Result<(Greeting, Welcomed), Never> {
-    let unanswered = (answering.greeting.clone(), answering.welcomed);
+fn answered(answering: Answering, events: Vec<GreeterEvent>, hash: &Hash) -> Result<(GreeterState, Welcomed), Never> {
+    let unanswered = (answering.state.clone(), answering.welcomed);
     let ended = iterate((answering, events), |(answering, events)| answering_round(answering, events, hash));
 
     Ok(match ended {
@@ -219,12 +255,12 @@ fn answered(answering: Answering, events: Vec<GreeterEvent>, hash: &Hash) -> Res
     })
 }
 
-type AnsweringRound = Step<(Answering, Vec<GreeterEvent>), (Greeting, Welcomed)>;
+type AnsweringRound = Step<(Answering, Vec<GreeterEvent>), (GreeterState, Welcomed)>;
 
 fn answering_round(answering: Answering, events: Vec<GreeterEvent>, hash: &Hash) -> Result<AnsweringRound, Never> {
-    let (Answering { greeting, welcomed }, replies) =
-        events.into_iter().fold((answering, Vec::new()), |(Answering { greeting, mut welcomed }, mut replies), event| {
-            let Update { state, effects } = Greeter::update(&greeting, &Event::Custom(event));
+    let (Answering { state, welcomed }, replies) =
+        events.into_iter().fold((answering, Vec::new()), |(Answering { state, mut welcomed }, mut replies), event| {
+            let Ok(Transition { state, effects }) = Greeter::transition(state, Event::Custom(event));
 
             for effect in effects {
                 match effect {
@@ -232,6 +268,11 @@ fn answering_round(answering: Answering, events: Vec<GreeterEvent>, hash: &Hash)
                         let Ok(reply) = respond(&said, hash);
 
                         replies.extend(reply.map(GreeterEvent::Received));
+                    }
+                    Effect::Custom(GreeterEffect::Bar(asked)) => {
+                        let Ok(heard) = bar::carried(asked);
+
+                        replies.extend(heard);
                     }
                     Effect::Stop(Exit::Success | Exit::Failure(_)) => welcomed = Welcomed::Yes,
                     Effect::Run(_)
@@ -246,22 +287,30 @@ fn answering_round(answering: Answering, events: Vec<GreeterEvent>, hash: &Hash)
                 }
             }
 
-            (Answering { greeting: state, welcomed }, replies)
+            (Answering { state, welcomed }, replies)
         });
 
     Ok(match replies.is_empty() {
-        true => Step::Halt((greeting, welcomed)),
-        false => Step::Again((Answering { greeting, welcomed }, replies)),
+        true => Step::Halt((state, welcomed)),
+        false => Step::Again((Answering { state, welcomed }, replies)),
     })
 }
 
-fn draw(surface: &mut Surface, greeting: &Greeting, wearing: &Wearing, rendered: &mut Rendered) -> Result<(), Never> {
+struct Drawing<'a> {
+    state: &'a GreeterState,
+    worn: Worn<'a>,
+    rendered: &'a mut Rendered,
+    bar: showing::Rendered,
+}
+
+fn draw(surface: &mut Surface, drawing: Drawing<'_>) -> Result<showing::Rendered, Never> {
+    let Drawing { state, worn, rendered, bar } = drawing;
     let Ok(logical) = surface.logical();
     let logical = match logical {
         Some(logical) => logical,
-        None => return Ok(()),
+        None => return Ok(bar),
     };
-    let Ok(shapes) = render(greeting, wearing, logical, UNLOCK);
+    let Ok((shapes, bar)) = over_a_session(state, worn, logical, UNLOCK);
 
     let Ok(wanted) = rendered.wanted(shapes);
 
@@ -273,5 +322,5 @@ fn draw(surface: &mut Surface, greeting: &Greeting, wearing: &Wearing, rendered:
         None => {},
     }
 
-    Ok(())
+    Ok(bar)
 }

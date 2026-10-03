@@ -21,11 +21,14 @@
 //! a laptop with no screen, and the `books` program is the one that opens
 //! files, runs poppler and draws.
 
+pub mod annotating;
 pub mod appearance;
 pub mod publication;
 pub mod flow;
 pub mod library;
+pub mod live_text;
 pub mod markup;
+pub mod notes;
 pub mod open;
 pub mod pages;
 pub mod progress;

@@ -442,7 +442,8 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
             let Ok(()) = stage.close();
         }
         _ => {
-            let ran = console_concurrency::map(&checks, |check| here(check));
+            let Ok(cores) = console_concurrency::Cores::counted();
+            let ran = console_concurrency::map(cores, &checks, |check| here(check));
             let ran = ran.map_err(Unchecked::Concurrently)?;
 
             for (check, how) in checks.into_iter().zip(ran) {

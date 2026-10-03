@@ -35,7 +35,7 @@ fn unmoved() -> Result<Table, Never> {
 
 fn mode_of(when: Context) -> Result<Mode, Never> {
     Ok(match when {
-        Context::WithAPickerUp => Mode::Tabs,
+        Context::WithAPanelOrApp => Mode::Tabs,
         Context::OnTheHomeScreen => Mode::HomeScreen,
         Context::StandingOnASquare => Mode::Standing,
         Context::Anywhere | Context::OnTheDesktop => Mode::Desktop,
@@ -102,6 +102,7 @@ fn the_right_stick_pressed_is_the_same_answer_as_a() {
     for mode in [
         Mode::Desktop,
         Mode::Tabs,
+        Mode::App,
         Mode::HomeScreen,
         Mode::Standing,
         Mode::Keyboard,

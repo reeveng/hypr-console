@@ -9,7 +9,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use console_program_contract::{Arguments, Effect, Exit, Initial, Program, Update, Event};
+use console_core_state_machine::{Machine, Never, Queue};
+use console_program_contract::{Arguments, Effect, Exit, Event};
 use console_program_runtime::{Delivery, Interpreter, Subscribed, Tell, run};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,29 +21,30 @@ enum Logged {
     Pressed(u32),
 }
 
-impl Program for Pad {
+impl Machine for Pad {
+    type Input = Arguments;
     type State = Pad;
-    type Event = u32;
-    type Effect = Logged;
+    type Request = Event<u32>;
+    type Effect = Effect<Logged>;
 
-    fn init(_argv: &Arguments) -> Initial<Pad> {
-        let Ok(opening) = Initial::new(Pad);
-
-        opening
+    fn initialize(_arguments: &Arguments, _previous: Option<Pad>, _effects: &mut Queue<Effect<Logged>>) -> Result<Pad, Never> {
+        Ok(Pad)
     }
 
-    fn update(state: &Pad, event: &Event<u32>) -> Update<Pad, Logged> {
-        let Ok(turn) = match event {
-            Event::Custom(pressed) => Update::new(Pad, vec![Effect::Custom(Logged::Pressed(*pressed))]),
+    fn handle(state: Pad, event: Event<u32>, effects: &mut Queue<Effect<Logged>>) -> Result<Pad, Never> {
+        match event {
+            Event::Custom(pressed) => {
+                let Ok(()) = effects.offer(Effect::Custom(Logged::Pressed(pressed)));
+
+                Ok(Pad)
+            }
             Event::Opened
             | Event::Tick(_, _)
             | Event::Changed(_)
             | Event::Replied(_)
             | Event::Chosen(_)
-            | Event::Stopping => Update::none(state.clone()),
-        };
-
-        turn
+            | Event::Stopping => Ok(state),
+        }
     }
 }
 

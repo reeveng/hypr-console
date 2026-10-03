@@ -362,11 +362,12 @@ fn the_shoulders_move_between_workspaces() -> Result<(), Failure> {
 }
 
 #[test]
-fn holding_l2_carries_the_window_with_you() -> Result<(), Failure> {
+fn holding_both_triggers_carries_the_window_with_you() -> Result<(), Failure> {
     let (mut go, mut daemon) = desktop()?;
     go.trigger("l2", 1.0)?;
+    go.trigger("r2", 1.0)?;
     go.press("r1")?;
-    let Ok(()) = daemon.run(&mut go, 2);
+    let Ok(()) = daemon.run(&mut go, 3);
     let Ok(dispatched) = daemon.did.dispatched();
     assert_eq!(dispatched, ["hl.dsp.window.move({workspace = \"+1\"})"]);
 
@@ -374,9 +375,22 @@ fn holding_l2_carries_the_window_with_you() -> Result<(), Failure> {
 }
 
 #[test]
+fn holding_l2_goes_to_the_next_desktop_and_leaves_the_window() -> Result<(), Failure> {
+    let (mut go, mut daemon) = desktop()?;
+    go.trigger("l2", 1.0)?;
+    go.press("r1")?;
+    let Ok(()) = daemon.run(&mut go, 2);
+    let Ok(dispatched) = daemon.did.dispatched();
+    assert_eq!(dispatched, ["hl.dsp.focus({workspace = \"+1\"})"]);
+
+    Ok(())
+}
+
+#[test]
 fn a_trigger_short_of_held_does_not_carry() -> Result<(), Failure> {
     let (mut go, mut daemon) = desktop()?;
-    go.trigger("l2", 0.4)?;
+    go.trigger("l2", 1.0)?;
+    go.trigger("r2", 0.4)?;
     go.press("r1")?;
     let Ok(()) = daemon.run(&mut go, 2);
     let Ok(dispatched) = daemon.did.dispatched();

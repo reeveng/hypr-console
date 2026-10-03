@@ -71,6 +71,7 @@ use console_core_shapes::{Covers, Edge, Panel, Round, Shape, Weight, Text};
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 
+use crate::lock_screen::{Menu, Power, Volume};
 use crate::reading::{Tone, StatusItem};
 
 pub use console_onscreen::BAR as WHO;
@@ -196,6 +197,9 @@ pub enum BarAction {
     Settings(StatusItem),
     Music,
     Notifications,
+    Menu(Menu),
+    Volume(Volume),
+    Power(Power),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -371,7 +375,10 @@ fn one_of_the_workspaces_no_one_is_on(one: &Measured) -> Result<Retain, Never> {
         | BarAction::Keyboard
         | BarAction::Settings(_)
         | BarAction::Music
-        | BarAction::Notifications => Retain::Yes,
+        | BarAction::Notifications
+        | BarAction::Menu(_)
+        | BarAction::Volume(_)
+        | BarAction::Power(_) => Retain::Yes,
     })
 }
 
@@ -463,8 +470,8 @@ pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Rendered, 
     let Ok(center) = fitted::<u32, i32>(halfway.min(free).max(along_the_left.min(free)));
     let Ok(ends) = fitted::<u32, i32>(wide.saturating_sub(right));
 
-    for (slots, from) in [(&bar.left, 0), (&bar.middle, center), (&bar.right, ends)] {
-        let Ok(()) = laid(slots, from, fitting, wearing, &mut shapes, &mut touching);
+    for (slots, across) in [(&bar.left, 0), (&bar.middle, center), (&bar.right, ends)] {
+        let Ok(()) = laid(slots, Point { x: across, y: 0 }, fitting, wearing, &mut shapes, &mut touching);
     }
 
     match bar.filling {
@@ -486,9 +493,38 @@ pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Rendered, 
     Ok(Rendered { shapes, room: Size { width: wide, height: tall }, touching })
 }
 
+pub fn beneath(row: &[Measured], wearing: &Wearing, room: Size<u32>) -> Result<Rendered, Never> {
+    let Ok(fitting) = Fitting::of_em();
+    let Ok(tall) = fitting.height();
+    let Ok(wide) = group(row, fitting);
+    let mut shapes = Vec::new();
+    let mut touching = Vec::new();
+
+    match row.is_empty() {
+        true => return Ok(Rendered { shapes, room: Size { width: 0, height: 0 }, touching }),
+        false => {}
+    }
+
+    let Ok(across) = fitted::<u32, i32>(room.width.saturating_sub(wide));
+    let Ok(down) = fitted::<u32, i32>(tall);
+    let under = Point { x: across, y: down };
+
+    shapes.push(Shape::Panel(Panel {
+        at: under,
+        size: Size { width: wide, height: fitting.deep },
+        round: Round(fitting.round),
+        fill: wearing.fill,
+        edge: Edge::None,
+    }));
+
+    let Ok(()) = laid(row, under, fitting, wearing, &mut shapes, &mut touching);
+
+    Ok(Rendered { shapes, room: Size { width: wide, height: fitting.deep }, touching })
+}
+
 fn laid(
     slots: &[Measured],
-    from: i32,
+    from: Point<i32>,
     fitting: Fitting,
     wearing: &Wearing,
     shapes: &mut Vec<Shape>,
@@ -496,12 +532,12 @@ fn laid(
 ) -> Result<(), Never> {
     let Ok(margin) = fitted::<u32, i32>(fitting.margin);
     let Ok(pad) = fitted::<u32, i32>(fitting.pad);
-    let mut across = from;
+    let mut across = from.x;
 
     for one in slots {
         let Ok(size) = slab(one, fitting);
         let panel = Panel {
-            at: Point { x: across.saturating_add(margin), y: margin },
+            at: Point { x: across.saturating_add(margin), y: from.y.saturating_add(margin) },
             size,
             round: Round(fitting.round),
             fill: wearing.pink,

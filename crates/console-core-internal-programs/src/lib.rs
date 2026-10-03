@@ -83,6 +83,7 @@ macro_rules! ours {
 
 ours! {
     Asking, "console-asking";
+    Books, "books";
     BooksCatalog, "books-catalog";
     Brightness, "console-brightness";
     Browser, "console-browser";
@@ -96,15 +97,18 @@ ours! {
     DownloadsGet, "downloads-get";
     Files, "files";
     ForecastPanel, "forecast-panel";
+    KeyboardShow, "keyboard-show";
     KeyboardToggle, "keyboard-toggle";
     Launcher, "launcher";
     LoginGreeter, "login-greeter";
     LoginWindow, "login-window";
     MappingPanel, "mapping-panel";
+    Music, "music";
     MusicIndex, "music-index";
     MusicOnward, "music-onward";
     MusicPanel, "music-panel";
     NightShift, "console-warm";
+    Notes, "notes";
     NotificationsPanel, "notifications-panel";
     Overview, "console-overview";
     PanelPictures, "panel-pictures";
@@ -115,8 +119,17 @@ ours! {
     SessionGame, "session-game";
     SettingsLoginPattern, "settings-login-pattern";
     SettingsPanel, "settings-panel";
+    Viewer, "viewer";
     Volume, "console-volume";
 }
+
+pub const APPS: [InternalProgram; 5] = [
+    InternalProgram::Books,
+    InternalProgram::Downloads,
+    InternalProgram::Files,
+    InternalProgram::Music,
+    InternalProgram::Viewer,
+];
 
 pub const EXECUTABLE_DIRECTORY: &str = executable_directory!();
 

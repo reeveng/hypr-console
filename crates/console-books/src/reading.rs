@@ -11,7 +11,14 @@
 //! How many pages the section being turned into has is not known until it has
 //! been laid out, so a turn into another section says which end of it to stand
 //! on rather than a page number.
+//!
+//! A turn is asked for by a key, by the small bar at either side of the page,
+//! or by a swipe. A tap anywhere else on the page turns nothing, because the
+//! page is where a note is written. A swipe is a finger that went further
+//! sideways than down, and far enough that it was not a tap that slid: pulled
+//! to the left it brings the next page in, the way paper does.
 
+use console_core_geometry::Point;
 use console_core_never::Never;
 
 use crate::progress::Position;
@@ -39,6 +46,21 @@ pub enum Destination {
 pub struct PagePosition {
     pub section: Position,
     pub page: Position,
+}
+
+const SWIPE: u32 = 60;
+
+pub fn swipe(from: Point<i32>, to: Point<i32>) -> Result<Option<Turn>, Never> {
+    let across = to.x.saturating_sub(from.x);
+    let down = to.y.saturating_sub(from.y);
+    let sideways = across.unsigned_abs() > down.unsigned_abs();
+    let far = across.unsigned_abs() >= SWIPE;
+
+    Ok(match (sideways && far, across < 0) {
+        (true, true) => Some(Turn::Forward),
+        (true, false) => Some(Turn::Back),
+        (false, _) => None,
+    })
 }
 
 pub fn turn(spot: PagePosition, turn: Turn) -> Result<Destination, Never> {
@@ -77,6 +99,16 @@ mod tests {
 
             assert_eq!(turn(here, Turn::Forward), Ok(destination), "forward from page {page} of chapter {section}");
         }
+    }
+
+    #[test]
+    fn a_swipe_left_is_the_next_page_and_a_tap_that_slid_is_no_swipe() {
+        let from = Point { x: 500, y: 300 };
+
+        assert_eq!(swipe(from, Point { x: 380, y: 320 }), Ok(Some(Turn::Forward)));
+        assert_eq!(swipe(from, Point { x: 620, y: 280 }), Ok(Some(Turn::Back)));
+        assert_eq!(swipe(from, Point { x: 520, y: 305 }), Ok(None), "a finger that barely moved tapped");
+        assert_eq!(swipe(from, Point { x: 400, y: 450 }), Ok(None), "a stroke further down than across is not a turn");
     }
 
     #[test]

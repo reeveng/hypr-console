@@ -1,0 +1,16 @@
+[package]
+name = "console-core-webp-files"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-geometry.workspace = true
+console-core-iteration.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-prefix-codes.workspace = true
+
+[lints]
+workspace = true

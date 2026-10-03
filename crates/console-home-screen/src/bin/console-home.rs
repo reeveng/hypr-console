@@ -1463,6 +1463,7 @@ fn worth_asking_after(line: &str) -> Result<Worth, Never> {
         CompositorEvent::WindowRenamed(_)
         | CompositorEvent::WindowFloated
         | CompositorEvent::WindowPinned
+        | CompositorEvent::WindowFocused
         | CompositorEvent::ConfigurationReloaded
         | CompositorEvent::Ignored => Worth::Ignoring,
     })

@@ -18,6 +18,13 @@
 //! package that adds an application costs one rebuild of the pictures that
 //! application's list wanted, and one that removes it leaves nothing behind.
 //!
+//! Two of these can run at once -- the books asking for their covers while the
+//! menu asks for its icons -- and each writes the whole store. One that read
+//! the store before decoding wrote back what was there when it began, and the
+//! other's pictures were gone for good, because a list asks for a picture
+//! once. So the store is read after the decoding, under a lock on a file beside
+//! it, and held until it has been written again.
+//!
 //! Every picture asked for is decoded at once, one per core, through
 //! `console_concurrency`: a list of sixty is sixty SVGs rasterised, none of them
 //! reading another. The store is still written once, after the last of them.
@@ -30,6 +37,7 @@ use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -49,9 +57,8 @@ fn main() -> ExitCode {
         }
     };
 
-    let Ok(mut made) = load_store();
-
-    let every = console_concurrency::map(&wanted, |of| decode(of, side));
+    let Ok(cores) = console_concurrency::Cores::counted();
+    let every = console_concurrency::map(cores, &wanted, |of| decode(of, side));
 
     let every = match every {
         Ok(every) => every,
@@ -61,6 +68,9 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    let Ok(_held) = hold_store();
+    let Ok(mut made) = load_store();
 
     for (of, drawn) in wanted.iter().zip(every) {
         let Ok(named) = pictures::key(of, side);
@@ -113,6 +123,46 @@ fn parse_arguments(said: &[String]) -> Result<Option<(pictures::Side, Vec<String
         },
         Ok(None) => None,
         Err(_endless) => None,
+    })
+}
+
+fn hold_store() -> Result<Option<File>, Never> {
+    let Ok(store) = pictures::store();
+
+    let at = match store {
+        Some(store) => store.with_extension("lock"),
+        None => return Ok(None),
+    };
+
+    #[cfg_attr(
+        dylint_lib = "explicit040_no_torn_write",
+        allow(
+            explicit040_no_torn_write,
+            reason = "the lock, whose whole point is the open file and not its bytes, and a rename would hand the next maker a different file to take the lock on"
+        )
+    )]
+    let opened = at
+        .parent()
+        .map(std::fs::create_dir_all)
+        .transpose()
+        .and_then(|_| OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&at));
+
+    let handle = match opened {
+        Ok(handle) => handle,
+        Err(fault) => {
+            eprintln!("panel-pictures: {}: {fault}", at.display());
+
+            return Ok(None);
+        }
+    };
+
+    Ok(match rustix::fs::flock(&handle, rustix::fs::FlockOperation::LockExclusive) {
+        Ok(()) => Some(handle),
+        Err(fault) => {
+            eprintln!("panel-pictures: {}: {fault}", at.display());
+
+            None
+        }
     })
 }
 

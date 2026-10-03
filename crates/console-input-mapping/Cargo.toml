@@ -35,6 +35,7 @@ console-core-number-conversion.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true
 console-input-event-devices.workspace = true
+console-core-state-machine.workspace = true
 
 [lints]
 workspace = true

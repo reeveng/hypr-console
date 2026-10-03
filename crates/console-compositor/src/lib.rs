@@ -89,6 +89,8 @@ pub enum Query {
     Layers,
     #[words(about = "the workspace in front")]
     ActiveWorkspace,
+    #[words(about = "the window in front")]
+    ActiveWindow,
     #[words(about = "the workspaces there are")]
     Workspaces,
     #[words(about = "what the screens are")]
@@ -108,6 +110,7 @@ impl Query {
         Ok(match self {
             Query::Layers => &["layers", "-j"],
             Query::ActiveWorkspace => &["activeworkspace", "-j"],
+            Query::ActiveWindow => &["activewindow", "-j"],
             Query::Workspaces => &["workspaces", "-j"],
             Query::Monitors => &["monitors", "-j"],
             Query::EveryMonitor => &["monitors", "all", "-j"],
@@ -209,6 +212,7 @@ macro_rules! questions {
 questions! {
     Layers => Vec<Layer>, parse_layers;
     ActiveWorkspace => Option<Workspace>, parse_active_workspace;
+    ActiveWindow => Option<Window>, parse_active_window;
     Workspaces => Vec<Workspace>, parse_workspaces;
     Monitors => Vec<Monitor>, parse_monitors;
     EveryMonitor => Vec<Monitor>, parse_monitors;
@@ -317,6 +321,12 @@ fn parse_active_workspace(value: serde_json::Value) -> Result<Option<Workspace>,
     let Ok(workspace) = parse_workspace(&value);
 
     Ok(workspace)
+}
+
+fn parse_active_window(value: serde_json::Value) -> Result<Option<Window>, HyprctlError> {
+    let Ok(window) = parse_window(&value);
+
+    Ok(window)
 }
 
 fn parse_workspaces(value: serde_json::Value) -> Result<Vec<Workspace>, HyprctlError> {
@@ -725,6 +735,12 @@ fn device_layouts(name: &str, layouts: Layouts<'_>) -> Result<String, Never> {
 
 pub const CLOSE_WINDOW: &str = "hl.dsp.window.close()";
 
+pub fn focus_window(app_id: &str) -> Result<String, Never> {
+    let Ok(target) = quote(&format!("class:^({app_id})$"));
+
+    Ok(format!("hl.dsp.focus({{ window = {target} }})"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Carrying {
     Window,
@@ -1079,6 +1095,14 @@ mod tests {
          "active_keymap":"English (US)","main":false},
         {"name":"lab31---keyboard","layout":"us,th",
          "active_keymap":"Thai","main":true}]}"#;
+
+    #[test]
+    fn an_app_asked_for_again_is_its_window_brought_forward_and_nothing_else() {
+        assert_eq!(
+            focus_window("books"),
+            Ok(r#"hl.dsp.focus({ window = "class:^(books)$" })"#.to_string())
+        );
+    }
 
     #[test]
     fn the_board_someone_is_typing_on_is_the_one_the_compositor_leads_with() -> Result<(), Box<dyn Error>> {

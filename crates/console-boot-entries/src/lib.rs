@@ -30,6 +30,12 @@
 //! front of its title, before the `│`, on the level just above the kernel,
 //! and the first entry under it is the one a boot asks for: the kernel the
 //! snapshot was taken with.
+//!
+//! What an apply calls its snapshot is spelled here rather than in the engine
+//! that writes it, because snapper hands the description to
+//! limine-snapper-sync, which writes it into this file as a comment, and the
+//! menu that reads it back has to tell an apply's snapshot from the installer's
+//! or pacman's by the same words the apply wrote.
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -264,18 +270,76 @@ fn identifier(path: &str) -> Result<String, Never> {
 
 const BESIDE: char = '\u{2502}';
 
-pub fn snapshot(entries: &[Entry], number: u32) -> Result<Option<&Entry>, Never> {
-    Ok(entries.iter().find(|entry| {
-        let above = entry.levels.iter().rev().nth(1).map(|level| level.title.split_once(BESIDE));
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub number: u32,
+    pub taken: String,
+    pub comments: Vec<String>,
+    pub identifier: String,
+}
 
-        match above {
-            Some(Some((front, _when))) => match front.trim().parse::<u32>() {
-                Ok(found) => found == number,
-                Err(_not_a_snapshot) => false,
-            },
-            Some(None) | None => false,
-        }
-    }))
+pub const APPLY: &str = "console apply";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TakenBy {
+    Apply,
+    SomethingElse,
+}
+
+impl Snapshot {
+    pub fn taken_by(&self) -> Result<TakenBy, Never> {
+        let applied = self.comments.iter().find(|comment| match comment.strip_prefix(APPLY) {
+            Some(after) => matches!(after.chars().next(), None | Some(' ')),
+            None => false,
+        });
+
+        Ok(match applied {
+            Some(_) => TakenBy::Apply,
+            None => TakenBy::SomethingElse,
+        })
+    }
+}
+
+pub fn snapshots(entries: &[Entry]) -> Result<Vec<Snapshot>, Never> {
+    let mut found: Vec<Snapshot> = entries
+        .iter()
+        .filter_map(|entry| {
+            let Ok(read) = snapshot_of(entry);
+
+            read
+        })
+        .collect();
+
+    found.dedup_by_key(|snapshot| snapshot.number);
+
+    Ok(found)
+}
+
+pub fn snapshot(entries: &[Entry], number: u32) -> Result<Option<Snapshot>, Never> {
+    let Ok(every) = snapshots(entries);
+
+    Ok(every.into_iter().find(|snapshot| snapshot.number == number))
+}
+
+fn snapshot_of(entry: &Entry) -> Result<Option<Snapshot>, Never> {
+    let above = match entry.levels.iter().rev().nth(1) {
+        Some(above) => above,
+        None => return Ok(None),
+    };
+    let (front, taken) = match above.title.split_once(BESIDE) {
+        Some(split) => split,
+        None => return Ok(None),
+    };
+
+    Ok(match front.trim().parse::<u32>() {
+        Ok(number) => Some(Snapshot {
+            number,
+            taken: taken.trim().to_string(),
+            comments: above.comments.clone(),
+            identifier: entry.identifier.clone(),
+        }),
+        Err(_not_a_snapshot) => None,
+    })
 }
 
 #[cfg(test)]
@@ -356,8 +420,60 @@ path: boot():/EFI/BOOT/BOOTX64.EFI
         let Ok(six) = snapshot(&found, 6);
         let Ok(missing) = snapshot(&found, 18);
 
-        assert_eq!(six.map(|entry| entry.identifier.as_str()), Some("CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify"));
+        assert_eq!(six.as_ref().map(|entry| entry.identifier.as_str()), Some("CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify"));
         assert_eq!(missing, None);
+    }
+
+    #[test]
+    fn every_snapshot_is_listed_newest_first_with_the_apply_it_stands_before() {
+        let Ok(found) = entries(DEVICE);
+        let Ok(listed) = snapshots(&found);
+
+        assert_eq!(
+            listed,
+            vec![
+                Snapshot {
+                    number: 184,
+                    taken: "2026-09-23 06:54:01".to_string(),
+                    comments: vec!["console apply e79c18f5".to_string()],
+                    identifier: "CachyOS.Snapshots.184-----2026-09-23-06-54-01.linux-cachyos-deckify".to_string(),
+                },
+                Snapshot {
+                    number: 6,
+                    taken: "2026-08-27 14:47:13".to_string(),
+                    comments: vec!["Fresh CachyOS Installation".to_string()],
+                    identifier: "CachyOS.Snapshots.6-------2026-08-27-14-47-13.linux-cachyos-deckify".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_snapshot_an_apply_took_is_told_from_the_installers() {
+        let Ok(found) = entries(DEVICE);
+        let Ok(listed) = snapshots(&found);
+        let Ok(said) = listed.iter().map(Snapshot::taken_by).collect::<Result<Vec<_>, Never>>();
+
+        assert_eq!(said, vec![TakenBy::Apply, TakenBy::SomethingElse]);
+    }
+
+    #[test]
+    fn a_comment_that_only_begins_with_the_words_is_not_an_apply() {
+        let config = "/Snapshots\n//9 │ 2026-09-01 10:00:00\ncomment: console applying\n///linux\nprotocol: linux\n//8 │ 2026-09-01 09:00:00\ncomment: console apply\n///linux\nprotocol: linux\n";
+        let Ok(found) = entries(config);
+        let Ok(listed) = snapshots(&found);
+        let Ok(said) = listed.iter().map(Snapshot::taken_by).collect::<Result<Vec<_>, Never>>();
+
+        assert_eq!(said, vec![TakenBy::SomethingElse, TakenBy::Apply]);
+    }
+
+    #[test]
+    fn a_snapshot_with_two_kernels_is_listed_once_by_the_first() {
+        let config = "/Snapshots\n//9 │ 2026-09-01 10:00:00\n///linux\nprotocol: linux\n///linux-lts\nprotocol: linux\n";
+        let Ok(found) = entries(config);
+        let Ok(listed) = snapshots(&found);
+
+        assert_eq!(listed.iter().map(|one| one.identifier.as_str()).collect::<Vec<_>>(), vec!["Snapshots.9-----2026-09-01-10-00-00.linux"]);
     }
 
     #[test]

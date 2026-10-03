@@ -92,6 +92,8 @@ console-input-dictation.workspace = true
 console-core-localization.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+console-actor.workspace = true
+console-core-state-machine.workspace = true
 
 [dev-dependencies]
 console-core-ini-files.workspace = true

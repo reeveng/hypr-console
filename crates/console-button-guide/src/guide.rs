@@ -220,7 +220,7 @@ pub fn opens_on(on: Input, front: Mode) -> Result<&'static str, Never> {
 
 pub fn in_front(front: Mode) -> Result<Option<&'static str>, Never> {
     Ok(match front {
-        Mode::Tabs => Some(MENUS),
+        Mode::Tabs | Mode::App => Some(MENUS),
         Mode::Keyboard => Some(KEYBOARD),
         Mode::HomeScreen | Mode::Standing => Some(HOME_SCREEN),
         Mode::Desktop | Mode::Prompt => None,
@@ -246,7 +246,7 @@ fn around(table: &Table) -> Result<Vec<Line>, Never> {
         |job| {
             !matches!(
                 job.context,
-                Context::WithAPickerUp | Context::OnTheHomeScreen | Context::StandingOnASquare
+                Context::WithAPanelOrApp | Context::OnTheHomeScreen | Context::StandingOnASquare
             )
         },
         &[
@@ -263,7 +263,7 @@ fn around(table: &Table) -> Result<Vec<Line>, Never> {
 fn menus(table: &Table) -> Result<Vec<Line>, Never> {
     on_the_pad(
         table,
-        |job| job.context == Context::WithAPickerUp,
+        |job| job.context == Context::WithAPanelOrApp,
         &[
             ("D-pad", "move the selection"),
             ("Y, in the menu", "add to or remove from the Home Screen"),
@@ -495,7 +495,14 @@ mod tests {
         let Ok(every) = our_sections();
 
         assert!(!every.iter().any(|section| section.title == "R2"));
-        assert!(!every.iter().any(|section| section.title == "L2 + R2"));
+    }
+
+    #[test]
+    fn l2_with_r2_is_where_a_window_is_carried() {
+        let Ok(every) = our_sections();
+
+        assert_eq!(does(&every, ("L2 + R2", "R1")), Ok(Some("move the window to the next desktop")));
+        assert_eq!(does(&every, ("L2", "R1")), Ok(Some("next desktop")));
     }
 
     #[test]

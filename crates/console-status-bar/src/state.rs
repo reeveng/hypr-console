@@ -30,8 +30,9 @@
 
 use console_compositor::Workspace;
 use console_core_never::Never;
-use console_onscreen::Up;
+use console_core_state_machine::{Machine, Transition};
 
+use crate::panels::{Panel, PanelEffect, PanelEvent, Panels};
 use crate::reading::{Reading, Tone, StatusItem};
 use crate::showing::{BarAction, Face, Filling, Lit, Span, Layout, Slot};
 
@@ -48,17 +49,6 @@ pub const ANOTHER: &str = "+";
 pub const ALONG: [StatusItem; 4] = [StatusItem::Sound, StatusItem::Bluetooth, StatusItem::Network, StatusItem::Battery];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Open {
-    pub launcher: Up,
-    pub keyboard: Up,
-    pub music: Up,
-    pub notifications: Up,
-    pub calendar: Up,
-    pub settings: Up,
-    pub tab: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarState {
     pub readings: Vec<(StatusItem, Reading)>,
     pub bell: Reading,
@@ -66,7 +56,7 @@ pub struct BarState {
     pub clock: String,
     pub workspaces: Vec<Workspace>,
     pub front: Option<i64>,
-    pub open: Open,
+    pub panels: Panels,
 }
 
 pub fn music(paused: Paused, playing: Playing) -> Result<Reading, Never> {
@@ -89,13 +79,6 @@ pub enum Playing {
     None,
 }
 
-fn lit(up: Up) -> Result<Lit, Never> {
-    Ok(match up {
-        Up::OnScreen => Lit::Yes,
-        Up::NotThere => Lit::No,
-    })
-}
-
 fn icon(icon: &str, tone: Tone, lit: Lit, action: BarAction) -> Result<Slot, Never> {
     Ok(Slot {
         spans: vec![Span { text: icon.to_string(), face: Face::Icon }],
@@ -116,101 +99,55 @@ fn reading(reading: &Reading, lit: Lit, action: BarAction) -> Result<Slot, Never
     Ok(Slot { spans, tone: reading.tone, lit, action: Some(action) })
 }
 
-impl Open {
-    fn on(&self, item: StatusItem) -> Result<Lit, Never> {
-        let Ok(mine) = item.tab();
-
-        let front = match self.settings {
-            Up::NotThere => false,
-            Up::OnScreen => self.tab.as_deref() == Some(mine),
-        };
-
-        Ok(match front {
-            true => Lit::Yes,
-            false => Lit::No,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Promise {
-    Fulfilled,
-    Waiting,
-}
-
-impl Open {
-    pub fn promised(&self, action: BarAction, pressed: &Open) -> Result<(Open, Promise), Never> {
-        let mut held = self.clone();
-
-        let agrees = match action {
-            BarAction::Launcher => self.launcher == pressed.launcher,
-            BarAction::Keyboard => self.keyboard == pressed.keyboard,
-            BarAction::Music => self.music == pressed.music,
-            BarAction::Notifications => self.notifications == pressed.notifications,
-            BarAction::Calendar => self.calendar == pressed.calendar,
-            BarAction::Settings(_) => self.settings == pressed.settings && self.tab == pressed.tab,
-            BarAction::Workspace(_) => true,
-        };
-
-        match agrees {
-            true => return Ok((held, Promise::Fulfilled)),
-            false => {},
-        }
-
-        match action {
-            BarAction::Launcher => held.launcher = pressed.launcher,
-            BarAction::Keyboard => held.keyboard = pressed.keyboard,
-            BarAction::Music => held.music = pressed.music,
-            BarAction::Notifications => held.notifications = pressed.notifications,
-            BarAction::Calendar => held.calendar = pressed.calendar,
-            BarAction::Settings(_) => {
-                held.settings = pressed.settings;
-                held.tab = pressed.tab.clone();
-            }
-            BarAction::Workspace(_) => {},
-        }
-
-        Ok((held, Promise::Waiting))
-    }
-}
-
-fn flipped(up: &mut Up) -> Result<(), Never> {
-    *up = match up {
-        Up::OnScreen => Up::NotThere,
-        Up::NotThere => Up::OnScreen,
-    };
-
-    Ok(())
-}
-
 impl BarState {
-    pub fn pressed(&mut self, action: BarAction) -> Result<(), Never> {
-        match action {
-            BarAction::Workspace(id) => self.front = Some(id),
-            BarAction::Launcher => {
-                let Ok(()) = flipped(&mut self.open.launcher);
-            }
-            BarAction::Keyboard => {
-                let Ok(()) = flipped(&mut self.open.keyboard);
-            }
-            BarAction::Music => {
-                let Ok(()) = flipped(&mut self.open.music);
-            }
-            BarAction::Notifications => {
-                let Ok(()) = flipped(&mut self.open.notifications);
-            }
-            BarAction::Calendar => {
-                let Ok(()) = flipped(&mut self.open.calendar);
-            }
-            BarAction::Settings(item) => {
-                let Ok(mine) = item.tab();
+    pub fn told(&mut self, event: PanelEvent) -> Result<Vec<PanelEffect>, Never> {
+        let panels = std::mem::take(&mut self.panels);
+        let Ok(Transition { state, effects }) = Panels::transition(panels, event);
 
-                self.open.settings = Up::OnScreen;
-                self.open.tab = Some(mine.to_string());
+        self.panels = state;
+
+        Ok(effects)
+    }
+
+    pub fn pressed(&mut self, action: BarAction) -> Result<Vec<BarAction>, Never> {
+        let Ok(panel) = Panel::of(action);
+
+        match panel {
+            Some(panel) => {
+                let Ok(effects) = self.told(PanelEvent::Pressed(panel));
+
+                Ok(effects
+                    .into_iter()
+                    .map(|effect| match effect {
+                        PanelEffect::Start(panel) => {
+                            let Ok(action) = panel.action();
+
+                            action
+                        }
+                    })
+                    .collect())
+            }
+            None => {
+                let Ok(()) = match action {
+                    BarAction::Workspace(id) => {
+                        self.front = Some(id);
+
+                        Ok(())
+                    }
+                    BarAction::Launcher
+                    | BarAction::Keyboard
+                    | BarAction::Music
+                    | BarAction::Notifications
+                    | BarAction::Calendar
+                    | BarAction::Settings(_)
+                    | BarAction::Menu(_)
+                    | BarAction::Volume(_)
+                    | BarAction::Power(_) => Ok::<(), Never>(()),
+                };
+
+                Ok(vec![action])
             }
         }
-
-        Ok(())
     }
 
     pub fn next(&self) -> Result<i64, Never> {
@@ -223,10 +160,10 @@ impl BarState {
     }
 
     pub fn layout(&self, filling: Filling) -> Result<Layout, Never> {
-        let Ok(launcher) = lit(self.open.launcher);
-        let Ok(keyboard) = lit(self.open.keyboard);
-        let Ok(music) = lit(self.open.music);
-        let Ok(notifications) = lit(self.open.notifications);
+        let Ok(launcher) = self.panels.lit(Panel::Launcher);
+        let Ok(keyboard) = self.panels.lit(Panel::Keyboard);
+        let Ok(music) = self.panels.lit(Panel::Music);
+        let Ok(notifications) = self.panels.lit(Panel::Notifications);
 
         let Ok(door) = icon(LAUNCHER, Tone::Pressed, launcher, BarAction::Launcher);
         let Ok(board) = icon(KEYBOARD, Tone::Pressed, keyboard, BarAction::Keyboard);
@@ -265,7 +202,7 @@ impl BarState {
             action: Some(BarAction::Workspace(next)),
         });
 
-        let Ok(calendar) = lit(self.open.calendar);
+        let Ok(calendar) = self.panels.lit(Panel::Calendar);
 
         let middle = vec![Slot {
             spans: vec![Span { text: self.clock.clone(), face: Face::Clock }],
@@ -282,7 +219,7 @@ impl BarState {
 
             match found {
                 Some((_named, found)) => {
-                    let Ok(lit) = self.open.on(item);
+                    let Ok(lit) = self.panels.lit(Panel::Settings(item));
                     let Ok(slot) = reading(found, lit, BarAction::Settings(item));
 
                     right.push(slot);
@@ -303,16 +240,10 @@ impl BarState {
 mod tests {
     use super::*;
 
-    fn shut() -> Result<Open, Never> {
-        Ok(Open {
-            launcher: Up::NotThere,
-            keyboard: Up::NotThere,
-            music: Up::NotThere,
-            notifications: Up::NotThere,
-            calendar: Up::NotThere,
-            settings: Up::NotThere,
-            tab: None,
-        })
+    fn showing(up: Vec<Panel>) -> Result<Panels, Never> {
+        let Ok(Transition { state, effects: _ }) = Panels::transition(Panels::default(), PanelEvent::Shown(up));
+
+        Ok(state)
     }
 
     fn says(icon: &str, tone: Tone) -> Result<Reading, Never> {
@@ -330,7 +261,6 @@ mod tests {
             .collect();
         let Ok(bell) = says("\u{f009c}", Tone::Secondary);
         let Ok(music) = says(MUSIC, Tone::Secondary);
-        let Ok(open) = shut();
 
         Ok(BarState {
             readings,
@@ -342,7 +272,7 @@ mod tests {
                 Workspace { id: 2, named: String::from("2"), windows: Some(0) },
             ],
             front: Some(2),
-            open,
+            panels: Panels::default(),
         })
     }
 
@@ -450,56 +380,21 @@ mod tests {
     #[test]
     fn a_press_is_lit_before_the_compositor_has_said_anything() {
         let Ok(mut state) = sample_state();
-        let Ok(()) = state.pressed(BarAction::Workspace(3));
-        let Ok(()) = state.pressed(BarAction::Calendar);
-        let Ok(()) = state.pressed(BarAction::Settings(StatusItem::Battery));
+        let Ok(switching) = state.pressed(BarAction::Workspace(3));
+        let Ok(opening) = state.pressed(BarAction::Settings(StatusItem::Battery));
 
         assert_eq!(state.front, Some(3));
-        assert_eq!(state.open.calendar, Up::OnScreen);
-        assert_eq!(state.open.settings, Up::OnScreen);
-
-        let Ok(()) = state.pressed(BarAction::Calendar);
-
-        assert_eq!(state.open.calendar, Up::NotThere, "a second press puts it away");
-    }
-
-    #[test]
-    fn a_press_stays_lit_through_the_gap_between_one_panel_going_and_the_next_coming() {
-        let Ok(shut) = shut();
-        let settings_up = Open { settings: Up::OnScreen, tab: Some(String::from("sound")), ..shut.clone() };
-        let pressed = Open { calendar: Up::OnScreen, ..settings_up.clone() };
-
-        let Ok((gap, waiting)) = shut.promised(BarAction::Calendar, &pressed);
-
-        assert_eq!(gap.calendar, Up::OnScreen, "nothing is up yet and the calendar is still coming");
-        assert_eq!(gap.settings, Up::NotThere, "what went is let go at once");
-        assert_eq!(waiting, Promise::Waiting);
-
-        let arrived = Open { calendar: Up::OnScreen, ..shut };
-        let Ok((after, kept)) = arrived.promised(BarAction::Calendar, &pressed);
-
-        assert_eq!(after, arrived);
-        assert_eq!(kept, Promise::Fulfilled);
-    }
-
-    #[test]
-    fn a_tab_pressed_stays_in_front_while_the_old_one_is_still_on_the_screen() {
-        let Ok(shut) = shut();
-        let pressed = Open { settings: Up::OnScreen, tab: Some(String::from("wifi")), ..shut.clone() };
-        let before = Open { settings: Up::OnScreen, tab: Some(String::from("sound")), ..shut };
-
-        let Ok((held, waiting)) = before.promised(BarAction::Settings(StatusItem::Network), &pressed);
-
-        assert_eq!(held.tab.as_deref(), Some("wifi"));
-        assert_eq!(waiting, Promise::Waiting);
+        assert_eq!(state.panels.lit(Panel::Settings(StatusItem::Battery)), Ok(Lit::Yes));
+        assert_eq!(switching, [BarAction::Workspace(3)]);
+        assert_eq!(opening, [BarAction::Settings(StatusItem::Battery)]);
     }
 
     #[test]
     fn a_door_says_whether_a_tap_will_open_or_close_what_it_opens() {
         let Ok(state) = sample_state();
-        let Ok(shut) = shut();
         let Ok(closed) = state.layout(Filling::None);
-        let launcher_up = BarState { open: Open { launcher: Up::OnScreen, ..shut }, ..state };
+        let Ok(panels) = showing(vec![Panel::Launcher]);
+        let launcher_up = BarState { panels, ..state };
         let Ok(open) = launcher_up.layout(Filling::None);
         let first = |layout: &Layout| layout.left.first().map(|slot| slot.lit);
 
@@ -509,13 +404,10 @@ mod tests {
 
     #[test]
     fn a_reading_is_lit_only_while_its_own_tab_is_the_one_in_front() {
-        let lit = |settings, tab: Option<&str>| {
+        let lit = |up: Vec<Panel>| {
             let Ok(state) = sample_state();
-            let Ok(shut) = shut();
-            let held = BarState {
-                open: Open { settings, tab: tab.map(String::from), ..shut },
-                ..state
-            };
+            let Ok(panels) = showing(up);
+            let held = BarState { panels, ..state };
             let Ok(layout) = held.layout(Filling::None);
 
             layout
@@ -528,16 +420,15 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        assert!(lit(Up::NotThere, Some("Sound")).iter().all(|(_, lit)| *lit == Lit::No));
+        assert!(lit(vec![]).iter().all(|(_, lit)| *lit == Lit::No));
         assert_eq!(
-            lit(Up::OnScreen, Some("Sound"))
+            lit(vec![Panel::Settings(StatusItem::Sound)])
                 .into_iter()
                 .filter(|(_, lit)| *lit == Lit::Yes)
                 .map(|(item, _)| item)
                 .collect::<Vec<_>>(),
             [StatusItem::Sound]
         );
-        assert!(lit(Up::OnScreen, None).iter().all(|(_, lit)| *lit == Lit::No));
     }
 
     #[test]
@@ -585,9 +476,9 @@ mod tests {
     #[test]
     fn the_clock_is_lit_while_the_calendar_it_opens_is_up() {
         let Ok(state) = sample_state();
-        let Ok(shut) = shut();
         let Ok(closed) = state.layout(Filling::None);
-        let up = BarState { open: Open { calendar: Up::OnScreen, ..shut }, ..state };
+        let Ok(panels) = showing(vec![Panel::Calendar]);
+        let up = BarState { panels, ..state };
         let Ok(open) = up.layout(Filling::None);
         let lit = |layout: &Layout| layout.middle.iter().map(|slot| slot.lit).collect::<Vec<_>>();
 

@@ -32,7 +32,8 @@ use std::path::PathBuf;
 
 use console_core_never::Never;
 use console_core_words::Words;
-use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Event, Exit};
 use console_program_runtime::Interpreter;
 
 use crate::palette::NAME;
@@ -136,49 +137,49 @@ pub struct Toggle;
 
 pub struct Show;
 
-impl Program for Toggle {
+impl Machine for Toggle {
+    type Input = Arguments;
     type State = Request;
-    type Event = Answer;
-    type Effect = Command;
+    type Request = Event<Answer>;
+    type Effect = Effect<Command>;
 
-    fn init(_argv: &Arguments) -> Initial<Request> {
-        let Ok(opening) = Initial::new(Request::Pending(Command::Toggle));
-
-        opening
+    fn initialize(_arguments: &Arguments, _previous: Option<Request>, _effects: &mut Effects) -> Result<Request, Never> {
+        Ok(Request::Pending(Command::Toggle))
     }
 
-    fn update(state: &Request, event: &Event<Answer>) -> Update<Request, Command> {
-        let Ok(turn) = step(state, event);
+    fn handle(state: Request, event: Event<Answer>, effects: &mut Effects) -> Result<Request, Never> {
+        let Ok(decided) = step(&state, &event);
 
-        turn
+        decided.offered(effects)
     }
 }
 
-impl Program for Show {
+impl Machine for Show {
+    type Input = Arguments;
     type State = Request;
-    type Event = Answer;
-    type Effect = Command;
+    type Request = Event<Answer>;
+    type Effect = Effect<Command>;
 
-    fn init(_argv: &Arguments) -> Initial<Request> {
-        let Ok(opening) = Initial::new(Request::Pending(Command::Show));
-
-        opening
+    fn initialize(_arguments: &Arguments, _previous: Option<Request>, _effects: &mut Effects) -> Result<Request, Never> {
+        Ok(Request::Pending(Command::Show))
     }
 
-    fn update(state: &Request, event: &Event<Answer>) -> Update<Request, Command> {
-        let Ok(turn) = step(state, event);
+    fn handle(state: Request, event: Event<Answer>, effects: &mut Effects) -> Result<Request, Never> {
+        let Ok(decided) = step(&state, &event);
 
-        turn
+        decided.offered(effects)
     }
 }
 
-fn step(state: &Request, event: &Event<Answer>) -> Result<Update<Request, Command>, Never> {
+type Effects = Queue<Effect<Command>>;
+
+fn step(state: &Request, event: &Event<Answer>) -> Result<Transition<Request, Effect<Command>>, Never> {
     match (state, event) {
         (Request::Pending(asked), Event::Opened) => {
-            Update::new(Request::Sent(*asked), vec![Effect::Custom(*asked)])
+            Transition::new(Request::Sent(*asked), vec![Effect::Custom(*asked)])
         },
 
-        (Request::Sent(_), Event::Custom(answer)) => Update::new(
+        (Request::Sent(_), Event::Custom(answer)) => Transition::new(
             *state,
             vec![match answer {
                 Answer::Received => Effect::Stop(Exit::Success),
@@ -192,7 +193,7 @@ fn step(state: &Request, event: &Event<Answer>) -> Result<Update<Request, Comman
             }],
         ),
 
-        (Request::Pending(_) | Request::Sent(_), _) => Update::none(*state),
+        (Request::Pending(_) | Request::Sent(_), _) => Transition::without_effects(*state),
     }
 }
 
@@ -200,7 +201,8 @@ fn step(state: &Request, event: &Event<Answer>) -> Result<Update<Request, Comman
 mod tests {
     use std::path::Path;
 
-    use console_program_contract::{Arguments, run};
+    use console_program_contract::Arguments;
+    use console_core_state_machine::run;
 
     use super::*;
 

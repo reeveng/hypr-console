@@ -29,7 +29,7 @@
 //! which one is next, what the row under the picture says, and what a press
 //! forgets about the last thing -- is `console_media_viewer`, where it is
 //! tested without either. `watching` is the composition of the rest of it and
-//! is a `console_program_contract::Program`.
+//! is a `console_core_state_machine::Machine`.
 //!
 //! Two pages: the thing on the screen, and everything on the device it could
 //! be. The second is called Media rather than Folder because what a page is
@@ -78,7 +78,8 @@ use console_core_number_conversion::fitted;
 use console_panel::icons::Icon;
 use console_panel::card::Card;
 use console_panel::page::{Aside, Bar, Handler, Ends, Active, Page, Picture, ButtonPress, Row, Rows, WakeOutcome, Subject};
-use console_program_contract::{Effect, Program as _, Update, Event};
+use console_core_state_machine::{Machine, Transition};
+use console_program_contract::{Effect, Event};
 use crate::editing::{self, Edit, Filter};
 use crate::index;
 use crate::kinds::Kind;
@@ -412,7 +413,7 @@ impl Looking {
     }
 
     fn handle_event(&mut self, heard: crate::watching::ViewerEvent) -> Result<Vec<Effect<ViewerEffect>>, Never> {
-        let Update { state, effects } = Watched::update(&self.watching, &Event::Custom(heard));
+        let Ok(Transition { state, effects }) = Watched::transition(self.watching.clone(), Event::Custom(heard));
 
         self.watching = state;
 

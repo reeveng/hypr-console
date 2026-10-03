@@ -28,7 +28,7 @@
 //! `console_wallpaper::covered`, where the sun is is `console_wallpaper::sun`,
 //! and what to do about all three -- including how long to sleep before
 //! looking again -- is `console_wallpaper::keeping`, which is a
-//! `console_program_contract::Program`. This is the loop that asks the machine
+//! `console_core_state_machine::Machine`. This is the loop that asks the machine
 //! and the one line that tells the wallpaper daemon.
 
 use std::path::Path;
@@ -40,7 +40,8 @@ use console_events::subscription::{self, Received};
 use console_core_external_programs::Program;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Program as _, Topic, Update, Event};
+use console_core_state_machine::{Machine, Transition};
+use console_program_contract::{Arguments, Effect, Topic, Event};
 use console_program_lifetime::threads;
 use console_wallpaper::choose::{self, Outside, Set, Turn, Wanted};
 use console_wallpaper::keeping::{self, Chosen, Going, WallpaperEvent, WallpaperEffect, Rendered, Sky, Sun};
@@ -94,7 +95,7 @@ impl std::error::Error for Untabled {}
 
 fn run(arguments: &Arguments) -> Result<(), Untabled> {
     let table = read_table()?;
-    let mut sky = Sun::init(arguments).state;
+    let Ok(Transition { state: mut sky, effects: _ }) = Sun::initial_transition(arguments, None);
     let Ok(mut kept) = here::CachedLocation::none();
     let mut told = weather::Notified::default();
     let answering = covered::Notified::default();
@@ -162,7 +163,7 @@ fn run(arguments: &Arguments) -> Result<(), Untabled> {
         let Ok(covered) = covered::now(&mut answering);
 
         let looked = WallpaperEvent::Looked { seconds, covered, chosen };
-        let Update { state, effects } = Sun::update(&sky, &Event::Custom(looked));
+        let Ok(Transition { state, effects }) = Sun::transition(sky, Event::Custom(looked));
 
         sky = state;
 
@@ -247,9 +248,9 @@ fn carry(sky: &mut Sky, effect: &Effect<WallpaperEffect>) -> Result<Carried, Nev
         Effect::Custom(WallpaperEffect::Paint(picture)) => {
             let went = paint(picture)?;
 
-            let Update { state, effects } = Sun::update(
-                sky,
-                &Event::Custom(WallpaperEvent::Rendered { at: picture.clone(), went }),
+            let Ok(Transition { state, effects }) = Sun::transition(
+                sky.clone(),
+                Event::Custom(WallpaperEvent::Rendered { at: picture.clone(), went }),
             );
 
             *sky = state;
@@ -278,7 +279,7 @@ fn carry(sky: &mut Sky, effect: &Effect<WallpaperEffect>) -> Result<Carried, Nev
 }
 
 fn told_the_weather(sky: &mut Sky, said: Option<Weather>) -> Result<(), Never> {
-    let Update { state, .. } = Sun::update(sky, &Event::Custom(WallpaperEvent::Weather(said)));
+    let Ok(Transition { state, effects: _ }) = Sun::transition(sky.clone(), Event::Custom(WallpaperEvent::Weather(said)));
 
     *sky = state;
 

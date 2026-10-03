@@ -1,4 +1,4 @@
-//! Held with L2, a shoulder carries the window rather than leaving it.
+//! Held with both triggers, a shoulder carries the window rather than leaving it.
 
 use console_test_stages::checking::{Body, Check, CheckResult, happened, not_same, same};
 use console_test_stages::device::{Device, OPENING, PATIENCE};
@@ -6,7 +6,7 @@ use console_test_stages::here::{Here, TURNS};
 
 pub const CARRY: Check = Check {
     name: "020-carry-a-window",
-    about: "Held with L2, a shoulder carries the window rather than leaving it.",
+    about: "Held with both triggers, a shoulder carries the window rather than leaving it.",
     feature: "carry",
     since: "2026-08-25",
     bodies: &[Body::Here(carry_here), Body::Device(carry_there)],
@@ -21,15 +21,7 @@ pub const HALF: Check = Check {
 };
 
 fn carry_here(stage: &mut Here) -> CheckResult {
-    stage.trigger("l2", 1.0)?;
-    stage.press("r1")?;
-
-    let Ok(()) = stage.settle(TURNS);
-    let Ok(asked) = stage.dispatches();
-
-    same(&asked, &[r#"hl.dsp.window.move({workspace = "+1"})"#], || {
-        format!("it asked for {asked:?}")
-    })
+    chord_here(stage, (1.0, r#"hl.dsp.window.move({workspace = "+1"})"#))
 }
 
 fn carry_there(stage: &mut Device) -> CheckResult {
@@ -39,9 +31,11 @@ fn carry_there(stage: &mut Device) -> CheckResult {
     let Ok(set_out) = stage.windows_here();
 
     stage.trigger("l2", 1.0)?;
+    stage.trigger("r2", 1.0)?;
 
     let Ok(()) = stage.press("r1");
 
+    stage.trigger("r2", 0.0)?;
     stage.trigger("l2", 0.0)?;
 
     let Ok(_) = stage.changed(Device::workspace, &where_, PATIENCE);
@@ -49,9 +43,11 @@ fn carry_there(stage: &mut Device) -> CheckResult {
     let Ok(arrived) = stage.windows_here();
 
     stage.trigger("l2", 1.0)?;
+    stage.trigger("r2", 1.0)?;
 
     let Ok(()) = stage.press("l1");
 
+    stage.trigger("r2", 0.0)?;
     stage.trigger("l2", 0.0)?;
 
     let Ok(_) = stage.changed(Device::workspace, &there, PATIENCE);
@@ -62,13 +58,18 @@ fn carry_there(stage: &mut Device) -> CheckResult {
 }
 
 fn half_here(stage: &mut Here) -> CheckResult {
-    stage.trigger("l2", 0.4)?;
+    chord_here(stage, (0.4, r#"hl.dsp.focus({workspace = "+1"})"#))
+}
+
+fn chord_here(stage: &mut Here, (second, wanted): (f64, &str)) -> CheckResult {
+    stage.trigger("l2", 1.0)?;
+    stage.trigger("r2", second)?;
     stage.press("r1")?;
 
     let Ok(()) = stage.settle(TURNS);
     let Ok(asked) = stage.dispatches();
 
-    same(&asked, &[r#"hl.dsp.focus({workspace = "+1"})"#], || format!("it asked for {asked:?}"))
+    same(&asked, &[wanted], || format!("it asked for {asked:?}"))
 }
 
 fn half_there(stage: &mut Device) -> CheckResult {
@@ -76,10 +77,12 @@ fn half_there(stage: &mut Device) -> CheckResult {
 
     let Ok(where_) = stage.workspace();
 
-    stage.trigger("l2", 0.4)?;
+    stage.trigger("l2", 1.0)?;
+    stage.trigger("r2", 0.4)?;
 
     let Ok(()) = stage.press("r1");
 
+    stage.trigger("r2", 0.0)?;
     stage.trigger("l2", 0.0)?;
 
     let Ok(moved) = stage.changed(Device::workspace, &where_, PATIENCE);

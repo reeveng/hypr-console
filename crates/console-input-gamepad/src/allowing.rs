@@ -17,9 +17,8 @@
 
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_program_contract::{
-    Arguments, Effect, Exit, Initial, Program, Command, Update, ExitStatus, Event, FileWrite,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Exit, Command, ExitStatus, Event, FileWrite};
 
 pub const MODULE: &str = "/etc/modules-load.d/uinput.conf";
 
@@ -60,134 +59,149 @@ pub enum Allowing {
 
 pub struct Allow;
 
-impl Program for Allow {
+impl Machine for Allow {
+    type Input = Arguments;
     type State = Allowing;
-    type Event = Never;
-    type Effect = Never;
+    type Request = Event<Never>;
+    type Effect = Effect<Never>;
 
-    fn init(arguments: &Arguments) -> Initial<Allowing> {
-        let Ok(named) = arguments.after("--for");
-        let whom = named.filter(|whom| !whom.is_empty()).map(str::to_string);
-        let Ok(first) = arguments.first();
-        let Ok(whoever) = Whoever::of(first);
-        let Ok(opening) = Initial::new(Allowing::Opening { whoever, whom });
+    fn initialize(arguments: &Arguments, _previous: Option<Allowing>, effects: &mut Effects) -> Result<Allowing, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Allowing, event: &Event<Never>) -> Update<Allowing, Never> {
-        let Ok(turn) = match (state, event) {
-            (Allowing::Opening { whoever: Whoever::Someone, .. }, Event::Opened) => Update::new(
-                state.clone(),
-                vec![Effect::Stop(Exit::Failure(
-                    "run this with sudo: sudo cargo run --bin allow-uinput".to_string(),
-                ))],
-            ),
+    fn handle(state: Allowing, event: Event<Never>, effects: &mut Effects) -> Result<Allowing, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            (Allowing::Opening { whoever: Whoever::Root, whom }, Event::Opened) => {
-                let Ok(loading) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
-
-                Update::new(
-                    Allowing::Loading { whom: whom.clone() },
-                    vec![
-                        Effect::Print(
-                            "loading the uinput module, now and at every boot".to_string(),
-                        ),
-                        Effect::Run(loading),
-                    ],
-                )
-            }
-
-            (Allowing::Loading { whom }, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => {
-                    let Ok(reloading) =
-                        Command::external(ExternalProgram::Udevadm, &["control", "--reload-rules"]);
-
-                    Update::new(
-                        Allowing::Reloading { whom: whom.clone() },
-                        vec![
-                            Effect::Write(FileWrite {
-                                path: std::path::PathBuf::from(MODULE),
-                                contents: "uinput\n".to_string(),
-                            }),
-                            Effect::Write(FileWrite { path: std::path::PathBuf::from(RULE), contents: RULED.to_string() }),
-                            Effect::Print(
-                                "granting the seat's own user a way in to /dev/uinput".to_string(),
-                            ),
-                            Effect::Run(reloading),
-                        ],
-                    )
-                }
-                ExitStatus::Failure(_) => fail("the uinput module would not load"),
-            },
-
-            (Allowing::Reloading { whom }, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => {
-                    let Ok(triggering) =
-                        Command::external(ExternalProgram::Udevadm, &["trigger", "--name-match=uinput"]);
-
-                    Update::new(
-                        Allowing::Triggering { whom: whom.clone() },
-                        vec![Effect::Run(triggering)],
-                    )
-                }
-                ExitStatus::Failure(_) => fail("udev would not read the rule that was just written"),
-            },
-
-            (Allowing::Triggering { whom }, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => match whom {
-                    Some(whom) => {
-                        let Ok(grouping) =
-                            Command::external(ExternalProgram::Usermod, &["-aG", "input", whom]);
-
-                        Update::new(
-                            Allowing::Grouping(whom.clone()),
-                            vec![Effect::Run(grouping)],
-                        )
-                    }
-                    None => list_uinput("no one could be named to put in the input group"),
-                },
-                ExitStatus::Failure(_) => fail("udev would not apply the rule to /dev/uinput"),
-            },
-
-            (Allowing::Grouping(whom), Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => list_uinput(&format!(
-                    "{whom} is in the input group now, which counts from their next login"
-                )),
-                ExitStatus::Failure(_) => list_uinput(&format!(
-                    "{whom} could not be put in the input group; the udev rule is in either way"
-                )),
-            },
-
-            (Allowing::Listing, Event::Replied(answer)) => Update::new(
-                Allowing::Listing,
-                vec![
-                    Effect::Print(answer.output.trim_end().to_string()),
-                    Effect::Print(
-                        "if that still says only root, log out and back in, or reboot".to_string(),
-                    ),
-                    Effect::Stop(Exit::Success),
-                ],
-            ),
-
-            (_, _) => Update::none(state.clone()),
-        };
-
-        turn
+        decided.offered(effects)
     }
 }
 
-fn fail(why: &str) -> Result<Update<Allowing, Never>, Never> {
-    Update::new(
+type Effects = Queue<Effect<Never>>;
+
+fn initial(arguments: &Arguments) -> Result<Transition<Allowing, Effect<Never>>, Never> {
+    let Ok(named) = arguments.after("--for");
+    let whom = named.filter(|whom| !whom.is_empty()).map(str::to_string);
+    let Ok(first) = arguments.first();
+    let Ok(whoever) = Whoever::of(first);
+    let Ok(opening) = Transition::without_effects(Allowing::Opening { whoever, whom });
+
+    Ok(opening)
+}
+
+fn decide(state: &Allowing, event: &Event<Never>) -> Result<Transition<Allowing, Effect<Never>>, Never> {
+    let Ok(turn) = match (state, event) {
+        (Allowing::Opening { whoever: Whoever::Someone, .. }, Event::Opened) => Transition::new(
+            state.clone(),
+            vec![Effect::Stop(Exit::Failure(
+                "run this with sudo: sudo cargo run --bin allow-uinput".to_string(),
+            ))],
+        ),
+
+        (Allowing::Opening { whoever: Whoever::Root, whom }, Event::Opened) => {
+            let Ok(loading) = Command::external(ExternalProgram::Modprobe, &["uinput"]);
+
+            Transition::new(
+                Allowing::Loading { whom: whom.clone() },
+                vec![
+                    Effect::Print(
+                        "loading the uinput module, now and at every boot".to_string(),
+                    ),
+                    Effect::Run(loading),
+                ],
+            )
+        }
+
+        (Allowing::Loading { whom }, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(reloading) =
+                    Command::external(ExternalProgram::Udevadm, &["control", "--reload-rules"]);
+
+                Transition::new(
+                    Allowing::Reloading { whom: whom.clone() },
+                    vec![
+                        Effect::Write(FileWrite {
+                            path: std::path::PathBuf::from(MODULE),
+                            contents: "uinput\n".to_string(),
+                        }),
+                        Effect::Write(FileWrite { path: std::path::PathBuf::from(RULE), contents: RULED.to_string() }),
+                        Effect::Print(
+                            "granting the seat's own user a way in to /dev/uinput".to_string(),
+                        ),
+                        Effect::Run(reloading),
+                    ],
+                )
+            }
+            ExitStatus::Failure(_) => fail("the uinput module would not load"),
+        },
+
+        (Allowing::Reloading { whom }, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(triggering) =
+                    Command::external(ExternalProgram::Udevadm, &["trigger", "--name-match=uinput"]);
+
+                Transition::new(
+                    Allowing::Triggering { whom: whom.clone() },
+                    vec![Effect::Run(triggering)],
+                )
+            }
+            ExitStatus::Failure(_) => fail("udev would not read the rule that was just written"),
+        },
+
+        (Allowing::Triggering { whom }, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => match whom {
+                Some(whom) => {
+                    let Ok(grouping) =
+                        Command::external(ExternalProgram::Usermod, &["-aG", "input", whom]);
+
+                    Transition::new(
+                        Allowing::Grouping(whom.clone()),
+                        vec![Effect::Run(grouping)],
+                    )
+                }
+                None => list_uinput("no one could be named to put in the input group"),
+            },
+            ExitStatus::Failure(_) => fail("udev would not apply the rule to /dev/uinput"),
+        },
+
+        (Allowing::Grouping(whom), Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => list_uinput(&format!(
+                "{whom} is in the input group now, which counts from their next login"
+            )),
+            ExitStatus::Failure(_) => list_uinput(&format!(
+                "{whom} could not be put in the input group; the udev rule is in either way"
+            )),
+        },
+
+        (Allowing::Listing, Event::Replied(answer)) => Transition::new(
+            Allowing::Listing,
+            vec![
+                Effect::Print(answer.output.trim_end().to_string()),
+                Effect::Print(
+                    "if that still says only root, log out and back in, or reboot".to_string(),
+                ),
+                Effect::Stop(Exit::Success),
+            ],
+        ),
+
+        (_, _) => Transition::without_effects(state.clone()),
+    };
+
+    Ok(turn)
+}
+
+fn fail(why: &str) -> Result<Transition<Allowing, Effect<Never>>, Never> {
+    Transition::new(
         Allowing::Opening { whoever: Whoever::Root, whom: None },
         vec![Effect::Stop(Exit::Failure(why.to_string()))],
     )
 }
 
-fn list_uinput(said: &str) -> Result<Update<Allowing, Never>, Never> {
+fn list_uinput(said: &str) -> Result<Transition<Allowing, Effect<Never>>, Never> {
     let listing = Command::external(ExternalProgram::Ls, &["-l", "/dev/uinput"])?;
 
-    Update::new(
+    Transition::new(
         Allowing::Listing,
         vec![Effect::Print(said.to_string()), Effect::Run(listing)],
     )
@@ -195,7 +209,8 @@ fn list_uinput(said: &str) -> Result<Update<Allowing, Never>, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, run};
+    use console_program_contract::Answer;
+    use console_core_state_machine::run;
 
     use super::*;
 

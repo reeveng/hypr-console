@@ -30,9 +30,8 @@ use console_input_event_devices::{EventType, KeyCode};
 
 use console_core_never::Never;
 use console_core_internal_programs::InternalProgram;
-use console_program_contract::{
-    Arguments, Effect as Wanted, Initial, Program, Timer, Command, Elapsed, Update, Subscription, Event,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect as Wanted, Timer, Command, Elapsed, Subscription, Event};
 
 use crate::effect::Effect;
 
@@ -115,63 +114,85 @@ pub struct Coming {
 
 pub struct Return;
 
-impl Program for Return {
+impl Machine for Return {
+    type Input = Arguments;
     type State = Coming;
-    type Event = ReturningEvent;
-    type Effect = Never;
+    type Request = Event<ReturningEvent>;
+    type Effect = Wanted<Never>;
 
-    fn init(_argv: &Arguments) -> Initial<Coming> {
-        let Ok(opening) = Initial::with_subscriptions(Coming::default(), vec![Subscription::Timer(LOOK)]);
+    fn initialize(arguments: &Arguments, _previous: Option<Coming>, effects: &mut Effects) -> Result<Coming, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Coming, event: &Event<ReturningEvent>) -> Update<Coming, Never> {
-        let mut held = state.clone();
+    fn handle(state: Coming, event: Event<ReturningEvent>, effects: &mut Effects) -> Result<Coming, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-        let Ok(turn) = match event {
-            Event::Custom(ReturningEvent::Saw { kind, code, value, at }) => {
-                let Ok(()) = held.returning.saw(*kind, *code, *value, at.as_secs_f64());
-
-                Update::none(held)
-            }
-
-            Event::Custom(ReturningEvent::Closed) => {
-                let Ok(()) = held.returning.loosed();
-
-                Update::none(held)
-            }
-
-            Event::Tick(_, since) => {
-                let away = held.woke.is_some_and(|was| since.saturating_sub(was) > AWAY);
-
-                match away {
-                    true => {
-                        let Ok(()) = held.returning.loosed();
-                    },
-                    false => {},
-                }
-
-                held.woke = Some(*since);
-
-                let Ok(effect) = held.returning.turn(since.as_secs_f64());
-
-                match effect {
-                    Some(effect) => {
-                        let Ok(way_out) = way_out(&effect);
-
-                        Update::new(held, way_out)
-                    }
-                    None => Update::none(held),
-                }
-            }
-
-            Event::Opened | Event::Changed(_) | Event::Replied(_) | Event::Chosen(_)
-            | Event::Stopping => Update::none(held),
-        };
-
-        turn
+        decided.offered(effects)
     }
+}
+
+type Effects = Queue<Wanted<Never>>;
+
+fn initial(_argv: &Arguments) -> Result<Transition<Coming, Wanted<Never>>, Never> {
+    #[cfg_attr(
+        dylint_lib = "explicit043_no_unmatched_listen",
+        allow(
+            explicit043_no_unmatched_listen,
+            reason = "a held button is measured on this clock, and watching for one is the whole of what this program does for as long as it runs"
+        )
+    )]
+    let Ok(opening) = Transition::new(Coming::default(), vec![Wanted::Subscribe(Subscription::Timer(LOOK))]);
+
+    Ok(opening)
+}
+
+fn decide(state: &Coming, event: &Event<ReturningEvent>) -> Result<Transition<Coming, Wanted<Never>>, Never> {
+    let mut held = state.clone();
+
+    let Ok(turn) = match event {
+        Event::Custom(ReturningEvent::Saw { kind, code, value, at }) => {
+            let Ok(()) = held.returning.saw(*kind, *code, *value, at.as_secs_f64());
+
+            Transition::without_effects(held)
+        }
+
+        Event::Custom(ReturningEvent::Closed) => {
+            let Ok(()) = held.returning.loosed();
+
+            Transition::without_effects(held)
+        }
+
+        Event::Tick(_, since) => {
+            let away = held.woke.is_some_and(|was| since.saturating_sub(was) > AWAY);
+
+            match away {
+                true => {
+                    let Ok(()) = held.returning.loosed();
+                },
+                false => {},
+            }
+
+            held.woke = Some(*since);
+
+            let Ok(effect) = held.returning.turn(since.as_secs_f64());
+
+            match effect {
+                Some(effect) => {
+                    let Ok(way_out) = way_out(&effect);
+
+                    Transition::new(held, way_out)
+                }
+                None => Transition::without_effects(held),
+            }
+        }
+
+        Event::Opened | Event::Changed(_) | Event::Replied(_) | Event::Chosen(_)
+        | Event::Stopping => Transition::without_effects(held),
+    };
+
+    Ok(turn)
 }
 
 fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
@@ -194,7 +215,7 @@ fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::run;
+    use console_core_state_machine::run;
 
     use super::*;
 
@@ -368,8 +389,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        dylint_lib = "explicit043_no_unmatched_listen",
+        allow(explicit043_no_unmatched_listen, reason = "the subscription is named as what the program is expected to ask for, and nothing is subscribed to here")
+    )]
     fn it_asks_to_be_woken_and_wants_nothing_else_said_to_it() {
-        assert_eq!(Return::init(&Arguments::default()).subscriptions, vec![Subscription::Timer(LOOK)]);
+        let Ok(said) = run::<Return>(&Arguments::default(), &[]);
+
+        assert_eq!(said.initialized, vec![Wanted::Subscribe(Subscription::Timer(LOOK))]);
     }
 
     #[test]

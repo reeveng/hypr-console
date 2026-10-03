@@ -77,9 +77,8 @@ use std::path::PathBuf;
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_internal_programs::{CONFIRM_DOES, InternalProgram};
-use console_program_contract::{
-    Arguments, Choice, Effect, Exit, Flag, Initial, Program, Prompt, Command, Update, ExitStatus, Event,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Choice, Effect, Exit, Flag, Prompt, Command, ExitStatus, Event};
 use console_session::reaching;
 
 use console_device_name::HOST;
@@ -230,75 +229,90 @@ pub enum Alive {
 
 pub struct Deploy;
 
-impl Program for Deploy {
+impl Machine for Deploy {
+    type Input = Arguments;
     type State = Deploying;
-    type Event = DeployingEvent;
-    type Effect = DeployingEffect;
+    type Request = Event<DeployingEvent>;
+    type Effect = Effect<DeployingEffect>;
 
-    fn init(arguments: &Arguments) -> Initial<Deploying> {
-        let Ok(first) = arguments.first();
-        let Ok(stranger) = stranger(arguments);
+    fn initialize(arguments: &Arguments, _previous: Option<Deploying>, effects: &mut Effects) -> Result<Deploying, Never> {
+        let Ok(opening) = initial(arguments);
 
-        let Ok(opening) = match (stranger, first.filter(|host| !host.trim().is_empty())) {
-            (Some(word), _) => Initial::new(Deploying::Unknown(word)),
-            (None, None) => Initial::new(Deploying::Nowhere),
-            (None, Some(host)) => {
-                let Ok(said) = asked_for(arguments);
-                let Ok(tests) = tests_asked_for(arguments);
-
-                Initial::new(Deploying::At(
-                    Step::Rooting,
-                    Going {
-                        host: host.to_string(),
-                        how: said,
-                        lock: PathBuf::new(),
-                        was: String::new(),
-                        whom: String::new(),
-                        toolchain: String::new(),
-                        tests,
-                    },
-                ))
-            },
-        };
-
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Deploying, event: &Event<DeployingEvent>) -> Update<Deploying, DeployingEffect> {
-        let Ok(turn) = match (state, event) {
-            (Deploying::Nowhere, Event::Opened) => stopped(
-                state,
-                &format!(
-                    "{HOST} is not set, so there is no device to talk to. Set it to the \
-                     device, as in {HOST}=root@handheld."
-                ),
-            ),
+    fn handle(state: Deploying, event: Event<DeployingEvent>, effects: &mut Effects) -> Result<Deploying, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            (Deploying::Unknown(word), Event::Opened) => stopped(
-                state,
-                &format!(
-                    "{word} is not a word console-deploy knows, and a deploy is not the \
-                     thing to learn that on. It takes --check, which sends nothing, \
-                     --yes, which does not stop to ask, and --untested, which sends \
-                     without asking what must hold."
-                ),
-            ),
-
-            (Deploying::At(step, going), word) => at(*step, going, word),
-
-            (Deploying::Nowhere | Deploying::Unknown(_), _) => Update::none(state.clone()),
-        };
-
-        turn
+        decided.offered(effects)
     }
 }
 
-fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update<Deploying, DeployingEffect>, Never> {
+type Effects = Queue<Effect<DeployingEffect>>;
+
+fn initial(arguments: &Arguments) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
+    let Ok(first) = arguments.first();
+    let Ok(stranger) = stranger(arguments);
+
+    let Ok(opening) = match (stranger, first.filter(|host| !host.trim().is_empty())) {
+        (Some(word), _) => Transition::without_effects(Deploying::Unknown(word)),
+        (None, None) => Transition::without_effects(Deploying::Nowhere),
+        (None, Some(host)) => {
+            let Ok(said) = asked_for(arguments);
+            let Ok(tests) = tests_asked_for(arguments);
+
+            Transition::without_effects(Deploying::At(
+                Step::Rooting,
+                Going {
+                    host: host.to_string(),
+                    how: said,
+                    lock: PathBuf::new(),
+                    was: String::new(),
+                    whom: String::new(),
+                    toolchain: String::new(),
+                    tests,
+                },
+            ))
+        },
+    };
+
+    Ok(opening)
+}
+
+fn decide(state: &Deploying, event: &Event<DeployingEvent>) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
+    let Ok(turn) = match (state, event) {
+        (Deploying::Nowhere, Event::Opened) => stopped(
+            state,
+            &format!(
+                "{HOST} is not set, so there is no device to talk to. Set it to the \
+                 device, as in {HOST}=root@handheld."
+            ),
+        ),
+
+        (Deploying::Unknown(word), Event::Opened) => stopped(
+            state,
+            &format!(
+                "{word} is not a word console-deploy knows, and a deploy is not the \
+                 thing to learn that on. It takes --check, which sends nothing, \
+                 --yes, which does not stop to ask, and --untested, which sends \
+                 without asking what must hold."
+            ),
+        ),
+
+        (Deploying::At(step, going), word) => at(*step, going, word),
+
+        (Deploying::Nowhere | Deploying::Unknown(_), _) => Transition::without_effects(state.clone()),
+    };
+
+    Ok(turn)
+}
+
+fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
     match (step, event) {
         (Step::Rooting, Event::Opened) => {
             let Ok(rooting) = Command::external(ExternalProgram::Git, &["rev-parse", "--git-common-dir"]);
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Rooting, going.clone()),
                 vec![Effect::Run(rooting)],
             )
@@ -310,20 +324,20 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 let lock = PathBuf::from(answer.output.trim()).join(LOCK);
                 let going = Going { lock: lock.clone(), ..going.clone() };
 
-                Update::new(Deploying::At(Step::Taking, going), vec![Effect::Custom(DeployingEffect::Take(lock))])
+                Transition::new(Deploying::At(Step::Taking, going), vec![Effect::Custom(DeployingEffect::Take(lock))])
             }
         },
 
         (Step::Taking | Step::Retaking, Event::Custom(DeployingEvent::Took)) => {
             let Ok(runs) = git_status();
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Still, going.clone()),
                 vec![Effect::Custom(DeployingEffect::Mine(going.lock.clone())), Effect::Run(runs)],
             )
         },
 
-        (Step::Taking, Event::Custom(DeployingEvent::Busy)) => Update::new(
+        (Step::Taking, Event::Custom(DeployingEvent::Busy)) => Transition::new(
             Deploying::At(Step::Reading, going.clone()),
             vec![Effect::Custom(DeployingEffect::Read(going.lock.clone()))],
         ),
@@ -338,7 +352,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             true => {
                 let Ok(marking) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Marking, going.clone()),
                     vec![Effect::Run(marking)],
                 )
@@ -349,7 +363,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                         going,
                     );
 
-                Update::new(
+                Transition::new(
                     Deploying::At(step, going.clone()),
                     vec![
                         Effect::Print(format!(
@@ -366,14 +380,14 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             let going = Going { was: answer.output.trim().to_string(), ..going.clone() };
             let Ok(asked) = Command::external(ExternalProgram::Cargo, &["--version"]);
 
-            Update::new(Deploying::At(Step::Toolchain(Side::Here), going), vec![Effect::Run(asked)])
+            Transition::new(Deploying::At(Step::Toolchain(Side::Here), going), vec![Effect::Run(asked)])
         }
 
         (Step::Toolchain(Side::Here), Event::Replied(answer)) => {
             let going = Going { toolchain: answer.output.trim().to_string(), ..going.clone() };
             let Ok(runs) = on(&going, "cargo --version");
 
-            Update::new(Deploying::At(Step::Toolchain(Side::Device), going), vec![Effect::Run(runs)])
+            Transition::new(Deploying::At(Step::Toolchain(Side::Device), going), vec![Effect::Run(runs)])
         }
 
         (Step::Toolchain(Side::Device), Event::Replied(answer)) => {
@@ -413,7 +427,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                         ));
                         effects.push(Effect::Stream(ready.clone()));
 
-                        Update::new(Deploying::At(Step::Ready, going.clone()), effects)
+                        Transition::new(Deploying::At(Step::Ready, going.clone()), effects)
                     }
                     Tests::Skipped => {
                         effects.push(Effect::Print(
@@ -456,7 +470,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             ExitStatus::Success => {
                 let Ok(runs) = git_log("HEAD..FETCH_HEAD");
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Behind, going.clone()),
                     vec![Effect::Run(runs)],
                 )
@@ -467,7 +481,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             true => {
                 let Ok(runs) = git_log("FETCH_HEAD..HEAD");
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Ahead, going.clone()),
                     vec![
                         Effect::Print("  nothing".to_string()),
@@ -476,7 +490,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                     ],
                 )
             },
-            false => Update::new(
+            false => Transition::new(
                 Deploying::At(step, going.clone()),
                 vec![
                     Effect::Print(answer.output.trim_end().to_string()),
@@ -488,7 +502,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         (Step::Ahead, Event::Replied(answer)) => {
             let Ok(spread) = Command::external(ExternalProgram::Git, &["diff", "--stat", "FETCH_HEAD..HEAD"]);
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Spread, going.clone()),
                 vec![Effect::Print(answer.output.trim_end().to_string()), Effect::Run(spread)],
             )
@@ -501,7 +515,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 How::Check => {
                     let Ok(runs) = on(going, "console check");
 
-                    Update::new(
+                    Transition::new(
                         Deploying::At(Step::Checking, going.clone()),
                         vec![
                             printed,
@@ -513,7 +527,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 How::Yes => {
                     let Ok(runs) = git_status();
 
-                    Update::new(
+                    Transition::new(
                         Deploying::At(Step::Settling, going.clone()),
                         vec![printed, Effect::Run(runs)],
                     )
@@ -521,7 +535,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 How::Confirm => {
                     let Ok(runs) = on(going, reaching::OWNER);
 
-                    Update::new(
+                    Transition::new(
                         Deploying::At(Step::Finding(Whether::Send), going.clone()),
                         vec![printed, Effect::Run(runs)],
                     )
@@ -530,7 +544,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         }
 
         (Step::Checking, Event::Replied(_)) => {
-            Update::new(Deploying::At(step, going.clone()), vec![Effect::Stop(Exit::Success)])
+            Transition::new(Deploying::At(step, going.clone()), vec![Effect::Stop(Exit::Success)])
         }
 
         (Step::Finding(which), Event::Replied(answer)) => {
@@ -541,7 +555,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 true => {
                     let Ok(question) = putting(which, &going.host);
 
-                    Update::new(
+                    Transition::new(
                         Deploying::At(Step::Wondering(which), going.clone()),
                         vec![Effect::Prompt(question)],
                     )
@@ -549,7 +563,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                 false => {
                     let Ok(runs) = carding(&going, which);
 
-                    Update::new(
+                    Transition::new(
                         Deploying::At(Step::Wondering(which), going.clone()),
                         vec![Effect::Run(runs)],
                     )
@@ -563,7 +577,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             ExitStatus::Failure(_) => {
                 let Ok(said) = putting(which, &going.host);
 
-                Update::new(
+                Transition::new(
                     Deploying::At(step, going.clone()),
                     vec![
                         Effect::Print(format!(
@@ -582,7 +596,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             true => {
                 let Ok(moved) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Moved, going.clone()),
                     vec![Effect::Run(moved)],
                 )
@@ -594,7 +608,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                         going,
                     );
 
-                Update::new(
+                Transition::new(
                     Deploying::At(step, going.clone()),
                     vec![
                         Effect::Print(format!(
@@ -613,7 +627,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                     &format!("git -C {TREE} config receive.denyCurrentBranch updateInstead"),
                 );
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Allowing, going.clone()),
                     vec![Effect::Run(runs)],
                 )
@@ -621,14 +635,14 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             false => {
                 let Ok(runs) = git_log(&format!("{}..HEAD", going.was));
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Moving, going.clone()),
                     vec![Effect::Run(runs)],
                 )
             },
         },
 
-        (Step::Moving, Event::Replied(answer)) => Update::new(
+        (Step::Moving, Event::Replied(answer)) => Transition::new(
             Deploying::At(step, going.clone()),
             vec![
                 Effect::Print(format!(
@@ -647,7 +661,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
 
             let Ok(pushing) = Command::external(ExternalProgram::Git, &["push", &said, "HEAD:master"]);
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Pushing, going.clone()),
                 vec![Effect::Stream(pushing)],
             )
@@ -656,14 +670,9 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         (Step::Pushing, Event::Replied(answer)) => match answer.status {
             ExitStatus::Failure(_) => stopped_at(step, going, "the push was refused"),
             ExitStatus::Success => {
-                let Ok(runs) = on(going,
-                        &format!(
-                            "cargo build --release --locked --manifest-path {TREE}/Cargo.toml \
-                             --bin console"
-                        ),
-                    );
+                let Ok(runs) = on(going, &format!("cd {TREE} && cargo build --release --locked --bin console"));
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Building, going.clone()),
                     vec![
                         Effect::Print("\n== the engine".to_string()),
@@ -680,7 +689,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
                     &format!("install -m 755 {TREE}/target/release/console /usr/local/bin/console"),
                 );
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Installing, going.clone()),
                     vec![Effect::Stream(runs)],
                 )
@@ -692,7 +701,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
             ExitStatus::Success => {
                 let Ok(runs) = on(going, "console apply");
 
-                Update::new(
+                Transition::new(
                     Deploying::At(Step::Applying, going.clone()),
                     vec![Effect::Stream(runs)],
                 )
@@ -705,31 +714,31 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Update
         },
 
         (Step::Pressing, Event::Replied(_)) => {
-            Update::new(Deploying::At(step, going.clone()), vec![Effect::Stop(Exit::Success)])
+            Transition::new(Deploying::At(step, going.clone()), vec![Effect::Stop(Exit::Success)])
         }
 
-        (_, _) => Update::none(Deploying::At(step, going.clone())),
+        (_, _) => Transition::without_effects(Deploying::At(step, going.clone())),
     }
 }
 
-fn fetched(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Update<Deploying, DeployingEffect>, Never> {
+fn fetched(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
     let Ok(runs) = fetching(&going.host);
     let mut effects = first;
 
     effects.push(Effect::Print("\n== what the device has that this does not".to_string()));
     effects.push(Effect::Run(runs));
 
-    Update::new(Deploying::At(Step::Fetching, going.clone()), effects)
+    Transition::new(Deploying::At(Step::Fetching, going.clone()), effects)
 }
 
-fn room(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Update<Deploying, DeployingEffect>, Never> {
+fn room(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
     let Ok(runs) = on(going, "console room");
     let mut effects = first;
 
     effects.push(Effect::Print("== whether the device has room for what this builds".to_string()));
     effects.push(Effect::Stream(runs));
 
-    Update::new(Deploying::At(Step::Room, going.clone()), effects)
+    Transition::new(Deploying::At(Step::Room, going.clone()), effects)
 }
 
 pub fn release(said: &str) -> Result<Option<Release>, Never> {
@@ -758,16 +767,16 @@ pub fn toolchain(both: Toolchains<'_>) -> Result<Toolchain, Never> {
     })
 }
 
-fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
+fn pressing(going: &Going) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
     match (going.tests, going.how) {
-        (Tests::Skipped, How::Yes | How::Confirm | How::Check) => Update::new(
+        (Tests::Skipped, How::Yes | How::Confirm | How::Check) => Transition::new(
             Deploying::At(Step::Pressing, going.clone()),
             vec![Effect::Stop(Exit::Success)],
         ),
         (Tests::Run, How::Yes) => {
             let Ok(runs) = checking();
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Pressing, going.clone()),
                 vec![
                     Effect::Print("\n== the features, on the machine that has them".to_string()),
@@ -778,7 +787,7 @@ fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> 
         (Tests::Run, How::Confirm | How::Check) => {
             let Ok(runs) = carding(going, Whether::Check);
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Wondering(Whether::Check), going.clone()),
                 vec![Effect::Run(runs)],
             )
@@ -786,9 +795,9 @@ fn pressing(going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> 
     }
 }
 
-fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Update<Deploying, DeployingEffect>, Never> {
+fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
     match (which, chose) {
-        (Whether::Send, Choice::No) => Update::new(
+        (Whether::Send, Choice::No) => Transition::new(
             Deploying::At(Step::Wondering(which), going.clone()),
             vec![Effect::Stop(Exit::Failure("nothing sent".to_string()))],
         ),
@@ -796,13 +805,13 @@ fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Update<Depl
         (Whether::Send, Choice::Yes) => {
             let Ok(runs) = git_status();
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Settling, going.clone()),
                 vec![Effect::Run(runs)],
             )
         },
 
-        (Whether::Check, Choice::No) => Update::new(
+        (Whether::Check, Choice::No) => Transition::new(
             Deploying::At(Step::Wondering(which), going.clone()),
             vec![
                 Effect::Print("not checked; `just check` asks the device later".to_string()),
@@ -813,7 +822,7 @@ fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Update<Depl
         (Whether::Check, Choice::Yes) => {
             let Ok(runs) = checking();
 
-            Update::new(
+            Transition::new(
                 Deploying::At(Step::Pressing, going.clone()),
                 vec![
                     Effect::Print("\n== the features, on the machine that has them".to_string()),
@@ -824,11 +833,11 @@ fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Update<Depl
     }
 }
 
-fn whose(going: &Going, holder: &Holder) -> Result<Update<Deploying, DeployingEffect>, Never> {
+fn whose(going: &Going, holder: &Holder) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
     let ours = holder.on == holder.here;
 
     match (ours, holder.alive) {
-        (true, Alive::No) => Update::new(
+        (true, Alive::No) => Transition::new(
             Deploying::At(Step::Retaking, going.clone()),
             vec![
                 Effect::Print(format!(
@@ -840,7 +849,7 @@ fn whose(going: &Going, holder: &Holder) -> Result<Update<Deploying, DeployingEf
             ],
         ),
 
-        (false, _) | (true, Alive::Yes) => Update::new(
+        (false, _) | (true, Alive::Yes) => Transition::new(
             Deploying::At(Step::Reading, going.clone()),
             vec![Effect::Stop(Exit::Failure(format!(
                 "someone is already deploying this repository.\n  \
@@ -961,12 +970,12 @@ fn out_of_a_clone(first: &str, going: &Going) -> Result<String, Never> {
     ))
 }
 
-fn stopped(state: &Deploying, why: &str) -> Result<Update<Deploying, DeployingEffect>, Never> {
-    Update::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
+fn stopped(state: &Deploying, why: &str) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
+    Transition::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
 }
 
-fn stopped_at(step: Step, going: &Going, why: &str) -> Result<Update<Deploying, DeployingEffect>, Never> {
-    Update::new(
+fn stopped_at(step: Step, going: &Going, why: &str) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
+    Transition::new(
         Deploying::At(step, going.clone()),
         vec![Effect::Stop(Exit::Failure(why.to_string()))],
     )
@@ -974,7 +983,8 @@ fn stopped_at(step: Step, going: &Going, why: &str) -> Result<Update<Deploying, 
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, Executable, Trace, run};
+    use console_program_contract::{Answer, Executable};
+    use console_core_state_machine::{Trace, run};
 
     use super::*;
 
@@ -1022,7 +1032,7 @@ mod tests {
         failure: Option<String>,
     }
 
-    fn told(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Result<Outcome, Never> {
+    fn told(said: &Trace<Deploying, Event<DeployingEvent>, Effect<DeployingEffect>>) -> Result<Outcome, Never> {
         let Ok(effects) = said.effects();
 
         let asks: Vec<Command> = effects
@@ -1502,6 +1512,19 @@ mod tests {
 
         assert!(built.is_some_and(|built| put.is_some_and(|put| built < put)));
         assert!(put.is_some_and(|put| applied.is_some_and(|applied| put < applied)));
+    }
+
+    #[test]
+    fn the_engine_is_built_from_inside_the_tree_where_cargo_reads_its_configuration() {
+        let Ok(said) = as_far_as(
+            &["--yes"],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN), Step::Success("")],
+        );
+
+        let words: Vec<String> =
+            said.asks.iter().filter_map(|runs| runs.arguments.last().cloned()).collect();
+
+        assert!(words.iter().any(|word| word.starts_with(&format!("cd {TREE} && cargo build"))), "{words:?}");
     }
 
     #[test]

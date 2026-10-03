@@ -119,6 +119,23 @@
 //! output the lock has no surface on is painted a solid color by the
 //! compositor rather than shown -- which is the right fault for a lock to have.
 //!
+//! ## A window is the same surface with a third role
+//!
+//! An app -- the books, the files, the pictures -- is somewhere a person stays,
+//! and a layer over the whole screen was a place they could only leave by
+//! putting it away: nothing could be opened beside it, and the settings opened
+//! over it fought it for the top. `xdg_toplevel` is the role every other
+//! program's window has, and the compositor places it, tiles it and puts it on
+//! a workspace of its own the way it does theirs. Everything after the role is
+//! a layer's: sized by the compositor, scaled and painted here.
+//!
+//! What is the window's own is that the compositor may leave its size to us. A
+//! window is not on the screen until a buffer is, and a compositor that tiles
+//! it says how large it is only once it is; so a size of nothing is drawn at
+//! one pixel, which is enough to be placed, and the size the compositor gives
+//! it next is a resize like any other. A window can be asked to close, and that
+//! is [`Closed::Yes`], the same answer a layer gets when its screen goes.
+//!
 //! ## A closed socket is not quiet
 //!
 //! `poll` asked only about `POLLIN` returns immediately and forever on a
@@ -151,6 +168,7 @@ use wayland_protocols::wp::presentation_time::client::{wp_presentation, wp_prese
 
 use console_response_times::frames::{Buffer, Committed, Frames, Presented};
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
+use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 
 use xkbcommon::xkb;
@@ -216,6 +234,12 @@ pub struct Wanted {
     pub keyboard: Keyboard,
     pub room: Room,
     pub under: Under,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    pub app_id: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -318,6 +342,7 @@ pub fn on_the_device(part: Part, logical: Size<u32>, device: Size<u32>) -> Resul
 enum Role {
     Layer(zwlr_layer_surface_v1::ZwlrLayerSurfaceV1),
     Lock(ext_session_lock_surface_v1::ExtSessionLockSurfaceV1),
+    Window(xdg_surface::XdgSurface, xdg_toplevel::XdgToplevel),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -409,6 +434,7 @@ pub struct Bound {
     compositor: wl_compositor::WlCompositor,
     shm: wl_shm::WlShm,
     shell: zwlr_layer_shell_v1::ZwlrLayerShellV1,
+    windows: Option<xdg_wm_base::XdgWmBase>,
     locker: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
     output: Option<wl_output::WlOutput>,
     session: Option<ext_session_lock_v1::ExtSessionLockV1>,
@@ -423,6 +449,7 @@ pub struct Bound {
     spare: Vec<Frame>,
     logical: Option<Size<u32>>,
     asked: Option<Size<u32>>,
+    given: Size<u32>,
     anchor: Anchor,
     room: Room,
     scale: Scale,
@@ -488,6 +515,10 @@ impl Surface {
             }
         };
         let _ = globals.bind::<wl_seat::WlSeat, _, _>(&hand, 1..=7, ());
+        let windows = match globals.bind::<xdg_wm_base::XdgWmBase, _, _>(&hand, 1..=6, ()) {
+            Ok(windows) => Some(windows),
+            Err(_not_offered) => None,
+        };
         let locker = match globals.bind::<ext_session_lock_manager_v1::ExtSessionLockManagerV1, _, _>(&hand, 1..=1, ()) {
             Ok(locker) => Some(locker),
             Err(_not_offered) => None,
@@ -501,6 +532,7 @@ impl Surface {
             compositor,
             shm,
             shell,
+            windows,
             locker,
             output,
             session: None,
@@ -515,6 +547,7 @@ impl Surface {
             spare: Vec::new(),
             logical: None,
             asked: None,
+            given: Size { width: 0, height: 0 },
             anchor: Anchor::Whole,
             room: Room::Over,
             scale: Scale::ONE,
@@ -580,6 +613,45 @@ impl Surface {
         self.bound.room = wanted.room;
         self.bound.up = Some(Up { surface, role: Role::Layer(layer), viewport, fraction });
         let Ok(timing) = Frames::shown(&wanted.namespace);
+
+        self.bound.timing = Some(timing);
+
+        self.dispatched_until(|bound| match (bound.logical, bound.closed) {
+            (None, Closed::No) => Settled::Waiting,
+            (Some(_), _) | (None, Closed::Yes) => Settled::Settled,
+        })
+    }
+
+    pub fn show_window(&mut self, window: &Window) -> Result<(), SurfaceError> {
+        match self.bound.up {
+            Some(_) => return Ok(()),
+            None => {},
+        }
+
+        let windows = match self.bound.windows.as_ref() {
+            Some(windows) => windows,
+            None => return Err(SurfaceError::Global("xdg_wm_base, which is what makes a surface a window")),
+        };
+        let hand = self.queue.handle();
+        let surface = self.bound.compositor.create_surface(&hand, ());
+        let viewport = self.bound.viewporter.get_viewport(&surface, &hand, ());
+        let fraction = self
+            .bound
+            .fractions
+            .as_ref()
+            .map(|manager| manager.get_fractional_scale(&surface, &hand, ()));
+        let framed = windows.get_xdg_surface(&surface, &hand, ());
+        let toplevel = framed.get_toplevel(&hand, ());
+
+        toplevel.set_app_id(window.app_id.clone());
+        toplevel.set_title(window.title.clone());
+        surface.commit();
+
+        self.bound.logical = None;
+        self.bound.asked = None;
+        self.bound.given = Size { width: 0, height: 0 };
+        self.bound.up = Some(Up { surface, role: Role::Window(framed, toplevel), viewport, fraction });
+        let Ok(timing) = Frames::shown(&window.app_id);
 
         self.bound.timing = Some(timing);
 
@@ -690,7 +762,7 @@ impl Surface {
 
         let layer = match &up.role {
             Role::Layer(layer) => layer,
-            Role::Lock(_) => return Ok(()),
+            Role::Lock(_) | Role::Window(_, _) => return Ok(()),
         };
         let Ok(held) = exclusive_zone(self.bound.anchor, size);
 
@@ -721,7 +793,7 @@ impl Surface {
         };
         let layer = match &up.role {
             Role::Layer(layer) => layer,
-            Role::Lock(_) => return Ok(()),
+            Role::Lock(_) | Role::Window(_, _) => return Ok(()),
         };
         let Ok(zone) = reserved_size(room, self.bound.anchor, asked);
         let anything = Size { width: 0, height: 0 };
@@ -752,6 +824,10 @@ impl Surface {
         match up.role {
             Role::Layer(layer) => layer.destroy(),
             Role::Lock(lock) => lock.destroy(),
+            Role::Window(framed, toplevel) => {
+                toplevel.destroy();
+                framed.destroy();
+            }
         }
 
 
@@ -1208,6 +1284,85 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Bound {
                 bound.logical = Some(logical);
             }
             zwlr_layer_surface_v1::Event::Closed => bound.closed = Closed::Yes,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<xdg_wm_base::XdgWmBase, ()> for Bound {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
+    fn event(
+        _bound: &mut Self,
+        windows: &xdg_wm_base::XdgWmBase,
+        event: xdg_wm_base::Event,
+        _held: &(),
+        _connection: &Connection,
+        _hand: &QueueHandle<Self>,
+    ) {
+        match event {
+            xdg_wm_base::Event::Ping { serial } => windows.pong(serial),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<xdg_surface::XdgSurface, ()> for Bound {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
+    fn event(
+        bound: &mut Self,
+        framed: &xdg_surface::XdgSurface,
+        event: xdg_surface::Event,
+        _held: &(),
+        _connection: &Connection,
+        _hand: &QueueHandle<Self>,
+    ) {
+        match event {
+            xdg_surface::Event::Configure { serial } => {
+                framed.ack_configure(serial);
+
+                bound.logical = Some(Size { width: bound.given.width.max(1), height: bound.given.height.max(1) });
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<xdg_toplevel::XdgToplevel, ()> for Bound {
+    #[cfg_attr(
+        dylint_lib = "explicit016_no_wildcard_arm",
+        allow(
+            explicit016_no_wildcard_arm,
+            reason = "a Wayland protocol enum is somebody else's and is marked non_exhaustive, so the compiler demands an arm for the events this version of the protocol has not heard of; what this desktop does about one is nothing"
+        )
+    )]
+    fn event(
+        bound: &mut Self,
+        _toplevel: &xdg_toplevel::XdgToplevel,
+        event: xdg_toplevel::Event,
+        _held: &(),
+        _connection: &Connection,
+        _hand: &QueueHandle<Self>,
+    ) {
+        match event {
+            xdg_toplevel::Event::Configure { width, height, states: _ } => {
+                let Ok(width) = fitted::<i32, u32>(width);
+                let Ok(height) = fitted::<i32, u32>(height);
+
+                bound.given = Size { width, height };
+            }
+            xdg_toplevel::Event::Close => bound.closed = Closed::Yes,
             _ => {}
         }
     }

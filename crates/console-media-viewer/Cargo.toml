@@ -31,7 +31,7 @@ console-pictures.workspace = true
 console-music-player.workspace = true
 console-program-lifetime.workspace = true
 console-core-shapes.workspace = true
-
+console-core-state-machine.workspace = true
 
 [dev-dependencies]
 console-core-atomic-writes.workspace = true

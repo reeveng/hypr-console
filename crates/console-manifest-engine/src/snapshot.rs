@@ -31,6 +31,12 @@
 //! printed nothing would leave someone believing there is a previous when
 //! there is not, and a rollback no one can take is worse than one no one was
 //! promised.
+//!
+//! **An apply refuses to run on a snapshot.** Limine boots one as the root
+//! filesystem, so whatever an apply wrote there would be written into the way
+//! back rather than the machine, and the next boot of the ordinary entry would
+//! not have it. `/proc/self/mountinfo` says which subvolume `/` is, and one
+//! under `/.snapshots/` is a snapshot whatever its number.
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -127,6 +133,34 @@ fn create(configuration: &str, kind: &[&str], what: Description<'_>) -> Result<S
     })
 }
 
+pub const MOUNTS: &str = "/proc/self/mountinfo";
+
+const SNAPSHOTS: &str = "/.snapshots/";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Running {
+    Ordinary,
+    Snapshot(SnapshotNumber),
+}
+
+pub fn running(mounts: &str) -> Result<Running, Never> {
+    let root = mounts.lines().rev().find_map(|line| {
+        let mut fields = line.split(' ');
+
+        match (fields.nth(3), fields.next()) {
+            (Some(held), Some("/")) => Some(held),
+            (Some(_), Some(_) | None) | (None, _) => None,
+        }
+    });
+    let number = root.and_then(|held| held.split_once(SNAPSHOTS)).and_then(|(_, under)| under.split('/').next());
+
+    Ok(match number.map(str::parse::<u32>) {
+        Some(Ok(number)) => Running::Snapshot(SnapshotNumber(number)),
+        Some(Err(_not_a_number)) => Running::Ordinary,
+        None => Running::Ordinary,
+    })
+}
+
 fn why(said: &str) -> Result<String, Never> {
     Ok(match said.lines().find(|line| !line.trim().is_empty()) {
         Some(first) => first.trim().to_string(),
@@ -137,6 +171,42 @@ fn why(said: &str) -> Result<String, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ORDINARY: &str = "\
+22 1 0:23 / /proc rw,nosuid,nodev,noexec,relatime shared:13 - proc proc rw
+26 1 0:28 /@ / rw,noatime shared:1 - btrfs /dev/nvme0n1p2 rw,subvol=/@
+27 26 0:28 /@home /home rw,noatime shared:2 - btrfs /dev/nvme0n1p2 rw,subvol=/@home
+";
+
+    #[test]
+    fn the_ordinary_root_is_not_a_snapshot() {
+        let Ok(said) = running(ORDINARY);
+
+        assert_eq!(said, Running::Ordinary);
+    }
+
+    #[test]
+    fn a_root_booted_from_a_snapshot_is_named_by_its_number() {
+        let mounts = ORDINARY.replace("/@ / rw", "/@/.snapshots/184/snapshot / ro");
+        let Ok(said) = running(&mounts);
+
+        assert_eq!(said, Running::Snapshot(SnapshotNumber(184)));
+    }
+
+    #[test]
+    fn a_snapshot_mounted_somewhere_other_than_the_root_is_not_the_one_running() {
+        let mounts = format!("{ORDINARY}30 26 0:28 /@/.snapshots/6/snapshot /mnt ro - btrfs /dev/nvme0n1p2 ro\n");
+        let Ok(said) = running(&mounts);
+
+        assert_eq!(said, Running::Ordinary);
+    }
+
+    #[test]
+    fn a_machine_with_no_subvolumes_is_ordinary() {
+        let Ok(said) = running("21 0 8:2 / / rw,relatime shared:1 - ext4 /dev/sda2 rw\n");
+
+        assert_eq!(said, Running::Ordinary);
+    }
 
     #[test]
     fn a_configuration_that_was_taken_is_named_by_its_number() {

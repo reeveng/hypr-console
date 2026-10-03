@@ -164,10 +164,11 @@ fn the_shoulders_carry_you_between_places_and_carry_nothing_else() -> Result<(),
 }
 
 #[test]
-fn a_trigger_held_carries_the_window_and_the_bare_shoulder_stays_out_of_it() -> Result<(), Failure> {
+fn both_triggers_held_carry_the_window_and_the_bare_shoulder_stays_out_of_it() -> Result<(), Failure> {
     let mut here = stage()?;
 
     here.trigger("l2", 1.0)?;
+    here.trigger("r2", 1.0)?;
     here.press("r1")?;
     let Ok(()) = here.settle(TURNS);
     let Ok(dispatches) = here.dispatches();
@@ -175,8 +176,16 @@ fn a_trigger_held_carries_the_window_and_the_bare_shoulder_stays_out_of_it() -> 
     assert_eq!(
         dispatches,
         [CARRIED_TO_THE_NEXT],
-        "L2 held, the shoulder takes the window along"
+        "both triggers held, the shoulder takes the window along"
     );
+    here.trigger("r2", 0.0)?;
+    let Ok(()) = here.fresh();
+
+    here.press("r1")?;
+    let Ok(()) = here.settle(TURNS);
+    let Ok(dispatches) = here.dispatches();
+
+    assert_eq!(dispatches, [NEXT], "L2 alone is the desktops, and the window stays where it was");
     here.trigger("l2", 0.0)?;
     let Ok(()) = here.fresh();
 
@@ -440,8 +449,8 @@ fn the_walk_is_about_the_buttons_it_names() -> Result<(), Failure> {
     for (slug, button, when) in [
         ("workspace-next", "r1", Context::OnTheDesktop),
         ("workspace-previous", "l1", Context::OnTheDesktop),
-        ("tab-right", "r1", Context::WithAPickerUp),
-        ("tab-left", "l1", Context::WithAPickerUp),
+        ("tab-right", "r1", Context::WithAPanelOrApp),
+        ("tab-left", "l1", Context::WithAPanelOrApp),
         ("put-away", "right-paddle-top", Context::Anywhere),
         ("guide", "menu", Context::Anywhere),
         ("menu", "left-paddle-top", Context::Anywhere),

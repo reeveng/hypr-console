@@ -57,7 +57,7 @@
 //! What is here is the machine: MPRIS, the folder, and the cover on the disk.
 //! Where the thumb is standing, what is typed, and whether the library has
 //! already been asked to read itself are `crate::update`, which is a
-//! `console_program_contract::Program`.
+//! `console_core_state_machine::Machine`.
 
 
 use console_core_localization::positional;
@@ -74,8 +74,8 @@ use crate::looking::{self, Song};
 use crate::player::{self, Order, Over, Playing, Sound};
 use crate::update::{Closes, MusicEvent, MusicEffect, Music, Standing, closes};
 use crate::library::folder;
-use console_panel::actor::{self, Address, Answer};
-use console_program_contract::{Arguments, Effect, Program as _, Topic, Update, Event};
+use console_actor::Actor;
+use console_program_contract::{Arguments, Effect, Topic, Event};
 use console_panel::page::{Aside, Bar, Handler, Active, Level, Page, Picture, ButtonPress, Row, Rows, Showing};
 use console_panel::card::{Card, Door};
 use console_panel::running;
@@ -88,37 +88,10 @@ const MANY: u32 = 120;
 
 const SCRUB: i64 = 5_000_000;
 
-enum Message {
-    Event(MusicEvent, Answer<Vec<Effect<MusicEffect>>>),
-    At(Answer<Standing>),
-}
-
-struct Actor(Standing);
-
-impl actor::Machine for Actor {
-    type Message = Message;
-
-    fn step(self, message: Message) -> Self {
-        match message {
-            Message::Event(heard, answer) => {
-                let Update { state, effects } = Music::update(&self.0, &Event::Custom(heard));
-                let _ = answer.say(effects);
-
-                Actor(state)
-            }
-            Message::At(answer) => {
-                let _ = answer.say(self.0.clone());
-
-                self
-            },
-        }
-    }
-}
-
-type Panel = Address<Message>;
+type Panel = Actor<Music>;
 
 fn panel_state(held: &Panel) -> Result<Standing, Never> {
-    Ok(match held.ask(Message::At) {
+    Ok(match held.get() {
         Ok(standing) => standing,
         Err(_the_actor_has_gone) => {
             eprintln!("music-panel: the panel's own state is missing, so it drew as it opened");
@@ -129,7 +102,7 @@ fn panel_state(held: &Panel) -> Result<Standing, Never> {
 }
 
 fn decided(held: &Panel, heard: MusicEvent) -> Result<Vec<Effect<MusicEffect>>, Never> {
-    Ok(match held.ask(|answer| Message::Event(heard, answer)) {
+    Ok(match held.send(Event::Custom(heard)) {
         Ok(effects) => effects,
         Err(_the_actor_has_gone) => {
             eprintln!("music-panel: the panel's own state is missing, so the press did nothing");
@@ -631,24 +604,18 @@ enum Holds {
 }
 
 fn held_as(holds: Holds) -> Result<Card, Never> {
-    let initial = Music::init(&Arguments::default());
-    let Ok(holding) = actor::supervise(move || Actor(initial.state.clone()));
-    let held = holding.address.clone();
+    Card::supervised::<Music, _>(Arguments::default(), move |held| {
+        let Ok(playing) = playing_page(held);
 
-    let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(playing) = playing_page(&held);
-
-        match holds {
+        Ok(match holds {
             Holds::Playing => vec![playing],
             Holds::Library => {
-                let Ok(music) = music_page(&held);
+                let Ok(music) = music_page(held);
 
                 vec![music, playing]
             },
-        }
-    }));
-
-    card.shutting(Box::new(move || holding.shutdown()))
+        })
+    })
 }
 
 pub fn card(_argv: &[String]) -> Result<Card, Never> {

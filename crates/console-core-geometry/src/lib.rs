@@ -25,6 +25,9 @@
 //! rest of this tree already uses for a thumb and for a sweep, and a type that
 //! spoke a different language than its call sites would be one more thing to
 //! translate. `wide` and `tall` for the same reason.
+//!
+//! A `Rectangle` is the two together, with Apple's words for them: an
+//! `origin` and a `size`.
 
 use console_core_never::Never;
 
@@ -50,6 +53,12 @@ impl<T> Size<T> {
     pub fn map<U>(self, each: impl Fn(T) -> U) -> Result<Size<U>, Never> {
         Ok(Size { width: each(self.width), height: each(self.height) })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Rectangle<T> {
+    pub origin: Point<T>,
+    pub size: Size<T>,
 }
 
 #[cfg(test)]

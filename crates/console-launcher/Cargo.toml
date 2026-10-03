@@ -19,6 +19,8 @@ console-core-places.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-panel.workspace = true
+console-actor.workspace = true
+console-core-state-machine.workspace = true
 
 [lints]
 workspace = true

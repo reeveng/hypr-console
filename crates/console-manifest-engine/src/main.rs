@@ -1147,7 +1147,25 @@ fn timed(going: going::Going, applying: std::time::Instant, whoever: &str) -> Re
     confirmation::record_timings(&Path::new("/home").join(whoever), &stages, took)
 }
 
+fn on_the_ordinary_root() -> Result<(), Unapplied> {
+    let mounts = Path::new(snapshot::MOUNTS);
+    let Ok(held) = console_core_atomic_writes::read(mounts);
+    let said = match held {
+        Stored::Text(said) => said,
+        Stored::Absent => return Ok(()),
+        Stored::Failed(fault) => return Err(Unapplied::Unsaid(mounts.to_path_buf(), fault)),
+    };
+    let Ok(running) = snapshot::running(&said);
+
+    match running {
+        snapshot::Running::Ordinary => Ok(()),
+        snapshot::Running::Snapshot(generations::SnapshotNumber(number)) => Err(Unapplied::OnASnapshot(number)),
+    }
+}
+
 fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
+    on_the_ordinary_root()?;
+
     let Ok(charge) = the_battery();
     let Ok(levels) = the_levels();
     let Ok(enough) = enough::enough(charge, levels);
@@ -1436,8 +1454,8 @@ fn marked(root: &Path) -> Result<String, Never> {
     let Ok(said) = commit(root);
 
     Ok(match said.is_empty() {
-        true => "console apply".to_string(),
-        false => format!("console apply {said}"),
+        true => console_boot_entries::APPLY.to_string(),
+        false => format!("{} {said}", console_boot_entries::APPLY),
     })
 }
 

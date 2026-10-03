@@ -34,6 +34,7 @@ console-core-number-conversion.workspace = true
 console-core-internal-programs.workspace = true
 console-core-places.workspace = true
 console-core-shapes.workspace = true
+console-core-state-machine.workspace = true
 console-core-zip-files.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true
@@ -46,3 +47,4 @@ workspace = true
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true
+console-waiting.workspace = true

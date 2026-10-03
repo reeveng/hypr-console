@@ -11,8 +11,10 @@
 //! directly, because before a login there is no compositor to hand it a
 //! surface. `display` is that half, `turn` lays the picture onto a panel
 //! mounted sideways, and `greeting` and `picture` are what decides and what is
-//! drawn, both asked with no machine at all.
+//! drawn, both asked with no machine at all. `bar` is the edge of the bar over
+//! the ring: the readings it is handed and the presses on it carried out.
 
+pub mod bar;
 pub mod display;
 pub mod greeting;
 pub mod picture;

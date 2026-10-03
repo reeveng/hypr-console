@@ -19,14 +19,15 @@ use console_compositor::Workspace;
 use console_core_color::palette::PaletteError;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_number_conversion::index;
+use console_core_number_conversion::{fitted, index};
 use console_draw_painting::{Frame, Run, measure_text, onto};
-use console_status_bar::state::{BarState, Open};
+use console_status_bar::lock_screen::{LockScreenBar, Menu};
+use console_status_bar::panels::{Panel, PanelEvent, Panels};
+use console_status_bar::state::BarState;
 use console_status_bar::reading::{Reading, Tone, StatusItem};
 use console_status_bar::showing::{
-    self, Bar, Face, Filling, Fitting, Measured, Slot, Wearing,
+    self, Bar, BarAction, Face, Filling, Fitting, Measured, Slot, Wearing,
 };
-use console_onscreen::Up;
 
 const SCREEN: Size<u32> = Size { width: 1024, height: 640 };
 
@@ -50,7 +51,7 @@ fn sample_state() -> Result<BarState, Never> {
     let Ok(bell) = says("\u{f009c}", None, Tone::Secondary);
     let Ok(music) = says("\u{f075a}", None, Tone::Plain);
 
-    Ok(BarState {
+    let mut held = BarState {
         readings: vec![
             (StatusItem::Sound, sound),
             (StatusItem::Bluetooth, bluetooth),
@@ -66,16 +67,11 @@ fn sample_state() -> Result<BarState, Never> {
             Workspace { id: 3, named: String::from("3"), windows: Some(0) },
         ],
         front: Some(2),
-        open: Open {
-            launcher: Up::OnScreen,
-            keyboard: Up::NotThere,
-            music: Up::NotThere,
-            notifications: Up::NotThere,
-            calendar: Up::NotThere,
-            settings: Up::NotThere,
-            tab: None,
-        },
-    })
+        panels: Panels::default(),
+    };
+    let Ok(_starts_nothing) = held.told(PanelEvent::Shown(vec![Panel::Launcher]));
+
+    Ok(held)
 }
 
 fn measure(slots: &[Slot], fitting: Fitting) -> Result<Vec<Measured>, Never> {
@@ -250,6 +246,52 @@ fn a_picture_of_the_bar_is_written_when_someone_asks_for_one() -> Result<(), Box
     console_core_atomic_writes::whole(&into, &pixels)?;
 
     println!("{}: {}x{} bgra", into.display(), device.width, device.height);
+
+    Ok(())
+}
+
+fn over_the_way_in(menu: Menu) -> Result<LockScreenBar, Never> {
+    let Ok(sound) = says("\u{f0580}", Some("50%\u{2007}"), Tone::Plain);
+    let Ok(battery) = says("\u{f007e}", Some("64%\u{2007}"), Tone::Plain);
+
+    Ok(LockScreenBar {
+        readings: [(StatusItem::Sound, sound), (StatusItem::Battery, battery)].into_iter().collect(),
+        clock: String::from("Sun 20 Sep  02:15"),
+        menu: Some(menu),
+        focus: None,
+    })
+}
+
+#[test]
+fn a_row_hangs_under_the_bar_inside_the_screen_and_a_thumb_on_each_choice_lands_on_it() -> Result<(), Box<dyn Error>> {
+    let wearing = sample_palette()?;
+    let Ok(fitting) = Fitting::of_em();
+    let Ok(tall) = fitting.height();
+    let Ok(across) = fitted::<u32, i32>(SCREEN.width);
+    let Ok(down) = fitted::<u32, i32>(tall);
+
+    for (menu, many) in [(Menu::Power, 3), (Menu::Sound, 3)] {
+        let Ok(bar) = over_the_way_in(menu);
+        let Ok(drawn) = bar.pictured(&wearing, SCREEN);
+        let row: Vec<_> = drawn
+            .touching
+            .iter()
+            .filter(|region| matches!(region.action, BarAction::Power(_) | BarAction::Volume(_)))
+            .collect();
+
+        assert_eq!(row.len(), many, "the {menu:?} row is not every choice it offers");
+
+        for region in row {
+            let Ok(wide) = fitted::<u32, i32>(region.panel.size.width);
+            let Ok(high) = fitted::<u32, i32>(region.panel.size.height);
+            let middle = Point { x: region.panel.at.x.saturating_add(wide.div_euclid(2)), y: region.panel.at.y.saturating_add(high.div_euclid(2)) };
+            let Ok(landed) = drawn.on(middle);
+
+            assert!(region.panel.at.y >= down, "{:?} is drawn over the bar rather than under it", region.action);
+            assert!(region.panel.at.x.saturating_add(wide) <= across, "{:?} runs off the right of the screen", region.action);
+            assert_eq!(landed, Some(region.action), "a thumb on {:?} lands on something else", region.action);
+        }
+    }
 
     Ok(())
 }

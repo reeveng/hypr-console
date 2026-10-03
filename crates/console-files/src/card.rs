@@ -42,45 +42,18 @@ use crate::standing::{
     self, Closes, Files, HERE_START, FilesEvent, FilesEffect, LINE, Line, Destination, Standing, WAYS_START, closes,
     first_thing,
 };
-use console_panel::actor::{self, Address, Answer as Reply};
-use console_program_contract::{Effect, Program as _, Update, Event};
+use console_actor::Actor;
+use console_program_contract::{Effect, Event};
 use console_panel::page::{Answer, Aside, Handler, Heading, Page, Picture, Row, Rows, Showing, OnChosen, Subject};
 use console_panel::card::Card;
 
 const NOTHING_SAYS_WHAT_IT_IS: &str = "";
 
 
-enum Message {
-    Event(FilesEvent, Reply<Vec<Effect<FilesEffect>>>),
-    At(Reply<Standing>),
-}
-
-struct Looking(Standing);
-
-impl actor::Machine for Looking {
-    type Message = Message;
-
-    fn step(self, message: Message) -> Self {
-        match message {
-            Message::Event(heard, answer) => {
-                let Update { state, effects } = Files::update(&self.0, &Event::Custom(heard));
-                let _ = answer.say(effects);
-
-                Looking(state)
-            }
-            Message::At(answer) => {
-                let _ = answer.say(self.0.clone());
-
-                self
-            },
-        }
-    }
-}
-
-type ActorAddress = Address<Message>;
+type ActorAddress = Actor<Files>;
 
 fn standing_of(held: &ActorAddress) -> Result<Standing, Never> {
-    match held.ask(Message::At) {
+    match held.get() {
         Ok(standing) => Ok(standing),
         Err(_the_actor_has_gone) => {
             eprintln!("files: the panel's own state is missing, so it drew nothing");
@@ -91,7 +64,7 @@ fn standing_of(held: &ActorAddress) -> Result<Standing, Never> {
 }
 
 fn decided(held: &ActorAddress, heard: FilesEvent) -> Result<Vec<Effect<FilesEffect>>, Never> {
-    Ok(match held.ask(|answer| Message::Event(heard, answer)) {
+    Ok(match held.send(Event::Custom(heard)) {
         Ok(effects) => effects,
         Err(_the_actor_has_gone) => {
             eprintln!("files: the panel's own state is missing, so the press did nothing");
@@ -605,7 +578,7 @@ fn ask_for_a_folder(
     let held = held.clone();
 
     let answer = answer(move |showing, word| {
-        let Ok(name) = doing::a_name(word);
+        let Ok(name) = console_core_file_names::a_name(word);
 
         let name = match name {
             Some(name) => name,
@@ -906,7 +879,7 @@ fn perform(
             let path = path.to_path_buf();
 
             let answer = answer(move |showing, word| {
-                let Ok(name) = doing::a_name(word);
+                let Ok(name) = console_core_file_names::a_name(word);
 
                 let name = match name {
                     Some(name) => name,
@@ -1104,42 +1077,17 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
 
     places.extend(plugged);
 
-    let Ok(mut first) = Standing::of(places.clone());
+    let Ok(mut opening) = Standing::of(places);
 
     let opened_at = match asked.as_deref() {
         Some(said) => {
-            let Ok(opened) = went_to(&mut first, said);
+            let Ok(opened) = went_to(&mut opening, said);
 
             opened
         }
         None => None,
     };
+    let Ok(card) = Card::supervised::<Files, _>(opening, pages);
 
-    drop(first);
-
-    let asked_again = asked.clone();
-
-    let Ok(standing) = actor::supervise(move || {
-        let Ok(mut standing) = Standing::of(places.clone());
-
-        match asked_again.as_deref() {
-            Some(said) => {
-                let _ = went_to(&mut standing, said);
-            }
-            None => {},
-        }
-
-        Looking(standing)
-    });
-
-    let held = standing.address.clone();
-
-    let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&held);
-
-        pages
-    }));
-    let Ok(card) = card.opening_at(opened_at.as_deref().or(asked.as_deref()));
-
-    card.shutting(Box::new(move || standing.shutdown()))
+    card.opening_at(opened_at.as_deref().or(asked.as_deref()))
 }

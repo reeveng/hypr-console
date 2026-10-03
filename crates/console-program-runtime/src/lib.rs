@@ -80,9 +80,10 @@ use console_program_lifetime::{Detached, Still, let_go, threads};
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
+use console_core_state_machine::{Machine, Transition};
 use console_program_contract::{
-    Answer, Arguments, Change, Choice, Effect, Exit, Executable, Initial, Program, Prompt, Timer, Command,
-    Notification, Elapsed, Update, Subscription, ExitStatus, Event, FileWrite,
+    Answer, Arguments, Change, Choice, Effect, Exit, Executable, Prompt, Timer, Command,
+    Notification, Elapsed, Subscription, ExitStatus, Event, FileWrite,
 };
 
 pub trait Interpreter {
@@ -166,18 +167,15 @@ struct Waits<'a, E> {
     listening: Subscribed,
 }
 
-pub fn run<P, C>(called: &str, arguments: &Arguments, interpreter: &mut C) -> Result<ExitCode, Never>
+pub fn run<M, C>(called: &str, arguments: &Arguments, interpreter: &mut C) -> Result<ExitCode, Never>
 where
-    P: Program,
-    P::Event: Send + 'static,
-    C: Interpreter<Event = P::Event, Effect = P::Effect>,
+    M: Machine<Input = Arguments, Request = Event<C::Event>, Effect = Effect<C::Effect>>,
+    C: Interpreter<Event: Send + 'static>,
 {
-    let Initial { state, subscriptions } = P::init(arguments);
-    let mut timers: Vec<Waiting> = Vec::new();
-    let mut queue: VecDeque<Event<P::Event>> = VecDeque::new();
+    let Ok(Transition { state, effects: initialized }) = M::initial_transition(arguments, None);
     let Ok(subscriber) = subscription::connect(&[]);
     let Ok((topics, pool)) = subscriber.split();
-    let (telling, arrived) = channel::<Arrived<P::Event>>();
+    let (telling, arrived) = channel::<Arrived<C::Event>>();
     let carrying = telling.clone();
 
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
@@ -200,17 +198,18 @@ where
         )
     )]
     let began = Instant::now();
+    let mut turning = Turning { held: state, timers: Vec::new(), queue: VecDeque::new(), running: Vec::new(), interpreter };
+    let asked = Context { called, topics: &topics, waits: &waits, began };
+    let Ok(ending) = carried_out(&initialized, &mut turning, &asked);
 
-    for want in &subscriptions {
-        let Ok(()) = subscribe(called, &mut timers, &topics, want, began);
+    match ending {
+        Some(how) => return ended(called, how),
+        None => {}
     }
 
-    queue.push_back(Event::Opened);
+    turning.queue.push_back(Event::Opened);
 
-    let turning = Turning { held: state, timers, queue, running: Vec::new(), interpreter };
-    let asked = Context { called, topics: &topics, waits: &waits, began };
-
-    Ok(match console_core_iteration::iterate(turning, |turning| turned::<P, C>(turning, &asked)) {
+    Ok(match console_core_iteration::iterate(turning, |turning| turned::<M, C>(turning, &asked)) {
         Ok(ended) => ended,
         Err(endless) => {
             eprintln!("{called}: {endless}");
@@ -235,15 +234,15 @@ struct Context<'a, E> {
     began: Instant,
 }
 
-type Turned<'i, P, C> = Step<Turning<'i, <P as Program>::State, <P as Program>::Event, C>, ExitCode>;
+type Turned<'i, M, C> = Step<Turning<'i, <M as Machine>::State, <C as Interpreter>::Event, C>, ExitCode>;
 
-fn turned<'i, P, C>(
-    mut turning: Turning<'i, P::State, P::Event, C>,
-    asked: &Context<'_, P::Event>,
-) -> Result<Turned<'i, P, C>, Never>
+fn turned<'i, M, C>(
+    mut turning: Turning<'i, M::State, C::Event, C>,
+    asked: &Context<'_, C::Event>,
+) -> Result<Turned<'i, M, C>, Never>
 where
-    P: Program,
-    C: Interpreter<Event = P::Event, Effect = P::Effect>,
+    M: Machine<Request = Event<C::Event>, Effect = Effect<C::Effect>>,
+    C: Interpreter,
 {
     let word = match turning.queue.pop_front() {
         Some(word) => word,
@@ -282,10 +281,11 @@ where
     };
 
     let last = matches!(word, Event::Stopping);
-    let Update { state: next, effects } = P::update(&turning.held, &word);
+    let Ok(Transition { state: next, effects }) = M::transition(turning.held, word);
+
     turning.held = next;
 
-    let Ok(ending) = carried_out::<P, C>(&effects, &mut turning, asked);
+    let Ok(ending) = carried_out(&effects, &mut turning, asked);
 
     let Ok(still) = reap(turning.running);
 
@@ -302,15 +302,11 @@ where
     })
 }
 
-fn carried_out<P, C>(
-    effects: &[Effect<P::Effect>],
-    turning: &mut Turning<'_, P::State, P::Event, C>,
-    asked: &Context<'_, P::Event>,
-) -> Result<Option<Exit>, Never>
-where
-    P: Program,
-    C: Interpreter<Event = P::Event, Effect = P::Effect>,
-{
+fn carried_out<S, C: Interpreter>(
+    effects: &[Effect<C::Effect>],
+    turning: &mut Turning<'_, S, C::Event, C>,
+    asked: &Context<'_, C::Event>,
+) -> Result<Option<Exit>, Never> {
     let called = asked.called;
     let mut ending: Option<Exit> = None;
 

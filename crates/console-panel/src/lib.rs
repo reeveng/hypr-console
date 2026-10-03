@@ -13,7 +13,6 @@
 //! under any of it, and what a panel drew is written down from the same
 //! placement rather than read back out of a widget tree.
 
-pub mod actor;
 pub mod arrivals;
 pub mod asked;
 pub mod before;

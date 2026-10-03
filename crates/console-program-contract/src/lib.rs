@@ -1,16 +1,21 @@
-//! What a program on this device is: the same events in, the same effects out.
+//! What a program on this device speaks: the events it can be told and the
+//! effects it can ask for.
 //!
 //! `docs/programs.md` is the argument and this is the contract it arrives at.
-//! A program here holds a state, is told one event at a time, and answers with
-//! the state it holds now and a list of what it wants done. It never does any
-//! of it. Something else -- the loop in the program's own `main`, which is
-//! the only part of it that touches a machine -- carries the effects out.
+//! A program here is a `console_core_state_machine::Machine` whose input is its
+//! [`Arguments`], whose requests are [`Event`]s and whose effects are
+//! [`Effect`]s: it holds a state, is told one event at a time, and answers with
+//! the state it holds now and what it wants done. It never does any of it.
+//! Something else -- the loop in the program's own `main`, which is the only
+//! part of it that touches a machine -- carries the effects out.
 //!
 //! Everything the plan claims falls out of that one split. A test is a list of
 //! events and a list of the effects that should come back, and it runs on a
 //! laptop with no compositor, no controller and no network, because nothing in
-//! here can reach one. [`transcript`] is that test, and it is the deliverable:
-//! a trait with no way to press it is a shape rather than a contract.
+//! here can reach one. The transcript is that test. It was written here first
+//! and moved into `console-core-state-machine` with the trait, when every
+//! machine on the desktop, and not only a program, came to be written the same
+//! way; this crate keeps the vocabulary only programs share.
 //!
 //! ## What is deliberately not here
 //!
@@ -24,10 +29,10 @@
 //! **Drawing.** `docs/programs.md` listed "draw these pages" as an effect and
 //! also gave the trait a `showing`, which is the same thing said twice. Only
 //! one of them can be the truth about what is on the screen, and it is
-//! `showing`: the runtime redraws from the state, which is the whole reason
-//! [`Program::State`] is asked to be `PartialEq`. So there is no `Effect::Show`
-//! here, and `showing` is not on [`Program`] either -- seven of the fourteen
-//! programs never draw, and a `Vec<Page>` they all have to return empty is the
+//! `showing`: the runtime redraws from the state, which is the whole reason a
+//! program's state is compared rather than told. So there is no `Effect::Show`
+//! here, and `showing` is not on the machine either -- most programs here
+//! never draw, and a `Vec<Page>` they all have to return empty is the
 //! ceremony that document is against. A program that draws says so by
 //! implementing a second trait, in the crate whose vocabulary a page is.
 //!
@@ -52,8 +57,8 @@
 //! are told.
 //!
 //! So the shared sets stay about kinds of effect, and a program names its own
-//! in its own crate: [`Program::Event`] for the events only it can be told, and
-//! [`Program::Effect`] for the effects only it can ask for. Both are
+//! in its own crate: `Event::Custom` carries the events only it can be told, and
+//! `Effect::Custom` the effects only it can ask for. Both are
 //! `console_core_never::Never` for a program that has neither, which is most of
 //! them. What this does not give up is the transcript -- a private effect is
 //! still a value that was decided rather than carried out, so it is still in
@@ -63,14 +68,10 @@
 
 pub mod arguments;
 pub mod effect;
-pub mod program;
-pub mod transcript;
 pub mod subscription;
 pub mod event;
 
 pub use arguments::{Arguments, Flag};
 pub use effect::{Effect, Exit, Executable, Prompt, Command, Notification, FileWrite};
-pub use program::{Initial, Program, Update};
-pub use transcript::{Step, Trace, run, run_from};
 pub use subscription::{Subscription, Timer};
 pub use event::{Answer, Change, Choice, Elapsed, Topic, ExitStatus, Event};

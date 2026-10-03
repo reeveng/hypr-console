@@ -64,7 +64,7 @@ use console_core_iteration::Step;
 use console_core_never::Never;
 use console_program_contract::Topic;
 use console_compositor::events::CompositorEvent;
-use console_input_controller::mode::{Woken, Mode};
+use console_input_controller::mode::{Focused, Woken, Mode};
 use console_input_controller::reading::{From, POLL, Ranges, Wake};
 use console_input_gamepad::axis::Range;
 use console_input_controller::turning::{Closed, Plugged, READ, Took, Turning};
@@ -748,6 +748,7 @@ fn closing() -> Result<(), Never> {
                 | CompositorEvent::LayerClosed
                 | CompositorEvent::WorkspaceChanged
                 | CompositorEvent::ScreenFocused
+                | CompositorEvent::WindowFocused
                 | CompositorEvent::ConfigurationReloaded
                 | CompositorEvent::Ignored => {},
             }
@@ -773,11 +774,19 @@ fn front_now() -> Result<Option<i64>, Never> {
     })
 }
 
+fn focused_now() -> Result<Focused, Never> {
+    Ok(match console_onscreen::in_front() {
+        Ok(focused) => focused,
+        Err(_the_compositor_would_not_say_which_window_is_in_front) => Focused::SomethingElse,
+    })
+}
+
 fn look(turning: &mut Turning) -> Result<Vec<Effect>, Unscrolled> {
     let screens = console_onscreen::screens()?;
     let Ok(awake) = Woken::detect();
 
-    let Ok(mode) = Mode::detect(&screens, awake);
+    let Ok(focused) = focused_now();
+    let Ok(mode) = Mode::detect(&screens, awake, focused);
     let Ok(now_in) = turning.held.now_in(mode);
 
     Ok(now_in)

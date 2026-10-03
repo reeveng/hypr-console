@@ -77,7 +77,7 @@ use console_events::subscription::{Received, Subscriber, Subscriptions};
 use console_program_lifetime::{BoundToParent, alongside};
 use console_draw_surface::{
     Anchor, Visible, Keyboard, KeyboardEvent, Keysym, Margin, Part, PointerEvent, Room, Surface, Under,
-    Wanted,
+    Wanted, Window,
 };
 
 use crate::description;
@@ -121,7 +121,7 @@ pub enum Opened {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Framing {
     Card,
-    Screen,
+    Window,
 }
 
 pub struct Close(Arc<AtomicBool>);
@@ -2192,7 +2192,7 @@ pub(crate) fn shapes(
 
     let (round, fill, edge) = match (state.opened, state.framing) {
         (Opened::Expanded, _) => (Round(0), wearing.night, Edge::None),
-        (Opened::No, Framing::Screen) => (Round(0), wearing.panel, Edge::None),
+        (Opened::No, Framing::Window) => (Round(0), wearing.panel, Edge::None),
         (Opened::No, Framing::Card) => (Round(CARD_ROUND), wearing.panel, Edge::Of { wide: CARD_EDGE, color: wearing.pink }),
     };
 
@@ -3393,7 +3393,7 @@ pub fn app(who: &str, card: crate::card::Card) -> Result<(), Never> {
     let Ok(()) = crate::whose::set_owner(who);
     let Ok(()) = crate::opening::started(who);
     let Ok(tells) = description::where_to();
-    let Ok(()) = serve(who, build, start.as_deref(), Framing::Screen, Arc::new(AtomicBool::new(false)), Reported { front: None, first_frame: None, tells, presses: 0, told_presses: 0 });
+    let Ok(()) = serve(who, build, start.as_deref(), Framing::Window, Arc::new(AtomicBool::new(false)), Reported { front: None, first_frame: None, tells, presses: 0, told_presses: 0 });
 
     done()
 }
@@ -3445,7 +3445,7 @@ fn card_taking(surface: &mut Surface, size: &SurfaceSize, opened: Opened, framin
 
 fn card_on(surface: &SurfaceSize, opened: Opened, framing: Framing) -> Result<Card, Never> {
     match (opened, framing) {
-        (Opened::Expanded, _) | (Opened::No, Framing::Screen) => {
+        (Opened::Expanded, _) | (Opened::No, Framing::Window) => {
             return Ok(Card { x: 0, y: 0, width: surface.width, height: surface.height });
         },
         (Opened::No, Framing::Card) => {},
@@ -3472,6 +3472,12 @@ fn covering() -> Result<Wanted, Never> {
         room: Room::Around,
         under: Under::None,
     })
+}
+
+fn windowed() -> Result<Window, Never> {
+    let Ok(whose) = crate::whose::name();
+
+    Ok(Window { app_id: whose.clone(), title: whose })
 }
 
 fn nth<T>(list: &[T], at: u32) -> Result<Option<&T>, Never> {
@@ -4012,9 +4018,20 @@ fn serving(
 
     let Ok(state) = opened_on(pages, start, framing);
 
-    let Ok(wanted) = covering();
+    let shown = match framing {
+        Framing::Card => {
+            let Ok(wanted) = covering();
 
-    match surface.show(&wanted) {
+            surface.show(&wanted)
+        }
+        Framing::Window => {
+            let Ok(window) = windowed();
+
+            surface.show_window(&window)
+        }
+    };
+
+    match shown {
         Ok(()) => {},
         Err(fault) => {
             eprintln!("console-panel: no surface to draw on: {fault}");
@@ -5480,7 +5497,7 @@ mod tests {
 
     #[test]
     fn an_app_is_the_whole_screen_and_a_panel_is_a_card_on_it() {
-        let Ok(app) = super::card_on(&SCREEN, Opened::No, super::Framing::Screen);
+        let Ok(app) = super::card_on(&SCREEN, Opened::No, super::Framing::Window);
         let Ok(panel) = super::card_on(&SCREEN, Opened::No, super::Framing::Card);
 
         assert_eq!(app, Card { x: 0, y: 0, width: 1024, height: 640 }, "an app left a margin round itself, which is a panel");

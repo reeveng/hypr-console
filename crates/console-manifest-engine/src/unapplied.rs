@@ -59,6 +59,7 @@ pub enum Unapplied {
     Pruning(PathBuf, String),
     NoBootEntry(u32),
     OneShotRefused(String),
+    OnASnapshot(u32),
 }
 
 impl fmt::Display for Unapplied {
@@ -172,6 +173,11 @@ impl fmt::Display for Unapplied {
                 "snapshot {number} has no entry in the boot menu, so the next boot cannot be sent back to it"
             ),
             Unapplied::OneShotRefused(said) => write!(to, "bootctl would not set the next boot: {said}"),
+            Unapplied::OnASnapshot(number) => write!(
+                to,
+                "this machine is running snapshot {number}, and an apply here would be written into the snapshot \
+                 rather than the machine; restart into the ordinary entry and apply there"
+            ),
         }
     }
 }

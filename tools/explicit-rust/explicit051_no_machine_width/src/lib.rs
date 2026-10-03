@@ -26,6 +26,9 @@
 //! `console_core_number_conversion::index` hands back, which is the meeting the
 //! help sends every other site to; and an array's length, which is a `usize`
 //! the compiler keeps inside the type rather than a number anybody holds. A
+//! const generic parameter is the same length given a name so a function can
+//! be written once for several arrays, and the language will not take one of
+//! any other width where an array's length is wanted, so it is left alone too. A
 //! binding whose name begins with `_` is a value said to be thrown away, and a
 //! number thrown away is not held at any width.
 //!
@@ -42,7 +45,7 @@ extern crate rustc_middle;
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::{IntTy, UintTy};
 use rustc_hir::def::Res;
-use rustc_hir::{AmbigArg, Expr, ExprKind, LetStmt, PrimTy, QPath, Ty, TyKind};
+use rustc_hir::{AmbigArg, Expr, ExprKind, GenericParamKind, LetStmt, PrimTy, QPath, Ty, TyKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 
@@ -81,7 +84,7 @@ impl<'tcx> LateLintPass<'tcx> for Explicit051NoMachineWidth {
     fn check_ty(&mut self, context: &LateContext<'tcx>, written_type: &'tcx Ty<'tcx, AmbigArg>) {
         let written_type: &Ty<'tcx> = written_type.as_unambig_ty();
 
-        if written_type.span.from_expansion() {
+        if written_type.span.from_expansion() || is_const_parameter(context, written_type) {
             return;
         }
 
@@ -160,6 +163,17 @@ fn inferred_pointer_sized<'tcx>(context: &LateContext<'tcx>, inferred: ty::Ty<'t
     }
 
     None
+}
+
+fn is_const_parameter(context: &LateContext<'_>, written_type: &Ty<'_>) -> bool {
+    let Some(generics) = context.tcx.parent_hir_node(written_type.hir_id).generics() else {
+        return false;
+    };
+
+    generics.params.iter().any(|parameter| match parameter.kind {
+        GenericParamKind::Const { ty, .. } => ty.hir_id == written_type.hir_id,
+        GenericParamKind::Lifetime { .. } | GenericParamKind::Type { .. } => false,
+    })
 }
 
 fn is_conversion_to_position(context: &LateContext<'_>, initializer: &Expr<'_>) -> bool {

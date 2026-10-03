@@ -40,6 +40,8 @@ serde_json = "1"
 console-music-player.workspace = true
 console-books.workspace = true
 console-panel.workspace = true
+console-core-state-machine.workspace = true
+console-actor.workspace = true
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true

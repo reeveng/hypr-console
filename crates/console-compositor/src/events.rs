@@ -42,6 +42,7 @@ pub enum CompositorEvent {
     WindowFloated,
     WindowPinned,
     WindowFilled,
+    WindowFocused,
     LayerOpened,
     LayerClosed,
     WorkspaceChanged,
@@ -54,11 +55,12 @@ const OPENED: &str = "openwindow>>";
 const CLOSED: &str = "closewindow>>";
 const RENAMED_WITH_TITLE: &str = "windowtitlev2>>";
 
-const CARRYING_NO_ADDRESS: [(&str, CompositorEvent); 9] = [
+const CARRYING_NO_ADDRESS: [(&str, CompositorEvent); 10] = [
     ("movewindowv2>>", CompositorEvent::WindowMoved),
     ("changefloatingmode>>", CompositorEvent::WindowFloated),
     ("pin>>", CompositorEvent::WindowPinned),
     ("fullscreen>>", CompositorEvent::WindowFilled),
+    ("activewindowv2>>", CompositorEvent::WindowFocused),
     ("openlayer>>", CompositorEvent::LayerOpened),
     ("closelayer>>", CompositorEvent::LayerClosed),
     ("workspacev2>>", CompositorEvent::WorkspaceChanged),
@@ -163,6 +165,8 @@ mod tests {
         assert_eq!(read("closelayer>>console-bar"), Ok(CompositorEvent::LayerClosed));
         assert_eq!(read("workspacev2>>2,2"), Ok(CompositorEvent::WorkspaceChanged));
         assert_eq!(read("focusedmon>>eDP-1,2"), Ok(CompositorEvent::ScreenFocused));
+        assert_eq!(read("activewindowv2>>5634f2a0"), Ok(CompositorEvent::WindowFocused));
+        assert_eq!(read("activewindow>>foot,a shell"), Ok(CompositorEvent::Ignored));
     }
 
     #[test]

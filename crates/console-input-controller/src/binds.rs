@@ -263,6 +263,7 @@ pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
         | CompositorEvent::LayerClosed
         | CompositorEvent::WorkspaceChanged
         | CompositorEvent::ScreenFocused
+        | CompositorEvent::WindowFocused
         | CompositorEvent::Ignored => Worth::Ignoring,
     })
 }

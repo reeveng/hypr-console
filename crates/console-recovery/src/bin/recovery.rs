@@ -57,7 +57,7 @@ impl Interpreter for Console {
 
         let Ok(()) = threads::let_go(std::thread::spawn(move || {
             let _ended = console_core_iteration::iterate(devices, |mut devices| {
-                let woke = match devices.wait(None) {
+                let woke = match devices.wait(None, None) {
                     Ok(woke) => woke,
                     Err(why) => {
                         let _ = tell.end(Exit::Failure(format!("cannot wait for a press: {why}")));

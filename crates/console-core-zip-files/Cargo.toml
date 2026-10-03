@@ -10,6 +10,7 @@ console-core-checksums.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-number-conversion.workspace = true
+console-core-prefix-codes.workspace = true
 
 [lints]
 workspace = true

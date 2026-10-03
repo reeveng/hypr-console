@@ -3,7 +3,7 @@
 //! The panel used to hold this in an actor whose whole job was to be reachable
 //! from every closure that draws a row. What it holds is one of two things, so
 //! the actor was the shape rather than the state, and it is here as a
-//! `console_program_contract::Program`: a press goes in, a place and a list of
+//! `console_core_state_machine::Machine`: a press goes in, a place and a list of
 //! effects comes out, and none of it needs a daemon or a screen.
 //!
 //! Dismissing goes back to the list before the row it dismissed has gone. The
@@ -18,7 +18,8 @@
 
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Command, Event};
 
 pub const UP: u32 = 0;
 
@@ -52,49 +53,64 @@ pub enum Closes {
 
 pub struct Notifications;
 
-impl Program for Notifications {
+impl Machine for Notifications {
+    type Input = Arguments;
     type State = Destination;
-    type Event = NotificationsEvent;
-    type Effect = NotificationsEffect;
+    type Request = Event<NotificationsEvent>;
+    type Effect = Effect<NotificationsEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Destination> {
-        let Ok(opening) = Initial::new(Destination::List);
+    fn initialize(arguments: &Arguments, _previous: Option<Destination>, effects: &mut Effects) -> Result<Destination, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Destination, event: &Event<NotificationsEvent>) -> Update<Destination, NotificationsEffect> {
-        let Ok(turn) = match event {
-            Event::Custom(NotificationsEvent::Chosen(id)) => {
-                Update::new(Destination::One(*id), vec![Effect::Custom(NotificationsEffect::Replace(DEEPER))])
-            }
+    fn handle(state: Destination, event: Event<NotificationsEvent>, effects: &mut Effects) -> Result<Destination, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            Event::Custom(NotificationsEvent::Back) => match state {
-                Destination::One(_) => Update::new(Destination::List, vec![Effect::Custom(NotificationsEffect::Replace(UP))]),
-                Destination::List => Update::none(*state),
-            },
-
-            Event::Custom(NotificationsEvent::Dismissed(id)) => {
-                let Ok(dismiss) = closing(*id);
-
-                Update::new(
-                    Destination::List,
-                    vec![Effect::Run(dismiss), Effect::Custom(NotificationsEffect::Replace(UP))],
-                )
-            }
-
-            Event::Custom(NotificationsEvent::ClearAll) => {
-                let Ok(clear) = clearing();
-
-                Update::new(Destination::List, vec![Effect::Run(clear), Effect::Custom(NotificationsEffect::Refresh)])
-            }
-
-            Event::Opened | Event::Changed(_) | Event::Tick(_, _) | Event::Replied(_)
-            | Event::Chosen(_) | Event::Stopping => Update::none(*state),
-        };
-
-        turn
+        decided.offered(effects)
     }
+}
+
+type Effects = Queue<Effect<NotificationsEffect>>;
+
+fn initial(_argv: &Arguments) -> Result<Transition<Destination, Effect<NotificationsEffect>>, Never> {
+    let Ok(opening) = Transition::without_effects(Destination::List);
+
+    Ok(opening)
+}
+
+fn decide(state: &Destination, event: &Event<NotificationsEvent>) -> Result<Transition<Destination, Effect<NotificationsEffect>>, Never> {
+    let Ok(turn) = match event {
+        Event::Custom(NotificationsEvent::Chosen(id)) => {
+            Transition::new(Destination::One(*id), vec![Effect::Custom(NotificationsEffect::Replace(DEEPER))])
+        }
+
+        Event::Custom(NotificationsEvent::Back) => match state {
+            Destination::One(_) => Transition::new(Destination::List, vec![Effect::Custom(NotificationsEffect::Replace(UP))]),
+            Destination::List => Transition::without_effects(*state),
+        },
+
+        Event::Custom(NotificationsEvent::Dismissed(id)) => {
+            let Ok(dismiss) = closing(*id);
+
+            Transition::new(
+                Destination::List,
+                vec![Effect::Run(dismiss), Effect::Custom(NotificationsEffect::Replace(UP))],
+            )
+        }
+
+        Event::Custom(NotificationsEvent::ClearAll) => {
+            let Ok(clear) = clearing();
+
+            Transition::new(Destination::List, vec![Effect::Run(clear), Effect::Custom(NotificationsEffect::Refresh)])
+        }
+
+        Event::Opened | Event::Changed(_) | Event::Tick(_, _) | Event::Replied(_)
+        | Event::Chosen(_) | Event::Stopping => Transition::without_effects(*state),
+    };
+
+    Ok(turn)
 }
 
 fn closing(id: u32) -> Result<Command, Never> {
@@ -120,7 +136,7 @@ pub fn closes(state: &Destination) -> Result<Closes, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::run;
+    use console_core_state_machine::run;
 
     use super::*;
 

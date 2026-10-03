@@ -12,7 +12,7 @@ use console_core_geometry::Point;
 use console_input_event_devices::EventType;
 use console_input_controller::effect::{Effect, Output};
 use console_input_controller::actions::Table;
-use console_input_controller::mode::{Woken, Mode};
+use console_input_controller::mode::{Focused, Woken, Mode};
 
 pub use console_input_controller::mode::InputHandling;
 use console_input_controller::clock::Instant;
@@ -131,7 +131,7 @@ impl Here {
             None => return Ok(()),
         };
 
-        let Ok(seen) = Mode::detect(&layers, self.awake);
+        let Ok(seen) = Mode::detect(&layers, self.awake, Focused::SomethingElse);
 
         self.in_front(seen)
     }

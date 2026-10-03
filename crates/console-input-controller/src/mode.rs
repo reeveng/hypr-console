@@ -27,17 +27,24 @@
 //! is the one thing here that cannot be out of date about who is holding what.
 //! `input_handling` is what is left, and it is this daemon's own restraint rather than
 //! anything it does to the machine.
+//!
+//! An app this desktop wrote -- the books, the files, the pictures -- is a window
+//! on a workspace like any other, and nothing over the desktop says it is there.
+//! What says it is the window in front: one of ours in front is `App`, where a
+//! press means what it means in a panel, and anything else is the desktop. A
+//! panel opened over one of ours is still a panel.
 
 use console_core_never::Never;
 use console_onscreen::{Up, over_the_desktop, up};
 
-pub use console_onscreen::{ASKING, HOME, KEYBOARD, Over, SYSTEM_SURFACES};
+pub use console_onscreen::{ASKING, Focused, HOME, KEYBOARD, Over, SYSTEM_SURFACES};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Mode {
     #[default]
     Desktop,
     Tabs,
+    App,
     HomeScreen,
     Standing,
     Keyboard,
@@ -45,7 +52,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn detect(screens: &[console_compositor::Layer], awake: Woken) -> Result<Self, Never> {
+    pub fn detect(screens: &[console_compositor::Layer], awake: Woken, focused: Focused) -> Result<Self, Never> {
         let Ok(asking) = up(screens, ASKING);
 
         match asking {
@@ -63,9 +70,10 @@ impl Mode {
         let Ok(over) = over_the_desktop(screens);
         let Ok(home) = up(screens, HOME);
 
-        Ok(match over {
-            Over::Some => Mode::Tabs,
-            Over::None => match (home, awake) {
+        Ok(match (over, focused) {
+            (Over::Some, _) => Mode::Tabs,
+            (Over::None, Focused::OurApp) => Mode::App,
+            (Over::None, Focused::SomethingElse) => match (home, awake) {
                 (Up::OnScreen, Woken::Yes) => Mode::Standing,
                 (Up::OnScreen, Woken::No) => Mode::HomeScreen,
                 (Up::NotThere, _) => Mode::Desktop,
@@ -95,12 +103,20 @@ mod tests {
 
     type Failure = Box<dyn std::error::Error>;
 
-    fn seen(said: &str, awake: Woken) -> Result<Mode, Failure> {
+    fn seen_with(said: &str, awake: Woken, focused: Focused) -> Result<Mode, Failure> {
         let value: serde_json::Value = serde_json::from_str(said)?;
         let layers = console_compositor::said_of(console_compositor::Layers, value)?;
-        let Ok(mode) = Mode::detect(&layers, awake);
+        let Ok(mode) = Mode::detect(&layers, awake, focused);
 
         Ok(mode)
+    }
+
+    fn seen(said: &str, awake: Woken) -> Result<Mode, Failure> {
+        seen_with(said, awake, Focused::SomethingElse)
+    }
+
+    fn seen_over_ours(said: &str) -> Result<Mode, Failure> {
+        seen_with(said, Woken::No, Focused::OurApp)
     }
 
     const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
@@ -112,6 +128,34 @@ mod tests {
         let mode = seen(NOTHING_UP, Woken::No)?;
 
         assert_eq!(mode,Mode::Desktop);
+
+        Ok(())
+    }
+
+    #[test]
+    fn one_of_our_apps_in_front_is_the_app_even_with_the_home_screen_under_it() -> Result<(), Failure> {
+        let mode = seen_over_ours(NOTHING_UP)?;
+
+        assert_eq!(mode, Mode::App);
+
+        let under = r#"{"eDP-1":{"levels":{
+            "1":[{"namespace":"console-home","h":1600}],
+            "2":[{"namespace":"console-bar","h":40}]}}}"#;
+
+        let over_home = seen_over_ours(under)?;
+
+        assert_eq!(over_home, Mode::App);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_panel_over_one_of_our_apps_is_still_a_panel() -> Result<(), Failure> {
+        let said = r#"{"eDP-1":{"levels":{"3":[{"namespace":"settings-panel","h":1562}]}}}"#;
+
+        let mode = seen_over_ours(said)?;
+
+        assert_eq!(mode, Mode::Tabs);
 
         Ok(())
     }
@@ -194,6 +238,7 @@ mod tests {
     fn the_daemon_acts_everywhere_except_under_the_keyboard() {
         assert_eq!(Mode::Desktop.input_handling(), Ok(InputHandling::Enabled));
         assert_eq!(Mode::Tabs.input_handling(), Ok(InputHandling::Enabled));
+        assert_eq!(Mode::App.input_handling(), Ok(InputHandling::Enabled));
         assert_eq!(Mode::Keyboard.input_handling(), Ok(InputHandling::Disabled));
         assert_eq!(Mode::Prompt.input_handling(), Ok(InputHandling::Disabled));
     }

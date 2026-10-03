@@ -29,7 +29,8 @@ use console_core_internal_programs::InternalProgram;
 use std::path::PathBuf;
 
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Command, Event};
 
 use crate::kinds::Kind;
 use crate::playing::{self, Along, Captions, Running};
@@ -114,146 +115,161 @@ pub enum WakeOutcome {
 
 pub struct Watch;
 
-impl Program for Watch {
+impl Machine for Watch {
+    type Input = Arguments;
     type State = Watching;
-    type Event = ViewerEvent;
-    type Effect = ViewerEffect;
+    type Request = Event<ViewerEvent>;
+    type Effect = Effect<ViewerEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Watching> {
-        let Ok(watching) = Watching::of(Reel::default(), Since::ZERO);
-        let Ok(opening) = Initial::new(watching);
+    fn initialize(arguments: &Arguments, _previous: Option<Watching>, effects: &mut Effects) -> Result<Watching, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Watching, event: &Event<ViewerEvent>) -> Update<Watching, ViewerEffect> {
-        let heard = match event {
-            Event::Custom(heard) => heard,
-            Event::Opened
-            | Event::Changed(_)
-            | Event::Tick(_, _)
-            | Event::Replied(_)
-            | Event::Chosen(_)
-            | Event::Stopping => {
-                let Ok(nothing) = Update::none(state.clone());
+    fn handle(state: Watching, event: Event<ViewerEvent>, effects: &mut Effects) -> Result<Watching, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-                return nothing;
-            }
-        };
-
-        let Ok(turn) = match heard {
-            ViewerEvent::Stepped { by, at } => {
-                let mut reel = state.reel.clone();
-
-                let Ok(()) = reel.step(*by);
-                let Ok(rewound) = state.rewound();
-
-                Update::new(
-                    Watching { reel, stirred: *at, ..rewound },
-                    vec![Effect::Custom(ViewerEffect::Refresh)],
-                )
-            }
-
-            ViewerEvent::StoodOn { name, at } => {
-                let mut reel = state.reel.clone();
-
-                let Ok(_) = reel.stand_on(name);
-                let Ok(rewound) = state.rewound();
-
-                Update::new(
-                    Watching { reel, stirred: *at, ..rewound },
-                    vec![Effect::Custom(ViewerEffect::TurnToTheCard)],
-                )
-            }
-
-            ViewerEvent::Listed { listing, at } => relisted(state, listing, *at),
-
-            ViewerEvent::Scrubbed { by, at } => {
-                let Ok(step) = console_core_number_conversion::fitted(playing::STEP);
-                let step = i64::from(*by).saturating_mul(step);
-                let Ok(along) = state.along.moved(step);
-
-                Update::none(Watching {
-                    along,
-                    sought: Some(along.at),
-                    stirred: *at,
-                    ..state.clone()
-                })
-            }
-
-            ViewerEvent::SoughtTo { fraction, at } => {
-                let Ok(along) = state.along.sought(*fraction);
-
-                Update::new(
-                    Watching { along, sought: Some(along.at), stirred: *at, ..state.clone() },
-                    vec![Effect::Custom(ViewerEffect::Refresh)],
-                )
-            }
-
-            ViewerEvent::Running(at) => {
-                let Ok(other) = state.running.other();
-
-                Update::new(
-                    Watching { running: other, stirred: *at, ..state.clone() },
-                    vec![Effect::Custom(ViewerEffect::Refresh)],
-                )
-            }
-
-            ViewerEvent::Speed { which, at } => {
-                Update::none(Watching { speed: *which, stirred: *at, ..state.clone() })
-            }
-
-            ViewerEvent::Text { which, at } => {
-                let Ok(chosen) = Captions::from_track(*which);
-
-                Update::none(Watching { captions: chosen, stirred: *at, ..state.clone() })
-            }
-
-            ViewerEvent::Tracks(tracks) => {
-                Update::none(Watching { tracks: *tracks, ..state.clone() })
-            }
-
-            ViewerEvent::Where { at, whole } => {
-                let along = Along { at: *at, whole: *whole };
-
-                Update::none(Watching { along, ..state.clone() })
-            }
-
-            ViewerEvent::WakeOutcome(at) => Update::none(Watching { stirred: *at, ..state.clone() }),
-
-            ViewerEvent::Shown(at) => {
-                let Ok(files) = Command::internal(FILES, &[&at.to_string_lossy()]);
-
-                Update::new(state.clone(), vec![Effect::Spawn(files)])
-            }
-        };
-
-        turn
+        decided.offered(effects)
     }
+}
+
+type Effects = Queue<Effect<ViewerEffect>>;
+
+fn initial(_argv: &Arguments) -> Result<Transition<Watching, Effect<ViewerEffect>>, Never> {
+    let Ok(watching) = Watching::of(Reel::default(), Since::ZERO);
+    let Ok(opening) = Transition::without_effects(watching);
+
+    Ok(opening)
+}
+
+fn decide(state: &Watching, event: &Event<ViewerEvent>) -> Result<Transition<Watching, Effect<ViewerEffect>>, Never> {
+    let heard = match event {
+        Event::Custom(heard) => heard,
+        Event::Opened
+        | Event::Changed(_)
+        | Event::Tick(_, _)
+        | Event::Replied(_)
+        | Event::Chosen(_)
+        | Event::Stopping => {
+            let Ok(nothing) = Transition::without_effects(state.clone());
+
+            return Ok(nothing);
+        }
+    };
+
+    let Ok(turn) = match heard {
+        ViewerEvent::Stepped { by, at } => {
+            let mut reel = state.reel.clone();
+
+            let Ok(()) = reel.step(*by);
+            let Ok(rewound) = state.rewound();
+
+            Transition::new(
+                Watching { reel, stirred: *at, ..rewound },
+                vec![Effect::Custom(ViewerEffect::Refresh)],
+            )
+        }
+
+        ViewerEvent::StoodOn { name, at } => {
+            let mut reel = state.reel.clone();
+
+            let Ok(_) = reel.stand_on(name);
+            let Ok(rewound) = state.rewound();
+
+            Transition::new(
+                Watching { reel, stirred: *at, ..rewound },
+                vec![Effect::Custom(ViewerEffect::TurnToTheCard)],
+            )
+        }
+
+        ViewerEvent::Listed { listing, at } => relisted(state, listing, *at),
+
+        ViewerEvent::Scrubbed { by, at } => {
+            let Ok(step) = console_core_number_conversion::fitted(playing::STEP);
+            let step = i64::from(*by).saturating_mul(step);
+            let Ok(along) = state.along.moved(step);
+
+            Transition::without_effects(Watching {
+                along,
+                sought: Some(along.at),
+                stirred: *at,
+                ..state.clone()
+            })
+        }
+
+        ViewerEvent::SoughtTo { fraction, at } => {
+            let Ok(along) = state.along.sought(*fraction);
+
+            Transition::new(
+                Watching { along, sought: Some(along.at), stirred: *at, ..state.clone() },
+                vec![Effect::Custom(ViewerEffect::Refresh)],
+            )
+        }
+
+        ViewerEvent::Running(at) => {
+            let Ok(other) = state.running.other();
+
+            Transition::new(
+                Watching { running: other, stirred: *at, ..state.clone() },
+                vec![Effect::Custom(ViewerEffect::Refresh)],
+            )
+        }
+
+        ViewerEvent::Speed { which, at } => {
+            Transition::without_effects(Watching { speed: *which, stirred: *at, ..state.clone() })
+        }
+
+        ViewerEvent::Text { which, at } => {
+            let Ok(chosen) = Captions::from_track(*which);
+
+            Transition::without_effects(Watching { captions: chosen, stirred: *at, ..state.clone() })
+        }
+
+        ViewerEvent::Tracks(tracks) => {
+            Transition::without_effects(Watching { tracks: *tracks, ..state.clone() })
+        }
+
+        ViewerEvent::Where { at, whole } => {
+            let along = Along { at: *at, whole: *whole };
+
+            Transition::without_effects(Watching { along, ..state.clone() })
+        }
+
+        ViewerEvent::WakeOutcome(at) => Transition::without_effects(Watching { stirred: *at, ..state.clone() }),
+
+        ViewerEvent::Shown(at) => {
+            let Ok(files) = Command::internal(FILES, &[&at.to_string_lossy()]);
+
+            Transition::new(state.clone(), vec![Effect::Spawn(files)])
+        }
+    };
+
+    Ok(turn)
 }
 
 fn relisted(
     state: &Watching,
     listing: &[(String, String)],
     at: Since,
-) -> Result<Update<Watching, ViewerEffect>, Never> {
+) -> Result<Transition<Watching, Effect<ViewerEffect>>, Never> {
     let Ok(showing) = state.current();
     let name = showing.name.clone();
     let Ok(found) = Reel::of(listing, &name);
 
     let mut reel = match found {
         Some(reel) => reel,
-        None => return Update::none(state.clone()),
+        None => return Transition::without_effects(state.clone()),
     };
 
     let Ok(stood) = reel.stand_on(&name);
 
     match stood {
-        Stood::OnIt => Update::none(Watching { reel, ..state.clone() }),
+        Stood::OnIt => Transition::without_effects(Watching { reel, ..state.clone() }),
         Stood::NotThere => {
             let Ok(rewound) = state.rewound();
 
-            Update::none(Watching { reel, stirred: at, ..rewound })
+            Transition::without_effects(Watching { reel, stirred: at, ..rewound })
         },
     }
 }
@@ -294,7 +310,7 @@ pub fn plays(state: &Watching) -> Result<Kind, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Trace, run_from};
+    use console_core_state_machine::{Trace, run_from};
 
     use super::*;
 
@@ -323,10 +339,10 @@ mod tests {
         Ok(&shot.name)
     }
 
-    fn run_events(from: &Watching, heard: &[ViewerEvent]) -> Result<Trace<Watching, ViewerEvent, ViewerEffect>, Never> {
+    fn run_events(from: &Watching, heard: &[ViewerEvent]) -> Result<Trace<Watching, Event<ViewerEvent>, Effect<ViewerEffect>>, Never> {
         let events: Vec<Event<ViewerEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        run_from::<Watch>(from, &events)
+        run_from::<Watch>(from.clone(), &events)
     }
 
     fn a_film_part_way_through() -> Result<Watching, Failure> {

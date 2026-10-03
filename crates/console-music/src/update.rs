@@ -20,7 +20,8 @@
 use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
-use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Command, Event};
 
 use console_core_external_programs::Program as ExternalProgram;
 
@@ -87,99 +88,114 @@ pub enum Closes {
 
 pub struct Music;
 
-impl Program for Music {
+impl Machine for Music {
+    type Input = Arguments;
     type State = Standing;
-    type Event = MusicEvent;
-    type Effect = MusicEffect;
+    type Request = Event<MusicEvent>;
+    type Effect = Effect<MusicEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Standing> {
-        let Ok(opening) = Initial::new(Standing::default());
+    fn initialize(arguments: &Arguments, _previous: Option<Standing>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Standing, event: &Event<MusicEvent>) -> Update<Standing, MusicEffect> {
-        let heard = match event {
-            Event::Custom(heard) => heard,
-            Event::Opened
-            | Event::Changed(_)
-            | Event::Tick(_, _)
-            | Event::Replied(_)
-            | Event::Chosen(_)
-            | Event::Stopping => {
-                let Ok(nothing) = Update::none(state.clone());
+    fn handle(state: Standing, event: Event<MusicEvent>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-                return nothing;
-            }
-        };
-
-        let Ok(turn) = match heard {
-            MusicEvent::Typed(word) => match state.typed == *word {
-                true => Update::none(state.clone()),
-                false => Update::new(
-                    Standing { typed: word.clone(), ..state.clone() },
-                    vec![Effect::Custom(MusicEffect::Replace(0))],
-                ),
-            },
-
-            MusicEvent::Back => match state.typed.trim().is_empty() {
-                true => Update::none(state.clone()),
-                false => Update::new(
-                    Standing { typed: String::new(), ..state.clone() },
-                    vec![Effect::Custom(MusicEffect::ForgetTyping), Effect::Custom(MusicEffect::Replace(LINE))],
-                ),
-            },
-
-            MusicEvent::Arrived { unread } => match (state.read, unread) {
-                (Read::Requested, _) | (Read::NotYet, 0) => Update::none(state.clone()),
-                (Read::NotYet, unread) => {
-                    let Ok(note) = how_many(*unread);
-                    let Ok(index) = Command::internal(INDEX, &[]);
-
-                    Update::new(
-                        Standing { read: Read::Requested, ..state.clone() },
-                        vec![Effect::Custom(MusicEffect::Note(note)), Effect::Run(index)],
-                    )
-                }
-            },
-
-            MusicEvent::Along { by, of } => {
-                let Ok(press) = along(ButtonPress { at: state.press, many: *of }, *by);
-
-                Update::none(Standing { press, ..state.clone() })
-            }
-
-            MusicEvent::Shuffling(order) => Update::new(
-                state.clone(),
-                vec![Effect::Custom(MusicEffect::Shuffle(match order {
-                    Order::Any => Order::AsListed,
-                    Order::AsListed => Order::Any,
-                }))],
-            ),
-
-            MusicEvent::Repeating(over) => Update::new(
-                state.clone(),
-                vec![Effect::Custom(MusicEffect::Repeat(match over {
-                    Over::Again => Over::On,
-                    Over::On | Over::Round => Over::Again,
-                }))],
-            ),
-
-            MusicEvent::Chose { path, kind: _the_player_is_told_the_library_either_way } => {
-                let Ok(playing) = playing(path);
-
-                Update::new(state.clone(), playing)
-            }
-
-            MusicEvent::Shown(path) => {
-                let Ok(files) = Command::internal(FILES, &[&path.to_string_lossy()]);
-
-                Update::new(state.clone(), vec![Effect::Spawn(files)])
-            }
-        };
-
-        turn
+        decided.offered(effects)
     }
+}
+
+type Effects = Queue<Effect<MusicEffect>>;
+
+fn initial(_argv: &Arguments) -> Result<Transition<Standing, Effect<MusicEffect>>, Never> {
+    let Ok(opening) = Transition::without_effects(Standing::default());
+
+    Ok(opening)
+}
+
+fn decide(state: &Standing, event: &Event<MusicEvent>) -> Result<Transition<Standing, Effect<MusicEffect>>, Never> {
+    let heard = match event {
+        Event::Custom(heard) => heard,
+        Event::Opened
+        | Event::Changed(_)
+        | Event::Tick(_, _)
+        | Event::Replied(_)
+        | Event::Chosen(_)
+        | Event::Stopping => {
+            let Ok(nothing) = Transition::without_effects(state.clone());
+
+            return Ok(nothing);
+        }
+    };
+
+    let Ok(turn) = match heard {
+        MusicEvent::Typed(word) => match state.typed == *word {
+            true => Transition::without_effects(state.clone()),
+            false => Transition::new(
+                Standing { typed: word.clone(), ..state.clone() },
+                vec![Effect::Custom(MusicEffect::Replace(0))],
+            ),
+        },
+
+        MusicEvent::Back => match state.typed.trim().is_empty() {
+            true => Transition::without_effects(state.clone()),
+            false => Transition::new(
+                Standing { typed: String::new(), ..state.clone() },
+                vec![Effect::Custom(MusicEffect::ForgetTyping), Effect::Custom(MusicEffect::Replace(LINE))],
+            ),
+        },
+
+        MusicEvent::Arrived { unread } => match (state.read, unread) {
+            (Read::Requested, _) | (Read::NotYet, 0) => Transition::without_effects(state.clone()),
+            (Read::NotYet, unread) => {
+                let Ok(note) = how_many(*unread);
+                let Ok(index) = Command::internal(INDEX, &[]);
+
+                Transition::new(
+                    Standing { read: Read::Requested, ..state.clone() },
+                    vec![Effect::Custom(MusicEffect::Note(note)), Effect::Run(index)],
+                )
+            }
+        },
+
+        MusicEvent::Along { by, of } => {
+            let Ok(press) = along(ButtonPress { at: state.press, many: *of }, *by);
+
+            Transition::without_effects(Standing { press, ..state.clone() })
+        }
+
+        MusicEvent::Shuffling(order) => Transition::new(
+            state.clone(),
+            vec![Effect::Custom(MusicEffect::Shuffle(match order {
+                Order::Any => Order::AsListed,
+                Order::AsListed => Order::Any,
+            }))],
+        ),
+
+        MusicEvent::Repeating(over) => Transition::new(
+            state.clone(),
+            vec![Effect::Custom(MusicEffect::Repeat(match over {
+                Over::Again => Over::On,
+                Over::On | Over::Round => Over::Again,
+            }))],
+        ),
+
+        MusicEvent::Chose { path, kind: _the_player_is_told_the_library_either_way } => {
+            let Ok(playing) = playing(path);
+
+            Transition::new(state.clone(), playing)
+        }
+
+        MusicEvent::Shown(path) => {
+            let Ok(files) = Command::internal(FILES, &[&path.to_string_lossy()]);
+
+            Transition::new(state.clone(), vec![Effect::Spawn(files)])
+        }
+    };
+
+    Ok(turn)
 }
 
 pub fn closes(state: &Standing) -> Result<Closes, Never> {
@@ -225,11 +241,11 @@ fn how_many(unread: u32) -> Result<String, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Trace, run};
+    use console_core_state_machine::{Trace, run};
 
     use super::*;
 
-    fn said(heard: &[MusicEvent]) -> Result<Trace<Standing, MusicEvent, MusicEffect>, Never> {
+    fn said(heard: &[MusicEvent]) -> Result<Trace<Standing, Event<MusicEvent>, Effect<MusicEffect>>, Never> {
         let events: Vec<Event<MusicEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
         run::<Music>(&Arguments::default(), &events)

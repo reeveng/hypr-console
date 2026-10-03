@@ -7,14 +7,17 @@
 
 [*]
 
+[crates/console-actor/tests/the_actors.rs]
+kept fn = ? cached | stored | retained    # 97: fn kept(store: &KeyValueStore, wanted: Depth) -> Result<Option<Depth>, Never> {
+
 [crates/console-applications/src/entry.rs]
 says fn = ? label | text    # 73: pub fn says(&self) -> Result<Option<&'a str>, Never> {
 
 [crates/console-applications/src/image.rs]
-Unreadable variant of Marker = Invalid    # 75: Unreadable,
+Unreadable variant of Marker = Invalid    # applied
 
 [crates/console-applications/src/words.rs]
-Nothing variant of Pending = None    # 135: Nothing,
+Nothing variant of Pending = None    # applied
 
 [crates/console-architecture/src/facts.rs]
 Does enum = Effect    # applied
@@ -34,9 +37,9 @@ Undrawn enum = MapError    # applied
 Unreadable variant of MapError = ReadFile    # applied
 
 [crates/console-architecture/src/units.rs]
+OURS const = APPLICATION    # applied
 Ours variant of Started = InternalProgram    # applied
 Theirs variant of Started = ExternalProgram    # applied
-OURS const = APPLICATION    # 30: pub const OURS: &str = "/usr/local/bin/";
 
 [crates/console-awake/src/lib.rs]
 holding field of Staying = ? state | directory | guard    # 85: holding: Option<BoundToParent>,
@@ -54,7 +57,19 @@ Said struct = Settings    # applied
 [crates/console-books/src/bin/books.rs]
 wide field of Column = width    # applied
 wide field of TextStyle = width    # applied
-wearing field of App = ? theme    # 130: wearing: Wearing,
+shown field of NoteFrame = ? visible | displayed    # 178: shown: Shown,
+wearing field of App = ? theme    # 269: wearing: Wearing,
+room field of Joining = ? size | bounds    # 2480: room: Size<u32>,
+asked field of Recognized = ? request | query | arguments | command    # 2887: asked: PathBuf,
+beside fn = ? sibling    # 2937: fn beside(base: &Path, ending: &str) -> Result<PathBuf, Never> {
+kept fn = ? cached | stored | retained    # 3931: fn kept(app: &App) -> Result<String, Error> {
+shown fn = ? visible | displayed    # 4266: fn shown(app: &mut App) -> Result<(), Never> {
+
+[crates/console-books/src/live_text.rs]
+said field of Layout = ? contents | output | text | reply    # 120: said: String,
+
+[crates/console-books/src/notes.rs]
+said field of AnchorLine = ? contents | output | text | reply    # 326: said: &'a str,
 
 [crates/console-books/src/open.rs]
 Missing variant of BookError = NotFound    # applied
@@ -101,6 +116,7 @@ Nothing variant of CompositorEvent = Ignored    # applied
 
 [crates/console-compositor/src/lib.rs]
 Bind struct = BoundKey    # applied
+Heard type = Received    # applied
 Nothing variant of Carrying = None    # applied
 Nothing variant of Filling = None    # applied
 Unanswered variant of HyprctlError = Socket    # applied
@@ -108,11 +124,10 @@ across field of Frame = x    # applied
 down field of Frame = y    # applied
 tall field of Frame = height    # applied
 wide field of Frame = width    # applied
-said fn = ? contents | output | text | reply    # 187: fn said(value: serde_json::Value) -> Result<Self::Reply, HyprctlError>;
-said fn = ? contents | output | text | reply    # 201: fn said(value: serde_json::Value) -> Result<$said, HyprctlError> {
-wearing field of Keyboard = ? theme    # 620: pub wearing: Option<String>,
-held field of BoundKey = ? contents | state | guard | value    # 626: pub held: u64,
-Heard type = Received    # 1532: type Heard = std::thread::JoinHandle<Result<String, std::io::Error>>;
+said fn = ? contents | output | text | reply    # 190: fn said(value: serde_json::Value) -> Result<Self::Reply, HyprctlError>;
+said fn = ? contents | output | text | reply    # 204: fn said(value: serde_json::Value) -> Result<$said, HyprctlError> {
+wearing field of Keyboard = ? theme    # 630: pub wearing: Option<String>,
+held field of BoundKey = ? contents | state | guard | value    # 636: pub held: u64,
 
 [crates/console-compositor/src/socket.rs]
 Unanswered enum = SocketError    # applied
@@ -148,15 +163,32 @@ tall field of Size = height    # applied
 wide field of Size = width    # applied
 
 [crates/console-core-iteration/src/lib.rs]
-Done variant of Step = Halt    # 28: Done(Exit),
+Done variant of Step = Halt    # applied
+
+[crates/console-core-jpeg-files/src/assembly.rs]
+far field of Taps = ? progress    # 83: far: u32,
+across fn = ? x | buttons | width    # 221: fn across(layout: Layout, wide: u32) -> Result<Vec<Taps>, Never> {
+
+[crates/console-core-jpeg-files/src/bits.rs]
+held field of Bits = ? contents | state | guard | value    # 28: held: u64,
+Taken struct = ? Success | Claimed | Busy | Occupied | Acquired | NameTaken | Exists    # 36: pub(crate) struct Taken {
+
+[crates/console-core-jpeg-files/src/scans.rs]
+Drawn variant of Store = ? Visible | Bitmap    # 55: Drawn,
+kept field of Prepared = ? cached | stored | retained    # 110: kept: u64,
+kept fn = ? cached | stored | retained    # 267: fn kept(drawn: Size<u32>) -> Result<u64, Never> {
+
+[crates/console-core-jpeg-files/src/strips.rs]
+Job struct = ? Task    # 29: pub struct Job<'a> {
+down field of Row = ? y | pressed | pressed_buttons | in_contact | button_down | failing    # 58: pub(crate) down: u32,
+tall field of Drawing = ? height    # 66: pub(crate) tall: u32,
 
 [crates/console-core-places/src/lib.rs]
-OURS const = APPLICATION    # 110: pub const OURS: &str = "console";
-runtime_ours fn = application_runtime    # 143: pub fn runtime_ours() -> Result<Option<PathBuf>, Never> {
-hers fn = user    # 175: pub fn hers(self) -> Result<Option<PathBuf>, Never> {
+OURS const = APPLICATION    # applied
+hers fn = user    # applied
+ours_under fn = application_under    # applied
+runtime_ours fn = application_runtime    # applied
 ours fn = ? own | internal    # 185: pub fn ours(self) -> Result<Option<PathBuf>, Never> {
-ours_under fn = application_under    # 197: pub fn ours_under(self, home: &Path) -> Result<PathBuf, Never> {
-hers fn = user    # 297: pub fn hers(self) -> Result<Option<PathBuf>, Never> {
 
 [crates/console-core-qr-codes/src/lib.rs]
 Drawn struct = Bitmap    # applied
@@ -201,17 +233,18 @@ said field of Line = ? contents | output | text | reply    # 83: said: &'a str,
 [crates/console-device/src/deploying.rs]
 Asked variant of How = Confirm    # applied
 Taken variant of DeployingEvent = Busy    # applied
-whose fn = ? owner    # 695: fn whose(going: &Going, holder: &Holder) -> Result<Update<Deploying, DeployingEffect>, Nev
-Told struct = Outcome    # 875: struct Told {
-told fn = ? reply | notice | request    # 882: fn told(said: &Trace<Deploying, DeployingEvent, DeployingEffect>) -> Result<Told, Never> {
+Told struct = Outcome    # applied
+room fn = ? size | bounds    # 739: fn room(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Transition<Deploying
+whose fn = ? owner    # 841: fn whose(going: &Going, holder: &Holder) -> Result<Transition<Deploying, Effect<DeployingE
+told fn = ? reply | notice | request    # 1040: fn told(said: &Trace<Deploying, Event<DeployingEvent>, Effect<DeployingEffect>>) -> Result
 
 [crates/console-device/src/migrating.rs]
 Asked variant of How = Confirm    # applied
 Home struct = HomeChange    # applied
-says field of Piece = ? label | text    # 95: pub says: Option<String>,
-shown field of Piece = ? visible | displayed    # 97: pub shown: Shown,
-theirs fn = -    # 793: fn theirs(going: &Going, command: &str) -> Result<Command, Never> {
-going fn = ? progress | running | state    # 879: fn going() -> Result<Going, Never> {
+says field of Piece = ? label | text    # 94: pub says: Option<String>,
+shown field of Piece = ? visible | displayed    # 96: pub shown: Shown,
+theirs fn = -    # 807: fn theirs(going: &Going, command: &str) -> Result<Command, Never> {
+going fn = ? progress | running | state    # 894: fn going() -> Result<Going, Never> {
 
 [crates/console-device/src/pulling.rs]
 Asking variant of Pulling = Querying    # applied
@@ -234,14 +267,14 @@ Nothing variant of Wants = None    # applied
 beside fn = ? sibling    # 79: pub fn beside(path: &Path, kind: Kind) -> Result<PathBuf, Never> {
 
 [crates/console-downloads/src/standing.rs]
-asking field of Tab = ? query | command | prompt    # 42: pub asking: Option<String>,
-said fn = ? contents | output | text | reply    # 285: fn said(heard: &[DownloadsEvent]) -> Result<Trace<Standing, DownloadsEvent, DownloadsEffec
+asking field of Tab = ? query | command | prompt    # 43: pub asking: Option<String>,
+said fn = ? contents | output | text | reply    # 301: fn said(heard: &[DownloadsEvent]) -> Result<Trace<Standing, Event<DownloadsEvent>, Effect<
 
 [crates/console-draw-painting/src/lib.rs]
 Kept variant of Ground = Preserved    # applied
 wide field of Run = width    # applied
 said field of Run = ? contents | output | text | reply    # 97: pub said: &'a str,
-lit fn = ? highlighted    # 452: fn lit(channel: u8, alpha: Alpha) -> Result<u8, Never> {
+lit fn = ? highlighted    # 450: fn lit(channel: u8, alpha: Alpha) -> Result<u8, Never> {
 
 [crates/console-draw-surface/src/bin/surface-spike.rs]
 Unreadable enum = ParseError    # applied
@@ -259,13 +292,13 @@ held field of Shared = ? contents | state | guard | value    # 21: held: OwnedFd
 [crates/console-draw-surface/src/standing.rs]
 Drawn enum = Visible    # applied
 Nothing variant of Under = None    # applied
-room field of Wanted = ? size | bounds    # 217: pub room: Room,
-held field of Frame = ? contents | state | guard | value    # 341: held: Buffer,
-shown field of Bound = ? visible | displayed    # 422: shown: Option<Frame>,
-asked field of Bound = ? request | query | arguments | command    # 425: asked: Option<Size<u32>>,
-room field of Bound = ? size | bounds    # 427: room: Room,
-room fn = ? size | bounds    # 706: pub fn room(&mut self, room: Room) -> Result<(), Never> {
-held field of Timing = ? contents | state | guard | value    # 1000: held: Buffer,
+room field of Wanted = ? size | bounds    # 235: pub room: Room,
+held field of Frame = ? contents | state | guard | value    # 366: held: Buffer,
+shown field of Bound = ? visible | displayed    # 448: shown: Option<Frame>,
+asked field of Bound = ? request | query | arguments | command    # 451: asked: Option<Size<u32>>,
+room field of Bound = ? size | bounds    # 454: room: Room,
+room fn = ? size | bounds    # 778: pub fn room(&mut self, room: Room) -> Result<(), Never> {
+held field of Timing = ? contents | state | guard | value    # 1076: held: Buffer,
 
 [crates/console-events/src/again.rs]
 Asking variant of Worth = Querying    # applied
@@ -279,7 +312,7 @@ holding field of Serving = ? state | directory | guard    # 157: holding: Holdin
 carried field of Serving = ? payload    # 158: carried: u64,
 
 [crates/console-events/src/sources.rs]
-OURS const = APPLICATION    # 115: pub const OURS: &str = "console.Notifications";
+OURS const = APPLICATION    # applied
 theirs fn = -    # 278: fn theirs(
 
 [crates/console-events/src/subscription.rs]
@@ -289,13 +322,13 @@ asking field of Wanted = ? query | command | prompt    # 84: asking: Requested,
 shown fn = ? visible | displayed    # 214: fn shown(path: &Path) -> Result<Descend, Never> {
 
 [crates/console-events/src/wire.rs]
-Nothing variant of Pending = None    # 139: Nothing,
+Nothing variant of Pending = None    # applied
 
 [crates/console-events/tests/how_fast.rs]
-Listening enum = Subscriber    # 29: enum Listening {
+Listening enum = Subscriber    # applied
 
 [crates/console-events/tests/the_wedged.rs]
-Heard enum = Delivered    # 38: enum Heard {
+Heard enum = Delivered    # applied
 
 [crates/console-files/src/doing.rs]
 Nothing variant of Asks = None    # applied
@@ -314,9 +347,9 @@ aside fn = ? detail    # 24: pub fn aside(&self) -> Result<String, Never> {
 Held enum = Presence    # applied
 
 [crates/console-files/src/standing.rs]
-holding field of Standing = ? state | directory | guard    # 57: pub holding: Option<Holding>,
-standing fn = ? state | current    # 482: fn standing() -> Result<Standing, Never> {
-said fn = ? contents | output | text | reply    # 488: fn said(from: &Standing, heard: &[FilesEvent]) -> Result<Trace<Standing, FilesEvent, Files
+holding field of Standing = ? state | directory | guard    # 58: pub holding: Option<Holding>,
+standing fn = ? state | current    # 489: fn standing() -> Result<Standing, Never> {
+said fn = ? contents | output | text | reply    # 495: fn said(from: &Standing, heard: &[FilesEvent]) -> Result<Trace<Standing, Event<FilesEvent>
 
 [crates/console-files/src/unzipping.rs]
 Nothing variant of Lift = None    # applied
@@ -340,19 +373,19 @@ carried field of Wears = ? payload    # 293: carried: Oklch,
 held field of Wears = ? contents | state | guard | value    # 294: held: Oklch,
 room field of Centred = ? size | bounds    # 804: room: u32,
 wears fn = ? theme | colors    # 1065: fn wears(spent: &BTreeMap<String, String>) -> Result<Wears, PaletteError> {
-standing fn = ? state | current    # 1471: fn standing() -> Result<console_screen::Shape, Never> {
-room field of Turning = ? size | bounds    # 1612: room: (i32, i32),
-wears field of Around = ? theme | colors    # 1617: wears: &'a Wears,
+standing fn = ? state | current    # 1472: fn standing() -> Result<console_screen::Shape, Never> {
+room field of Turning = ? size | bounds    # 1613: room: (i32, i32),
+wears field of Around = ? theme | colors    # 1618: wears: &'a Wears,
 
 [crates/console-home-screen/src/lib.rs]
 Held enum = LongPress    # applied
 Home struct = HomeScreen    # applied
 Nothing variant of Holding = None    # applied
 Nothing variant of On = None    # applied
+OURS const = APPLICATION    # applied
 Something variant of Holding = Some    # applied
 kept fn = ? cached | stored | retained    # 53: pub fn kept(home: &Path, standing: Standing) -> Result<Stored, Never> {
 standing fn = ? state | current    # 150: pub fn standing() -> Result<Standing, console_compositor::HyprctlError> {
-OURS const = APPLICATION    # 163: pub const OURS: [&str; 5] = ["Files", "Music", "Download", "Notifications", "Buttons"];
 
 [crates/console-home-screen/src/shape.rs]
 across fn = with_columns    # applied
@@ -384,22 +417,22 @@ Already variant of Moved = -    # 48: Already,
 [crates/console-input-controller/src/actions.rs]
 Awake variant of LockBehavior = Unlocked    # applied
 Guide variant of Action = ButtonGuide    # applied
-says fn = ? label | text    # 701: pub fn says(self) -> Result<&'static str, Never> {
-ours fn = ? own | internal    # 1019: pub fn ours() -> Result<Self, Never> {
-ours fn = ? own | internal    # 1112: pub fn ours(job: &Task) -> Result<Vec<Binding>, Never> {
+says fn = ? label | text    # 702: pub fn says(self) -> Result<&'static str, Never> {
+ours fn = ? own | internal    # 1020: pub fn ours() -> Result<Self, Never> {
+ours fn = ? own | internal    # 1113: pub fn ours(job: &Task) -> Result<Vec<Binding>, Never> {
 
 [crates/console-input-controller/src/bin/controller-desktop.rs]
 Asking variant of Unscrolled = Read    # applied
+Heard struct = Context    # applied
 Listening struct = Subscription    # applied
+Listening variant of Watcher = Subscriber    # applied
 Nothing variant of Decided = None    # applied
 Nothing variant of Event = None    # applied
 Nothing variant of Plugging = None    # applied
 Something variant of Decided = Some    # applied
 Something variant of Plugging = Some    # applied
 Unreadable variant of Unscrolled = Parse    # applied
-Listening variant of Watcher = Subscriber    # 191: Listening,
 holding field of Desktop = ? state | directory | guard    # 200: holding: Vec<(From, String)>,
-Heard struct = Context    # 207: struct Heard<'a> {
 saying field of Context = ? sender | message    # 210: saying: &'a Sender,
 saying field of Turn = ? sender | message    # 428: saying: &'a Sender,
 
@@ -411,8 +444,8 @@ Asking variant of Worth = Querying    # applied
 Bind struct = KeyBinding    # applied
 Says enum = BindCommand    # applied
 held field of KeyBinding = ? contents | state | guard | value    # 136: pub held: u64,
-Bind variant of BindCommand = -    # 306: Bind(KeyBinding),
-holding fn = ? state | directory | guard    # 477: fn holding(every: &[KeyBinding]) -> Result<Vec<console_compositor::BoundKey>, Never> {
+Bind variant of BindCommand = -    # 307: Bind(KeyBinding),
+holding fn = ? state | directory | guard    # 478: fn holding(every: &[KeyBinding]) -> Result<Vec<console_compositor::BoundKey>, Never> {
 
 [crates/console-input-controller/src/clock.rs]
 When struct = Instant    # applied
@@ -433,7 +466,7 @@ holding field of Controller = ? state | directory | guard    # 187: holding: Vec
 
 [crates/console-input-controller/src/returning.rs]
 Held variant of Returning = Pressed    # applied
-held fn = ? contents | state | guard | value    # 201: fn held(seconds: f64) -> Result<Option<Effect>, Never> {
+held fn = ? contents | state | guard | value    # 222: fn held(seconds: f64) -> Result<Option<Effect>, Never> {
 
 [crates/console-input-controller/src/scroll.rs]
 across field of Wheel = x    # applied
@@ -454,10 +487,10 @@ gone field of Turning = ? removed | closed | dismissed    # 82: gone: BTreeMap<F
 told field of Did = ? reply | notice | request    # 141: pub told: Vec<console_onscreen::PadInput>,
 
 [crates/console-input-controller/tests/live/mod.rs]
-Heard type = Received    # 65: type Heard = Arc<Mutex<Vec<String>>>;
-held fn = ? contents | state | guard | value    # 117: fn held(heard: &Heard) -> Result<Vec<String>, Never> {
+Heard type = Received    # applied
+held fn = ? contents | state | guard | value    # 117: fn held(heard: &Received) -> Result<Vec<String>, Never> {
 said field of Running = ? contents | output | text | reply    # 168: said: Arc<Mutex<String>>,
-asked field of Running = ? request | query | arguments | command    # 171: asked: Heard,
+asked field of Running = ? request | query | arguments | command    # 171: asked: Received,
 said fn = ? contents | output | text | reply    # 320: pub fn said(&self) -> Result<String, Never> {
 
 [crates/console-input-dictation/src/bin/console-dictate.rs]
@@ -468,18 +501,18 @@ gone fn = ? removed | closed | dismissed    # 268: fn gone(pid: i32) -> Result<(
 Done variant of CompareEvent = Finished    # applied
 Listen variant of CompareEffect = Record    # applied
 Missing variant of Found = Absent    # applied
-says field of Clip = ? label | text    # 76: pub says: &'static str,
-kept field of Where = ? cached | stored | retained    # 119: pub kept: PathBuf,
-stamp field of Where = ? metadata | timestamp    # 121: pub stamp: String,
-said field of Timing = ? contents | output | text | reply    # 203: pub said: String,
-shown fn = ? visible | displayed    # 1125: fn shown(at: &Path) -> Result<String, Never> {
-holding fn = ? state | directory | guard    # 1164: fn holding(there: Vec<Candidate>) -> Result<Comparing, Never> {
+says field of Clip = ? label | text    # 75: pub says: &'static str,
+kept field of Where = ? cached | stored | retained    # 118: pub kept: PathBuf,
+stamp field of Where = ? metadata | timestamp    # 120: pub stamp: String,
+said field of Timing = ? contents | output | text | reply    # 202: pub said: String,
+shown fn = ? visible | displayed    # 1127: fn shown(at: &Path) -> Result<String, Never> {
+holding fn = ? state | directory | guard    # 1166: fn holding(there: Vec<Candidate>) -> Result<Comparing, Never> {
 
 [crates/console-input-dictation/src/languages.rs]
 says field of Language = ? label | text    # 30: pub says: &'static str,
 
 [crates/console-input-dictation/src/lib.rs]
-heard fn = ? received | event | reply    # 673: fn heard(samples: &[i16]) -> Result<VoiceActivity, Never> {
+heard fn = ? received | event | reply    # 672: fn heard(samples: &[i16]) -> Result<VoiceActivity, Never> {
 
 [crates/console-input-event-devices/src/devices.rs]
 told field of Devices = ? reply | notice | request    # 41: told: File,
@@ -505,7 +538,7 @@ held field of Claim = ? contents | state | guard | value    # 76: held: Vec<Clai
 Nothing variant of InputEvent = None    # applied
 
 [crates/console-input-gamepad/src/allowing.rs]
-asked fn = ? request | query | arguments | command    # 208: fn asked(events: &[Event<Never>]) -> Result<Vec<Effect<Never>>, Never> {
+asked fn = ? request | query | arguments | command    # 223: fn asked(events: &[Event<Never>]) -> Result<Vec<Effect<Never>>, Never> {
 
 [crates/console-input-gamepad/src/bin/emulate.rs]
 Unreadable variant of Unemulated = Read    # applied
@@ -601,11 +634,13 @@ spent field of Machine = ? palette    # 83: spent: BTreeMap<JobId, Energy>,
 [crates/console-launcher/src/lib.rs]
 Changed variant of Narrowed = Different    # applied
 Said variant of Message = Reply    # applied
-said field of Word = ? contents | output | text | reply    # 122: said: String,
-standing fn = ? state | current    # 169: fn standing() -> Result<console_screen::Shape, Never> {
+standing fn = ? state | current    # 155: fn standing() -> Result<console_screen::Shape, Never> {
 
 [crates/console-lock-screen/src/bin/lock-screen.rs]
-Locked struct = LockBehavior    # 140: struct Locked {
+Locked struct = LockBehavior    # applied
+
+[crates/console-login-greeter/src/bin/login-greeter.rs]
+shown field of Frames = ? visible | displayed    # 40: shown: Vec<u8>,
 
 [crates/console-login-greeter/src/display.rs]
 Asking variant of Unshown = Query    # applied
@@ -617,16 +652,15 @@ tall field of Mode = height    # applied
 wide field of Dumb = width    # applied
 wide field of Framebuffer = width    # applied
 wide field of Mode = width    # applied
-shown fn = ? visible | displayed    # 352: pub fn shown(&mut self, frame: &[u8]) -> Result<(), Never> {
 
 [crates/console-login-greeter/src/picture.rs]
-room fn = ? size | bounds    # 74: fn room(&self, at: Point<f64>) -> Result<Point<i32>, Never> {
+room fn = ? size | bounds    # 77: fn room(&self, at: Point<f64>) -> Result<Point<i32>, Never> {
 
 [crates/console-login-pattern/src/lib.rs]
 Drawn variant of Clicked = Traced    # applied
 
 [crates/console-login-window/src/sessions.rs]
-OURS const = APPLICATION    # 20: pub const OURS: &str = "console.desktop";
+OURS const = APPLICATION    # applied
 
 [crates/console-login-window/src/system.rs]
 shown fn = ? visible | displayed    # 173: pub fn shown(console: &File, number: u32) -> io::Result<()> {
@@ -671,7 +705,7 @@ said field of CommandOutput = ? contents | output | text | reply    # 44: pub sa
 
 [crates/console-manifest-engine/src/main.rs]
 Said struct = StatusLine    # applied
-room fn = ? size | bounds    # 795: fn room(root: &Path) -> Result<ExitCode, Never> {
+room fn = ? size | bounds    # 814: fn room(root: &Path) -> Result<ExitCode, Never> {
 
 [crates/console-manifest-engine/src/packages.rs]
 Missing variant of PackageState = -    # 34: Missing,
@@ -698,7 +732,7 @@ says field of Migration = ? label | text    # 53: pub says: &'static str,
 beside fn = ? sibling    # 158: pub fn beside(root: &Path) -> Result<PathBuf, Never> {
 
 [crates/console-manifest-migrations/tests/every_removal_is_swept.rs]
-Refused variant of Unread = Failed    # 61: Refused(String, String),
+Refused variant of Unread = Failed    # applied
 
 [crates/console-manifest-publish/src/main.rs]
 Unreadable variant of Unpublished = Read    # applied
@@ -709,7 +743,7 @@ says fn = ? label | text    # 162: fn says(text: &[u8], name: Name<'_>) -> Resul
 
 [crates/console-media-viewer/src/card.rs]
 Nothing variant of Worth = None    # applied
-whole fn = ? total    # 506: fn whole(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
+whole fn = ? total    # 507: fn whole(runs: &console_program_contract::Command) -> Result<Vec<String>, Never> {
 
 [crates/console-media-viewer/src/editing.rs]
 Asking variant of EditError = Query    # applied
@@ -746,9 +780,9 @@ Awake variant of WakeOutcome = AlreadyAwake    # applied
 Words variant of ViewerEvent = Text    # applied
 
 [crates/console-music-player/src/answers.rs]
+OURS const = APPLICATION    # applied
 Told enum = Reply    # applied
 Words variant of Reply = Strings    # applied
-OURS const = APPLICATION    # 33: pub const OURS: &str = "console.Player";
 
 [crates/console-music-player/src/bin/music-player.rs]
 held field of Answering = ? contents | state | guard | value    # 37: held: Arc<Mutex<PlayerState>>,
@@ -784,15 +818,15 @@ aside fn = ? detail    # 62: pub fn aside(&self, folder: &Path) -> Result<String
 
 [crates/console-music/src/update.rs]
 Asked variant of Read = Requested    # applied
-many field of ButtonPress = ? count    # 195: many: u32,
-said fn = ? contents | output | text | reply    # 232: fn said(heard: &[MusicEvent]) -> Result<Trace<Standing, MusicEvent, MusicEffect>, Never> {
+many field of ButtonPress = ? count    # 211: many: u32,
+said fn = ? contents | output | text | reply    # 248: fn said(heard: &[MusicEvent]) -> Result<Trace<Standing, Event<MusicEvent>, Effect<MusicEff
 
 [crates/console-notifications/src/bin/console-notify.rs]
+Asked struct = Context    # applied
 Taken variant of Cannot = NameTaken    # applied
 Words struct = Text    # applied
 heard field of Queue = ? received | event | reply    # 178: heard: Arc<Mutex<VecDeque<Message>>>,
 holding field of Running = ? state | directory | guard    # 271: holding: Holding,
-Asked struct = Context    # 276: struct Asked<'a> {
 saying field of Context = ? sender | message    # 278: saying: &'a Sender,
 wearing field of Context = ? theme    # 279: wearing: &'a Wearing,
 shown fn = ? visible | displayed    # 483: fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
@@ -809,12 +843,12 @@ says fn = ? label | text    # 89: pub fn says(&self) -> Result<String, Never> {
 whole fn = ? total    # 126: pub fn whole(said: &str) -> Result<Inbox, Never> {
 
 [crates/console-notifications/src/rows.rs]
+Missing type = NotFound    # applied
 aside fn = ? detail    # 29: pub fn aside(notification: &Notification) -> Result<String, Never> {
-Missing type = NotFound    # 153: type Missing = &'static str;
 
 [crates/console-notifications/src/serving.rs]
 Changed enum = Modified    # applied
-Missing enum = NotFound    # 649: enum Missing {
+Missing enum = NotFound    # applied
 told fn = ? reply | notice | request    # 692: fn told(holding: &mut Holding, message: Result<Message, Never>) -> Result<Turn, Never> {
 
 [crates/console-notifications/src/showing.rs]
@@ -846,13 +880,13 @@ Something variant of Over = Some    # applied
 Unreadable variant of Error = Read    # applied
 
 [crates/console-overview/src/bin/console-overview.rs]
-heard fn = ? received | event | reply    # 169: fn heard(told: Option<&UnixDatagram>) -> Result<Command, Never> {
+heard fn = ? received | event | reply    # 170: fn heard(told: Option<&UnixDatagram>) -> Result<Command, Never> {
 
 [crates/console-overview/src/lib.rs]
-room field of Overview = ? size | bounds    # 179: pub room: Size<f64>,
-carried fn = ? payload    # 449: pub fn carried(address: &str, drop: Drop) -> Result<Option<String>, Never> {
-held field of Scene = ? contents | state | guard | value    # 744: pub held: Option<&'a Dragged>,
-wearing field of Scene = ? theme    # 747: pub wearing: &'a Wearing,
+room field of Overview = ? size | bounds    # 183: pub room: Size<f64>,
+carried fn = ? payload    # 546: pub fn carried(address: &str, drop: Drop) -> Result<Option<String>, Never> {
+held field of Scene = ? contents | state | guard | value    # 867: pub held: Option<&'a Dragged>,
+wearing field of Scene = ? theme    # 871: pub wearing: &'a Wearing,
 
 [crates/console-palette/src/configuration.rs]
 spent field of Color = ? palette    # 30: pub spent: String,
@@ -875,10 +909,6 @@ spent fn = ? palette    # 107: fn spent() -> Result<(Configuration, Palette, Ter
 Said struct = Output    # applied
 shown fn = ? visible | displayed    # 368: fn shown<'a>(path: &'a Path, under: &Path) -> Result<std::path::Display<'a>, Never> {
 spent fn = ? palette    # 720: fn spent() -> Result<Vec<(String, String)>, Box<dyn Error>> {
-
-[crates/console-panel/src/actor.rs]
-Told variant of Message = Subscribe    # applied
-said field of Answer = ? contents | output | text | reply    # 91: said: Sender<T>,
 
 [crates/console-panel/src/before.rs]
 Said struct = Output    # applied
@@ -949,7 +979,7 @@ Nothing variant of Away = None    # applied
 Ours enum = Owned    # applied
 Taken variant of Lock = Acquired    # applied
 Told variant of Away = Notified    # applied
-gone fn = ? removed | closed | dismissed    # 658: pub fn gone() -> Result<(), Never> {
+gone fn = ? removed | closed | dismissed    # 589: pub fn gone() -> Result<(), Never> {
 
 [crates/console-panel/src/pictures.rs]
 tall field of Picture = height    # applied
@@ -1009,11 +1039,11 @@ shown field of State = ? visible | displayed    # 1967: shown: Option<Moving>,
 room field of Viewport = ? size | bounds    # 2729: room: i32,
 asking field of Front = ? query | command | prompt    # 2769: asking: RefCell<Option<Prompt>>,
 took fn = ? elapsed | duration    # 3124: fn took(state: &mut State, at: u32) -> Result<(), Never> {
-heard field of Looked = ? received | event | reply    # 3671: heard: Result<Vec<Row>, mpsc::TryRecvError>,
-lands field of Touch = ? target    # 3744: lands: Option<Lands>,
-asked field of Turning = ? request | query | arguments | command    # 4063: asked: Option<Reading>,
-wearing field of Still = ? theme    # 4078: wearing: &'a Wearing,
-held fn = ? contents | state | guard | value    # 4549: fn held<T: Clone>(mutex: &Mutex<T>) -> Result<T, Never> {
+heard field of Looked = ? received | event | reply    # 3677: heard: Result<Vec<Row>, mpsc::TryRecvError>,
+lands field of Touch = ? target    # 3750: lands: Option<Lands>,
+asked field of Turning = ? request | query | arguments | command    # 4080: asked: Option<Reading>,
+wearing field of Still = ? theme    # 4095: wearing: &'a Wearing,
+held fn = ? contents | state | guard | value    # 4566: fn held<T: Clone>(mutex: &Mutex<T>) -> Result<T, Never> {
 
 [crates/console-panel/src/zoom.rs]
 In variant of Zoomed = ZoomedIn    # applied
@@ -1033,7 +1063,12 @@ heard field of Host = ? received | event | reply    # 38: heard: std::sync::mpsc
 [crates/console-pictures/src/lib.rs]
 Asking variant of PictureError = Query    # applied
 Drawn enum = Rendering    # applied
-beside fn = ? sibling    # 207: fn beside(at: &Path) -> Result<PathBuf, Never> {
+beside fn = ? sibling    # 324: fn beside(at: &Path) -> Result<PathBuf, Never> {
+
+[crates/console-pictures/src/resample.rs]
+wide field of Source = ? width    # 33: pub(crate) wide: u32,
+across fn = ? x | buttons | width    # 84: fn across(source: Source<'_>, columns: &[Taps]) -> Result<Vec<[u8; 4]>, Never> {
+whole fn = ? total    # 168: fn whole(size: Size<u32>) -> Result<Region, Never> {
 
 [crates/console-program-contract/src/event.rs]
 Answered variant of Event = Replied    # applied
@@ -1043,34 +1078,34 @@ Changed variant of Event = -    # 41: Changed(Change),
 holding fn = ? state | directory | guard    # 419: fn holding() -> Result<Command, Never> {
 
 [crates/console-program-runtime/src/lib.rs]
-Changed variant of Woke = -    # 157: Changed(Change),
-held field of Turning = ? contents | state | guard | value    # 224: held: S,
-Asked struct = Context    # 231: struct Asked<'a, E> {
+Asked struct = Context    # applied
+Changed variant of Woke = -    # 158: Changed(Change),
+held field of Turning = ? contents | state | guard | value    # 223: held: S,
 
 [crates/console-program-runtime/tests/the_events.rs]
 Told variant of TestEffect = Logged    # applied
-said field of Rocker = ? contents | output | text | reply    # 49: said: Option<String>,
+said field of Rocker = ? contents | output | text | reply    # 48: said: Option<String>,
 
 [crates/console-recovery/src/bin/recovery.rs]
 said field of Console = ? contents | output | text | reply    # 35: said: Readiness,
 
 [crates/console-recovery/src/menu.rs]
-shown fn = ? visible | displayed    # 253: fn shown(trace: &console_program_contract::Trace<Menu, ButtonPress, Screen>) -> Result<Vec
+shown fn = ? visible | displayed    # 493: fn shown(trace: &console_core_state_machine::Trace<Menu, Event<ButtonPress>, Effect<Screen
 
 [crates/console-repository/tests/nothing_is_written_twice.rs]
-Asked enum = Caller    # 278: enum Asked {
+Asked enum = Caller    # applied
 
 [crates/console-resource-usage/src/bin/console-resource-usage.rs]
-Heard enum = Recognized    # 127: enum Heard {
-heard fn = ? received | event | reply    # 138: fn heard(reading: &mut Reading<'_>, word: &str) -> Result<Heard, Never> {
+Heard enum = Recognized    # applied
+heard fn = ? received | event | reply    # 138: fn heard(reading: &mut Reading<'_>, word: &str) -> Result<Recognized, Never> {
 
 [crates/console-resource-usage/src/lib.rs]
 held field of Moment = ? contents | state | guard | value    # 184: pub held: Vec<(String, f64)>,
 held field of Running = ? contents | state | guard | value    # 362: held: Vec<(String, f64)>,
 
 [crates/console-response-times/src/bin/console-response-times.rs]
-Refused enum = Rejected    # 137: enum Refused {
-heard fn = ? received | event | reply    # 149: fn heard(reading: &mut Reading<'_>, word: &str) -> Result<(), Refused> {
+Refused enum = Rejected    # applied
+heard fn = ? received | event | reply    # 149: fn heard(reading: &mut Reading<'_>, word: &str) -> Result<(), Rejected> {
 
 [crates/console-response-times/src/frames.rs]
 Held variant of Buffer = Acquired    # applied
@@ -1093,8 +1128,8 @@ Already enum = -    # 30: pub enum Already {
 
 [crates/console-resume/src/lib.rs]
 Asking variant of Unresumed = Query    # applied
+OURS const = APPLICATION    # applied
 Unreadable variant of Unresumed = Read    # applied
-OURS const = APPLICATION    # 38: pub const OURS: &str = "resume";
 
 [crates/console-resume/src/terminal.rs]
 Told variant of Directory = Known    # applied
@@ -1127,7 +1162,7 @@ heard field of Met = ? received | event | reply    # 82: pub heard: Option<i32>,
 
 [crates/console-settings/src/card.rs]
 What struct = Description    # applied
-room fn = ? size | bounds    # 282: fn room() -> Result<Option<Following>, Never> {
+room fn = ? size | bounds    # 281: fn room() -> Result<Option<Following>, Never> {
 
 [crates/console-settings/src/choosing.rs]
 Home variant of SettingsEffect = HomeScreen    # applied
@@ -1175,7 +1210,7 @@ Unreadable variant of Standing = Invalid    # applied
 whole field of Along = ? total    # 165: whole: u32,
 
 [crates/console-settings/src/wifi.rs]
-Heard struct = Received    # 353: struct Heard {
+Heard struct = Received    # applied
 
 [crates/console-signals/src/lib.rs]
 Refused variant of SignalError = Failed    # applied
@@ -1185,17 +1220,20 @@ Unheard enum = PlaybackError    # applied
 
 [crates/console-status-bar/src/bin/console-bar.rs]
 wide fn = measure    # applied
-held field of Turning = ? contents | state | guard | value    # 261: held: BarState,
-wearing field of Around = ? theme    # 272: wearing: &'a Wearing,
-whole field of Around = ? total    # 273: whole: Size<u32>,
-hearing field of Around = ? receiver    # 276: hearing: &'a OwnedFd,
-shown fn = ? visible | displayed    # 690: fn shown(before: Open) -> Result<Open, Never> {
+held field of Turning = ? contents | state | guard | value    # 264: held: BarState,
+wearing field of Around = ? theme    # 275: wearing: &'a Wearing,
+whole field of Around = ? total    # 276: whole: Size<u32>,
+hearing field of Around = ? receiver    # 279: hearing: &'a OwnedFd,
 
 [crates/console-status-bar/src/clock.rs]
 told field of Standing = ? reply | notice | request    # 36: told: Duration,
 
 [crates/console-status-bar/src/notifications.rs]
 many field of Waiting = ? count    # 26: pub many: u32,
+
+[crates/console-status-bar/src/panels.rs]
+lit fn = ? highlighted    # 130: pub fn lit(&self, panel: Panel) -> Result<Lit, Never> {
+shown fn = ? visible | displayed    # 172: fn shown(self, up: &[Panel]) -> Result<Self, Never> {
 
 [crates/console-status-bar/src/reading.rs]
 Asked struct = Readings    # applied
@@ -1217,17 +1255,20 @@ far fn = ? progress    # 631: fn far(panel: &Panel) -> Result<i32, Never> {
 Kept variant of Promise = Fulfilled    # applied
 Nothing variant of Playing = None    # applied
 Something variant of Playing = Some    # applied
-lit fn = ? highlighted    # 92: fn lit(up: Up) -> Result<Lit, Never> {
-says fn = ? label | text    # 318: fn says(icon: &str, tone: Tone) -> Result<Reading, Never> {
+told fn = ? reply | notice | request    # 103: pub fn told(&mut self, event: PanelEvent) -> Result<Vec<PanelEffect>, Never> {
+says fn = ? label | text    # 246: fn says(icon: &str, tone: Tone) -> Result<Reading, Never> {
 
 [crates/console-status-bar/tests/the_picture.rs]
 says fn = ? label | text    # 41: fn says(icon: &str, beside: Option<&str>, tone: Tone) -> Result<Reading, Never> {
 
+[crates/console-tasks/src/main.rs]
+asked fn = ? request | query | arguments | command    # 213: fn asked(program: Program, arguments: &[&str]) -> Result<Reply, TaskError> {
+
 [crates/console-test-checks/src/home.rs]
-lit fn = ? highlighted    # 576: fn lit<S>(
+lit fn = ? highlighted    # 581: fn lit<S>(
 
 [crates/console-test-checks/src/input.rs]
-OURS const = APPLICATION    # 46: const OURS: &str = "controller-desktop";
+OURS const = APPLICATION    # applied
 
 [crates/console-test-checks/src/lib.rs]
 Unreadable variant of Unchecked = Read    # applied
@@ -1237,6 +1278,9 @@ ours fn = ? own | internal    # 132: fn ours() -> Result<PathBuf, Unchecked> {
 
 [crates/console-test-checks/src/notifications.rs]
 spent fn = ? palette    # 132: fn spent(name: &str) -> Result<String, Unchecked> {
+
+[crates/console-test-checks/src/overview.rs]
+shown fn = ? visible | displayed    # 61: fn shown(stage: &mut Device) -> Result<Option<Size<u32>>, Why> {
 
 [crates/console-test-checks/src/picker.rs]
 What struct = Expected    # applied
@@ -1262,7 +1306,7 @@ Said struct = Names    # applied
 [crates/console-test-desktop/src/session.rs]
 Nothing variant of Wrote = None    # applied
 Something variant of Wrote = Some    # applied
-held field of Starting = ? contents | state | guard | value    # 308: held: Option<File>,
+held field of Starting = ? contents | state | guard | value    # 305: held: Option<File>,
 
 [crates/console-test-desktop/src/staging.rs]
 Told enum = Verbosity    # applied
@@ -1273,9 +1317,9 @@ standing fn = ? state | current    # 52: fn standing() -> Result<Here, Failure> 
 [crates/console-test-stages/src/device.rs]
 Nothing variant of Pushed = None    # applied
 Something variant of Pushed = Some    # applied
-kept field of Device = ? cached | stored | retained    # 187: kept: Option<PathBuf>,
-standing fn = ? state | current    # 1386: pub fn standing(&mut self) -> Result<console_screen::Shape, Never> {
-shown fn = ? visible | displayed    # 1399: fn shown(&mut self) -> Result<Option<console_screen::Screen>, Never> {
+kept field of Device = ? cached | stored | retained    # 189: kept: Option<PathBuf>,
+standing fn = ? state | current    # 1420: pub fn standing(&mut self) -> Result<console_screen::Shape, Never> {
+shown fn = ? visible | displayed    # 1433: fn shown(&mut self) -> Result<Option<console_screen::Screen>, Never> {
 
 [crates/console-test-stages/src/here.rs]
 told field of Here = ? reply | notice | request    # 43: pub told: Vec<console_onscreen::PadInput>,
@@ -1305,12 +1349,12 @@ beside fn = ? sibling    # 82: pub fn beside() -> Result<PathBuf, Never> {
 saying field of Woken = ? sender | message    # 48: pub saying: File,
 
 [crates/console-wallpaper/src/bin/console-wallpaper.rs]
+Asking struct = Query    # applied
 Unreadable variant of Untabled = Read    # applied
-Asking struct = Query    # 220: struct Asking {
-kept field of Query = ? cached | stored | retained    # 221: kept: here::CachedLocation,
-told field of Query = ? reply | notice | request    # 222: told: weather::Notified,
-kept field of Looking = ? cached | stored | retained    # 228: kept: here::CachedLocation,
-told field of Looking = ? reply | notice | request    # 229: told: weather::Notified,
+kept field of Query = ? cached | stored | retained    # 222: kept: here::CachedLocation,
+told field of Query = ? reply | notice | request    # 223: told: weather::Notified,
+kept field of Looking = ? cached | stored | retained    # 229: kept: here::CachedLocation,
+told field of Looking = ? reply | notice | request    # 230: told: weather::Notified,
 
 [crates/console-wallpaper/src/bin/wallpaper-render.rs]
 Unreadable variant of Unrendered = Read    # applied
@@ -1323,9 +1367,9 @@ Told enum = Notified    # applied
 Already variant of Notified = -    # 52: Already,
 
 [crates/console-wallpaper/src/keeping.rs]
-going field of Sky = ? progress | running | state    # 82: pub going: Going,
-Painted variant of Step = Rendered    # 268: Painted(&'static str),
-said fn = ? contents | output | text | reply    # 276: fn said(from: &Sky, steps: Vec<Step>) -> Result<Trace<Sky, WallpaperEvent, WallpaperEffect
+Painted variant of Step = Rendered    # applied
+going field of Sky = ? progress | running | state    # 83: pub going: Going,
+said fn = ? contents | output | text | reply    # 268: fn said(from: &Sky, steps: Vec<Step>) -> Result<Trace<Sky, Event<WallpaperEvent>, Effect<W
 
 [crates/console-wallpaper/src/lib.rs]
 Refused variant of Unpainted = Rejected    # applied
@@ -1337,7 +1381,7 @@ wide field of Patch = width    # applied
 whole fn = ? total    # 49: pub fn whole(size: Size<u32>) -> Result<Self, Never> {
 
 [crates/console-wallpaper/src/place.rs]
-hers fn = user    # 41: pub fn hers() -> Result<Option<PathBuf>, Never> {
+hers fn = user    # applied
 
 [crates/console-wallpaper/src/render.rs]
 carried field of Rendering = ? payload    # 254: carried: u32,

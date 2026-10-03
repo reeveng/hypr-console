@@ -11,9 +11,8 @@
 
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_program_contract::{
-    Arguments, Effect, Exit, Initial, Program, Command, Update, ExitStatus, Event,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Exit, Command, ExitStatus, Event};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pulling {
@@ -44,101 +43,117 @@ impl Named {
 
 pub struct Pull;
 
-impl Program for Pull {
+impl Machine for Pull {
+    type Input = Arguments;
     type State = Pulling;
-    type Event = console_core_never::Never;
-    type Effect = console_core_never::Never;
+    type Request = Event<console_core_never::Never>;
+    type Effect = Effect<console_core_never::Never>;
 
-    fn init(arguments: &Arguments) -> Initial<Pulling> {
-        let Ok(first) = arguments.first();
-        let Ok(named) = Named::of(first);
-        let Ok(opening) = Initial::new(Pulling::Initial(named));
+    fn initialize(arguments: &Arguments, _previous: Option<Pulling>, effects: &mut Effects) -> Result<Pulling, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(
-        state: &Pulling,
-        event: &Event<console_core_never::Never>,
-    ) -> Update<Pulling, console_core_never::Never> {
-        let Ok(turn) = match (state, event) {
-            (Pulling::Initial(Named::Nowhere), Event::Opened) => Update::new(
-                state.clone(),
-                vec![Effect::Stop(Exit::Failure(
-                    "CONSOLE_HOST is not set, so there is no device to talk to. Set it to the \
-                     device, as in CONSOLE_HOST=root@handheld."
-                        .to_string(),
-                ))],
-            ),
+    fn handle(state: Pulling, event: Event<console_core_never::Never>, effects: &mut Effects) -> Result<Pulling, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            (Pulling::Initial(Named::Device(host)), Event::Opened) => {
-                let Ok(asking) = Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
+        decided.offered(effects)
+    }
+}
 
-                Update::new(Pulling::Querying(host.clone()), vec![Effect::Run(asking)])
-            }
+type Effects = Queue<Effect<console_core_never::Never>>;
 
-            (Pulling::Querying(host), Event::Replied(answer)) => match answer.output.trim().is_empty() {
-                true => {
-                    let Ok(fetching) = fetching(host);
+fn initial(arguments: &Arguments) -> Result<Transition<Pulling, Effect<console_core_never::Never>>, Never> {
+    let Ok(first) = arguments.first();
+    let Ok(named) = Named::of(first);
+    let Ok(opening) = Transition::without_effects(Pulling::Initial(named));
 
-                    Update::new(Pulling::Fetching(host.clone()), vec![Effect::Run(fetching)])
-                },
-                false => Update::new(
-                    state.clone(),
-                    vec![
-                        Effect::Print(answer.output.trim_end().to_string()),
-                        Effect::Stop(Exit::Failure(
-                            "there are changes here that are not committed; commit or drop them"
-                                .to_string(),
-                        )),
-                    ],
-                ),
+    Ok(opening)
+}
+
+fn decide(
+    state: &Pulling,
+    event: &Event<console_core_never::Never>,
+) -> Result<Transition<Pulling, Effect<console_core_never::Never>>, Never> {
+    let Ok(turn) = match (state, event) {
+        (Pulling::Initial(Named::Nowhere), Event::Opened) => Transition::new(
+            state.clone(),
+            vec![Effect::Stop(Exit::Failure(
+                "CONSOLE_HOST is not set, so there is no device to talk to. Set it to the \
+                 device, as in CONSOLE_HOST=root@handheld."
+                    .to_string(),
+            ))],
+        ),
+
+        (Pulling::Initial(Named::Device(host)), Event::Opened) => {
+            let Ok(asking) = Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
+
+            Transition::new(Pulling::Querying(host.clone()), vec![Effect::Run(asking)])
+        }
+
+        (Pulling::Querying(host), Event::Replied(answer)) => match answer.output.trim().is_empty() {
+            true => {
+                let Ok(fetching) = fetching(host);
+
+                Transition::new(Pulling::Fetching(host.clone()), vec![Effect::Run(fetching)])
             },
-
-            (Pulling::Fetching(_), Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => {
-                    let Ok(rebasing) = Command::external(ExternalProgram::Git, &["rebase", "FETCH_HEAD"]);
-
-                    Update::new(Pulling::Rebasing, vec![Effect::Run(rebasing)])
-                }
-                ExitStatus::Failure(_) => stopped(state, "the device would not say what it has"),
-            },
-
-            (Pulling::Rebasing, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => {
-                    let Ok(telling) = Command::external(ExternalProgram::Git, &["log", "--oneline", "-5"]);
-
-                    Update::new(Pulling::Logging, vec![Effect::Run(telling)])
-                }
-                ExitStatus::Failure(_) => stopped(state, "what the device committed would not go on top"),
-            },
-
-            (Pulling::Logging, Event::Replied(answer)) => Update::new(
+            false => Transition::new(
                 state.clone(),
                 vec![
                     Effect::Print(answer.output.trim_end().to_string()),
-                    Effect::Stop(Exit::Success),
+                    Effect::Stop(Exit::Failure(
+                        "there are changes here that are not committed; commit or drop them"
+                            .to_string(),
+                    )),
                 ],
             ),
+        },
 
-            (_, _) => Update::none(state.clone()),
-        };
+        (Pulling::Fetching(_), Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(rebasing) = Command::external(ExternalProgram::Git, &["rebase", "FETCH_HEAD"]);
 
-        turn
-    }
+                Transition::new(Pulling::Rebasing, vec![Effect::Run(rebasing)])
+            }
+            ExitStatus::Failure(_) => stopped(state, "the device would not say what it has"),
+        },
+
+        (Pulling::Rebasing, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(telling) = Command::external(ExternalProgram::Git, &["log", "--oneline", "-5"]);
+
+                Transition::new(Pulling::Logging, vec![Effect::Run(telling)])
+            }
+            ExitStatus::Failure(_) => stopped(state, "what the device committed would not go on top"),
+        },
+
+        (Pulling::Logging, Event::Replied(answer)) => Transition::new(
+            state.clone(),
+            vec![
+                Effect::Print(answer.output.trim_end().to_string()),
+                Effect::Stop(Exit::Success),
+            ],
+        ),
+
+        (_, _) => Transition::without_effects(state.clone()),
+    };
+
+    Ok(turn)
 }
 
 pub fn fetching(host: &str) -> Result<Command, Never> {
     Command::external(ExternalProgram::Git, &["fetch", &format!("ssh://{host}/etc/console"), "master"])
 }
 
-fn stopped(state: &Pulling, why: &str) -> Result<Update<Pulling, Never>, Never> {
-    Update::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
+fn stopped(state: &Pulling, why: &str) -> Result<Transition<Pulling, Effect<Never>>, Never> {
+    Transition::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
 }
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, run};
+    use console_program_contract::Answer;
+    use console_core_state_machine::run;
 
     use super::*;
 

@@ -3,8 +3,9 @@
 //! What it holds and why it is drawn this way is `console_downloads::card`'s
 //! own head. This is the program someone types and the desktop opens, and the
 //! book store the library's last cover leads to. It is an app rather than a
-//! panel: drawn by this process across the whole screen, and still there with
-//! its search and what it found when a panel opened over it goes.
+//! panel: drawn by this process as a window on a workspace of its own, and
+//! still there with its search and what it found when a panel opened over it
+//! goes.
 
 use console_core_never::Never;
 use console_panel::picker::{self, Alone};

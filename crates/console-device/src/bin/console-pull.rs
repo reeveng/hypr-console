@@ -2,7 +2,7 @@
 //!
 //! The device is named by `CONSOLE_HOST`, which `console-device-name` reads and
 //! nothing else does. `pulling` may not read it because it is a
-//! `console_program_contract::Program` and a value arriving through the side of
+//! `console_core_state_machine::Machine` and a value arriving through the side of
 //! one is a value no transcript can put a different answer in -- which is the
 //! same reason `console-deploy` and `console-migrate` read it here too.
 

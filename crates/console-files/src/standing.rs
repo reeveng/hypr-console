@@ -23,7 +23,8 @@
 use std::path::PathBuf;
 
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Initial, Program, Update, Event};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Effect, Event};
 
 use crate::doing::Holding;
 use crate::listing::Entry;
@@ -108,104 +109,110 @@ pub enum Closes {
 
 pub struct Files;
 
-impl Program for Files {
+impl Machine for Files {
+    type Input = Standing;
     type State = Standing;
-    type Event = FilesEvent;
-    type Effect = FilesEffect;
+    type Request = Event<FilesEvent>;
+    type Effect = Effect<FilesEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Standing> {
-        let Ok(standing) = Standing::of(Vec::new());
-        let Ok(opening) = Initial::new(standing);
-
-        opening
+    fn initialize(opening: &Standing, _previous: Option<Standing>, _effects: &mut Effects) -> Result<Standing, Never> {
+        Ok(opening.clone())
     }
 
-    fn update(state: &Standing, event: &Event<FilesEvent>) -> Update<Standing, FilesEffect> {
-        let heard = match event {
-            Event::Custom(heard) => heard,
-            Event::Opened
-            | Event::Changed(_)
-            | Event::Tick(_, _)
-            | Event::Replied(_)
-            | Event::Chosen(_)
-            | Event::Stopping => {
-                let Ok(nothing) = Update::none(state.clone());
+    fn handle(state: Standing, event: Event<FilesEvent>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-                return nothing;
-            }
-        };
-
-        let Ok(turn) = match heard {
-            FilesEvent::Typed { tab, word } => {
-                let Ok(typed) = search_text(state, *tab);
-
-                let Ok(with) = with_typed(state, *tab, word);
-
-                match typed == *word {
-                    true => Update::none(state.clone()),
-                    false => Update::new(with, vec![Effect::Custom(FilesEffect::Replace(0))]),
-                }
-            }
-
-            FilesEvent::LookingFor { tab, word } => {
-                let Ok(with) = with_typed(state, *tab, word);
-
-                Update::none(with)
-            }
-
-            FilesEvent::Opened { tab, onto, row } => {
-                let Ok(with) = with_onto(state, *tab, onto.clone());
-
-                Update::new(with, vec![Effect::Custom(FilesEffect::Replace(*row))])
-            }
-
-            FilesEvent::Entered { tab, name, at } => {
-                let Ok(row) = first_thing(state, *tab);
-
-                let Ok(held) = walked(state, *tab, std::slice::from_ref(name), Line(*at));
-
-                let Ok(here) = here(&held, *tab);
-
-                Update::new(held, vec![
-                    Effect::Custom(FilesEffect::Replace(row)),
-                    Effect::Custom(FilesEffect::WantingPictures(here)),
-                ])
-            }
-
-            FilesEvent::Walked { tab, steps } => {
-                let Ok(row) = first_thing(state, *tab);
-
-                let Ok(held) = walked(state, *tab, steps, Line(row));
-
-                let Ok(here) = here(&held, *tab);
-
-                Update::new(held, vec![
-                    Effect::Custom(FilesEffect::Replace(row)),
-                    Effect::Custom(FilesEffect::WantingPictures(here)),
-                ])
-            }
-
-            FilesEvent::Up { tab } => went_up(state, *tab),
-
-            FilesEvent::PickedUp(holding) => {
-                Update::none(Standing { holding: Some(holding.clone()), ..state.clone() })
-            }
-
-            FilesEvent::PutDown => Update::new(
-                Standing { holding: None, ..state.clone() },
-                vec![Effect::Custom(FilesEffect::Replace(LINE))],
-            ),
-
-            FilesEvent::Arrived { tab, names } => arrived(state, *tab, names),
-
-            FilesEvent::Back { tab } => back(state, *tab),
-        };
-
-        turn
+        decided.offered(effects)
     }
 }
 
-fn back(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, Never> {
+type Effects = Queue<Effect<FilesEffect>>;
+
+fn decide(state: &Standing, event: &Event<FilesEvent>) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
+    let heard = match event {
+        Event::Custom(heard) => heard,
+        Event::Opened
+        | Event::Changed(_)
+        | Event::Tick(_, _)
+        | Event::Replied(_)
+        | Event::Chosen(_)
+        | Event::Stopping => {
+            let Ok(nothing) = Transition::without_effects(state.clone());
+
+            return Ok(nothing);
+        }
+    };
+
+    let Ok(turn) = match heard {
+        FilesEvent::Typed { tab, word } => {
+            let Ok(typed) = search_text(state, *tab);
+
+            let Ok(with) = with_typed(state, *tab, word);
+
+            match typed == *word {
+                true => Transition::without_effects(state.clone()),
+                false => Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(0))]),
+            }
+        }
+
+        FilesEvent::LookingFor { tab, word } => {
+            let Ok(with) = with_typed(state, *tab, word);
+
+            Transition::without_effects(with)
+        }
+
+        FilesEvent::Opened { tab, onto, row } => {
+            let Ok(with) = with_onto(state, *tab, onto.clone());
+
+            Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(*row))])
+        }
+
+        FilesEvent::Entered { tab, name, at } => {
+            let Ok(row) = first_thing(state, *tab);
+
+            let Ok(held) = walked(state, *tab, std::slice::from_ref(name), Line(*at));
+
+            let Ok(here) = here(&held, *tab);
+
+            Transition::new(held, vec![
+                Effect::Custom(FilesEffect::Replace(row)),
+                Effect::Custom(FilesEffect::WantingPictures(here)),
+            ])
+        }
+
+        FilesEvent::Walked { tab, steps } => {
+            let Ok(row) = first_thing(state, *tab);
+
+            let Ok(held) = walked(state, *tab, steps, Line(row));
+
+            let Ok(here) = here(&held, *tab);
+
+            Transition::new(held, vec![
+                Effect::Custom(FilesEffect::Replace(row)),
+                Effect::Custom(FilesEffect::WantingPictures(here)),
+            ])
+        }
+
+        FilesEvent::Up { tab } => went_up(state, *tab),
+
+        FilesEvent::PickedUp(holding) => {
+            Transition::without_effects(Standing { holding: Some(holding.clone()), ..state.clone() })
+        }
+
+        FilesEvent::PutDown => Transition::new(
+            Standing { holding: None, ..state.clone() },
+            vec![Effect::Custom(FilesEffect::Replace(LINE))],
+        ),
+
+        FilesEvent::Arrived { tab, names } => arrived(state, *tab, names),
+
+        FilesEvent::Back { tab } => back(state, *tab),
+    };
+
+    Ok(turn)
+}
+
+fn back(state: &Standing, tab: u32) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
     let word = search_text(state, tab)?;
     let onto = onto(state, tab)?;
 
@@ -213,7 +220,7 @@ fn back(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, Nev
         (Destination::Folder, false) => {
             let with = with_typed(state, tab, "")?;
 
-            Update::new(with, vec![
+            Transition::new(with, vec![
                 Effect::Custom(FilesEffect::ForgetTyping),
                 Effect::Custom(FilesEffect::Replace(LINE)),
             ])
@@ -223,7 +230,7 @@ fn back(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, Nev
             let at_top = at_top(state, tab)?;
 
             match at_top {
-                Top::Yes => Update::none(state.clone()),
+                Top::Yes => Transition::without_effects(state.clone()),
                 Top::No => went_up(state, tab),
             }
         }
@@ -231,25 +238,25 @@ fn back(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, Nev
         (Destination::Here { from }, _) | (Destination::Ways { from, .. }, _) => {
             let with = with_onto(state, tab, Destination::Folder)?;
 
-            Update::new(with, vec![Effect::Custom(FilesEffect::Replace(from))])
+            Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(from))])
         }
 
         (Destination::Programs { thing, from }, _) => {
             let with = with_onto(state, tab, Destination::Ways { thing, from })?;
 
-            Update::new(with, vec![Effect::Custom(FilesEffect::Replace(WAYS_START))])
+            Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(WAYS_START))])
         }
     }
 }
 
-fn went_up(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, Never> {
+fn went_up(state: &Standing, tab: u32) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
     let mut walks = state.walks.clone();
 
     let Ok(slot) = console_core_number_conversion::index(tab);
 
     let walk = match walks.get_mut(slot) {
         Some(walk) => walk,
-        None => return Update::none(state.clone()),
+        None => return Transition::without_effects(state.clone()),
     };
 
     let back_to = walk.up()?;
@@ -257,15 +264,15 @@ fn went_up(state: &Standing, tab: u32) -> Result<Update<Standing, FilesEffect>, 
     let here = here(&held, tab)?;
 
     match back_to {
-        Some(back_to) => Update::new(held, vec![
+        Some(back_to) => Transition::new(held, vec![
             Effect::Custom(FilesEffect::Replace(back_to)),
             Effect::Custom(FilesEffect::WantingPictures(here)),
         ]),
-        None => Update::none(held),
+        None => Transition::without_effects(held),
     }
 }
 
-fn arrived(state: &Standing, tab: u32, names: &[String]) -> Result<Update<Standing, FilesEffect>, Never> {
+fn arrived(state: &Standing, tab: u32, names: &[String]) -> Result<Transition<Standing, Effect<FilesEffect>>, Never> {
     let asked = state.stand_on.clone();
 
     match asked {
@@ -273,14 +280,14 @@ fn arrived(state: &Standing, tab: u32, names: &[String]) -> Result<Update<Standi
             true => {
                 let row = row_of(state, tab, &name, names)?;
 
-                Update::new(
+                Transition::new(
                     Standing { stand_on: None, ..state.clone() },
                     vec![Effect::Custom(FilesEffect::Replace(row))],
                 )
             }
-            false => Update::none(state.clone()),
+            false => Transition::without_effects(state.clone()),
         },
-        None => Update::none(state.clone()),
+        None => Transition::without_effects(state.clone()),
     }
 }
 
@@ -466,7 +473,7 @@ pub fn closes(state: &Standing, tab: u32) -> Result<Closes, Never> {
 #[cfg(test)]
 mod tests {
 
-    use console_program_contract::{Trace, run_from};
+    use console_core_state_machine::{Trace, run_from};
 
     use crate::doing::Carrying;
 
@@ -485,10 +492,10 @@ mod tests {
         Standing::of(places)
     }
 
-    fn said(from: &Standing, heard: &[FilesEvent]) -> Result<Trace<Standing, FilesEvent, FilesEffect>, Never> {
+    fn said(from: &Standing, heard: &[FilesEvent]) -> Result<Trace<Standing, Event<FilesEvent>, Effect<FilesEffect>>, Never> {
         let events: Vec<Event<FilesEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        run_from::<Files>(from, &events)
+        run_from::<Files>(from.clone(), &events)
     }
 
     fn thing(name: &str) -> Result<Entry, Never> {

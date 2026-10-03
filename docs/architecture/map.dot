@@ -39,6 +39,7 @@ digraph desktop {
   "crate:console-media-viewer" [label="console-media-viewer", shape=ellipse];
   "crate:console-music" [label="console-music\nkeeps a clock: recv_timeout", shape=ellipse];
   "crate:console-music-player" [label="console-music-player", shape=ellipse];
+  "crate:console-notes" [label="console-notes", shape=ellipse];
   "crate:console-notifications" [label="console-notifications\nkeeps a clock: deadline", shape=ellipse];
   "crate:console-onscreen" [label="console-onscreen", shape=ellipse];
   "crate:console-overview" [label="console-overview", shape=ellipse];
@@ -63,6 +64,7 @@ digraph desktop {
   "crate:console-wallpaper" [label="console-wallpaper\nkeeps a clock: recv_timeout", shape=ellipse];
   "crate:console-weather" [label="console-weather", shape=ellipse];
   "internal:Asking" [label="Asking", shape=box, style=rounded];
+  "internal:Books" [label="Books", shape=box, style=rounded];
   "internal:BooksCatalog" [label="BooksCatalog", shape=box, style=rounded];
   "internal:Brightness" [label="Brightness", shape=box, style=rounded];
   "internal:Browser" [label="Browser", shape=box, style=rounded];
@@ -76,6 +78,7 @@ digraph desktop {
   "internal:DownloadsGet" [label="DownloadsGet", shape=box, style=rounded];
   "internal:Files" [label="Files", shape=box, style=rounded];
   "internal:ForecastPanel" [label="ForecastPanel", shape=box, style=rounded];
+  "internal:KeyboardShow" [label="KeyboardShow", shape=box, style=rounded];
   "internal:KeyboardToggle" [label="KeyboardToggle", shape=box, style=rounded];
   "internal:Launcher" [label="Launcher", shape=box, style=rounded];
   "internal:LoginGreeter" [label="LoginGreeter", shape=box, style=rounded];
@@ -85,6 +88,7 @@ digraph desktop {
   "internal:MusicOnward" [label="MusicOnward", shape=box, style=rounded];
   "internal:MusicPanel" [label="MusicPanel", shape=box, style=rounded];
   "internal:NightShift" [label="NightShift", shape=box, style=rounded];
+  "internal:Notes" [label="Notes", shape=box, style=rounded];
   "internal:NotificationsPanel" [label="NotificationsPanel", shape=box, style=rounded];
   "internal:Overview" [label="Overview", shape=box, style=rounded];
   "internal:PanelPictures" [label="PanelPictures", shape=box, style=rounded];
@@ -141,6 +145,7 @@ digraph desktop {
   "program:Pactl" [label="pactl", shape=component];
   "program:Pdfinfo" [label="pdfinfo", shape=component];
   "program:Pdftoppm" [label="pdftoppm", shape=component];
+  "program:Pdftotext" [label="pdftotext", shape=component];
   "program:Pkill" [label="pkill", shape=component];
   "program:Powerprofilesctl" [label="powerprofilesctl", shape=component];
   "program:Ps" [label="ps", shape=component];
@@ -162,6 +167,7 @@ digraph desktop {
   "program:Systemctl" [label="systemctl", shape=component];
   "program:SystemdInhibit" [label="systemdinhibit", shape=component];
   "program:SystemdRun" [label="systemdrun", shape=component];
+  "program:Tesseract" [label="tesseract", shape=component];
   "program:Timedatectl" [label="timedatectl", shape=component];
   "program:True" [label="true", shape=component];
   "program:Udevadm" [label="udevadm", shape=component];
@@ -214,11 +220,15 @@ digraph desktop {
   "crate:console-awake" -> "program:Ssh" [label="runs", style=solid];
   "crate:console-awake" -> "program:SystemdInhibit" [label="runs", style=solid];
   "crate:console-bookmarks" -> "program:XdgOpen" [label="runs", style=solid];
+  "crate:console-books" -> "internal:Books" [label="starts", style=solid];
   "crate:console-books" -> "internal:BooksCatalog" [label="starts", style=solid];
   "crate:console-books" -> "internal:Downloads" [label="starts", style=solid];
+  "crate:console-books" -> "internal:KeyboardShow" [label="starts", style=solid];
   "crate:console-books" -> "internal:KeyboardToggle" [label="starts", style=solid];
   "crate:console-books" -> "program:Pdfinfo" [label="runs", style=solid];
   "crate:console-books" -> "program:Pdftoppm" [label="runs", style=solid];
+  "crate:console-books" -> "program:Pdftotext" [label="runs", style=solid];
+  "crate:console-books" -> "program:Tesseract" [label="runs", style=solid];
   "crate:console-books" -> "topic:Path" [label="subscribes", style=solid];
   "crate:console-bus" -> "a unix socket" [label="connects", style=solid];
   "crate:console-calendar" -> "program:Cal" [label="runs", style=solid];
@@ -359,6 +369,7 @@ digraph desktop {
   "crate:console-music-player" -> "program:Ffmpeg" [label="runs", style=solid];
   "crate:console-music-player" -> "program:Ffprobe" [label="runs", style=solid];
   "crate:console-music-player" -> "program:PwCat" [label="runs", style=solid];
+  "crate:console-notes" -> "internal:Files" [label="starts", style=solid];
   "crate:console-notifications" -> "program:Busctl" [label="runs", style=solid];
   "crate:console-notifications" -> "program:Logger" [label="runs", style=solid];
   "crate:console-notifications" -> "program:Systemctl" [label="runs", style=solid];
@@ -380,6 +391,7 @@ digraph desktop {
   "crate:console-panels" -> "internal:Launcher" [label="starts", style=solid];
   "crate:console-panels" -> "internal:MappingPanel" [label="starts", style=solid];
   "crate:console-panels" -> "internal:MusicPanel" [label="starts", style=solid];
+  "crate:console-panels" -> "internal:Notes" [label="starts", style=solid];
   "crate:console-panels" -> "internal:NotificationsPanel" [label="starts", style=solid];
   "crate:console-panels" -> "internal:SettingsPanel" [label="starts", style=solid];
   "crate:console-pictures" -> "program:Ffmpeg" [label="runs", style=solid];
@@ -390,6 +402,8 @@ digraph desktop {
   "crate:console-program-runtime" -> "program:NotifySend" [label="runs", style=solid];
   "crate:console-program-runtime" -> "program:SystemdRun" [label="runs", style=solid];
   "crate:console-program-runtime" -> "topic:*" [label="subscribes", style=solid];
+  "crate:console-recovery" -> "program:Bootctl" [label="runs", style=solid];
+  "crate:console-recovery" -> "program:Cat" [label="runs", style=solid];
   "crate:console-recovery" -> "program:Systemctl" [label="runs", style=solid];
   "crate:console-rename" -> "program:Git" [label="runs", style=solid];
   "crate:console-repository" -> "program:Git" [label="runs", style=solid];
@@ -436,9 +450,11 @@ digraph desktop {
   "crate:console-status-bar" -> "internal:MusicPanel" [label="starts", style=solid];
   "crate:console-status-bar" -> "internal:NotificationsPanel" [label="starts", style=solid];
   "crate:console-status-bar" -> "internal:SettingsPanel" [label="starts", style=solid];
+  "crate:console-status-bar" -> "internal:Volume" [label="starts", style=solid];
   "crate:console-status-bar" -> "program:Busctl" [label="runs", style=solid];
   "crate:console-status-bar" -> "program:Date" [label="runs", style=solid];
   "crate:console-status-bar" -> "program:Nmcli" [label="runs", style=solid];
+  "crate:console-status-bar" -> "program:Systemctl" [label="runs", style=solid];
   "crate:console-status-bar" -> "program:Wpctl" [label="runs", style=solid];
   "crate:console-status-bar" -> "topic:Battery" [label="subscribes", style=solid];
   "crate:console-status-bar" -> "topic:Bluetooth" [label="subscribes", style=solid];

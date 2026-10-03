@@ -22,14 +22,13 @@ pub fn door(arguments: &[String]) -> Result<Door, Never> {
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let initial = Settings::init(&Arguments::default());
-    let Ok(card) = Card::supervised(move || Looking(initial.state.clone()), pages);
+    let Ok(card) = Card::supervised::<Settings, _>(Arguments::default(), pages);
 
     card.opening_at(arguments.first().map(String::as_str))
 }
 
 use console_battery as battery;
-use console_panel::actor::{self, Address, Answer};
+use console_actor::Actor;
 use console_panel::page::{Aside, Handler, Level, Page, Rows, Showing};
 use console_panel::running::{Notification, run_output, say};
 use console_panel::before;
@@ -51,7 +50,7 @@ use crate::light;
 use crate::warm::{self, NightShift};
 use crate::{bluetooth, screen, size, sound, turning, wifi};
 use console_home_screen::shape::{self, Shape};
-use console_program_contract::{Arguments, Effect, Program as _, Update, Event};
+use console_program_contract::{Arguments, Effect, Event};
 use crate::choosing::{Closes, Deeper, SettingsEvent, SettingsEffect, Meeting, Destination, Settings, Under, closes, under};
 use console_wallpaper::choose::{Set, Wanted};
 use console_wallpaper::place;
@@ -431,7 +430,7 @@ fn home_rows(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never
 }
 
 fn grid(held: &ActorAddress, heard: SettingsEvent) -> Result<(), Never> {
-    let effects = match held.ask(|answer| Message::Event(heard, answer)) {
+    let effects = match held.send(Event::Custom(heard)) {
         Ok(effects) => effects,
         Err(_the_actor_has_gone) => {
             eprintln!("settings-panel: the panel's own state is missing, so the grid did not move");
@@ -979,44 +978,17 @@ fn use_it(
     })
 }
 
-enum Message {
-    Event(SettingsEvent, Answer<Vec<Effect<SettingsEffect>>>),
-    At(Answer<Destination>),
-}
-
-struct Looking(Destination);
-
-impl actor::Machine for Looking {
-    type Message = Message;
-
-    fn step(self, message: Message) -> Self {
-        match message {
-            Message::Event(heard, answer) => {
-                let Update { state, effects } = Settings::update(&self.0, &Event::Custom(heard));
-                let _ = answer.say(effects);
-
-                Looking(state)
-            }
-            Message::At(answer) => {
-                let _ = answer.say(self.0.clone());
-
-                self
-            },
-        }
-    }
-}
-
-type ActorAddress = Address<Message>;
+type ActorAddress = Actor<Settings>;
 
 fn looking_at(held: &ActorAddress) -> Result<Destination, Never> {
-    Ok(match held.ask(Message::At) {
+    Ok(match held.get() {
         Ok(onto) => onto,
         Err(_the_actor_has_gone) => Destination::Settings,
     })
 }
 
 fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Result<(), Never> {
-    let effects = match held.ask(|answer| Message::Event(heard, answer)) {
+    let effects = match held.send(Event::Custom(heard)) {
         Ok(effects) => effects,
         Err(_the_actor_has_gone) => {
             eprintln!("settings-panel: the panel's own state is missing, so the press did nothing");

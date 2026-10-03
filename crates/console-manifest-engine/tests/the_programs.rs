@@ -15,8 +15,8 @@
 //! table was for, and it reads the enum rather than a copy of it.  The other
 //! two are the ratchet. A program named by a string is a program the enum does
 //! not know about, and a variant nothing reaches for is a package no one can
-//! justify. A crate that also has a `console_program_contract::Program` in
-//! scope imports this one as `ExternalProgram`, which is why the scan reads both
+//! justify. The crates that once had the program contract's own `Program` in
+//! scope import this one as `ExternalProgram`, which is why the scan reads both
 //! spellings.
 //!
 //! The scan used to allow one kind of literal: a program of this tree's own,

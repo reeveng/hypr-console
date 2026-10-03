@@ -16,6 +16,7 @@ console-core-external-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-iteration.workspace = true
 console-core-never.workspace = true
+console-core-state-machine.workspace = true
 console-events.workspace = true
 
 [dev-dependencies]

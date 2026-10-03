@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Notes
+Comment=Notes with a title and a body, kept as Markdown in the Notes folder
+Exec=/usr/local/bin/notes
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;

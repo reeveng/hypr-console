@@ -1,2 +1,8 @@
 [alias]
 x = "run --quiet --package console-tasks --bin console-tasks --"
+
+# The device builds its own tree, so native is the processor it runs on, and
+# the tests here run with the instructions the device has. The kernel is built
+# for x86_64-unknown-uefi and is left at that target's baseline.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]

@@ -17,7 +17,8 @@ use console_core_never::Never;
 use console_input_event_devices::presses::ButtonPress;
 use console_login_greeter::greeting::{Greeting, Status};
 use console_login_pattern::{Clicked, Direction, Pattern, Secret, Touch};
-use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
+use console_core_state_machine::{Machine, Queue};
+use console_program_contract::{Arguments, Effect, Event, Exit};
 
 pub const FEWEST: u32 = 4;
 
@@ -67,100 +68,109 @@ impl Drawing {
     }
 }
 
-impl Program for LoginPattern {
+impl Machine for LoginPattern {
+    type Input = Arguments;
     type State = Drawing;
-    type Event = LoginPatternEvent;
-    type Effect = LoginPatternEffect;
+    type Request = Event<LoginPatternEvent>;
+    type Effect = Effect<LoginPatternEffect>;
 
-    fn init(_arguments: &Arguments) -> Initial<Drawing> {
+    fn initialize(_arguments: &Arguments, _previous: Option<Drawing>, _effects: &mut Queue<Self::Effect>) -> Result<Drawing, Never> {
         let Ok(pattern) = Pattern::new();
         let greeting = Greeting { pattern, status: Status::Message(DRAW.to_string()) };
-        let Ok(opening) = Initial::new(Drawing { step: Step::Choosing, greeting });
 
-        opening
+        Ok(Drawing { step: Step::Choosing, greeting })
     }
 
-    fn update(drawing: &Drawing, event: &Event<LoginPatternEvent>) -> Update<Drawing, LoginPatternEffect> {
-        let Ok(update) = match event {
-            Event::Custom(LoginPatternEvent::Pressed(press)) => pressed(drawing, *press),
-            Event::Custom(LoginPatternEvent::Touched(touch)) => on_touch(drawing, *touch),
+    fn handle(drawing: Drawing, event: Event<LoginPatternEvent>, effects: &mut Queue<Self::Effect>) -> Result<Drawing, Never> {
+        match event {
+            Event::Custom(LoginPatternEvent::Pressed(press)) => pressed(drawing, press, effects),
+            Event::Custom(LoginPatternEvent::Touched(touch)) => on_touch(drawing, touch, effects),
             Event::Opened | Event::Changed(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping => {
-                Update::none(drawing.clone())
+                Ok(drawing)
             }
-        };
-
-        update
+        }
     }
 }
 
-fn with_pattern(drawing: &Drawing, pattern: Pattern) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
-    Update::none(Drawing { step: drawing.step.clone(), greeting: Greeting { pattern, status: drawing.greeting.status.clone() } })
+type Effects = Queue<Effect<LoginPatternEffect>>;
+
+fn with_pattern(drawing: Drawing, pattern: Pattern) -> Result<Drawing, Never> {
+    Ok(Drawing { step: drawing.step, greeting: Greeting { pattern, status: drawing.greeting.status } })
 }
 
-fn cleared(drawing: &Drawing, step: Step, message: &str) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn cleared(drawing: Drawing, step: Step, message: &str) -> Result<Drawing, Never> {
     let Ok(pattern) = drawing.greeting.pattern.cleared();
 
-    Update::none(Drawing { step, greeting: Greeting { pattern, status: Status::Message(message.to_string()) } })
+    Ok(Drawing { step, greeting: Greeting { pattern, status: Status::Message(message.to_string()) } })
 }
 
-fn pressed(drawing: &Drawing, press: ButtonPress) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
-    let pattern = &drawing.greeting.pattern;
-    let moved = |direction| {
-        let Ok(pattern) = pattern.moved(direction);
+fn stopped(drawing: Drawing, effects: &mut Effects) -> Result<Drawing, Never> {
+    let Ok(()) = effects.offer(Effect::Stop(Exit::Success));
 
-        with_pattern(drawing, pattern)
-    };
+    Ok(drawing)
+}
 
+fn moved(drawing: Drawing, direction: Direction) -> Result<Drawing, Never> {
+    let Ok(pattern) = drawing.greeting.pattern.moved(direction);
+
+    with_pattern(drawing, pattern)
+}
+
+fn pressed(drawing: Drawing, press: ButtonPress, effects: &mut Effects) -> Result<Drawing, Never> {
     match press {
-        ButtonPress::Up => moved(Direction::Up),
-        ButtonPress::Down => moved(Direction::Down),
-        ButtonPress::Left => moved(Direction::Left),
-        ButtonPress::Right => moved(Direction::Right),
-        ButtonPress::Back => match pattern.path.is_empty() {
-            true => Update::new(drawing.clone(), vec![Effect::Stop(Exit::Success)]),
+        ButtonPress::Up => moved(drawing, Direction::Up),
+        ButtonPress::Down => moved(drawing, Direction::Down),
+        ButtonPress::Left => moved(drawing, Direction::Left),
+        ButtonPress::Right => moved(drawing, Direction::Right),
+        ButtonPress::Back => match drawing.greeting.pattern.path.is_empty() {
+            true => stopped(drawing, effects),
             false => {
-                let Ok(undone) = pattern.undone();
+                let Ok(undone) = drawing.greeting.pattern.undone();
 
                 with_pattern(drawing, undone)
             }
         },
         ButtonPress::Choose => {
-            let Ok(clicked) = pattern.click();
+            let Ok(clicked) = drawing.greeting.pattern.click();
 
-            on_click(drawing, clicked)
+            on_click(drawing, clicked, effects)
         }
     }
 }
 
-fn on_touch(drawing: &Drawing, touch: Touch) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn on_touch(drawing: Drawing, touch: Touch, effects: &mut Effects) -> Result<Drawing, Never> {
     let pattern = &drawing.greeting.pattern;
 
     match (touch, pattern.finger, pattern.path.is_empty()) {
-        (Touch::Up, Some(_), true) => Update::new(drawing.clone(), vec![Effect::Stop(Exit::Success)]),
+        (Touch::Up, Some(_), true) => stopped(drawing, effects),
         (Touch::Up, Some(_), false) | (Touch::Up, None, true | false) | (Touch::Down(_) | Touch::Moved(_), Some(_) | None, true | false) => {
             let Ok(clicked) = pattern.touch(touch);
 
-            on_click(drawing, clicked)
+            on_click(drawing, clicked, effects)
         }
     }
 }
 
-fn on_click(drawing: &Drawing, clicked: Clicked) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn on_click(drawing: Drawing, clicked: Clicked, effects: &mut Effects) -> Result<Drawing, Never> {
     match clicked {
         Clicked::Traced(next) => with_pattern(drawing, next),
-        Clicked::Submitted(secret) => submitted(drawing, secret),
+        Clicked::Submitted(secret) => submitted(drawing, secret, effects),
     }
 }
 
-fn submitted(drawing: &Drawing, secret: Secret) -> Result<Update<Drawing, LoginPatternEffect>, Never> {
+fn submitted(drawing: Drawing, secret: Secret, effects: &mut Effects) -> Result<Drawing, Never> {
     let Ok(letters) = secret.as_str();
     let Ok(fewest) = console_core_number_conversion::index(FEWEST);
 
-    match (letters.chars().count() < fewest, &drawing.step) {
-        (true, step) => cleared(drawing, step.clone(), SHORT),
+    match (letters.chars().count() < fewest, drawing.step.clone()) {
+        (true, step) => cleared(drawing, step, SHORT),
         (false, Step::Choosing) => cleared(drawing, Step::Confirming(secret), AGAIN),
-        (false, Step::Confirming(first)) => match *first == secret {
-            true => Update::new(drawing.clone(), vec![Effect::Custom(LoginPatternEffect::Save(secret)), Effect::Stop(Exit::Success)]),
+        (false, Step::Confirming(first)) => match first == secret {
+            true => {
+                let Ok(()) = effects.offer_all([Effect::Custom(LoginPatternEffect::Save(secret)), Effect::Stop(Exit::Success)]);
+
+                Ok(drawing)
+            }
             false => cleared(drawing, Step::Choosing, APART),
         },
     }
@@ -171,7 +181,7 @@ mod tests {
     use super::*;
     use console_core_geometry::Point;
     use console_login_pattern::Target;
-    use console_program_contract::{run, run_from};
+    use console_core_state_machine::{run, run_from};
 
     fn presses(presses: &[ButtonPress]) -> Result<Vec<Event<LoginPatternEvent>>, Never> {
         Ok(presses.iter().map(|press| Event::Custom(LoginPatternEvent::Pressed(*press))).collect())
@@ -188,7 +198,7 @@ mod tests {
             greeting: Greeting { pattern: Pattern { at: Target::Login, path: vec![0, 1, 2, 3], finger: None }, status: Status::Waiting },
         };
         let Ok(chosen) = presses(&[ButtonPress::Choose]);
-        let Ok(trace) = run_from::<LoginPattern>(&drawn, &chosen);
+        let Ok(trace) = run_from::<LoginPattern>(drawn, &chosen);
         let Ok(effects) = trace.effects();
         let Ok(kept) = secret(TWICE.to_vec());
         let kept = kept.ok_or(NOT_A_SECRET)?;
@@ -222,7 +232,7 @@ mod tests {
         let Ok(drawn) = confirming(TWICE.to_vec(), TWICE.to_vec());
         let drawn = drawn.ok_or(NOT_A_SECRET)?;
         let Ok(chosen) = presses(&[ButtonPress::Choose]);
-        let Ok(trace) = run_from::<LoginPattern>(&drawn, &chosen);
+        let Ok(trace) = run_from::<LoginPattern>(drawn, &chosen);
         let Ok(effects) = trace.effects();
         let Ok(kept) = secret(TWICE.to_vec());
         let kept = kept.ok_or(NOT_A_SECRET)?;
@@ -237,7 +247,7 @@ mod tests {
         let Ok(drawn) = confirming(TWICE.to_vec(), vec![3, 2, 1, 0]);
         let drawn = drawn.ok_or(NOT_A_SECRET)?;
         let Ok(chosen) = presses(&[ButtonPress::Choose]);
-        let Ok(trace) = run_from::<LoginPattern>(&drawn, &chosen);
+        let Ok(trace) = run_from::<LoginPattern>(drawn, &chosen);
         let Ok(effects) = trace.effects();
 
         assert_eq!(trace.state.step, Step::Choosing);
@@ -254,7 +264,7 @@ mod tests {
             greeting: Greeting { pattern: Pattern { at: Target::Login, path: vec![0, 1, 2], finger: None }, status: Status::Waiting },
         };
         let Ok(chosen) = presses(&[ButtonPress::Choose]);
-        let Ok(trace) = run_from::<LoginPattern>(&short, &chosen);
+        let Ok(trace) = run_from::<LoginPattern>(short, &chosen);
 
         assert_eq!(trace.state.step, Step::Choosing);
         assert_eq!(trace.state.greeting.status, Status::Message(SHORT.to_string()));
@@ -301,7 +311,7 @@ mod tests {
         let Ok(drawn) = confirming(TWICE.to_vec(), vec![]);
         let drawn = drawn.ok_or(NOT_A_SECRET)?;
         let tap = [Touch::Down(Point { x: 220, y: 180 }), Touch::Up].map(|touch| Event::Custom(LoginPatternEvent::Touched(touch)));
-        let Ok(trace) = run_from::<LoginPattern>(&drawn, &tap);
+        let Ok(trace) = run_from::<LoginPattern>(drawn, &tap);
         let Ok(effects) = trace.effects();
 
         assert_eq!(effects, vec![Effect::Stop(Exit::Success)]);

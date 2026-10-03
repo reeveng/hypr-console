@@ -50,9 +50,8 @@ const NOTHING_NAMED: &str = "";
 
 const NOTHING_GUESSED: &str = "none";
 
-use console_program_contract::{
-    Arguments, Choice, Effect, Exit, Initial, Program, Prompt, Command, Update, ExitStatus, Event, FileWrite,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Choice, Effect, Exit, Prompt, Command, ExitStatus, Event, FileWrite};
 
 pub const THREADS: &str = crate::THREADS;
 
@@ -255,12 +254,13 @@ pub struct Comparing {
 
 pub struct Compare;
 
-impl Program for Compare {
+impl Machine for Compare {
+    type Input = Arguments;
     type State = Comparing;
-    type Event = CompareEvent;
-    type Effect = CompareEffect;
+    type Request = Event<CompareEvent>;
+    type Effect = Effect<CompareEffect>;
 
-    fn init(arguments: &Arguments) -> Initial<Comparing> {
+    fn initialize(arguments: &Arguments, _previous: Option<Comparing>, _effects: &mut Effects) -> Result<Comparing, Never> {
         let Ok(words) = arguments.words();
 
         let said = |at: u32| {
@@ -275,134 +275,136 @@ impl Program for Compare {
 
         let Ok(job) = asked_for(words.get(3).map(String::as_str));
         let Ok(step) = work(words.get(3).map(String::as_str));
-        let Ok(opening) =
-            Initial::new(Comparing { job, step, at, there: Vec::new(), report: Vec::new() });
 
-        opening
+        Ok(Comparing { job, step, at, there: Vec::new(), report: Vec::new() })
     }
 
-    fn update(state: &Comparing, event: &Event<CompareEvent>) -> Update<Comparing, CompareEffect> {
-        let turn = match (&state.step, event) {
-            (Step::Error(said), Event::Opened) => badly(
-                state,
-                &format!("{said} is not a word this takes: --record, --models, --build, --fetch"),
-            ),
+    fn handle(state: Comparing, event: Event<CompareEvent>, effects: &mut Effects) -> Result<Comparing, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            (Step::Initial, Event::Opened) => begun(state),
+        decided.offered(effects)
+    }
+}
 
-            (Step::Sizing, Event::Custom(CompareEvent::Looked(seen))) => {
-                let state = Comparing { there: seen.to_vec(), ..state.clone() };
-                let Ok(left) = missing_downloads(&state);
+type Effects = Queue<Effect<CompareEffect>>;
 
-                fetching(&state, &left)
+fn decide(state: &Comparing, event: &Event<CompareEvent>) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
+    match (&state.step, event) {
+        (Step::Error(said), Event::Opened) => badly(
+            state,
+            &format!("{said} is not a word this takes: --record, --models, --build, --fetch"),
+        ),
+
+        (Step::Initial, Event::Opened) => begun(state),
+
+        (Step::Sizing, Event::Custom(CompareEvent::Looked(seen))) => {
+            let state = Comparing { there: seen.to_vec(), ..state.clone() };
+            let Ok(left) = missing_downloads(&state);
+
+            fetching(&state, &left)
+        }
+
+        (Step::Fetching(left), _) => fetching(state, left),
+
+        (Step::Getting(left), Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(stepped) = with_step(state, Step::Moving(left.clone()));
+                let Ok(moved) = moved(left);
+
+                Transition::new(stepped, vec![Effect::Run(moved)])
             }
+            ExitStatus::Failure(_) => badly(state, "a model would not come down"),
+        },
 
-            (Step::Fetching(left), _) => fetching(state, left),
+        (Step::Moving(left), Event::Replied(_)) => {
+            fetching(state, &left.iter().skip(1).cloned().collect::<Vec<_>>())
+        }
 
-            (Step::Getting(left), Event::Replied(answer)) => match answer.status {
-                ExitStatus::Success => {
-                    let Ok(stepped) = with_step(state, Step::Moving(left.clone()));
-                    let Ok(moved) = moved(left);
+        (Step::Locating, Event::Custom(CompareEvent::Looked(seen))) => built(state, seen),
 
-                    Update::new(stepped, vec![Effect::Run(moved)])
-                }
-                ExitStatus::Failure(_) => badly(state, "a model would not come down"),
-            },
+        (Step::Clearing, Event::Replied(_)) => {
+            let Ok(stepped) = with_step(state, Step::Cloning);
+            let Ok(making) = making(&state.at);
+            let Ok(shown) = shown(&making);
+            let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
 
-            (Step::Moving(left), Event::Replied(_)) => {
-                fetching(state, &left.iter().skip(1).cloned().collect::<Vec<_>>())
+            Transition::new(stepped, vec![Effect::Stream(making)])
+        }
+
+        (Step::Cloning, Event::Replied(_)) => {
+            let Ok(stepped) = with_step(state, Step::Setting);
+            let Ok(cloning) = cloning(&state.at);
+
+            Transition::new(stepped, vec![Effect::Stream(cloning)])
+        }
+
+        (Step::Setting, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => badly(state, "llama.cpp would not come down"),
+            ExitStatus::Success => {
+                let Ok(stepped) = with_step(state, Step::Compiling);
+                let Ok(configuring) = configuring(&state.at);
+
+                Transition::new(stepped, vec![Effect::Stream(configuring)])
             }
+        },
 
-            (Step::Locating, Event::Custom(CompareEvent::Looked(seen))) => built(state, seen),
+        (Step::Compiling, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => badly(state, "the second engine would not configure"),
+            ExitStatus::Success => {
+                let Ok(stepped) = with_step(state, Step::Copying);
+                let Ok(compiling) = compiling(&state.at);
 
-            (Step::Clearing, Event::Replied(_)) => {
-                let Ok(stepped) = with_step(state, Step::Cloning);
-                let Ok(making) = making(&state.at);
-                let Ok(shown) = shown(&making);
-                let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
-
-                Update::new(stepped, vec![Effect::Stream(making)])
+                Transition::new(stepped, vec![Effect::Stream(compiling)])
             }
+        },
 
-            (Step::Cloning, Event::Replied(_)) => {
-                let Ok(stepped) = with_step(state, Step::Setting);
-                let Ok(cloning) = cloning(&state.at);
-
-                Update::new(stepped, vec![Effect::Stream(cloning)])
-            }
-
-            (Step::Setting, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Failure(_) => badly(state, "llama.cpp would not come down"),
-                ExitStatus::Success => {
-                    let Ok(stepped) = with_step(state, Step::Compiling);
-                    let Ok(configuring) = configuring(&state.at);
-
-                    Update::new(stepped, vec![Effect::Stream(configuring)])
-                }
-            },
-
-            (Step::Compiling, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Failure(_) => badly(state, "the second engine would not configure"),
-                ExitStatus::Success => {
-                    let Ok(stepped) = with_step(state, Step::Copying);
-                    let Ok(compiling) = compiling(&state.at);
-
-                    Update::new(stepped, vec![Effect::Stream(compiling)])
-                }
-            },
-
-            (Step::Copying, Event::Replied(answer)) => match answer.status {
-                ExitStatus::Failure(_) => badly(state, "the second engine would not build"),
-                ExitStatus::Success => {
-                    let Ok(stepped) = with_step(state, Step::Naming);
-                    let Ok(made) = llama_binary(&state.at);
-                    let Ok(from) = shown(&made);
-                    let Ok(llama) = state.at.llama();
-                    let Ok(into) = coming(&llama);
-                    let Ok(copying) = Command::external(ExternalProgram::Cp, &[&from, &into]);
-
-                    Update::new(stepped, vec![Effect::Run(copying)])
-                }
-            },
-
-            (Step::Naming, Event::Replied(_)) => {
-                let Ok(stepped) = with_step(state, Step::Sweeping);
+        (Step::Copying, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Failure(_) => badly(state, "the second engine would not build"),
+            ExitStatus::Success => {
+                let Ok(stepped) = with_step(state, Step::Naming);
+                let Ok(made) = llama_binary(&state.at);
+                let Ok(from) = shown(&made);
                 let Ok(llama) = state.at.llama();
-                let Ok(from) = coming(&llama);
-                let Ok(into) = shown(&llama);
-                let Ok(naming) = Command::external(ExternalProgram::Mv, &[&from, &into]);
+                let Ok(into) = coming(&llama);
+                let Ok(copying) = Command::external(ExternalProgram::Cp, &[&from, &into]);
 
-                Update::new(stepped, vec![Effect::Run(naming)])
+                Transition::new(stepped, vec![Effect::Run(copying)])
             }
+        },
 
-            (Step::Sweeping, Event::Replied(_)) => {
-                let Ok(stepped) = with_step(state, Step::Finished);
-                let Ok(making) = making(&state.at);
-                let Ok(shown) = shown(&making);
-                let Ok(sweeping) = Command::external(ExternalProgram::Rm, &["-rf", &shown]);
+        (Step::Naming, Event::Replied(_)) => {
+            let Ok(stepped) = with_step(state, Step::Sweeping);
+            let Ok(llama) = state.at.llama();
+            let Ok(from) = coming(&llama);
+            let Ok(into) = shown(&llama);
+            let Ok(naming) = Command::external(ExternalProgram::Mv, &[&from, &into]);
 
-                Update::new(stepped, vec![
-                    Effect::Run(sweeping),
-                    Effect::Print("   built".to_string()),
-                ])
-            }
+            Transition::new(stepped, vec![Effect::Run(naming)])
+        }
 
-            (Step::Finished, Event::Replied(_)) => after(state),
+        (Step::Sweeping, Event::Replied(_)) => {
+            let Ok(stepped) = with_step(state, Step::Finished);
+            let Ok(making) = making(&state.at);
+            let Ok(shown) = shown(&making);
+            let Ok(sweeping) = Command::external(ExternalProgram::Rm, &["-rf", &shown]);
 
-            (Step::Recording(left, ear), word) => recording(state, left, ear, word),
+            Transition::new(stepped, vec![
+                Effect::Run(sweeping),
+                Effect::Print("   built".to_string()),
+            ])
+        }
 
-            (Step::Looking, Event::Custom(CompareEvent::Looked(seen))) => looked(state, seen),
+        (Step::Finished, Event::Replied(_)) => after(state),
 
-            (Step::DetectingBackend, Event::Custom(CompareEvent::Output(said))) => backend_detected(state, said),
+        (Step::Recording(left, ear), word) => recording(state, left, ear, word),
 
-            (Step::Working(left), word) => working(state, left, word),
+        (Step::Looking, Event::Custom(CompareEvent::Looked(seen))) => looked(state, seen),
 
-            (_, _) => Update::none(state.clone()),
-        };
+        (Step::DetectingBackend, Event::Custom(CompareEvent::Output(said))) => backend_detected(state, said),
 
-        let Ok(turn) = turn;
+        (Step::Working(left), word) => working(state, left, word),
 
-        turn
+        (_, _) => Transition::without_effects(state.clone()),
     }
 }
 
@@ -424,7 +426,7 @@ pub fn asked_for(said: Option<&str>) -> Result<Task, Never> {
     })
 }
 
-fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
+fn begun(state: &Comparing) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     match state.job {
         Task::Record => {
             let Ok(clips) = fitted::<_, u32>(CLIPS.len());
@@ -434,7 +436,7 @@ fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
             let Ok(asking) = prompt_for_clip(0);
             let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
 
-            Update::new(
+            Transition::new(
                 stepped,
                 std::iter::once(Effect::Run(making))
                     .chain(PREAMBLE.iter().map(|line| Effect::Print((*line).to_string())))
@@ -449,7 +451,7 @@ fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
             let Ok(fetches) = fetches(&state.at);
             let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
 
-            Update::new(stepped, vec![
+            Transition::new(stepped, vec![
                 Effect::Run(making),
                 Effect::Print("== the models".to_string()),
                 Effect::Custom(CompareEffect::Look(fetches.iter().map(|(_, into)| into.clone()).collect())),
@@ -462,26 +464,26 @@ fn begun(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
             let Ok(stepped) = with_step(state, Step::Looking);
             let Ok(everything) = everything(&state.at);
 
-            Update::new(stepped, vec![Effect::Custom(CompareEffect::Look(everything))])
+            Transition::new(stepped, vec![Effect::Custom(CompareEffect::Look(everything))])
         }
     }
 }
 
-fn after(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
-    Update::new(state.clone(), vec![Effect::Stop(Exit::Success)])
+fn after(state: &Comparing) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
+    Transition::new(state.clone(), vec![Effect::Stop(Exit::Success)])
 }
 
 fn fetching(
     state: &Comparing,
     left: &[(String, PathBuf)],
-) -> Result<Update<Comparing, CompareEffect>, Never> {
+) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     match left.first() {
         None => match state.job {
             Task::Fetch => {
                 let Ok(stepped) = with_step(state, Step::Locating);
                 let Ok(llama) = state.at.llama();
 
-                Update::new(stepped, vec![
+                Transition::new(stepped, vec![
                     Effect::Print("\n== the second engine".to_string()),
                     Effect::Custom(CompareEffect::Look(vec![llama])),
                 ])
@@ -493,7 +495,7 @@ fn fetching(
             let Ok(named) = file_name(into);
             let Ok(getting) = getting(from, into);
 
-            Update::new(stepped, vec![
+            Transition::new(stepped, vec![
                 Effect::Print(format!("   fetching {named}")),
                 Effect::Stream(getting),
             ])
@@ -501,24 +503,24 @@ fn fetching(
     }
 }
 
-fn locate_llama(state: &Comparing) -> Result<Update<Comparing, CompareEffect>, Never> {
+fn locate_llama(state: &Comparing) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     let Ok(stepped) = with_step(state, Step::Locating);
     let Ok(llama) = state.at.llama();
 
-    Update::new(stepped, vec![
+    Transition::new(stepped, vec![
         Effect::Print("== the second engine".to_string()),
         Effect::Custom(CompareEffect::Look(vec![llama])),
     ])
 }
 
-fn built(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, CompareEffect>, Never> {
+fn built(state: &Comparing, seen: &[Candidate]) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     let is = seen.first().map(|seen| seen.is);
 
     match is {
         Some(Found::Runnable) => {
             let Ok(stepped) = with_step(state, Step::Finished);
 
-            Update::new(stepped, vec![
+            Transition::new(stepped, vec![
                 Effect::Print("   already built".to_string()),
                 Effect::Stop(Exit::Success),
             ])
@@ -529,7 +531,7 @@ fn built(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, Comp
             let Ok(shown) = shown(&making);
             let Ok(clearing) = Command::external(ExternalProgram::Rm, &["-rf", &shown]);
 
-            Update::new(stepped, vec![
+            Transition::new(stepped, vec![
                 Effect::Print(format!(
                     "   llama.cpp {LLAMA_AT}, pointed at this machine's graphics.\n   \
                      This is a C++ project and a handheld. It takes a while."
@@ -545,7 +547,7 @@ fn recording(
     left: &[u32],
     ear: &RecordingPhase,
     event: &Event<CompareEvent>,
-) -> Result<Update<Comparing, CompareEffect>, Never> {
+) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     let at = left.first().copied();
 
     match (at, ear, event) {
@@ -555,7 +557,7 @@ fn recording(
             let Ok(clip) = state.at.clip(name);
             let Ok(asking) = Prompt::unless("  listening, ENTER to stop", Choice::Yes);
 
-            Update::new(stepped, vec![
+            Transition::new(stepped, vec![
                 Effect::Custom(CompareEffect::Record(clip)),
                 Effect::Prompt(asking),
             ])
@@ -576,7 +578,7 @@ fn recording(
                 ],
             };
 
-            Update::new(
+            Transition::new(
                 stepped,
                 std::iter::once(Effect::Custom(CompareEffect::Enough))
                     .chain(std::iter::once(Effect::Print("  kept".to_string())))
@@ -585,7 +587,7 @@ fn recording(
             )
         }
 
-        (_, _, _) => Update::none(state.clone()),
+        (_, _, _) => Transition::without_effects(state.clone()),
     }
 }
 
@@ -605,7 +607,7 @@ fn prompt_for_clip(at: u32) -> Result<Vec<Effect<CompareEffect>>, Never> {
     })
 }
 
-fn looked(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, CompareEffect>, Never> {
+fn looked(state: &Comparing, seen: &[Candidate]) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     let state = Comparing { there: seen.to_vec(), ..state.clone() };
     let Ok(at) = state.at.whisper();
     let Ok(whisper) = is(&state, &at);
@@ -636,14 +638,14 @@ fn looked(state: &Comparing, seen: &[Candidate]) -> Result<Update<Comparing, Com
                     let Ok(stepped) = with_step(&state, Step::DetectingBackend);
                     let Ok(probe) = backend_probe(&state);
 
-                    Update::new(stepped, vec![Effect::Custom(CompareEffect::Ran(probe))])
+                    Transition::new(stepped, vec![Effect::Custom(CompareEffect::Ran(probe))])
                 }
             }
         }
     }
 }
 
-fn backend_detected(state: &Comparing, said: &str) -> Result<Update<Comparing, CompareEffect>, Never> {
+fn backend_detected(state: &Comparing, said: &str) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     let Ok(card) = graphics(said);
     let opening = vec![
         format!("voice-compare, {}, on {}", state.at.stamp, state.at.host),
@@ -659,7 +661,7 @@ fn backend_detected(state: &Comparing, said: &str) -> Result<Update<Comparing, C
     let Ok(stepped) = with_step(&state, Step::Working(left.clone()));
     let Ok(going) = next_effects(&state, &left);
 
-    Update::new(
+    Transition::new(
         stepped,
         opening.iter().map(|line| Effect::Print(line.clone())).chain(going).collect(),
     )
@@ -669,7 +671,7 @@ fn working(
     state: &Comparing,
     left: &[Work],
     event: &Event<CompareEvent>,
-) -> Result<Update<Comparing, CompareEffect>, Never> {
+) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     let rest: Vec<Work> = left.iter().skip(1).cloned().collect();
 
     let line = match (left.first(), event) {
@@ -687,7 +689,7 @@ fn working(
     };
 
     match line {
-        None => Update::none(state.clone()),
+        None => Transition::without_effects(state.clone()),
         Some(line) => {
             let mut report = state.report.clone();
             report.push(line.clone());
@@ -707,7 +709,7 @@ fn working(
                 }
             };
 
-            Update::new(stepped, std::iter::once(Effect::Print(line)).chain(next).collect())
+            Transition::new(stepped, std::iter::once(Effect::Print(line)).chain(next).collect())
         }
     }
 }
@@ -1143,13 +1145,13 @@ fn with_step(state: &Comparing, step: Step) -> Result<Comparing, Never> {
     Ok(Comparing { step, ..state.clone() })
 }
 
-fn badly(state: &Comparing, why: &str) -> Result<Update<Comparing, CompareEffect>, Never> {
-    Update::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
+fn badly(state: &Comparing, why: &str) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
+    Transition::new(state.clone(), vec![Effect::Stop(Exit::Failure(why.to_string()))])
 }
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::run;
+    use console_core_state_machine::run;
 
     use super::*;
 

@@ -1585,7 +1585,7 @@ mod tests {
     fn the_books_tab_marks_the_page_the_ink_and_the_face_that_were_chosen() -> Result<(), Failure> {
         let Ok(grid) = appearance::grid();
         let page = grid.get(2).and_then(|row| row.get(3)).ok_or("the grid has a third row of four")?;
-        let now = Appearance { background: Paint::Chosen(*page), text: Paint::Desktop, typeface: Typeface::Monospaced };
+        let now = Appearance { background: Paint::Chosen(*page), text: Paint::Desktop, typeface: Typeface::Monospaced, ..Appearance::default() };
         let Ok(rows) = books_rows(now);
         let marked: Vec<&str> = rows.iter().filter(|row| row.aside == NOW).map(|row| row.says.as_str()).collect();
 

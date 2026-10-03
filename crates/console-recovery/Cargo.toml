@@ -14,6 +14,7 @@ name = "recovery"
 path = "src/bin/recovery.rs"
 
 [dependencies]
+console-boot-entries.workspace = true
 console-core-external-programs.workspace = true
 console-core-iteration.workspace = true
 console-core-never.workspace = true
@@ -25,6 +26,7 @@ console-program-contract.workspace = true
 console-program-lifetime.workspace = true
 console-program-runtime.workspace = true
 console-readiness.workspace = true
+console-core-state-machine.workspace = true
 
 [lints]
 workspace = true

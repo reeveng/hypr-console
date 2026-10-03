@@ -1,7 +1,7 @@
 //! A program that asked to be told, told.
 //!
 //! Everything either half of this can be asked on its own is asked on its own
-//! already: `console_program_contract::transcript` presses what a program
+//! already: `console_core_state_machine::run` presses what a program
 //! decides when it hears a word, and `console-events`' own tests press what
 //! the pool says to whoever subscribed. What neither can ask is whether the
 //! ask reaches the pool at all -- for as long as the runtime answered
@@ -19,9 +19,8 @@ use std::time::Duration;
 use console_core_never::Never;
 use console_events::serving;
 use console_events::sources::Subscribed;
-use console_program_contract::{
-    Arguments, Effect, Exit, Initial, Program, Timer, Topic, Update, Subscription, Event,
-};
+use console_core_state_machine::{Machine, Queue};
+use console_program_contract::{Arguments, Effect, Exit, Timer, Topic, Subscription, Event};
 use console_program_contract::event::Change;
 use console_program_lifetime::threads::let_go;
 use console_program_runtime::{Interpreter, run};
@@ -54,44 +53,45 @@ enum TestEffect {
     Logged(String),
 }
 
-impl Program for Rocker {
+impl Machine for Rocker {
+    type Input = Arguments;
     type State = Rocker;
-    type Event = Never;
-    type Effect = TestEffect;
+    type Request = Event<Never>;
+    type Effect = Effect<TestEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Rocker> {
-        let Ok(opening) = Initial::with_subscriptions(
-            Rocker { said: None },
-            vec![Subscription::Topic(Topic::Sound), Subscription::Timer(GIVING_UP)],
-        );
+    fn initialize(_arguments: &Arguments, _previous: Option<Rocker>, effects: &mut Queue<Effect<TestEffect>>) -> Result<Rocker, Never> {
+        #[cfg_attr(
+            dylint_lib = "explicit043_no_unmatched_listen",
+            allow(
+                explicit043_no_unmatched_listen,
+                reason = "this program exists to hear one change on the topic, and hearing it or giving up stops it, so it listens exactly as long as it runs"
+            )
+        )]
+        let Ok(()) = effects.offer_all([
+            Effect::Subscribe(Subscription::Topic(Topic::Sound)),
+            Effect::Subscribe(Subscription::Timer(GIVING_UP)),
+        ]);
 
-        opening
+        Ok(Rocker { said: None })
     }
 
-    fn update(state: &Rocker, event: &Event<Never>) -> Update<Rocker, TestEffect> {
+    fn handle(state: Rocker, event: Event<Never>, effects: &mut Queue<Effect<TestEffect>>) -> Result<Rocker, Never> {
         match event {
             Event::Changed(changed) => {
-                let Ok(turn) = Update::new(
-                    Rocker { said: Some(changed.text.clone()) },
-                    vec![Effect::Custom(TestEffect::Logged(changed.text.clone())), Effect::Stop(Exit::Success)],
-                );
+                let Ok(()) = effects.offer_all([
+                    Effect::Custom(TestEffect::Logged(changed.text.clone())),
+                    Effect::Stop(Exit::Success),
+                ]);
 
-                turn
+                Ok(Rocker { said: Some(changed.text) })
             }
             Event::Tick(_, _) => {
-                let Ok(turn) = Update::new(
-                    state.clone(),
-                    vec![Effect::Stop(Exit::Failure("nothing was ever told".to_string()))],
-                );
+                let Ok(()) = effects.offer(Effect::Stop(Exit::Failure("nothing was ever told".to_string())));
 
-                turn
+                Ok(state)
             }
-            Event::Opened | Event::Replied(_) | Event::Chosen(_) | Event::Stopping => {
-                let Ok(turn) = Update::none(state.clone());
-
-                turn
-            }
-            Event::Custom(its) => match *its {},
+            Event::Opened | Event::Replied(_) | Event::Chosen(_) | Event::Stopping => Ok(state),
+            Event::Custom(its) => match its {},
         }
     }
 }

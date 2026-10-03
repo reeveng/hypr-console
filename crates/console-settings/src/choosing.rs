@@ -38,7 +38,8 @@
 
 use console_home_screen::shape::{self, Shape, Size};
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Initial, Program, Update, Event};
+use console_core_state_machine::{Machine, Queue};
+use console_program_contract::{Arguments, Effect, Event};
 
 const THE_FIRST_SIZE: u32 = 0;
 
@@ -119,77 +120,78 @@ pub enum Closes {
 
 pub struct Settings;
 
-impl Program for Settings {
+impl Machine for Settings {
+    type Input = Arguments;
     type State = Destination;
-    type Event = SettingsEvent;
-    type Effect = SettingsEffect;
+    type Request = Event<SettingsEvent>;
+    type Effect = Effect<SettingsEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Destination> {
-        let Ok(opening) = Initial::new(Destination::Settings);
-
-        opening
+    fn initialize(
+        _arguments: &Arguments,
+        _previous: Option<Destination>,
+        _effects: &mut Queue<Effect<SettingsEffect>>,
+    ) -> Result<Destination, Never> {
+        Ok(Destination::Settings)
     }
 
-    fn update(state: &Destination, event: &Event<SettingsEvent>) -> Update<Destination, SettingsEffect> {
-        let heard = match event {
-            Event::Custom(heard) => heard,
+    fn handle(
+        state: Destination,
+        event: Event<SettingsEvent>,
+        effects: &mut Queue<Effect<SettingsEffect>>,
+    ) -> Result<Destination, Never> {
+        match event {
+            Event::Custom(SettingsEvent::Opened(onto)) => {
+                let Ok(at) = standing_on(&onto);
+                let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::Replace(at)));
+
+                Ok(onto)
+            }
+
+            Event::Custom(SettingsEvent::Back) => {
+                let Ok(row) = row_of(&state);
+                let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::Replace(row)));
+
+                Ok(Destination::Settings)
+            }
+
+            Event::Custom(SettingsEvent::Across { shape, step }) => {
+                let Ok(columns) = step_index(shape.columns, step);
+
+                let Ok(across) = shape.with_columns(columns);
+
+                grid(state, across, effects)
+            }
+
+            Event::Custom(SettingsEvent::Down { shape, step }) => {
+                let Ok(rows) = step_index(shape.rows, step);
+
+                let Ok(down) = shape.with_rows(rows);
+
+                grid(state, down, effects)
+            }
+
+            Event::Custom(SettingsEvent::Sized { shape, step }) => {
+                let Ok(size) = rung(shape.size, step);
+
+                let Ok(sized) = shape.sized(size);
+
+                grid(state, sized, effects)
+            }
 
             Event::Opened
             | Event::Changed(_)
             | Event::Tick(_, _)
             | Event::Replied(_)
             | Event::Chosen(_)
-            | Event::Stopping => {
-                let Ok(nothing) = Update::none(state.clone());
-
-                return nothing;
-            }
-        };
-
-        let Ok(turn) = match heard {
-            SettingsEvent::Opened(onto) => {
-                let Ok(at) = standing_on(onto);
-
-                Update::new(onto.clone(), vec![Effect::Custom(SettingsEffect::Replace(at))])
-            }
-
-            SettingsEvent::Back => {
-                let Ok(row) = row_of(state);
-
-                Update::new(Destination::Settings, vec![Effect::Custom(SettingsEffect::Replace(row))])
-            }
-
-            SettingsEvent::Across { shape, step } => {
-                let Ok(columns) = step_index(shape.columns, *step);
-
-                let Ok(across) = shape.with_columns(columns);
-
-                grid(state.clone(), across)
-            }
-
-            SettingsEvent::Down { shape, step } => {
-                let Ok(rows) = step_index(shape.rows, *step);
-
-                let Ok(down) = shape.with_rows(rows);
-
-                grid(state.clone(), down)
-            }
-
-            SettingsEvent::Sized { shape, step } => {
-                let Ok(size) = rung(shape.size, *step);
-
-                let Ok(sized) = shape.sized(size);
-
-                grid(state.clone(), sized)
-            }
-        };
-
-        turn
+            | Event::Stopping => Ok(state),
+        }
     }
 }
 
-fn grid(state: Destination, shape: Shape) -> Result<Update<Destination, SettingsEffect>, Never> {
-    Update::new(state, vec![Effect::Custom(SettingsEffect::HomeScreen(shape))])
+fn grid(state: Destination, shape: Shape, effects: &mut Queue<Effect<SettingsEffect>>) -> Result<Destination, Never> {
+    let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::HomeScreen(shape)));
+
+    Ok(state)
 }
 
 pub fn row_of(onto: &Destination) -> Result<u32, Never> {
@@ -281,7 +283,7 @@ fn rung(now: Size, step: i32) -> Result<Size, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::run;
+    use console_core_state_machine::run;
 
     use super::*;
 

@@ -20,15 +20,16 @@
 //! joined before the next one opens, and a value dropped at the end of a
 //! process is a thing that never had to be said out loud.
 
+use console_actor::{Actor, BootError, Booted};
 use console_core_never::Never;
+use console_core_state_machine::Machine;
 
+use crate::page::{Aside, Page, Row, Rows};
 use crate::picker::Again;
 
 pub type Build = std::sync::Arc<dyn Fn() -> Vec<crate::page::Page> + Send + Sync>;
 
 pub type Finalizer = Box<dyn FnOnce() -> Result<(), Never>>;
-
-pub type Pages<M> = fn(&crate::actor::Address<M>) -> Result<Vec<crate::page::Page>, Never>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Door {
@@ -71,20 +72,35 @@ impl Card {
         Ok(self)
     }
 
-    pub fn supervised<A: crate::actor::Machine>(
-        start: impl Fn() -> A + Send + 'static,
-        pages: Pages<A::Message>,
-    ) -> Result<Self, Never> {
-        let Ok(running) = crate::actor::supervise(start);
-        let held = running.address.clone();
+    pub fn supervised<M, P>(input: M::Input, pages: P) -> Result<Self, Never>
+    where
+        M: Machine<Input: Send + 'static, State: Send + 'static, Request: Send + 'static, Effect: Send + 'static>
+            + 'static,
+        P: Fn(&Actor<M>) -> Result<Vec<Page>, Never> + Send + Sync + 'static,
+    {
+        let Booted { actor, scope, effects: _ } = match console_actor::boot::<M>(input) {
+            Ok(booted) => booted,
+            Err(fault) => return Card::fallen(&fault),
+        };
 
         let Ok(card) = Card::new(std::sync::Arc::new(move || {
-            let Ok(pages) = pages(&held);
+            let Ok(pages) = pages(&actor);
 
             pages
         }));
 
-        card.shutting(Box::new(move || running.shutdown()))
+        card.shutting(Box::new(move || scope.close()))
+    }
+
+    fn fallen(fault: &BootError) -> Result<Self, Never> {
+        let said = fault.to_string();
+
+        Card::new(std::sync::Arc::new(move || {
+            let Ok(row) = Row::text(&said, Aside(""));
+            let Ok(page) = Page::new("Unavailable", Rows::Fixed(vec![row]));
+
+            vec![page]
+        }))
     }
 
     pub fn opening_at(mut self, tab: Option<&str>) -> Result<Self, Never> {

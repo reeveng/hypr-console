@@ -36,9 +36,8 @@ use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_internal_programs::CONFIRM_DOES;
 use console_core_places::{Base, APPLICATION};
-use console_program_contract::{
-    Arguments, Choice, Effect, Exit, Initial, Program, Prompt, Command, Update, ExitStatus, Event,
-};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Choice, Effect, Exit, Prompt, Command, ExitStatus, Event};
 use console_session::reaching;
 
 use crate::deploying::How;
@@ -154,71 +153,86 @@ pub enum Migrating {
 
 pub struct Migrate;
 
-impl Program for Migrate {
+impl Machine for Migrate {
+    type Input = Arguments;
     type State = Migrating;
-    type Event = console_core_never::Never;
-    type Effect = console_core_never::Never;
+    type Request = Event<console_core_never::Never>;
+    type Effect = Effect<console_core_never::Never>;
 
-    fn init(arguments: &Arguments) -> Initial<Migrating> {
-        let Ok(first) = arguments.first();
+    fn initialize(arguments: &Arguments, _previous: Option<Migrating>, effects: &mut Effects) -> Result<Migrating, Never> {
+        let Ok(opening) = initial(arguments);
 
-        let Ok(opening) = match first.filter(|host| !host.trim().is_empty()) {
-            None => Initial::new(Migrating::Nowhere),
-            Some(host) => {
-                let Ok(said) = asked_for(arguments);
-
-                Initial::new(Migrating::At(
-                    Step::Owning,
-                    Going {
-                        host: host.to_string(),
-                        how: said,
-                        whom: String::new(),
-                        uid: String::new(),
-                        tree: Tree::Nowhere,
-                        old: Vec::new(),
-                        attic: String::new(),
-                    },
-                ))
-            },
-        };
-
-        opening
+        opening.offered(effects)
     }
 
-    fn update(
-        state: &Migrating,
-        event: &Event<console_core_never::Never>,
-    ) -> Update<Migrating, console_core_never::Never> {
-        let Ok(turn) = match (state, event) {
-            (Migrating::Nowhere, Event::Opened) => Update::new(
-                state.clone(),
-                vec![Effect::Stop(Exit::Failure(format!(
-                    "{HOST} is not set, so there is no device to talk to. Set it to the device, \
-                     as in {HOST}=root@handheld."
-                )))],
-            ),
+    fn handle(state: Migrating, event: Event<console_core_never::Never>, effects: &mut Effects) -> Result<Migrating, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-            (Migrating::At(step, going), word) => at(step, going, word),
-
-            (Migrating::Nowhere, _) => Update::none(state.clone()),
-        };
-
-        turn
+        decided.offered(effects)
     }
+}
+
+type Effects = Queue<Effect<console_core_never::Never>>;
+
+fn initial(arguments: &Arguments) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
+    let Ok(first) = arguments.first();
+
+    let Ok(opening) = match first.filter(|host| !host.trim().is_empty()) {
+        None => Transition::without_effects(Migrating::Nowhere),
+        Some(host) => {
+            let Ok(said) = asked_for(arguments);
+
+            Transition::without_effects(Migrating::At(
+                Step::Owning,
+                Going {
+                    host: host.to_string(),
+                    how: said,
+                    whom: String::new(),
+                    uid: String::new(),
+                    tree: Tree::Nowhere,
+                    old: Vec::new(),
+                    attic: String::new(),
+                },
+            ))
+        },
+    };
+
+    Ok(opening)
+}
+
+fn decide(
+    state: &Migrating,
+    event: &Event<console_core_never::Never>,
+) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
+    let Ok(turn) = match (state, event) {
+        (Migrating::Nowhere, Event::Opened) => Transition::new(
+            state.clone(),
+            vec![Effect::Stop(Exit::Failure(format!(
+                "{HOST} is not set, so there is no device to talk to. Set it to the device, \
+                 as in {HOST}=root@handheld."
+            )))],
+        ),
+
+        (Migrating::At(step, going), word) => at(step, going, word),
+
+        (Migrating::Nowhere, _) => Transition::without_effects(state.clone()),
+    };
+
+    Ok(turn)
 }
 
 fn at(
     step: &Step,
     going: &Going,
     event: &Event<console_core_never::Never>,
-) -> Result<Update<Migrating, console_core_never::Never>, Never> {
+) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
     let Ok(at) = here(step, going);
 
     match (step, event) {
         (Step::Owning, Event::Opened) => {
             let Ok(runs) = on(going, reaching::OWNER);
 
-            Update::new(at.clone(), vec![Effect::Run(runs)])
+            Transition::new(at.clone(), vec![Effect::Run(runs)])
         }
 
         (Step::Owning, Event::Replied(answer)) => {
@@ -230,7 +244,7 @@ fn at(
                     let going = Going { whom: whom.clone(), ..going.clone() };
 
                     let Ok(runs) = on(&going, &format!("id -u {whom}"));
-                    Update::new(
+                    Transition::new(
                         Migrating::At(Step::Numbering, going.clone()),
                         vec![Effect::Run(runs)],
                     )
@@ -244,7 +258,7 @@ fn at(
             let Ok(runs) = on(&going,
                         &format!("test -d {TREE} && echo now; test -d {WAS} && echo was; true"),
                     );
-            Update::new(
+            Transition::new(
                 Migrating::At(Step::Naming, going.clone()),
                 vec![
                     Effect::Print(format!("== what {} is called now", going.host)),
@@ -259,7 +273,7 @@ fn at(
 
             let Ok(runs) = theirs(&going, "systemctl --user list-unit-files --no-legend");
             let Ok(said) = where_(going.tree);
-            Update::new(
+            Transition::new(
                 Migrating::At(Step::Listing, going.clone()),
                 vec![
                     Effect::Print(format!("  the tree        {}", said)),
@@ -279,7 +293,7 @@ fn at(
             let Ok(was) = listed(&old);
             let Ok(now) = listed(&new);
 
-            Update::new(
+            Transition::new(
                 Migrating::At(Step::Homing, going.clone()),
                 vec![
                     Effect::Print(format!("  units, old      {was}")),
@@ -295,7 +309,7 @@ fn at(
 
             let Ok(asked) = lines(&answer.output);
             let Ok(said) = listed(&asked);
-            Update::new(
+            Transition::new(
                 Migrating::At(Step::Locally, going.clone()),
                 vec![
                     Effect::Print(format!("  in a home       {}", said)),
@@ -310,17 +324,17 @@ fn at(
             let told = Effect::Print(format!("  in /usr/local   {}", said));
 
             match going.how {
-                How::Check => Update::new(at.clone(), vec![told, Effect::Stop(Exit::Success)]),
+                How::Check => Transition::new(at.clone(), vec![told, Effect::Stop(Exit::Success)]),
                 How::Confirm | How::Yes => {
                     let Ok(why) = nothing_to_do(going);
 
                     match why {
-                        Some(why) => Update::new(
+                        Some(why) => Transition::new(
                             at.clone(),
                             vec![told, Effect::Print(format!("\n{why}")), Effect::Stop(Exit::Success)],
                         ),
                         None => match going.tree {
-                            Tree::Nowhere => Update::new(
+                            Tree::Nowhere => Transition::new(
                                 at.clone(),
                                 vec![
                                     told,
@@ -334,7 +348,7 @@ fn at(
                                 let Ok(standing) =
                                     Command::external(ExternalProgram::Git, &["status", "--porcelain"]);
 
-                                Update::new(
+                                Transition::new(
                                     Migrating::At(Step::Committed, going.clone()),
                                     vec![told, Effect::Run(standing)],
                                 )
@@ -349,7 +363,7 @@ fn at(
             true => {
                 let Ok(runs) = theirs(going, &format!("pgrep -u {} -x librewolf", going.whom));
 
-                Update::new(
+                Transition::new(
                     Migrating::At(Step::Browsing, going.clone()),
                     vec![Effect::Run(runs)],
                 )
@@ -376,7 +390,7 @@ fn at(
                     let Ok(said) = making_an_attic();
 
                     let Ok(runs) = on(going, &said);
-                    Update::new(
+                    Transition::new(
                         Migrating::At(Step::Atticking, going.clone()),
                         vec![Effect::Run(runs)],
                     )
@@ -384,7 +398,7 @@ fn at(
                 How::Confirm | How::Check => {
                     let Ok(runs) = carding(going);
 
-                    Update::new(
+                    Transition::new(
                         Migrating::At(Step::Wondering, going.clone()),
                         vec![Effect::Run(runs)],
                     )
@@ -404,7 +418,7 @@ fn at(
                     Choice::No,
                 );
 
-                Update::new(
+                Transition::new(
                     at.clone(),
                     vec![
                         Effect::Print(format!(
@@ -431,7 +445,7 @@ fn at(
                     let Ok(walking) = plan(&going);
                     let Ok(sending) = sending(&walking);
 
-                    Update::new(
+                    Transition::new(
                         Migrating::At(Step::Walking(walking.clone()), going),
                         std::iter::once(Effect::Print(format!("\n== the attic is {attic}")))
                             .chain(sending)
@@ -456,7 +470,7 @@ fn at(
                     false => {
                         let Ok(said) = sending(&rest);
 
-                        Update::new(
+                        Transition::new(
                             Migrating::At(Step::Walking(rest.clone()), going.clone()),
                             said,
                         )
@@ -464,7 +478,7 @@ fn at(
                     true => {
                         let Ok(runs) = on(going, "console check");
 
-                        Update::new(
+                        Transition::new(
                             Migrating::At(Step::Checking, going.clone()),
                             vec![
                                 Effect::Print("\n== what the machine says about itself".to_string()),
@@ -482,13 +496,13 @@ fn at(
                 &["remote", "set-url", "device", &format!("ssh://{}{TREE}", going.host)],
             );
 
-            Update::new(
+            Transition::new(
                 Migrating::At(Step::Remoting, going.clone()),
                 vec![Effect::Run(remoting)],
             )
         },
 
-        (Step::Remoting, Event::Replied(_)) => Update::new(
+        (Step::Remoting, Event::Replied(_)) => Transition::new(
             at.clone(),
             vec![
                 Effect::Print(format!(
@@ -501,7 +515,7 @@ fn at(
             ],
         ),
 
-        (_, _) => Update::none(at.clone()),
+        (_, _) => Transition::without_effects(at.clone()),
     }
 }
 
@@ -526,7 +540,7 @@ fn the_engine(going: &Going) -> Result<Vec<Piece>, Never> {
         Command::external(ExternalProgram::Git, &["push", &format!("ssh://{}{tree}", going.host), "HEAD:master"]);
     let Ok(pushing) = piece(pushes, Shown::Screen, Matters::Yes);
     let Ok(runs) = on(going,
-        &format!("cargo build --release --locked --manifest-path {tree}/Cargo.toml --bin console"),
+        &format!("cd {tree} && cargo build --release --locked --bin console"),
     );
     let Ok(engine) = run("\n== the engine", runs, Matters::Yes);
     let Ok(runs) = on(going,
@@ -649,10 +663,10 @@ fn sending(left: &[Piece]) -> Result<Vec<Effect<console_core_never::Never>>, Nev
     })
 }
 
-fn taking(going: &Going) -> Result<Update<Migrating, console_core_never::Never>, Never> {
+fn taking(going: &Going) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
     let Ok(said) = making_an_attic();
     let Ok(runs) = on(going, &said);
-    Update::new(
+    Transition::new(
         Migrating::At(Step::Atticking, going.clone()),
         vec![Effect::Run(runs)],
     )
@@ -834,15 +848,16 @@ fn here(step: &Step, going: &Going) -> Result<Migrating, Never> {
     Ok(Migrating::At(step.clone(), going.clone()))
 }
 
-fn stopped(step: &Step, going: &Going, why: &str) -> Result<Update<Migrating, console_core_never::Never>, Never> {
+fn stopped(step: &Step, going: &Going, why: &str) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
     let Ok(at) = here(step, going);
 
-    Update::new(at, vec![Effect::Stop(Exit::Failure(why.to_string()))])
+    Transition::new(at, vec![Effect::Stop(Exit::Failure(why.to_string()))])
 }
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Answer, run};
+    use console_program_contract::Answer;
+    use console_core_state_machine::run;
 
     use super::*;
     use std::error::Error;

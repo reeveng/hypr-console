@@ -186,6 +186,35 @@ pub fn over_the_desktop(layers: &[console_compositor::Layer]) -> Result<Over, Ne
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focused {
+    OurApp,
+    SomethingElse,
+}
+
+pub fn focused(window: Option<&console_compositor::Window>) -> Result<Focused, Never> {
+    let ours = window.is_some_and(|window| {
+        console_core_internal_programs::APPS.iter().any(|app| {
+            let Ok(named) = app.name();
+
+            window.first_class == named
+        })
+    });
+
+    Ok(match ours {
+        true => Focused::OurApp,
+        false => Focused::SomethingElse,
+    })
+}
+
+pub fn in_front() -> Result<Focused, Error> {
+    let window = console_compositor::ask(console_compositor::ActiveWindow)?;
+
+    let Ok(focused) = focused(window.as_ref());
+
+    Ok(focused)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worth {
     Querying,
     Ignoring,
@@ -195,7 +224,9 @@ pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {
     let stirred = console_compositor::events::read(line)?;
 
     Ok(match stirred {
-        CompositorEvent::LayerOpened | CompositorEvent::LayerClosed => Worth::Querying,
+        CompositorEvent::LayerOpened | CompositorEvent::LayerClosed | CompositorEvent::WindowFocused => {
+            Worth::Querying
+        }
         CompositorEvent::WindowOpened(_)
         | CompositorEvent::WindowClosed(_)
         | CompositorEvent::WindowRenamed(_)

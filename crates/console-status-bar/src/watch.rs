@@ -127,6 +127,7 @@ pub fn surface_worth_asking_after(line: &str) -> Result<Worth, Never> {
         | CompositorEvent::WindowFloated
         | CompositorEvent::WindowPinned
         | CompositorEvent::WindowFilled
+        | CompositorEvent::WindowFocused
         | CompositorEvent::ConfigurationReloaded
         | CompositorEvent::Ignored => Worth::Ignoring,
     })

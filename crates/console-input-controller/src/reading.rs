@@ -854,9 +854,10 @@ mod tests {
     }
 
     #[test]
-    fn the_shoulders_carry_the_window_while_l2_is_held() {
+    fn the_shoulders_carry_the_window_while_both_triggers_are_held() {
         let Ok(mut held) = controller();
         let Ok(moved) = Effect::workspace("+1", Payload::None);
+        let Ok(moved_with_l2) = Effect::workspace("+1", Payload::None);
         let Ok(carried) = Effect::workspace("+1", Payload::Window);
 
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), Ok(vec![moved]));
@@ -864,6 +865,11 @@ mod tests {
         let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TL2.0, 1, THEN);
 
         assert_eq!(held.pulled.l2, Trigger::Pressed);
+        assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), Ok(vec![moved_with_l2]), "l2 is the workspaces, from anywhere");
+
+        let Ok(_) = held.saw(From::Pad, EventType::KEY, KeyCode::BTN_TR2.0, 1, THEN);
+
+        assert_eq!(held.pulled.r2, Trigger::Pressed);
         assert_eq!(pressed(&mut held, From::Pad, KeyCode::BTN_TR), Ok(vec![carried]));
     }
 

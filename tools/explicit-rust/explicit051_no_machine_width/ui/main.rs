@@ -58,5 +58,13 @@ fn counted(items: &[u32]) -> u64 {
 fn main() {
     //~v EXPLICIT051_NO_MACHINE_WIDTH
     let tabs = Tabs { at: 0, many: NonZeroUsize::MIN };
-    let _ = (tabs.at, tabs.many, moved(0), held(), inferred(&[]), listed(), counted(&[]));
+    let _ = (tabs.at, tabs.many, moved(0), held(), inferred(&[]), listed(), counted(&[]), first::<2>([1, 2]));
+}
+
+// GOOD — a const generic parameter is an array's length with a name.
+fn first<const N: usize>(items: [u32; N]) -> u32 {
+    match items.first() {
+        Some(item) => *item,
+        None => 0,
+    }
 }

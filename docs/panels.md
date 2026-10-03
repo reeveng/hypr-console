@@ -28,12 +28,22 @@ to keep.
 | **L1** and **R1** | the place before and the place after |
 | **Right paddle, top** | closes whatever is up |
 
-A means the highlighted row only for as long as a picker is up. On the desktop
-A is a mouse click where the pointer is, because there is no highlight out there
-to confirm. That difference is a column in the controller daemon's table --
-`When::WithAPickerUp` against `When::OnTheDesktop` -- and the daemon knows
-which it is by asking the compositor whether a picker is on the screen. A panel
-does not ask for anything and cannot get it wrong; it draws, and it is seen.
+A means the highlighted row only for as long as a picker is up, or one of this
+desktop's own apps is the window in front. On the desktop A is a mouse click
+where the pointer is, because there is no highlight out there to confirm. That
+difference is a column in the controller daemon's table --
+`Context::WithAPanelOrApp` against `Context::OnTheDesktop` -- and the daemon
+knows which it is by asking the compositor whether a picker is on the screen
+and which window is in front. A panel does not ask for anything and cannot get
+it wrong; it draws, and it is seen.
+
+The shoulders follow from that. Alone they are the tabs wherever there are tabs
+and the desktops where there are none; with L2 held they are the desktops from
+the desktop and from inside an app, and with both triggers held they carry the
+window along. An app is a window on a desktop of its own, so a thumb has to be
+able to leave it without putting it away, and the tabs inside it are still one
+press each. A picker is the one place no shoulder is a desktop, held or not: the
+menu would stay where it is and the desktop would move out from under it.
 
 It used to be two InputPlumber profiles swapped on the way in and out of every
 menu, and every swap destroyed the pad and built another. What the swap bought

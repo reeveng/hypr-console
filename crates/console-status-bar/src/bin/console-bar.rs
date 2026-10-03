@@ -72,10 +72,12 @@
 //! Only the last program a tap started used to be held, for the lit icon's
 //! sake, and every one before it was dropped without anyone waiting on it. A
 //! hundred taps on the device was a hundred dead entries under the bar, one per
-//! panel, for as long as the session lasted. They are all held now and let go
-//! of as they end, and each one is watched through a pidfd in the same `poll`,
-//! because a panel that ends between two things happening on the screen would
-//! otherwise lie there until the clock next turned over. A pidfd rather than
+//! panel, for as long as the session lasted. They are all held now, each beside
+//! the panel it was started for, and let go of as they end: the ending is told
+//! to the bar's `panels` machine, and the compositor is asked again on the same
+//! pass. Each one is watched through a pidfd in the same `poll`, because a
+//! panel that ends between two things happening on the screen would otherwise
+//! lie there until the clock next turned over. A pidfd rather than
 //! `SIGCHLD`: a child that has ended and not been reaped is still there to be
 //! opened, so asking again every pass cannot miss one, and nothing about it is
 //! inherited by the panels it watches.
@@ -89,30 +91,29 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use console_compositor::{Carrying, Request, Workspace};
+use console_compositor::{Carrying, Layer, Request, Workspace};
 use console_core_color::palette::{self, PaletteError, WearingError};
 use console_core_geometry::{Point, Size};
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i32};
 use console_core_internal_programs::InternalProgram;
-use console_draw_painting::{Frame, Run, measure_text, onto};
+use console_draw_painting::{Frame, onto};
 use console_draw_surface::standing::{
     Anchor, Closed, Keyboard, Margin, Room, Under, Wanted,
 };
 use console_draw_surface::{SurfaceError, PointerEvent, Surface};
 use console_music::player::Sound;
-use console_onscreen::Up;
 use console_program_contract::Topic;
 use console_status_bar::clock;
 use console_status_bar::dwindling::Watching;
 use console_program_lifetime::{Detached, Still};
-use console_status_bar::state::{self, BarState, Open, Paused, Playing, Promise};
+use console_status_bar::panels::{self, Panel, PanelEvent, Panels};
+use console_status_bar::state::{self, BarState, Paused, Playing};
 use console_status_bar::notifications::{Waiting, notifications};
 use console_status_bar::reading::{Reading, StatusItem};
-use console_status_bar::showing::{
-    self, Bar, BarAction, Rendered, Face, Filling, Fitting, Measured, Slot, Wearing,
-};
+use console_status_bar::measuring::sized;
+use console_status_bar::showing::{self, BarAction, Rendered, Filling, Fitting, Wearing};
 use console_notifications::updating;
 use console_status_bar::watch;
 use console_waiting::woken;
@@ -225,7 +226,8 @@ fn drawing() -> Result<(), Cannot> {
     let mut dwindling = Watching::default();
     let Ok(readings) = first_readings(&mut dwindling);
     let Ok(when) = clock::current();
-    let Ok(held) = first_held(&readings);
+    let Ok(layers) = listed(Vec::new());
+    let Ok(held) = first_held(&readings, &layers);
     let turning = Turning {
         surface,
         dwindling,
@@ -235,8 +237,8 @@ fn drawing() -> Result<(), Cannot> {
         settling: Settling::No,
         last: None,
         requested: Vec::new(),
-        promised: None,
         started: Vec::new(),
+        layers,
     };
     let around = Around {
         wearing: &wearing,
@@ -263,8 +265,8 @@ struct Turning {
     settling: Settling,
     last: Option<Rendered>,
     requested: Vec<BarAction>,
-    promised: Option<Promised>,
-    started: Vec<Detached>,
+    started: Vec<Started>,
+    layers: Vec<Layer>,
 }
 
 #[derive(Clone, Copy)]
@@ -291,8 +293,8 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(
         mut settling,
         mut last,
         mut requested,
-        mut promised,
         mut started,
+        mut layers,
     } = turning;
 
     let Ok(progress) = updating::progress();
@@ -318,7 +320,7 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(
         }
     }
 
-    let Ok(()) = begun(&mut requested, &mut promised, &mut started);
+    let Ok(()) = begun(&mut requested, &mut started);
 
     let Ok(closed) = surface.closed();
 
@@ -340,24 +342,20 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(
         Err(fault) => return Ok(Step::Halt(Err(Cannot::from(fault)))),
     }
 
-    let Ok(()) = tapped(&mut surface, &drawn, &mut requested);
+    let Ok(tapped) = tapped(&mut surface, &drawn);
 
-    for action in &requested {
-        let Ok(()) = held.pressed(*action);
+    for action in tapped {
+        let Ok(asked) = held.pressed(action);
 
-        promised = Some(Promised { action: *action, pressed: held.open.clone(), started: None });
+        requested.extend(asked);
     }
 
     let Ok(()) = woken::drain(waking_fd);
     let Ok(()) = heard_again(hearing);
-    let Ok(still) = console_program_lifetime::reap(started);
+    let Ok((still, ended)) = reaped(started);
 
     started = still;
 
-    held.open.tab = match console_onscreen::tab() {
-        Ok(tab) => tab,
-        Err(_nothing_has_said_which_tab_is_in_front) => None,
-    };
     let Ok(woke) = take_woken(seen);
 
     settling = match woke.is_empty() {
@@ -368,7 +366,22 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(
     let Ok(looked) = again(&woke, &mut readings, &mut dwindling);
     let Ok(()) = ticked(&mut readings, &mut dwindling);
     let Ok(()) = refreshed(&woke, looked, &mut held);
-    let Ok(()) = check_promise(&mut promised, &mut held, &started);
+
+    match woke.contains(&Woke::Surfaces) || looked == Looked::Again || !ended.is_empty() {
+        true => {
+            let Ok(asked) = listed(layers);
+
+            layers = asked;
+        }
+        false => {}
+    }
+
+    for panel in ended {
+        let Ok(_starts_nothing) = held.told(PanelEvent::Ended(panel));
+    }
+
+    let Ok(up) = on_screen(&layers);
+    let Ok(_starts_nothing) = held.told(PanelEvent::Shown(up));
 
     let Ok(now) = clock::current();
 
@@ -384,7 +397,7 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(
 
     held.readings = readings.iter().map(|one| (one.item, one.reading.clone())).collect();
     Ok(Step::Again(Turning {
-        surface, dwindling, readings, held, was, settling, last, requested, promised, started,
+        surface, dwindling, readings, held, was, settling, last, requested, started, layers,
     }))
 }
 
@@ -418,30 +431,24 @@ fn first_readings(dwindling: &mut Watching) -> Result<Vec<Tracked>, Never> {
     Ok(readings)
 }
 
-fn first_held(readings: &[Tracked]) -> Result<BarState, Never> {
+fn first_held(readings: &[Tracked], layers: &[Layer]) -> Result<BarState, Never> {
     let Ok(bell) = rung();
     let Ok(music) = playing();
-    let Ok(open) = shown(Open {
-        launcher: Up::NotThere,
-        keyboard: Up::NotThere,
-        music: Up::NotThere,
-        notifications: Up::NotThere,
-        calendar: Up::NotThere,
-        settings: Up::NotThere,
-        tab: None,
-    });
     let Ok(said) = clock::now();
     let Ok((workspaces, front)) = walked();
-
-    Ok(BarState {
+    let Ok(up) = on_screen(layers);
+    let mut held = BarState {
         readings: readings.iter().map(|one| (one.item, one.reading.clone())).collect(),
         bell,
         music,
         clock: said,
         workspaces,
         front,
-        open,
-    })
+        panels: Panels::default(),
+    };
+    let Ok(_starts_nothing) = held.told(PanelEvent::Shown(up));
+
+    Ok(held)
 }
 
 fn refreshed(woke: &BTreeSet<Woke>, looked: Looked, held: &mut BarState) -> Result<(), Never> {
@@ -465,10 +472,8 @@ fn refreshed(woke: &BTreeSet<Woke>, looked: Looked, held: &mut BarState) -> Resu
 
     match woke.contains(&Woke::Surfaces) || looked == Looked::Again {
         true => {
-            let Ok(open) = shown(held.open.clone());
             let Ok((workspaces, front)) = walked();
 
-            held.open = open;
             held.workspaces = workspaces;
             held.front = front;
         }
@@ -554,10 +559,10 @@ fn heard_again(hearing: &OwnedFd) -> Result<(), Never> {
     Ok(())
 }
 
-fn endings(started: &[Detached]) -> Result<Vec<OwnedFd>, Never> {
+fn endings(started: &[Started]) -> Result<Vec<OwnedFd>, Never> {
     Ok(started
         .iter()
-        .filter_map(|one| {
+        .filter_map(|Started { panel: _, program: one }| {
             let Ok(id) = one.id();
             let Ok(raw) = fitted::<u32, i32>(id);
 
@@ -687,40 +692,24 @@ fn playing() -> Result<Reading, Never> {
     state::music(paused, playing)
 }
 
-fn shown(before: Open) -> Result<Open, Never> {
-    let screens = match console_compositor::ask(console_compositor::Layers) {
-        Ok(screens) => screens,
+fn listed(before: Vec<Layer>) -> Result<Vec<Layer>, Never> {
+    match console_compositor::ask(console_compositor::Layers) {
+        Ok(layers) => Ok(layers),
         Err(why) => {
             eprintln!("console-bar: {why}");
 
-            return Ok(before);
+            Ok(before)
         }
-    };
-    let up = |namespace: &str| {
-        let Ok(up) = console_onscreen::up(&screens, namespace);
+    }
+}
 
-        up
-    };
+fn on_screen(layers: &[Layer]) -> Result<Vec<Panel>, Never> {
     let tab = match console_onscreen::tab() {
         Ok(tab) => tab,
         Err(_nothing_has_said_which_tab_is_in_front) => None,
     };
 
-    let Ok(launcher) = InternalProgram::Launcher.name();
-    let Ok(music) = InternalProgram::MusicPanel.name();
-    let Ok(notifications) = InternalProgram::NotificationsPanel.name();
-    let Ok(calendar) = InternalProgram::CalendarPanel.name();
-    let Ok(settings) = InternalProgram::SettingsPanel.name();
-
-    Ok(Open {
-        launcher: up(launcher),
-        keyboard: up(console_onscreen::KEYBOARD),
-        music: up(music),
-        notifications: up(notifications),
-        calendar: up(calendar),
-        settings: up(settings),
-        tab,
-    })
+    panels::on_screen(layers, tab.as_deref())
 }
 
 fn walked() -> Result<(Vec<Workspace>, Option<i64>), Never> {
@@ -740,39 +729,6 @@ fn walked() -> Result<(Vec<Workspace>, Option<i64>), Never> {
     };
 
     Ok((there, front))
-}
-
-fn sized(layout: &showing::Layout, fitting: Fitting) -> Result<Bar, Never> {
-    let Ok(left) = every(&layout.left, fitting);
-    let Ok(middle) = every(&layout.middle, fitting);
-    let Ok(right) = every(&layout.right, fitting);
-
-    Ok(Bar { left, middle, right, filling: layout.filling })
-}
-
-fn every(slots: &[Slot], fitting: Fitting) -> Result<Vec<Measured>, Never> {
-    let mut measured = Vec::new();
-
-    for slot in slots {
-        let mut runs = Vec::new();
-
-        for span in &slot.spans {
-            let Ok(one) = measure(span.text.as_str(), span.face, fitting);
-
-            runs.push(one);
-        }
-
-        measured.push(Measured { slot: slot.clone(), runs });
-    }
-
-    Ok(measured)
-}
-
-fn measure(text: &str, face: Face, fitting: Fitting) -> Result<Size<u32>, Never> {
-    let Ok(font) = fitting.font(face);
-    let Ok(weight) = face.weight();
-
-    measure_text(Run { said: text, weight, width: u32::MAX }, &font)
 }
 
 fn painted(surface: &mut Surface, drawn: &Rendered) -> Result<(), Never> {
@@ -795,8 +751,9 @@ fn painted(surface: &mut Surface, drawn: &Rendered) -> Result<(), Never> {
     Ok(())
 }
 
-fn tapped(surface: &mut Surface, drawn: &Rendered, requested: &mut Vec<BarAction>) -> Result<(), Never> {
+fn tapped(surface: &mut Surface, drawn: &Rendered) -> Result<Vec<BarAction>, Never> {
     let Ok(pointer_events) = surface.pointer_events();
+    let mut requested = Vec::new();
 
     for event in pointer_events {
         let at = match event {
@@ -813,74 +770,42 @@ fn tapped(surface: &mut Surface, drawn: &Rendered, requested: &mut Vec<BarAction
         }
     }
 
-    Ok(())
+    Ok(requested)
 }
 
-struct Promised {
-    action: BarAction,
-    pressed: Open,
-    started: Option<u32>,
+struct Started {
+    panel: Panel,
+    program: Detached,
 }
 
-fn begun(requested: &mut Vec<BarAction>, promised: &mut Option<Promised>, started: &mut Vec<Detached>) -> Result<(), Never> {
+fn begun(requested: &mut Vec<BarAction>, started: &mut Vec<Started>) -> Result<(), Never> {
     for action in requested.drain(..) {
         let Ok(begun) = doing(action);
-        let pid = match &begun {
-            Some(one) => {
-                let Ok(pid) = one.id();
+        let Ok(panel) = Panel::of(action);
 
-                Some(pid)
-            }
-            None => None,
-        };
-
-        match promised.as_mut() {
-            Some(promise) => match promise.action == action {
-                true => promise.started = pid,
-                false => {},
-            },
-            None => {},
+        match (panel, begun) {
+            (Some(panel), Some(program)) => started.push(Started { panel, program }),
+            (Some(_), None) | (None, _) => {}
         }
-
-        started.extend(begun);
     }
 
     Ok(())
 }
 
-fn check_promise(promised: &mut Option<Promised>, held: &mut BarState, started: &[Detached]) -> Result<(), Never> {
-    let promise = match promised.as_mut() {
-        Some(promise) => promise,
-        None => return Ok(()),
-    };
+fn reaped(started: Vec<Started>) -> Result<(Vec<Started>, Vec<Panel>), Never> {
+    let mut running = Vec::new();
+    let mut ended = Vec::new();
 
-    let still = match promise.started {
-        Some(pid) => match started.iter().any(|one| one.id() == Ok(pid)) {
-            true => Still::Running,
-            false => Still::Ended,
-        },
-        None => Still::Running,
-    };
+    for Started { panel, mut program } in started {
+        let Ok(still) = program.still();
 
-    match still {
-        Still::Ended => {
-            *promised = None;
-
-            return Ok(());
+        match still {
+            Still::Running => running.push(Started { panel, program }),
+            Still::Ended => ended.push(panel),
         }
-        Still::Running => {},
     }
 
-    let Ok((open, promise)) = held.open.promised(promise.action, &promise.pressed);
-
-    held.open = open;
-
-    match promise {
-        Promise::Fulfilled => *promised = None,
-        Promise::Waiting => {},
-    }
-
-    Ok(())
+    Ok((running, ended))
 }
 
 fn doing(action: BarAction) -> Result<Option<Detached>, Never> {
@@ -918,7 +843,18 @@ fn doing(action: BarAction) -> Result<Option<Detached>, Never> {
 
             command
         }
+        BarAction::Volume(volume) => {
+            let Ok(command) = volume.command();
+
+            command
+        }
+        BarAction::Power(power) => {
+            let Ok(command) = power.command();
+
+            command
+        }
         BarAction::Workspace(id) => return switched(id),
+        BarAction::Menu(_) => return Ok(None),
     };
 
     let Ok(()) = console_response_times::pressed_here(&mut starting);

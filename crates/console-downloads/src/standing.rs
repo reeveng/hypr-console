@@ -18,7 +18,8 @@
 
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Initial, Program, Command, Update, Event};
+use console_core_state_machine::{Machine, Queue, Transition};
+use console_program_contract::{Arguments, Effect, Command, Event};
 
 use crate::getting::Have;
 use crate::looking::Found;
@@ -107,25 +108,40 @@ pub enum Closes {
 
 pub struct Downloads;
 
-impl Program for Downloads {
+impl Machine for Downloads {
+    type Input = Arguments;
     type State = Standing;
-    type Event = DownloadsEvent;
-    type Effect = DownloadsEffect;
+    type Request = Event<DownloadsEvent>;
+    type Effect = Effect<DownloadsEffect>;
 
-    fn init(_argv: &Arguments) -> Initial<Standing> {
-        let Ok(opening) = Initial::new(Standing::default());
+    fn initialize(arguments: &Arguments, _previous: Option<Standing>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(opening) = initial(arguments);
 
-        opening
+        opening.offered(effects)
     }
 
-    fn update(state: &Standing, event: &Event<DownloadsEvent>) -> Update<Standing, DownloadsEffect> {
-        let Ok(turn) = turning(state, event);
+    fn handle(state: Standing, event: Event<DownloadsEvent>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(decided) = decide(&state, &event);
 
-        turn
+        decided.offered(effects)
     }
 }
 
-fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Standing, DownloadsEffect>, Never> {
+type Effects = Queue<Effect<DownloadsEffect>>;
+
+fn initial(_argv: &Arguments) -> Result<Transition<Standing, Effect<DownloadsEffect>>, Never> {
+    let Ok(opening) = Transition::without_effects(Standing::default());
+
+    Ok(opening)
+}
+
+fn decide(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Transition<Standing, Effect<DownloadsEffect>>, Never> {
+    let Ok(turn) = turning(state, event);
+
+    Ok(turn)
+}
+
+fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Transition<Standing, Effect<DownloadsEffect>>, Never> {
     let heard = match event {
         Event::Custom(heard) => heard,
         Event::Opened
@@ -133,7 +149,7 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Sta
         | Event::Tick(_, _)
         | Event::Replied(_)
         | Event::Chosen(_)
-        | Event::Stopping => return Update::none(state.clone()),
+        | Event::Stopping => return Transition::without_effects(state.clone()),
     };
 
     match heard {
@@ -141,11 +157,11 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Sta
                 let Ok(held) = state.at(*tab);
 
                 match held.typed == *word {
-                    true => Update::none(state.clone()),
+                    true => Transition::without_effects(state.clone()),
                     false => {
                         let Ok(with) = state.with(*tab, Tab { typed: word.clone(), ..held });
 
-                        Update::new(with, vec![Effect::Custom(DownloadsEffect::Replace(0))])
+                        Transition::new(with, vec![Effect::Custom(DownloadsEffect::Replace(0))])
                     },
                 }
             }
@@ -157,7 +173,7 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Sta
                 let Ok(flag) = kind.flag();
                 let Ok(find) = Command::internal(FIND, &[flag, &asked]);
 
-                Update::new(
+                Transition::new(
                     with,
                     vec![
                         Effect::Custom(DownloadsEffect::Refresh),
@@ -173,9 +189,9 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Sta
                     true => {
                         let Ok(with) = state.with(*tab, Tab { asking: None, ..held });
 
-                        Update::none(with)
+                        Transition::without_effects(with)
                     },
-                    false => Update::none(state.clone()),
+                    false => Transition::without_effects(state.clone()),
                 }
             }
 
@@ -184,7 +200,7 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Sta
                 let onto = Destination::Ways { found: found.clone(), from: *from };
                 let Ok(with) = state.with(*tab, Tab { onto, ..held });
 
-                Update::new(with, vec![Effect::Custom(DownloadsEffect::Replace(WAYS_START))])
+                Transition::new(with, vec![Effect::Custom(DownloadsEffect::Replace(WAYS_START))])
             }
 
             DownloadsEvent::Chose { tab, kind, found, have, into } => {
@@ -192,13 +208,13 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Update<Sta
                 let Ok(held) = state.at(*tab);
 
                 match held.onto {
-                    Destination::List => Update::new(state.clone(), effects),
+                    Destination::List => Transition::new(state.clone(), effects),
                     Destination::Ways { from, .. } => {
                         let Ok(with) = state.with(*tab, Tab { onto: Destination::List, ..held });
 
                         effects.push(Effect::Custom(DownloadsEffect::Replace(from)));
 
-                        Update::new(with, effects)
+                        Transition::new(with, effects)
                     }
                 }
             }
@@ -226,7 +242,7 @@ fn fetching(kind: Kind, found: &Found, have: Have, into: &str) -> Result<Vec<Eff
     })
 }
 
-fn back(state: &Standing, tab: u32) -> Result<Update<Standing, DownloadsEffect>, Never> {
+fn back(state: &Standing, tab: u32) -> Result<Transition<Standing, Effect<DownloadsEffect>>, Never> {
     let Ok(held) = state.at(tab);
 
     match (&held.onto, held.typed.trim().is_empty()) {
@@ -234,19 +250,19 @@ fn back(state: &Standing, tab: u32) -> Result<Update<Standing, DownloadsEffect>,
             let from = *from;
             let Ok(with) = state.with(tab, Tab { onto: Destination::List, ..held.clone() });
 
-            Update::new(with, vec![Effect::Custom(DownloadsEffect::Replace(from))])
+            Transition::new(with, vec![Effect::Custom(DownloadsEffect::Replace(from))])
         }
 
         (Destination::List, false) => {
             let Ok(with) = state.with(tab, Tab { typed: String::new(), ..held.clone() });
 
-            Update::new(with, vec![
+            Transition::new(with, vec![
                 Effect::Custom(DownloadsEffect::ForgetTyping),
                 Effect::Custom(DownloadsEffect::Replace(LINE)),
             ])
         }
 
-        (Destination::List, true) => Update::none(state.clone()),
+        (Destination::List, true) => Transition::without_effects(state.clone()),
     }
 }
 
@@ -261,7 +277,7 @@ pub fn closes(state: &Standing, tab: u32) -> Result<Closes, Never> {
 
 #[cfg(test)]
 mod tests {
-    use console_program_contract::{Trace, run};
+    use console_core_state_machine::{Trace, run};
 
     use super::*;
 
@@ -282,7 +298,7 @@ mod tests {
         })
     }
 
-    fn said(heard: &[DownloadsEvent]) -> Result<Trace<Standing, DownloadsEvent, DownloadsEffect>, Never> {
+    fn said(heard: &[DownloadsEvent]) -> Result<Trace<Standing, Event<DownloadsEvent>, Effect<DownloadsEffect>>, Never> {
         let events: Vec<Event<DownloadsEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
         run::<Downloads>(&Arguments::default(), &events)

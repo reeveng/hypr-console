@@ -145,7 +145,7 @@ pub enum Context {
     OnTheDesktop,
     OnTheHomeScreen,
     StandingOnASquare,
-    WithAPickerUp,
+    WithAPanelOrApp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,10 +176,10 @@ impl Context {
     pub fn applicability(self, mode: Mode) -> Result<Applicability, Never> {
         let fit = match self {
             Context::Anywhere => true,
-            Context::OnTheDesktop => matches!(mode, Mode::Desktop | Mode::HomeScreen | Mode::Standing),
+            Context::OnTheDesktop => matches!(mode, Mode::Desktop | Mode::App | Mode::HomeScreen | Mode::Standing),
             Context::OnTheHomeScreen => matches!(mode, Mode::HomeScreen | Mode::Standing),
             Context::StandingOnASquare => mode == Mode::Standing,
-            Context::WithAPickerUp => mode == Mode::Tabs,
+            Context::WithAPanelOrApp => matches!(mode, Mode::Tabs | Mode::App),
         };
 
         Ok(match fit {
@@ -191,8 +191,8 @@ impl Context {
     fn rank(self) -> Result<u8, Never> {
         Ok(match self {
             Context::Anywhere => 0,
-            Context::OnTheDesktop | Context::WithAPickerUp => 1,
-            Context::OnTheHomeScreen => 2,
+            Context::OnTheDesktop => 1,
+            Context::OnTheHomeScreen | Context::WithAPanelOrApp => 2,
             Context::StandingOnASquare => 3,
         })
     }
@@ -223,6 +223,7 @@ const KEYS: Input = Input::Keyboard;
 
 const ALONE: &[&str] = &[];
 const L2: &[&str] = &["l2"];
+const L2_R2: &[&str] = &["l2", "r2"];
 const SUPER: &[&str] = &["super"];
 const SUPER_CONTROL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
@@ -473,13 +474,13 @@ pub const JOBS: [Task; 77] = [
         slug: "workspace-next",
         action: Action::Workspace(1),
         context: Context::OnTheDesktop,
-        bound: &[(PAD, ALONE, "r1"), (KEYS, SUPER, "tab")],
+        bound: &[(PAD, ALONE, "r1"), (PAD, L2, "r1"), (KEYS, SUPER, "tab")],
     },
     Task {
         slug: "workspace-previous",
         action: Action::Workspace(-1),
         context: Context::OnTheDesktop,
-        bound: &[(PAD, ALONE, "l1"), (KEYS, SUPER_SHIFT, "tab")],
+        bound: &[(PAD, ALONE, "l1"), (PAD, L2, "l1"), (KEYS, SUPER_SHIFT, "tab")],
     },
     Task {
         slug: "place-one",
@@ -545,13 +546,13 @@ pub const JOBS: [Task; 77] = [
         slug: "carry-next",
         action: Action::Payload(1),
         context: Context::OnTheDesktop,
-        bound: &[(PAD, L2, "r1"), (KEYS, SUPER_SHIFT, "right"), (KEYS, SUPER_SHIFT, "l")],
+        bound: &[(PAD, L2_R2, "r1"), (KEYS, SUPER_SHIFT, "right"), (KEYS, SUPER_SHIFT, "l")],
     },
     Task {
         slug: "carry-previous",
         action: Action::Payload(-1),
         context: Context::OnTheDesktop,
-        bound: &[(PAD, L2, "l1"), (KEYS, SUPER_SHIFT, "left"), (KEYS, SUPER_SHIFT, "h")],
+        bound: &[(PAD, L2_R2, "l1"), (KEYS, SUPER_SHIFT, "left"), (KEYS, SUPER_SHIFT, "h")],
     },
     Task {
         slug: "overview",
@@ -664,25 +665,25 @@ pub const JOBS: [Task; 77] = [
     Task {
         slug: "choose",
         action: Action::Choose,
-        context: Context::WithAPickerUp,
+        context: Context::WithAPanelOrApp,
         bound: &[(PAD, ALONE, "a"), (PAD, ALONE, "r3")],
     },
     Task {
         slug: "more",
         action: Action::More,
-        context: Context::WithAPickerUp,
+        context: Context::WithAPanelOrApp,
         bound: &[(PAD, ALONE, "y")],
     },
     Task {
         slug: "tab-right",
         action: Action::Tab(1),
-        context: Context::WithAPickerUp,
+        context: Context::WithAPanelOrApp,
         bound: &[(PAD, ALONE, "r1")],
     },
     Task {
         slug: "tab-left",
         action: Action::Tab(-1),
-        context: Context::WithAPickerUp,
+        context: Context::WithAPanelOrApp,
         bound: &[(PAD, ALONE, "l1")],
     },
 ];
@@ -1195,7 +1196,7 @@ mod tests {
 
     #[test]
     fn nothing_is_bound_twice_in_one_place() {
-        for mode in [Mode::Desktop, Mode::Tabs, Mode::HomeScreen] {
+        for mode in [Mode::Desktop, Mode::Tabs, Mode::App, Mode::HomeScreen] {
             let mut places: Vec<String> = Vec::new();
 
             let Ok(every) = every();
@@ -1321,6 +1322,35 @@ mod tests {
         assert_eq!(what(&table, "a", &[], Mode::Tabs), Ok(Some(Action::Choose)));
         assert_eq!(what(&table, "r1", &[], Mode::Desktop), Ok(Some(Action::Workspace(1))));
         assert_eq!(what(&table, "r1", &[], Mode::Tabs), Ok(Some(Action::Tab(1))));
+    }
+
+    #[test]
+    fn in_one_of_our_apps_a_press_means_what_it_means_in_a_panel_and_l2_reaches_the_workspaces() {
+        let Ok(table) = Table::ours();
+
+        assert_eq!(what(&table, "a", &[], Mode::App), Ok(Some(Action::Choose)));
+        assert_eq!(what(&table, "y", &[], Mode::App), Ok(Some(Action::More)));
+        assert_eq!(what(&table, "r1", &[], Mode::App), Ok(Some(Action::Tab(1))));
+        assert_eq!(what(&table, "l1", &[], Mode::App), Ok(Some(Action::Tab(-1))));
+        assert_eq!(what(&table, "r1", &["l2"], Mode::App), Ok(Some(Action::Workspace(1))));
+        assert_eq!(what(&table, "l1", &["l2"], Mode::App), Ok(Some(Action::Workspace(-1))));
+        assert_eq!(what(&table, "r1", &["l2", "r2"], Mode::App), Ok(Some(Action::Payload(1))));
+    }
+
+    #[test]
+    fn l2_reaches_the_workspaces_from_anywhere_but_a_picker_and_l2_with_r2_carries_the_window() {
+        let Ok(table) = Table::ours();
+
+        for mode in [Mode::Desktop, Mode::App, Mode::HomeScreen, Mode::Standing] {
+            assert_eq!(what(&table, "r1", &["l2"], mode), Ok(Some(Action::Workspace(1))), "{mode:?}");
+            assert_eq!(what(&table, "l1", &["l2"], mode), Ok(Some(Action::Workspace(-1))), "{mode:?}");
+        }
+
+        assert_eq!(what(&table, "r1", &["l2"], Mode::Tabs), Ok(Some(Action::Tab(1))), "a picker keeps the desktop where it is");
+
+        assert_eq!(what(&table, "r1", &["l2", "r2"], Mode::Desktop), Ok(Some(Action::Payload(1))));
+        assert_eq!(what(&table, "l1", &["l2", "r2"], Mode::Desktop), Ok(Some(Action::Payload(-1))));
+        assert_eq!(what(&table, "r1", &[], Mode::Desktop), Ok(Some(Action::Workspace(1))), "a bare desktop has no tabs");
     }
 
     #[test]

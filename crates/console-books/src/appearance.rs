@@ -14,12 +14,17 @@
 //! of, so a gray keeps no hue it does not have and nothing is rounded on the
 //! way back.
 //!
+//! The size of the letters is chosen on the page rather than in Settings,
+//! because it is the one thing a reader changes with the book open: the two
+//! letters in the corner step it, and a pinch scales it the way it scales a
+//! photo. It is kept with the rest so the next book opens at the same size.
+//!
 //! Nothing chosen, or something that cannot be read back, is the page as it
 //! always was: the desktop's own ground, its own text, and a serif.
 
 use console_core_color::Oklch;
 use console_core_never::Never;
-use console_core_number_conversion::Float;
+use console_core_number_conversion::{Float, whole_u32};
 use console_core_words::Words;
 
 const BACKGROUND: &str = "books-background";
@@ -27,6 +32,8 @@ const BACKGROUND: &str = "books-background";
 const TEXT: &str = "books-text";
 
 const TYPEFACE: &str = "books-typeface";
+
+const TEXT_SIZE: &str = "books-text-size";
 
 const DESKTOP: &str = "desktop";
 
@@ -94,16 +101,60 @@ impl Typeface {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TextSize(pub u32);
+
+impl Default for TextSize {
+    fn default() -> Self {
+        TextSize(22)
+    }
+}
+
+impl TextSize {
+    pub const SMALLEST: TextSize = TextSize(14);
+
+    pub const LARGEST: TextSize = TextSize(44);
+
+    const STEP: u32 = 2;
+
+    fn within(size: u32) -> Result<TextSize, Never> {
+        Ok(TextSize(size.clamp(TextSize::SMALLEST.0, TextSize::LARGEST.0)))
+    }
+
+    pub fn larger(self) -> Result<TextSize, Never> {
+        TextSize::within(self.0.saturating_add(TextSize::STEP))
+    }
+
+    pub fn smaller(self) -> Result<TextSize, Never> {
+        TextSize::within(self.0.saturating_sub(TextSize::STEP))
+    }
+
+    pub fn scaled(self, by: f64) -> Result<TextSize, Never> {
+        let Ok(size) = whole_u32(f64::from(self.0) * by);
+
+        TextSize::within(size)
+    }
+
+    pub fn heading(self) -> Result<u32, Never> {
+        Ok(self.0.saturating_mul(15).saturating_div(11))
+    }
+
+    pub fn choose(self) -> Result<(), Never> {
+        console_defaults::set(console_defaults::Setting { key: TEXT_SIZE, value: &self.0.to_string() })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Appearance {
     pub background: Paint,
     pub text: Paint,
     pub typeface: Typeface,
+    pub text_size: TextSize,
 }
 
 impl Default for Appearance {
     fn default() -> Self {
-        Appearance { background: Paint::Desktop, text: Paint::Desktop, typeface: Typeface::Serif }
+        Appearance { background: Paint::Desktop, text: Paint::Desktop, typeface: Typeface::Serif, text_size: TextSize::default() }
     }
 }
 
@@ -112,6 +163,7 @@ pub struct Settings<'a> {
     pub background: Option<&'a str>,
     pub text: Option<&'a str>,
     pub typeface: Option<&'a str>,
+    pub text_size: Option<&'a str>,
 }
 
 impl Appearance {
@@ -120,8 +172,14 @@ impl Appearance {
         let background = console_defaults::setting(BACKGROUND)?;
         let text = console_defaults::setting(TEXT)?;
         let typeface = console_defaults::setting(TYPEFACE)?;
+        let text_size = console_defaults::setting(TEXT_SIZE)?;
 
-        Appearance::read(Settings { background: background.as_deref(), text: text.as_deref(), typeface: typeface.as_deref() })
+        Appearance::read(Settings {
+            background: background.as_deref(),
+            text: text.as_deref(),
+            typeface: typeface.as_deref(),
+            text_size: text_size.as_deref(),
+        })
     }
 
     #[must_use]
@@ -129,6 +187,11 @@ impl Appearance {
         let Ok(background) = paint(said.background);
         let Ok(text) = paint(said.text);
         let typeface = TYPEFACES.iter().copied().find(|typeface| said.typeface.map(Ok) == Some(typeface.word()));
+        let Ok(text_size) = match said.text_size.map(str::parse::<u32>) {
+            Some(Ok(size)) => TextSize::within(size),
+            Some(Err(_not_a_size)) => Ok(TextSize::default()),
+            None => Ok(TextSize::default()),
+        };
 
         Ok(Appearance {
             background,
@@ -137,6 +200,7 @@ impl Appearance {
                 Some(typeface) => typeface,
                 None => Typeface::Serif,
             },
+            text_size,
         })
     }
 }
@@ -225,7 +289,12 @@ mod tests {
 
     #[test]
     fn what_cannot_be_read_back_is_the_desktop_rather_than_black() {
-        let Ok(read) = Appearance::read(Settings { background: Some("0.5 tartan 3"), text: Some("1 2"), typeface: Some("Comic Sans") });
+        let Ok(read) = Appearance::read(Settings {
+            background: Some("0.5 tartan 3"),
+            text: Some("1 2"),
+            typeface: Some("Comic Sans"),
+            text_size: Some("huge"),
+        });
 
         assert_eq!(read, Appearance::default());
     }
@@ -238,6 +307,26 @@ mod tests {
 
             assert_eq!(read.typeface, *typeface);
         }
+    }
+
+    #[test]
+    fn a_text_size_is_kept_between_the_smallest_and_the_largest() {
+        let Ok(read) = Appearance::read(Settings { text_size: Some("30"), ..Settings::default() });
+        let Ok(tiny) = Appearance::read(Settings { text_size: Some("2"), ..Settings::default() });
+
+        assert_eq!(read.text_size, TextSize(30));
+        assert_eq!(tiny.text_size, TextSize::SMALLEST, "a size nobody can read is the smallest one that can be");
+        assert_eq!(TextSize::LARGEST.larger(), Ok(TextSize::LARGEST));
+        assert_eq!(TextSize::SMALLEST.smaller(), Ok(TextSize::SMALLEST));
+        assert_eq!(TextSize(22).larger(), Ok(TextSize(24)));
+    }
+
+    #[test]
+    fn a_pinch_scales_the_size_it_started_from() {
+        assert_eq!(TextSize(20).scaled(1.5), Ok(TextSize(30)));
+        assert_eq!(TextSize(20).scaled(0.5), Ok(TextSize::SMALLEST));
+        assert_eq!(TextSize(20).scaled(10.0), Ok(TextSize::LARGEST));
+        assert_eq!(TextSize::default().heading(), Ok(30), "the heading keeps the size it had before the body could change");
     }
 
     #[test]

@@ -17,4 +17,5 @@ console-core-number-conversion.workspace = true
 workspace = true
 
 [dev-dependencies]
+console-core-temporary-directories.workspace = true
 console-waiting.workspace = true

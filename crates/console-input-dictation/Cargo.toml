@@ -32,6 +32,7 @@ console-response-times.workspace = true
 console-program-contract.workspace = true
 console-program-runtime.workspace = true
 rustix.workspace = true
+console-core-state-machine.workspace = true
 
 [lints]
 workspace = true

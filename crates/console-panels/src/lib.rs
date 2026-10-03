@@ -76,6 +76,7 @@ pub const PANELS: &[Panel] = &[
     Panel { who: console_calculator::WHO, card: console_calculator::card, program: InternalProgram::Calculator },
     Panel { who: console_calendar::WHO, card: console_calendar::card, program: InternalProgram::CalendarPanel },
     Panel { who: console_forecast::WHO, card: console_forecast::card, program: InternalProgram::ForecastPanel },
+    Panel { who: console_notes::WHO, card: console_notes::card, program: InternalProgram::Notes },
 ];
 
 pub fn one(who: &str) -> Result<Option<&'static Panel>, Never> {

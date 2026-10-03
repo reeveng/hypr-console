@@ -15,6 +15,10 @@
 //! shelf, which is the cheaper of the two mistakes -- a name with its id still
 //! showing is a mistake on every row, and an underscore that meant an
 //! underscore is rare enough to be the name's own problem.
+//!
+//! `a_name` is the other direction: a word somebody typed, and whether a file
+//! can be given it at all. The files asked it of a new folder and a rename,
+//! and the notes ask it of a new note's title, so it is answered here once.
 
 use console_core_never::Never;
 
@@ -47,6 +51,13 @@ pub fn title(name: &str) -> Result<String, Never> {
     Ok(without.replace('_', " ").trim().to_string())
 }
 
+pub fn a_name(word: &str) -> Result<Option<String>, Never> {
+    let word = word.trim();
+    let usable = !word.is_empty() && !word.contains('/') && word != "." && word != "..";
+
+    Ok(usable.then(|| word.to_string()))
+}
+
 fn without_id(stem: &str) -> Result<&str, Never> {
     Ok(match stem.rsplit_once(" [") {
         Some((title, tail)) => match tail.ends_with(']') {
@@ -60,6 +71,23 @@ fn without_id(stem: &str) -> Result<&str, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_that_would_be_a_path_is_not_a_name() {
+        assert_eq!(a_name("holiday.jpg"), Ok(Some("holiday.jpg".to_string())));
+        assert_eq!(a_name("  holiday.jpg  "), Ok(Some("holiday.jpg".to_string())));
+        assert_eq!(a_name(""), Ok(None));
+        assert_eq!(a_name("   "), Ok(None));
+        assert_eq!(a_name("../holiday.jpg"), Ok(None));
+        assert_eq!(a_name("holiday/2026"), Ok(None));
+        assert_eq!(a_name(".."), Ok(None));
+        assert_eq!(a_name("."), Ok(None));
+    }
+
+    #[test]
+    fn a_name_may_begin_with_a_dot() {
+        assert_eq!(a_name(".hidden"), Ok(Some(".hidden".to_string())));
+    }
 
     #[test]
     fn the_id_a_download_was_kept_under_is_not_part_of_its_title() {

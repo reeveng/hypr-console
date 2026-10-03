@@ -10,8 +10,13 @@ name = "console_pictures"
 path = "src/lib.rs"
 
 [dependencies]
+console-concurrency.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
+console-core-gif-files.workspace = true
+console-core-jpeg-files.workspace = true
+console-core-png-files.workspace = true
+console-core-webp-files.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-shapes.workspace = true

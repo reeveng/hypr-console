@@ -57,19 +57,13 @@
 //! wedged picker can still be made to do.
 //!
 //! An app is not a picker and does not take this lock. It is somewhere a person
-//! stays -- the files, the pictures -- drawn by its own process across the whole
-//! screen, and a picker opened over it goes and leaves it where it was. What it
-//! keeps instead is one lock of its own, so there is never a second copy of it
-//! underneath the first: asked for again with the same arguments it is already
-//! up and nothing starts, and asked for anything else the one up stands down
-//! for it. `alone_as` is that, and it is `choosing` over a different file.
-//!
-//! Which app is on top is asked of `/proc/locks` rather than by taking each
-//! lock and letting it go. A lock belongs to the open file and not to the
-//! handle, and a fork on any other thread copies every open file into the
-//! child: the probe's copy went with it, so the lock the probe let go stayed
-//! taken until the child ran its program, an app nobody held read as the one on
-//! top, and an app starting in that moment was told it was already up.
+//! stays -- the files, the pictures -- drawn by its own process as a window on
+//! a workspace, and a picker opened over it goes and leaves it where it was.
+//! What it keeps instead is one lock of its own, so there is never a second
+//! copy of it: asked for again with the same arguments it is already up, and
+//! its window is brought forward rather than a second one started, and asked
+//! for anything else the one up stands down for it. `alone_as` is that, and it
+//! is `choosing` over a different file.
 
 
 use console_core_never::Never;
@@ -318,104 +312,6 @@ pub fn console_put_away() -> Result<Away, Never> {
     told_to_go(&where_)
 }
 
-pub fn app_put_away() -> Result<Away, Never> {
-    let Ok(picker) = where_();
-    let Ok(on_top) = app_on_top(&picker);
-
-    match on_top {
-        Some(at) => told_to_go(&at),
-        None => Ok(Away::None),
-    }
-}
-
-fn app_on_top(picker: &Path) -> Result<Option<PathBuf>, Never> {
-    let folder = match picker.parent() {
-        Some(folder) => folder,
-        None => return Ok(None),
-    };
-
-    let screen = match picker.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_prefix("picker")) {
-        Some(screen) => screen.to_string(),
-        None => return Ok(None),
-    };
-
-    let mut held: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-
-    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        match name.starts_with("app-") && name.ends_with(&screen) {
-            true => {},
-            false => continue,
-        }
-
-        let at = entry.path();
-        let Ok(holding) = someone_holds(&at);
-
-        match (holding, std::fs::metadata(&at).and_then(|found| found.modified())) {
-            (Owned::Yes, Ok(when)) => held.push((when, at)),
-            (Owned::No, _) => {},
-            (Owned::Yes, Err(_unstamped)) => {},
-        }
-    }
-
-    held.sort();
-
-    Ok(held.pop().map(|(_when, at)| at))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Owned {
-    Yes,
-    No,
-}
-
-fn someone_holds(at: &Path) -> Result<Owned, Never> {
-    let found = match std::fs::metadata(at) {
-        Ok(found) => found,
-        Err(_gone) => return Ok(Owned::No),
-    };
-
-    let Ok(file) = named_in_locks(&found);
-
-    let locks = match std::fs::read_to_string(LOCKS) {
-        Ok(locks) => locks,
-        Err(fault) => {
-            eprintln!("console-panel: {LOCKS}: {fault}; nothing reads as holding {}", at.display());
-
-            return Ok(Owned::No);
-        }
-    };
-
-    held_in(&locks, &file)
-}
-
-const LOCKS: &str = "/proc/locks";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Listed(String);
-
-fn named_in_locks(found: &std::fs::Metadata) -> Result<Listed, Never> {
-    use std::os::unix::fs::MetadataExt;
-
-    let device = found.dev();
-
-    Ok(Listed(format!("{:02x}:{:02x}:{}", rustix::fs::major(device), rustix::fs::minor(device), found.ino())))
-}
-
-fn held_in(locks: &str, file: &Listed) -> Result<Owned, Never> {
-    let holding = locks.lines().any(|line| {
-        let mut words = line.split_whitespace().skip(1);
-
-        words.next() == Some("FLOCK") && words.nth(3) == Some(file.0.as_str())
-    });
-
-    Ok(match holding {
-        true => Owned::Yes,
-        false => Owned::No,
-    })
-}
-
 fn told_to_go(where_: &Path) -> Result<Away, Never> {
     #[cfg_attr(
         dylint_lib = "explicit040_no_torn_write",
@@ -490,7 +386,10 @@ pub fn alone_as(app: &str, asked: &[String]) -> Result<Alone, Never> {
         Alone::Yes => {
             let Ok(()) = mark_drawn();
         },
-        Alone::No => {},
+        Alone::No => {
+            let Ok(forward) = console_compositor::focus_window(app);
+            let Ok(_done) = console_compositor::request(console_compositor::Request::Dispatch, &forward);
+        },
     }
 
     Ok(alone)
@@ -709,8 +608,6 @@ pub fn gone() -> Result<(), Never> {
 mod tests {
     use super::*;
 
-    type Failure = Box<dyn std::error::Error>;
-
     #[test]
     fn the_lock_lives_under_the_sessions_own_runtime() {
         assert_eq!(
@@ -752,47 +649,6 @@ mod tests {
     }
 
     #[test]
-    fn the_paddle_puts_away_the_app_that_came_up_last_and_nothing_left_behind() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("apps-on-top")?;
-        let picker = folder.join("picker-wayland-1.lock");
-        let lock = |name: &str, seconds: u64| -> Result<(PathBuf, File), Failure> {
-            let at = folder.join(name);
-
-            console_core_atomic_writes::whole(&at, b"")?;
-
-            let file = File::open(&at)?;
-            let modified = std::time::UNIX_EPOCH.checked_add(Duration::from_secs(seconds)).ok_or("a time past the end of time")?;
-
-            file.set_modified(modified)?;
-
-            Ok((at, file))
-        };
-
-        let (files, files_held) = lock("app-files-wayland-1.lock", 100)?;
-        let (viewer, viewer_held) = lock("app-viewer-wayland-1.lock", 200)?;
-        let (_music, _music_let_go) = lock("app-music-wayland-1.lock", 300)?;
-        let (_other, other_held) = lock("app-files-wayland-7.lock", 400)?;
-
-        for held in [&files_held, &viewer_held, &other_held] {
-            assert_eq!(take(held), Ok(Took::It));
-        }
-
-        assert_eq!(app_on_top(&picker), Ok(Some(viewer)), "the music's lock is free, and wayland-7 is another screen");
-
-        viewer_held.unlock()?;
-
-        assert_eq!(app_on_top(&picker), Ok(Some(files)), "the viewer is gone and the files are still up under it");
-
-        files_held.unlock()?;
-
-        assert_eq!(app_on_top(&picker), Ok(None), "an app that has gone left a lock nobody holds");
-
-        std::fs::remove_dir_all(&folder)?;
-
-        Ok(())
-    }
-
-    #[test]
     fn a_door_named_for_a_tab_it_was_not_given_is_the_name_on_its_own() {
         let Ok(name) = door("notifications ");
 
@@ -804,63 +660,5 @@ mod tests {
     fn a_file_saying_nothing_names_no_one() {
         assert_eq!(holder(""), Ok((0, "")));
         assert_eq!(holder("what"), Ok((0, "")));
-    }
-
-    #[test]
-    fn a_lock_is_held_when_the_kernel_lists_it_and_not_when_something_waits_for_it() {
-        let locks = "1: POSIX  ADVISORY  WRITE 1718 00:1d:668255 1073741826 1073742335\n\
-                     2: FLOCK  ADVISORY  WRITE 79969 00:1d:3909599 0 EOF\n\
-                     2: -> FLOCK  ADVISORY  WRITE 80001 00:1d:3909600 0 EOF\n";
-
-        assert_eq!(held_in(locks, &Listed("00:1d:3909599".to_string())), Ok(Owned::Yes));
-        assert_eq!(held_in(locks, &Listed("00:1d:3909600".to_string())), Ok(Owned::No), "a process waiting for a lock does not hold it");
-        assert_eq!(held_in(locks, &Listed("00:1d:668255".to_string())), Ok(Owned::No), "a record lock is not the flock an app takes");
-    }
-
-    #[test]
-    fn asking_whether_a_lock_is_held_takes_nothing_while_other_threads_start_programs() -> Result<(), Failure> {
-        let folder = console_core_temporary_directories::fresh("apps-while-forking")?;
-        let at = folder.join("app-files-wayland-1.lock");
-
-        console_core_atomic_writes::whole(&at, b"")?;
-
-        let misread = std::thread::scope(|scope| -> Result<Vec<u32>, Failure> {
-            #[cfg_attr(
-                dylint_lib = "explicit029_no_asking_per_item",
-                allow(
-                    explicit029_no_asking_per_item,
-                    reason = "the forks are what is being tested: each one copies the probe's open file into a child, and one program would be one fork"
-                )
-            )]
-            let starting = scope.spawn(|| -> Result<(), Never> {
-                for _ in 0..200 {
-                    let Ok(mut starting) = console_core_external_programs::Program::True.command();
-
-                    match starting.status() {
-                        Ok(_either_way) => {},
-                        Err(fault) => eprintln!("true: {fault}"),
-                    }
-                }
-
-                Ok(())
-            });
-            let misread: Vec<u32> = (0..5_000_u32)
-                .filter(|_| {
-                    let Ok(holding) = someone_holds(&at);
-
-                    holding == Owned::Yes
-                })
-                .take(10)
-                .collect();
-            let Ok(()) = starting.join().map_err(|_| "the thread starting programs did not come back")?;
-
-            Ok(misread)
-        })?;
-
-        assert_eq!(misread, Vec::<u32>::new(), "a lock nobody holds read as held while a fork carried the probe's copy");
-
-        std::fs::remove_dir_all(&folder)?;
-
-        Ok(())
     }
 }

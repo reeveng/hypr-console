@@ -27,6 +27,9 @@ console-login-greeter.workspace = true
 console-login-window.workspace = true
 console-program-contract.workspace = true
 console-readiness.workspace = true
+console-core-state-machine.workspace = true
+console-core-geometry.workspace = true
+console-status-bar.workspace = true
 
 [lints]
 workspace = true

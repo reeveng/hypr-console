@@ -7,37 +7,54 @@
 //! and a whole frame drawn for each of them is a line that trails the finger. It stops when the window says welcome, and fails
 //! when the window goes away, because a greeter nobody is listening to is a
 //! screen that lies about being able to let anybody in.
+//!
+//! The wait ends when the minute turns as well, because the bar over the ring
+//! has a clock on it and a battery that runs down whether anybody presses
+//! anything or not. A finger put down on the bar is the bar's, and it is asked
+//! of the bar that is on the screen, which is the one drawn last.
 
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::AsFd;
 use std::process::ExitCode;
 
-use console_core_color::palette::{Wearing, WearingError};
+use console_core_color::palette::{self, Wearing, WearingError};
 use console_core_geometry::{Point, Size};
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_draw_painting::Cannot;
 use console_input_event_devices::devices::{Devices, Ready};
 use console_input_event_devices::touches::ScreenTouch;
+use console_login_greeter::bar;
 use console_login_greeter::display::{Display, Mapping, Unshown};
-use console_login_greeter::greeting::{Greeter, GreeterEffect, GreeterEvent, Greeting};
-use console_login_greeter::picture::{in_the_room, painted};
+use console_login_greeter::greeting::{GreeterEffect, GreeterEvent, GreeterState, Greeter};
+use console_login_greeter::picture::{RenderedFrame, Worn, in_the_room, on_the_bar, painted};
 use console_login_greeter::turn::{changed, drawn_at, laid_into, on_the_picture};
 use console_login_pattern::Touch;
 use console_login_window::protocol::{ToGreeter, line_from_greeter, to_greeter};
-use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
+use console_core_state_machine::{Machine, Transition};
+use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_status_bar::clock::{self, Standing};
+use console_status_bar::lock_screen::LockScreenBarEvent;
+use console_status_bar::showing::{self, Rendered};
 
 struct Running<'a> {
     devices: Devices,
     display: Display,
     frames: Frames,
-    greeting: Greeting,
+    state: GreeterState,
+    standing: Standing,
     from_window: BufReader<io::StdinLock<'a>>,
 }
 
 struct Frames {
     shown: Vec<u8>,
     drawing: Vec<u8>,
+    bar: Rendered,
+}
+
+enum Handled {
+    Going(GreeterState),
+    Stopped(Result<(), GreeterError>),
 }
 
 enum GreeterError {
@@ -81,14 +98,23 @@ fn main() -> ExitCode {
     }
 }
 
+fn worn() -> Result<(Wearing, showing::Wearing), WearingError> {
+    let spent = palette::spent()?;
+    let ring = Wearing::out_of(&spent)?;
+    let bar = showing::Wearing::out_of(&spent)?;
+
+    Ok((ring, bar))
+}
+
 fn run() -> Result<Result<(), GreeterError>, Never> {
     let words: Vec<String> = std::env::args().skip(1).collect();
     let borrowed: Vec<&str> = words.iter().map(String::as_str).collect();
     let Ok(arguments) = Arguments::of(&borrowed);
-    let wearing = match Wearing::worn().map_err(GreeterError::Palette) {
+    let (ring, bar) = match worn().map_err(GreeterError::Palette) {
         Ok(wearing) => wearing,
         Err(why) => return Ok(Err(why)),
     };
+    let worn = Worn { ring: &ring, bar: &bar };
     let mut display = match Display::open() {
         Ok(display) => display,
         Err(why) => return Ok(Err(GreeterError::Display(why))),
@@ -97,20 +123,29 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
         Ok(devices) => devices,
         Err(why) => return Ok(Err(GreeterError::Watching(why))),
     };
-    let Initial { state, subscriptions: _ } = Greeter::init(&arguments);
-    let greeting = state;
+    let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&arguments, None);
+    let Ok(standing) = clock::current();
+    let Ok(read_out) = bar::read_all();
     let stdin = io::stdin();
     let from_window = BufReader::new(stdin.lock());
 
-    let frames = match draw(&mut display, Frames { shown: Vec::new(), drawing: Vec::new() }, &greeting, &wearing) {
+    let state = match handled(state, read_out.into_iter().map(Event::Custom).collect()) {
+        Ok(Handled::Going(state)) => state,
+        Ok(Handled::Stopped(stopped)) => return Ok(stopped),
+        Err(why) => return Ok(Err(why)),
+    };
+
+    let nothing_drawn = Rendered { shapes: Vec::new(), room: Size { width: 0, height: 0 }, touching: Vec::new() };
+    let frames = match draw(&mut display, Frames { shown: Vec::new(), drawing: Vec::new(), bar: nothing_drawn }, &state, worn) {
         Ok(frames) => frames,
         Err(why) => return Ok(Err(why)),
     };
 
-    let state = Running { devices, display, frames, greeting, from_window };
+    let running = Running { devices, display, frames, state, standing, from_window };
 
-    let greeted = iterate(state, |Running { mut devices, mut display, mut frames, mut greeting, mut from_window }| {
-        let woke = match devices.wait(Some(stdin.as_fd())) {
+    let greeted = iterate(running, |Running { mut devices, mut display, mut frames, state, standing, mut from_window }| {
+        let Ok(patience) = clock::until_the_minute_turns();
+        let woke = match devices.wait(Some(stdin.as_fd()), Some(patience)) {
             Ok(woke) => woke,
             Err(why) => return Ok(Step::Halt(Err(GreeterError::Waiting(why)))),
         };
@@ -119,9 +154,9 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
             woke.presses.into_iter().map(|press| Event::Custom(GreeterEvent::Pressed(press))).collect();
 
         queue.extend(woke.touches.into_iter().map(|touch| {
-            let Ok(touch) = to_touch(panel, touch);
+            let Ok(heard) = to_event(panel, &frames.bar, touch);
 
-            Event::Custom(GreeterEvent::Touched(touch))
+            Event::Custom(heard)
         }));
 
         match woke.also {
@@ -132,12 +167,45 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
             Ready::No => {}
         }
 
-        let shown = greeting.clone();
+        let Ok((standing, read_out)) = bar::again(standing);
 
-        for event in queue {
-            let Update { state: next, effects } = Greeter::update(&greeting, &event);
+        queue.extend(read_out.into_iter().map(Event::Custom));
 
-            greeting = next;
+        let shown = state.clone();
+
+        let state = match handled(state, queue) {
+            Ok(Handled::Going(state)) => state,
+            Ok(Handled::Stopped(stopped)) => return Ok(Step::Halt(stopped)),
+            Err(why) => return Ok(Step::Halt(Err(why))),
+        };
+
+        match state == shown {
+            true => {}
+            false => match draw(&mut display, frames, &state, worn) {
+                Ok(drawn) => frames = drawn,
+                Err(why) => return Ok(Step::Halt(Err(why))),
+            },
+        }
+
+        Ok(Step::Again(Running { devices, display, frames, state, standing, from_window }))
+    });
+
+    Ok(match greeted {
+        Ok(greeted) => greeted,
+        Err(Endless) => Ok(()),
+    })
+}
+
+fn handled(state: GreeterState, events: Vec<Event<GreeterEvent>>) -> Result<Handled, GreeterError> {
+    let unanswered = state.clone();
+    let ended = iterate((state, events), |(state, events)| {
+        let mut state = state;
+        let mut later = Vec::new();
+
+        for event in events {
+            let Ok(Transition { state: next, effects }) = Greeter::transition(state, event);
+
+            state = next;
 
             for effect in effects {
                 match effect {
@@ -155,8 +223,13 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
                             Err(why) => return Ok(Step::Halt(Err(GreeterError::Sending(why)))),
                         }
                     }
-                    Effect::Stop(Exit::Success) => return Ok(Step::Halt(Ok(()))),
-                    Effect::Stop(Exit::Failure(why)) => return Ok(Step::Halt(Err(GreeterError::Stopped(why)))),
+                    Effect::Custom(GreeterEffect::Bar(asked)) => {
+                        let Ok(heard) = bar::carried(asked);
+
+                        later.extend(heard.into_iter().map(Event::Custom));
+                    }
+                    Effect::Stop(Exit::Success) => return Ok(Step::Halt(Ok(Handled::Stopped(Ok(()))))),
+                    Effect::Stop(Exit::Failure(why)) => return Ok(Step::Halt(Ok(Handled::Stopped(Err(GreeterError::Stopped(why)))))),
                     Effect::Run(_)
                     | Effect::Stream(_)
                     | Effect::Prompt(_)
@@ -170,36 +243,40 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
             }
         }
 
-        match greeting == shown {
-            true => {}
-            false => match draw(&mut display, frames, &greeting, &wearing) {
-                Ok(drawn) => frames = drawn,
-                Err(why) => return Ok(Step::Halt(Err(why))),
-            },
-        }
-
-        Ok(Step::Again(Running { devices, display, frames, greeting, from_window }))
+        Ok(match later.is_empty() {
+            true => Step::Halt(Ok(Handled::Going(state))),
+            false => Step::Again((state, later)),
+        })
     });
 
-    Ok(match greeted {
-        Ok(greeted) => greeted,
-        Err(Endless) => Ok(()),
-    })
+    match ended {
+        Ok(ended) => ended,
+        Err(Endless) => Ok(Handled::Going(unanswered)),
+    }
 }
 
-fn to_touch(panel: Size<u32>, touch: ScreenTouch) -> Result<Touch, Never> {
+fn to_event(panel: Size<u32>, bar: &Rendered, touch: ScreenTouch) -> Result<GreeterEvent, Never> {
+    let Ok(canvas) = drawn_at(panel);
     let room = |share: Point<f64>| {
         let Ok(on_the_picture) = on_the_picture(panel, share);
-        let Ok(canvas) = drawn_at(panel);
         let Ok(room) = in_the_room(canvas, on_the_picture);
 
         room
     };
 
     Ok(match touch {
-        ScreenTouch::Down(share) => Touch::Down(room(share)),
-        ScreenTouch::Moved(share) => Touch::Moved(room(share)),
-        ScreenTouch::Up => Touch::Up,
+        ScreenTouch::Down(share) => {
+            let Ok(on_the_picture) = on_the_picture(panel, share);
+            let Ok(point) = on_the_bar(canvas, on_the_picture);
+            let Ok(tapped) = bar.on(point);
+
+            match tapped {
+                Some(action) => GreeterEvent::Bar(LockScreenBarEvent::Tapped(action)),
+                None => GreeterEvent::Touched(Touch::Down(room(share))),
+            }
+        }
+        ScreenTouch::Moved(share) => GreeterEvent::Touched(Touch::Moved(room(share))),
+        ScreenTouch::Up => GreeterEvent::Touched(Touch::Up),
     })
 }
 
@@ -229,12 +306,12 @@ fn lines(from_window: &mut BufReader<io::StdinLock<'_>>) -> Result<Vec<ToGreeter
     }
 }
 
-fn draw(display: &mut Display, frames: Frames, greeting: &Greeting, wearing: &Wearing) -> Result<Frames, GreeterError> {
+fn draw(display: &mut Display, frames: Frames, state: &GreeterState, worn: Worn<'_>) -> Result<Frames, GreeterError> {
     let Ok(panel) = display.size();
     let Ok(canvas) = drawn_at(panel);
-    let Frames { shown, drawing } = frames;
-    let Ok(painted) = painted(drawing, greeting, wearing, canvas);
-    let pixels = painted.map_err(GreeterError::Drawing)?;
+    let Frames { shown, drawing, bar: _ } = frames;
+    let Ok(painted) = painted(drawing, state, worn, canvas);
+    let RenderedFrame { pixels, bar } = painted.map_err(GreeterError::Drawing)?;
     let Ok(band) = changed(&shown, &pixels, canvas);
 
     match band {
@@ -245,5 +322,5 @@ fn draw(display: &mut Display, frames: Frames, greeting: &Greeting, wearing: &We
         None => {}
     }
 
-    Ok(Frames { shown: pixels, drawing: shown })
+    Ok(Frames { shown: pixels, drawing: shown, bar })
 }

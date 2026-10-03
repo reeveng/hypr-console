@@ -13,6 +13,11 @@
 //! and on a screen this size a picture worth putting in a book is worth the
 //! screen.
 //!
+//! Every line says which block of the chapter it came out of and where in that
+//! block's text it starts, because a note is kept against the words rather
+//! than against the screen: the same letters are on another line, or another
+//! page, once the size changes, and a highlight has to follow them there.
+//!
 //! Nothing here has heard of a font. A test hands in a `wrap` that breaks
 //! every so many letters, and the arithmetic is the same arithmetic.
 
@@ -32,6 +37,8 @@ pub struct Line {
     pub text: String,
     pub style: Style,
     pub top: u32,
+    pub block: u32,
+    pub start: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +90,7 @@ impl Paginator {
         Ok(())
     }
 
-    fn add(&mut self, text: &str, style: Style, wrap: Wrap<'_>) -> Result<(), Never> {
+    fn add(&mut self, text: &str, style: Style, block: u32, wrap: Wrap<'_>) -> Result<(), Never> {
         let tall = match style {
             Style::Body => self.layout.line_height,
             Style::Heading => self.layout.heading_height,
@@ -97,7 +104,18 @@ impl Paginator {
 
         self.y = self.y.saturating_add(gap);
 
+        let mut from = 0_u32;
+
         for line in wrap(text, style) {
+            let Ok(after) = console_core_number_conversion::index(from);
+            let Ok(start) = match text.get(after..).and_then(|rest| rest.find(line.as_str())).map(fitted::<_, u32>) {
+                Some(Ok(found)) => Ok::<u32, Never>(from.saturating_add(found)),
+                None => Ok(from),
+            };
+            let Ok(wide) = fitted::<_, u32>(line.len());
+
+            from = start.saturating_add(wide);
+
             let past = self.y.saturating_add(tall);
 
             match (past > self.layout.height, self.lines.is_empty()) {
@@ -107,7 +125,7 @@ impl Paginator {
                 (true, true) | (false, _) => {},
             }
 
-            self.lines.push(Line { text: line, style, top: self.y });
+            self.lines.push(Line { text: line, style, top: self.y, block, start });
             self.y = self.y.saturating_add(tall);
         }
 
@@ -118,7 +136,7 @@ impl Paginator {
 pub fn paginate(blocks: &[Block], layout: Layout, wrap: Wrap<'_>) -> Result<Vec<Page>, Never> {
     let mut paginator = Paginator { pages: Vec::new(), lines: Vec::new(), y: 0, layout };
 
-    for block in blocks {
+    for (at, block) in (0_u32..).zip(blocks) {
         let Ok(()) = match block {
             Block::Picture(named) => {
                 let Ok(()) = paginator.next_page();
@@ -127,8 +145,8 @@ pub fn paginate(blocks: &[Block], layout: Layout, wrap: Wrap<'_>) -> Result<Vec<
 
                 Ok(())
             },
-            Block::Heading(text) => paginator.add(text, Style::Heading, wrap),
-            Block::Paragraph(text) => paginator.add(text, Style::Body, wrap),
+            Block::Heading(text) => paginator.add(text, Style::Heading, at, wrap),
+            Block::Paragraph(text) => paginator.add(text, Style::Body, at, wrap),
         };
     }
 
@@ -191,6 +209,21 @@ mod tests {
 
         assert_eq!(pages.get(1), Some(&Page::Picture("map.png".to_string())));
         assert_eq!(pages.len(), 3);
+    }
+
+    #[test]
+    fn a_line_knows_the_block_and_the_letter_it_starts_at() {
+        let blocks = vec![Block::Heading("One".to_string()), Block::Paragraph("abcdefghij klmno".to_string())];
+        let Ok(pages) = paginate(&blocks, LAYOUT, &|text: &str, _style: Style| text.split(' ').map(str::to_string).collect());
+        let starts: Vec<(u32, u32)> = pages
+            .iter()
+            .flat_map(|page| match page {
+                Page::Text(lines) => lines.iter().map(|line| (line.block, line.start)).collect(),
+                Page::Picture(_) => Vec::new(),
+            })
+            .collect();
+
+        assert_eq!(starts, vec![(0, 0), (1, 0), (1, 11)], "the space the wrap dropped is not counted as a letter of the next line");
     }
 
     #[test]

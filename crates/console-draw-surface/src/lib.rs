@@ -37,5 +37,5 @@ pub mod standing;
 pub use scale::Scale;
 pub use standing::{
     Anchor, Closed, Damage, Visible, Keyboard, KeyboardEvent, Keysym, Lock, Margin, Part, PointerEvent,
-    Room, Surface, SurfaceError, Under, Unlocked, Wanted, on_the_device,
+    Room, Surface, SurfaceError, Under, Unlocked, Wanted, Window, on_the_device,
 };

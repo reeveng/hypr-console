@@ -15,10 +15,10 @@
 //! them showed a notification in neither list or in both. What each tab holds
 //! once it has been read is `crate::rows`; where a press
 //! leaves you is `crate::notifications`, which is a
-//! `console_program_contract::Program` and holds the whole of what this panel
+//! `console_core_state_machine::Machine` and holds the whole of what this panel
 //! decides. The actor is what makes that state reachable from a closure on
-//! GTK's thread; it steps by asking `update`, and the effects are carried out in
-//! the callback that has the surface in its hand.
+//! GTK's thread; a press is handed to it with `send`, and the effects it answers
+//! with are carried out in the callback that has the surface in its hand.
 
 use std::sync::Arc;
 
@@ -26,12 +26,12 @@ use crate::notifications::{Closes, NotificationsEvent, NotificationsEffect, Noti
 use crate::reading::Notification;
 use crate::serving;
 use crate::rows::{Chosen, earlier_rows, cleared_rows, one_rows, tab, waiting_rows};
-use console_panel::actor::{self, Address, Answer};
+use console_actor::Actor;
 use console_panel::card::{Card, Door};
 use console_panel::page::{Handler, Page, Row, Rows, Showing};
 use console_panel::running::run_output;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Executable, Program as _, Topic, Update, Event};
+use console_program_contract::{Arguments, Effect, Executable, Topic, Event};
 
 
 fn waiting() -> Result<Vec<Notification>, Never> {
@@ -46,46 +46,17 @@ fn earlier() -> Result<Vec<Notification>, Never> {
     Ok(held.earlier)
 }
 
-struct Looking {
-    onto: Destination,
-}
-
-enum Message {
-    Event(NotificationsEvent, Answer<Vec<Effect<NotificationsEffect>>>),
-    At(Answer<Destination>),
-}
-
-impl actor::Machine for Looking {
-    type Message = Message;
-
-    fn step(self, message: Message) -> Self {
-        match message {
-            Message::Event(heard, answer) => {
-                let Update { state, effects } = Notifications::update(&self.onto, &Event::Custom(heard));
-                let _ = answer.say(effects);
-
-                Looking { onto: state }
-            }
-            Message::At(answer) => {
-                let _ = answer.say(self.onto);
-
-                self
-            },
-        }
-    }
-}
-
-type ActorAddress = Address<Message>;
+type ActorAddress = Actor<Notifications>;
 
 fn looking_at(held: &ActorAddress) -> Result<Destination, Never> {
-    Ok(match held.ask(Message::At) {
+    Ok(match held.get() {
         Ok(onto) => onto,
         Err(_the_actor_has_gone) => Destination::List,
     })
 }
 
 fn press(held: &ActorAddress, heard: NotificationsEvent, showing: &dyn Showing) -> Result<(), Never> {
-    let effects = match held.ask(|answer| Message::Event(heard, answer)) {
+    let effects = match held.send(Event::Custom(heard)) {
         Ok(effects) => effects,
         Err(_the_actor_has_gone) => {
             eprintln!("notifications-panel: the panel's own state is missing, so the press did nothing");
@@ -253,17 +224,8 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
     let tab = arguments.first().cloned();
     let Ok(opened) = Arguments::of(&tab.as_deref().into_iter().collect::<Vec<&str>>());
 
-    let initial = Notifications::init(&opened);
-    let Ok(looking) = actor::supervise(move || Looking { onto: initial.state });
-    let held = looking.address.clone();
-
-    let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&held);
-
-        pages
-    }));
+    let Ok(card) = Card::supervised::<Notifications, _>(opened, pages);
     let Ok(card) = card.under(UNDER);
-    let Ok(card) = card.opening_at(tab.as_deref());
 
-    card.shutting(Box::new(move || looking.shutdown()))
+    card.opening_at(tab.as_deref())
 }

@@ -140,13 +140,6 @@ pub fn items(paths: &[PathBuf]) -> Result<String, Never> {
     })
 }
 
-pub fn a_name(word: &str) -> Result<Option<String>, Never> {
-    let word = word.trim();
-    let usable = !word.is_empty() && !word.contains('/') && word != "." && word != "..";
-
-    Ok(usable.then(|| word.to_string()))
-}
-
 pub const SURE: &str = "Delete this?";
 
 #[cfg(test)]
@@ -325,23 +318,6 @@ mod tests {
 
         assert_eq!(many.says(), Ok("Paste 2 Items Here".to_string()));
         assert_eq!(one.says(), Ok("Move beach.jpg Here".to_string()));
-    }
-
-    #[test]
-    fn a_name_that_would_be_a_path_is_not_a_name() {
-        assert_eq!(a_name("holiday.jpg"), Ok(Some("holiday.jpg".to_string())));
-        assert_eq!(a_name("  holiday.jpg  "), Ok(Some("holiday.jpg".to_string())));
-        assert_eq!(a_name(""), Ok(None));
-        assert_eq!(a_name("   "), Ok(None));
-        assert_eq!(a_name("../holiday.jpg"), Ok(None));
-        assert_eq!(a_name("holiday/2026"), Ok(None));
-        assert_eq!(a_name(".."), Ok(None));
-        assert_eq!(a_name("."), Ok(None));
-    }
-
-    #[test]
-    fn a_name_may_begin_with_a_dot() {
-        assert_eq!(a_name(".hidden"), Ok(Some(".hidden".to_string())));
     }
 
     #[test]

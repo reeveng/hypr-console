@@ -21,7 +21,8 @@ use console_draw_surface::{Anchor, Closed, Keyboard, KeyboardEvent, Margin, Room
 use console_login_greeter::picture::render;
 use console_login_greeter::session::{press, touch};
 use console_login_window::stored_pattern::{self, PatternStoreError};
-use console_program_contract::{Arguments, Effect, Event, Exit, Initial, Program, Update};
+use console_core_state_machine::{Machine, Transition};
+use console_program_contract::{Arguments, Effect, Event, Exit};
 use console_settings::login::{Drawing, LoginPattern, LoginPatternEffect, LoginPatternEvent};
 
 const WHO: &str = "settings-login-pattern";
@@ -104,7 +105,7 @@ fn run(home: &Path) -> Result<(), LoginPatternError> {
     shown.map_err(LoginPatternError::Surface)?;
 
     let Ok(arguments) = Arguments::of(&[]);
-    let Initial { state, subscriptions: _ } = LoginPattern::init(&arguments);
+    let Ok(Transition { state, effects: _ }) = LoginPattern::initial_transition(&arguments, None);
     let turned = console_core_iteration::iterate((surface, state, Rendered::default()), |(mut surface, mut drawing, mut rendered)| {
         Ok(match turn(&mut surface, &mut drawing, &mut rendered, (&wearing, home)) {
             Ok(Flow::Continue) => Step::Again((surface, drawing, rendered)),
@@ -163,7 +164,7 @@ fn turn(
 }
 
 fn apply_event(drawing: &mut Drawing, event: LoginPatternEvent, home: &Path) -> Result<Flow, LoginPatternError> {
-    let Update { state, effects } = LoginPattern::update(drawing, &Event::Custom(event));
+    let Ok(Transition { state, effects }) = LoginPattern::transition(drawing.clone(), Event::Custom(event));
 
     *drawing = state;
 

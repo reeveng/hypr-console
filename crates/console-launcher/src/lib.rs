@@ -56,7 +56,8 @@ use console_core_external_programs::Program;
 use console_home_screen::{HomeScreen, Spot};
 use console_home_screen::shape::Shape;
 use console_core_never::Never;
-use console_panel::actor::{self, Address, Answer};
+use console_actor::Actor;
+use console_core_state_machine::{Machine, Queue};
 use console_panel::card::{Card, Door};
 use console_panel::picker::Again;
 use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows};
@@ -98,18 +99,10 @@ pub fn door(arguments: &[String]) -> Result<Door, Never> {
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let Ok(word) = actor::supervise(|| Word { said: String::new() });
-    let typed = word.address.clone();
     let Ok(going) = asked_for(arguments);
     let kept: Shared = Arc::default();
 
-    let Ok(card) = Card::new(Arc::new(move || {
-        let Ok(pages) = pages(&typed, &kept, going);
-
-        pages
-    }));
-
-    card.shutting(Box::new(move || word.shutdown()))
+    Card::supervised::<Word, _>((), move |typed| pages(typed, &kept, going))
 }
 
 struct Everything {
@@ -118,43 +111,36 @@ struct Everything {
     order: Vec<String>,
 }
 
-struct Word {
-    said: String,
-}
+struct Word;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Narrowed {
     Same,
     Different,
 }
 
-enum Message {
-    Reply(Answer<String>),
-    Type { word: String, answer: Answer<Narrowed> },
-}
+impl Machine for Word {
+    type Input = ();
+    type State = String;
+    type Request = String;
+    type Effect = Narrowed;
 
-impl actor::Machine for Word {
-    type Message = Message;
+    fn initialize(_input: &(), _previous: Option<String>, _effects: &mut Queue<Narrowed>) -> Result<String, Never> {
+        Ok(String::new())
+    }
 
-    fn step(self, message: Message) -> Self {
-        match message {
-            Message::Reply(answer) => {
-                let _ = answer.say(self.said.clone());
-                self
-            },
-            Message::Type { word, answer } => {
-                let narrowed = match self.said == word {
-                    true => Narrowed::Same,
-                    false => Narrowed::Different,
-                };
-                let _ = answer.say(narrowed);
-                Word { said: word }
-            },
-        }
+    fn handle(said: String, word: String, effects: &mut Queue<Narrowed>) -> Result<String, Never> {
+        let narrowed = match said == word {
+            true => Narrowed::Same,
+            false => Narrowed::Different,
+        };
+        let Ok(()) = effects.offer(narrowed);
+
+        Ok(word)
     }
 }
 
-type Typed = Address<Message>;
+type Typed = Actor<Word>;
 
 const ABOUT: &str = "Type to narrow the list";
 
@@ -368,7 +354,7 @@ fn looking_up_row(said: &str) -> Result<Row, Never> {
 fn rows(typed: &Typed, all: &Everything, going: For) -> Result<Vec<Row>, Never> {
     let mut word = String::new();
 
-    match typed.ask(Message::Reply) {
+    match typed.get() {
         Ok(said) => word = said,
         Err(_the_actor_has_gone) => {},
     }
@@ -440,9 +426,9 @@ fn pages(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Page>, Never> {
         before
     });
     let Ok(page) = page.searching(ABOUT, move |showing, word| {
-        let narrowed = typing.ask(|answer| Message::Type { word: word.to_string(), answer });
+        let narrowed = typing.send(word.to_string());
 
-        match matches!(narrowed, Ok(Narrowed::Different)) {
+        match matches!(narrowed.as_deref(), Ok([Narrowed::Different])) {
             true => showing.replace(0),
             false => {},
         }

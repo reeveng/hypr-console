@@ -21,8 +21,11 @@
 
 pub mod clock;
 pub mod dwindling;
+pub mod lock_screen;
+pub mod measuring;
 pub mod state;
 pub mod notifications;
+pub mod panels;
 pub mod reading;
 pub mod showing;
 pub mod watch;

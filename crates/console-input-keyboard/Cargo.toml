@@ -66,6 +66,7 @@ pangocairo = { version = "0.22", optional = true }
 wayland-client = { version = "0.31", optional = true }
 wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
 wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
+console-core-state-machine.workspace = true
 
 [dev-dependencies]
 console-input-controller.workspace = true

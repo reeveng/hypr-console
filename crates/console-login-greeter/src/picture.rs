@@ -13,6 +13,14 @@
 //! A touch lands in the screen's own points and the pattern is decided in the
 //! room's, so [`in_the_room`] is the same placing walked backwards, and
 //! [`from_the_room`] is where a hand has to go to press a dot.
+//!
+//! The bar is drawn over all of it, at the top and at the size it is on the
+//! desktop: the desktop is drawn [`DRAWN_AT`] points across whatever the panel's
+//! pixels, so a screen with no compositor to scale it draws the bar into a room
+//! that wide and paints it up to the pixels, and a finger on it is walked back
+//! down by [`on_the_bar`]. Over a session the compositor has done that already
+//! and the room is the surface. While the pad is on the bar the ring wears no
+//! cursor.
 
 use std::collections::BTreeSet;
 
@@ -21,10 +29,12 @@ use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
 use console_core_shapes::{Edge, Font, Line, Panel, Round, Shape, Text, Weight};
-use console_draw_painting::{Cannot, Frame, Run, measure_text, onto, wrapped};
+use console_draw_painting::{Cannot, Frame, Run, measure_text, onto, over, wrapped};
 use console_login_pattern::{DOTS, LOGIN, LOGIN_SIZE, ROOM, Target, dot};
+use console_screen::DRAWN_AT;
+use console_status_bar::showing::{self, Rendered};
 
-use crate::greeting::{Greeting, Status};
+use crate::greeting::{GreeterState, Greeting, Status};
 
 pub const FONT: &str = "Noto Sans";
 
@@ -48,11 +58,23 @@ enum Cursor {
     Off,
 }
 
-fn cursor(on: Target, here: Target) -> Result<Cursor, Never> {
-    Ok(match on == here {
+fn cursor(on: Option<Target>, here: Target) -> Result<Cursor, Never> {
+    Ok(match on == Some(here) {
         true => Cursor::On,
         false => Cursor::Off,
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Worn<'a> {
+    pub ring: &'a Wearing,
+    pub bar: &'a showing::Wearing,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderedFrame {
+    pub pixels: Vec<u8>,
+    pub bar: Rendered,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -121,22 +143,77 @@ pub fn from_the_room(canvas: Size<u32>, at: Point<i32>) -> Result<Point<i32>, Ne
     placed.point(at)
 }
 
-pub fn painted(into: Vec<u8>, greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>) -> Result<Result<Vec<u8>, Cannot>, Never> {
-    let Ok(shapes) = picture(greeting, wearing, canvas);
+fn scale(canvas: Size<u32>) -> Result<f64, Never> {
+    Ok(f64::from(canvas.width) / f64::from(DRAWN_AT.0.max(1)))
+}
+
+pub fn bar_room(canvas: Size<u32>) -> Result<Size<u32>, Never> {
+    let Ok(scale) = scale(canvas);
+    let Ok(tall) = whole_u32(f64::from(canvas.height) / scale);
+
+    Ok(Size { width: DRAWN_AT.0, height: tall })
+}
+
+pub fn on_the_bar(canvas: Size<u32>, at: Point<f64>) -> Result<Point<i32>, Never> {
+    let Ok(scale) = scale(canvas);
+    let Ok(across) = toward_zero_i32(at.x / scale);
+    let Ok(down) = toward_zero_i32(at.y / scale);
+
+    Ok(Point { x: across, y: down })
+}
+
+pub fn painted(into: Vec<u8>, state: &GreeterState, worn: Worn<'_>, canvas: Size<u32>) -> Result<Result<RenderedFrame, Cannot>, Never> {
+    let Ok(shapes) = under_the_bar(state, worn.ring, canvas, LOGGING_IN);
+    let Ok(room) = bar_room(canvas);
+    let Ok(bar) = state.bar.pictured(worn.bar, room);
     let Ok(long) = console_core_number_conversion::index(u64::from(canvas.width).saturating_mul(u64::from(canvas.height)).saturating_mul(4));
     let mut pixels = into;
-    let frame = Frame { device: canvas, points: canvas };
 
     pixels.resize(long, 0);
 
-    Ok(onto(&mut pixels, frame, &shapes).map(|()| pixels))
+    let ring = onto(&mut pixels, Frame { device: canvas, points: canvas }, &shapes);
+    let both = match ring {
+        Ok(()) => over(&mut pixels, Frame { device: canvas, points: room }, &bar.shapes),
+        Err(why) => Err(why),
+    };
+
+    Ok(both.map(|()| RenderedFrame { pixels, bar }))
+}
+
+pub fn over_a_session(state: &GreeterState, worn: Worn<'_>, logical: Size<u32>, button: &str) -> Result<(Vec<Shape>, Rendered), Never> {
+    let Ok(mut shapes) = under_the_bar(state, worn.ring, logical, button);
+    let Ok(bar) = state.bar.pictured(worn.bar, logical);
+
+    shapes.extend(bar.shapes.iter().cloned());
+
+    Ok((shapes, bar))
 }
 
 pub fn picture(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>) -> Result<Vec<Shape>, Never> {
     render(greeting, wearing, canvas, LOGGING_IN)
 }
 
+pub fn under_the_bar(state: &GreeterState, wearing: &Wearing, canvas: Size<u32>, button: &str) -> Result<Vec<Shape>, Never> {
+    let at = match state.bar.focus {
+        Some(_) => None,
+        None => Some(state.greeting.pattern.at),
+    };
+
+    ring(&state.greeting, wearing, canvas, Looks { button, cursor: at })
+}
+
 pub fn render(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, button: &str) -> Result<Vec<Shape>, Never> {
+    ring(greeting, wearing, canvas, Looks { button, cursor: Some(greeting.pattern.at) })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Looks<'a> {
+    button: &'a str,
+    cursor: Option<Target>,
+}
+
+fn ring(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, looks: Looks<'_>) -> Result<Vec<Shape>, Never> {
+    let Looks { button, cursor: at } = looks;
     let Ok(placed) = Placed::of(canvas);
     let mut shapes = vec![Shape::Panel(Panel {
         at: Point { x: 0, y: 0 },
@@ -182,13 +259,13 @@ pub fn render(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, button:
 
     let walked: BTreeSet<u32> = greeting.pattern.path.iter().copied().collect();
 
-    for (at, dot) in (0..).zip(DOTS.iter()) {
-        let drawn = walked.contains(&at);
+    for (number, dot) in (0..).zip(DOTS.iter()) {
+        let drawn = walked.contains(&number);
         let fill = match drawn {
             true => wearing.coral,
             false => wearing.panel,
         };
-        let Ok(on) = cursor(greeting.pattern.at, Target::Dot(at));
+        let Ok(on) = cursor(at, Target::Dot(number));
         let Ok(edge) = edge(on, wearing, &placed);
         let Ok(corner) = placed.corner(dot.centre, dot.size);
         let Ok(size) = placed.size(dot.size);
@@ -196,7 +273,7 @@ pub fn render(greeting: &Greeting, wearing: &Wearing, canvas: Size<u32>, button:
         shapes.push(Shape::Panel(Panel { at: corner, size, round: Round(size.width.min(size.height).saturating_div(2)), fill, edge }));
     }
 
-    let Ok(on) = cursor(greeting.pattern.at, Target::Login);
+    let Ok(on) = cursor(at, Target::Login);
     let Ok(edge) = edge(on, wearing, &placed);
     let Ok(corner) = placed.corner(LOGIN, LOGIN_SIZE);
     let Ok(size) = placed.size(LOGIN_SIZE);
@@ -282,6 +359,8 @@ mod tests {
 
     use console_core_color::Oklch;
     use console_login_pattern::Pattern;
+    use console_status_bar::lock_screen::{LockScreenBar, Menu};
+    use console_status_bar::showing::BarAction;
 
     use crate::turn::{Rows, changed, drawn_at, laid_into};
 
@@ -299,6 +378,26 @@ mod tests {
             night: color(0.05),
             pink: color(0.85),
         })
+    }
+
+    fn flat_bar_palette() -> Result<showing::Wearing, Never> {
+        let color = |lightness| Oklch { lightness, chroma: 0.0, hue: 0.0 };
+
+        Ok(showing::Wearing {
+            ground: color(0.1),
+            text: color(0.9),
+            soft: color(0.7),
+            pink: color(0.85),
+            night: color(0.05),
+            butter: color(0.8),
+            coral: color(0.6),
+            leaf: color(0.75),
+            fill: color(0.4),
+        })
+    }
+
+    fn standing(greeting: Greeting) -> Result<GreeterState, Never> {
+        Ok(GreeterState { greeting, bar: LockScreenBar { clock: String::from("14:30"), ..LockScreenBar::default() } })
     }
 
     #[test]
@@ -449,16 +548,20 @@ mod tests {
     #[test]
     fn a_finger_moving_between_two_dots_changes_a_narrow_band_of_rows() -> Result<(), &'static str> {
         let Ok(wearing) = flat_palette();
+        let Ok(bar) = flat_bar_palette();
+        let worn = Worn { ring: &wearing, bar: &bar };
         let Ok(canvas) = drawn_at(PANEL);
         let Ok(before) = dragging(0);
         let Ok(after) = dragging(6);
         let before = before.ok_or("the pattern has fewer than two dots")?;
         let after = after.ok_or("the pattern has fewer than two dots")?;
-        let Ok(was) = painted(Vec::new(), &before, &wearing, canvas);
-        let Ok(is) = painted(Vec::new(), &after, &wearing, canvas);
+        let Ok(before) = standing(before);
+        let Ok(after) = standing(after);
+        let Ok(was) = painted(Vec::new(), &before, worn, canvas);
+        let Ok(is) = painted(Vec::new(), &after, worn, canvas);
         let was = was.map_err(|_cannot| "the first frame would not paint")?;
         let is = is.map_err(|_cannot| "the second frame would not paint")?;
-        let Ok(band) = changed(&was, &is, canvas);
+        let Ok(band) = changed(&was.pixels, &is.pixels, canvas);
         let Rows { from, to } = band.ok_or("moving the finger changed nothing on the screen")?;
 
         assert!(to.saturating_sub(from) <= canvas.height.saturating_div(8), "a move changed rows {from} to {to} of {}", canvas.height);
@@ -469,23 +572,85 @@ mod tests {
     #[test]
     fn one_move_is_painted_and_laid_within_its_budget() -> Result<(), &'static str> {
         let Ok(wearing) = flat_palette();
+        let Ok(bar) = flat_bar_palette();
+        let worn = Worn { ring: &wearing, bar: &bar };
         let Ok(canvas) = drawn_at(PANEL);
         let Ok(before) = dragging(0);
         let Ok(after) = dragging(6);
         let before = before.ok_or("the pattern has fewer than two dots")?;
         let after = after.ok_or("the pattern has fewer than two dots")?;
-        let Ok(was) = painted(Vec::new(), &before, &wearing, canvas);
+        let Ok(before) = standing(before);
+        let Ok(after) = standing(after);
+        let Ok(was) = painted(Vec::new(), &before, worn, canvas);
         let shown = was.map_err(|_cannot| "the first frame would not paint")?;
+        let shown = shown.pixels;
         let mut panel = vec![0_u8; shown.len()];
         let started = Instant::now();
-        let Ok(is) = painted(Vec::new(), &after, &wearing, canvas);
+        let Ok(is) = painted(Vec::new(), &after, worn, canvas);
         let drawing = is.map_err(|_cannot| "the second frame would not paint")?;
+        let drawing = drawing.pixels;
         let Ok(band) = changed(&shown, &drawing, canvas);
         let rows = band.ok_or("moving the finger changed nothing on the screen")?;
         let Ok(()) = laid_into(&drawing, PANEL, rows, &mut panel, PANEL.width.saturating_mul(4));
         let took = started.elapsed();
 
         assert!(took <= BUDGET, "one move took {took:?}, and a move may take {BUDGET:?}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn the_ring_wears_no_cursor_while_the_pad_is_on_the_bar() -> Result<(), &'static str> {
+        let Ok(palette) = flat_palette();
+        let Ok(pattern) = Pattern::new();
+        let Ok(state) = standing(Greeting { pattern, status: Status::Waiting });
+        let on_the_bar = GreeterState { bar: LockScreenBar { focus: Some(BarAction::Menu(Menu::Power)), ..state.bar.clone() }, ..state.clone() };
+        let cursors = |state: &GreeterState| {
+            let Ok(shapes) = under_the_bar(state, &palette, Size { width: 1280, height: 800 }, LOGGING_IN);
+            let Ok(drawn) = console_core_shapes::panels(&shapes);
+
+            drawn
+                .iter()
+                .filter(|panel| match panel.edge {
+                    Edge::Of { color, .. } => color == palette.text,
+                    Edge::None => false,
+                })
+                .count()
+        };
+
+        assert_eq!(cursors(&state), 1);
+        assert_eq!(cursors(&on_the_bar), 0, "the ring kept a cursor with the pad on the bar");
+
+        Ok(())
+    }
+
+    #[test]
+    fn the_bar_is_drawn_the_desktop_s_width_in_points_and_a_finger_on_it_lands_on_what_is_under_it() -> Result<(), &'static str> {
+        let Ok(wearing) = flat_palette();
+        let Ok(bar) = flat_bar_palette();
+        let Ok(canvas) = drawn_at(PANEL);
+        let Ok(pattern) = Pattern::new();
+        let Ok(state) = standing(Greeting { pattern, status: Status::Waiting });
+        let opened = GreeterState { bar: LockScreenBar { menu: Some(Menu::Power), ..state.bar.clone() }, ..state };
+        let Ok(room) = bar_room(canvas);
+        let Ok(painted) = painted(Vec::new(), &opened, Worn { ring: &wearing, bar: &bar }, canvas);
+        let painted = painted.map_err(|_cannot| "the frame would not paint")?;
+        let Ok(scale) = scale(canvas);
+
+        assert_eq!(room.width, DRAWN_AT.0);
+        assert_eq!(room.height, 640, "a 2560 by 1600 panel is not 1024 by 640 points");
+        assert!(!painted.bar.touching.is_empty(), "nothing on the bar can be pressed");
+
+        for region in &painted.bar.touching {
+            let middle = Point {
+                x: (f64::from(region.panel.at.x) + f64::from(region.panel.size.width) / 2.0) * scale,
+                y: (f64::from(region.panel.at.y) + f64::from(region.panel.size.height) / 2.0) * scale,
+            };
+            let Ok(point) = on_the_bar(canvas, middle);
+            let Ok(landed) = painted.bar.on(point);
+
+            assert_eq!(landed, Some(region.action), "a finger on {:?} landed on something else", region.action);
+        }
 
         Ok(())
     }

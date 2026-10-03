@@ -14,7 +14,7 @@
 //! in git's vocabulary rather than the machine's.
 //!
 //! Nothing in any of them touches a machine. All are
-//! `console_program_contract::Program`s, so what a deploy would do to a device
+//! `console_core_state_machine::Machine`s, so what a deploy would do to a device
 //! is a list of values a test on a laptop can read -- which is the half of
 //! this that a shell script could never be asked for, and the reason the lock,
 //! the two moments the tree is looked at, and every refusal below have tests

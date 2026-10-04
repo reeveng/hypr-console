@@ -20,7 +20,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 use console_events::subscription::{Desired, Received, connect_at};
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use pool::{Failure, BEFORE_LONG, before_long, change, serve_at, socket};
 
 #[test]
@@ -28,7 +28,7 @@ fn a_program_that_asks_again_is_told_what_is_true_now_rather_than_waiting_for_a_
     let at = socket("stopped-listening")?;
     let handed = serve_at(&at)?;
 
-    let Ok(subscriber) = connect_at(&at, &[Topic::Sound]);
+    let Ok(subscriber) = connect_at(&at, &[EventGroup::Sound]);
     let Ok(heard) = subscriber.received();
     let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the source was never opened")?;
 
@@ -45,12 +45,12 @@ fn a_program_that_asks_again_is_told_what_is_true_now_rather_than_waiting_for_a_
 
     assert_eq!(before_long(heard), Ok(Some(forty.clone())));
 
-    let Ok(()) = subscriber.unsubscribe(&Topic::Sound);
+    let Ok(()) = subscriber.unsubscribe(&EventGroup::Sound);
     let Ok(wanting) = subscriber.desired();
 
     assert_eq!(wanting, Desired::None, "it still wants what it just gave up");
 
-    let Ok(()) = subscriber.subscribe(&Topic::Sound);
+    let Ok(()) = subscriber.subscribe(&EventGroup::Sound);
 
     assert_eq!(
         before_long(heard),

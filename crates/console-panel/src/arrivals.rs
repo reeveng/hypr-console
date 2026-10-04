@@ -25,7 +25,7 @@ use std::sync::Once;
 
 use console_core_never::Never;
 use console_events::subscription::{self, Received};
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 
 use crate::frames::{self, Notice};
 
@@ -41,7 +41,7 @@ static FOLLOWING: Once = Once::new();
 pub fn follow() -> Result<(), Never> {
     FOLLOWING.call_once(|| {
         let Ok(kept) = console_core_places::user_folders();
-        let Ok(folders) = topics_for(&kept);
+        let Ok(folders) = event_groups_for(&kept);
         let Ok(listening) = subscription::connect(&folders);
         let Ok(()) = following(listening);
     });
@@ -50,14 +50,14 @@ pub fn follow() -> Result<(), Never> {
 }
 
 pub fn follow_at(socket: &Path, kept: &[PathBuf]) -> Result<(), Never> {
-    let Ok(folders) = topics_for(kept);
+    let Ok(folders) = event_groups_for(kept);
     let Ok(listening) = subscription::connect_at(socket, &folders);
 
     following(listening)
 }
 
-fn topics_for(kept: &[PathBuf]) -> Result<Vec<Topic>, Never> {
-    Ok(kept.iter().cloned().map(Topic::Path).collect())
+fn event_groups_for(kept: &[PathBuf]) -> Result<Vec<EventGroup>, Never> {
+    Ok(kept.iter().cloned().map(EventGroup::Path).collect())
 }
 
 fn following(listening: subscription::Subscriber) -> Result<(), Never> {

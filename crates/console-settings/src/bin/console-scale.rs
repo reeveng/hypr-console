@@ -1,9 +1,9 @@
 //! How big everything on the screen is.
 //!
 //!     console-scale                 which size the screen is standing at
-//!     console-scale smaller|normal|bigger
+//!     console-scale tiny|smaller|normal|bigger|huge
 //!                                   put it there, and remember it
-//!     console-scale left|upright|right
+//!     console-scale left|upright|right|over
 //!                                   which way up it stands, and remember that
 //!     console-scale apply           wear what was remembered
 //!
@@ -62,6 +62,7 @@
 use std::process::ExitCode;
 
 use console_compositor::DispatchResult;
+use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_settings::screens::{Output, Unnamed};
@@ -72,14 +73,55 @@ const BAR: &str = "console-bar.service";
 
 const HOME: &str = "console-home.service";
 
+const APPLY: &str = "apply";
+
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-scale",
+    about: "how big everything on the screen is, and which way up it stands; with nothing, the size it is standing at",
+    flags: &[],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
     Sized(Size),
     Turned(Turn),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scale {
+    Wear(Wanted),
+    Apply,
+}
+
+impl Subcommand for Scale {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        let sized = Size::VARIANTS.iter().copied().map(Wanted::Sized);
+        let turned = Turn::VARIANTS.iter().copied().map(Wanted::Turned);
+
+        Ok(sized.chain(turned).map(Scale::Wear).chain([Scale::Apply]))
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        match self {
+            Scale::Wear(Wanted::Sized(size)) => size.written(),
+            Scale::Wear(Wanted::Turned(turn)) => turn.written(),
+            Scale::Apply => Ok(APPLY),
+        }
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Ok(match self {
+            Scale::Wear(Wanted::Sized(_size)) => "draw everything at this size, and remember it",
+            Scale::Wear(Wanted::Turned(_turn)) => "stand the screen this way up, and remember it",
+            Scale::Apply => "wear what each screen remembers",
+        })
+    }
+}
+
 fn read_file(at: &std::path::Path) -> Result<String, Never> {
     Ok(match console_core_atomic_writes::text_or_empty(at) {
-        Ok(said) => said,
+        Ok(message) => message,
         Err(fault) => {
             eprintln!("console-scale: {fault}");
 
@@ -88,10 +130,52 @@ fn read_file(at: &std::path::Path) -> Result<String, Never> {
     })
 }
 
+fn standing() -> Result<ExitCode, Never> {
+    let Ok(monitors) = query_monitors();
+
+    let monitors = match monitors {
+        Some(monitors) => monitors,
+        None => return Ok(ExitCode::FAILURE),
+    };
+
+    let Ok(standing) = size::current_size(&monitors);
+    let Ok(shown) = console_screen::shown(&monitors);
+
+    Ok(match (standing, shown) {
+        (Some(size), _) => {
+            let Ok(written) = size.written();
+
+            println!("{written}");
+
+            ExitCode::SUCCESS
+        }
+        (None, Some(screen)) => {
+            println!("{}", screen.scale);
+
+            ExitCode::SUCCESS
+        }
+        (None, None) => {
+            eprintln!("console-scale: the compositor said nothing about a screen");
+
+            ExitCode::FAILURE
+        }
+    })
+}
+
 fn main() -> ExitCode {
-    let word = match std::env::args().nth(1) {
-        Some(word) => word,
-        None => String::new(),
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let asked = match read_with::<Scale, String>(&COMMAND, &words) {
+        Ok(line) => {
+            let Ok(asked) = line.subcommand();
+
+            asked
+        }
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
     };
 
     let Ok(said) = console_core_places::home();
@@ -105,62 +189,17 @@ fn main() -> ExitCode {
         }
     };
 
-    match word == "apply" {
-        true => {
+    let wanted = match asked {
+        Some(Scale::Wear(wanted)) => wanted,
+        Some(Scale::Apply) => {
             let Ok(gone) = applied(&home);
 
             return gone;
-        },
-        false => {},
-    }
-
-    let wanted = match word.as_str() {
-        "" => {
-            let Ok(monitors) = query_monitors();
-
-            let monitors = match monitors {
-                Some(monitors) => monitors,
-                None => return ExitCode::FAILURE,
-            };
-
-            let Ok(standing) = size::current_size(&monitors);
-            let Ok(shown) = console_screen::shown(&monitors);
-
-            match (standing, shown) {
-                (Some(size), _) => {
-                    let Ok(written) = size.written();
-
-                    println!("{written}");
-                }
-                (None, Some(screen)) => println!("{}", screen.scale),
-                (None, None) => {
-                    eprintln!("console-scale: the compositor said nothing about a screen");
-                    return ExitCode::FAILURE;
-                }
-            }
-
-            return ExitCode::SUCCESS;
         }
-        said => {
-            let Ok(named) = Size::of(said);
+        None => {
+            let Ok(standing) = standing();
 
-            match named {
-                Some(size) => Wanted::Sized(size),
-                None => {
-                    let Ok(turn) = Turn::of(said);
-
-                    match turn {
-                        Some(turn) => Wanted::Turned(turn),
-                        None => {
-                            eprintln!(
-                                "usage: console-scale [smaller|normal|bigger|left|upright|right|apply]"
-                            );
-
-                            return ExitCode::from(2);
-                        }
-                    }
-                }
-            }
+            return standing;
         }
     };
 
@@ -394,4 +433,26 @@ fn query_monitors() -> Result<Option<Vec<console_compositor::Monitor>>, Never> {
             None
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console_core_arguments::ValidationError;
+
+    #[test]
+    fn every_size_and_every_turn_is_a_word_it_reads() -> Result<(), ValidationError> {
+        let sized = Size::VARIANTS.iter().copied().map(Wanted::Sized);
+        let turned = Turn::VARIANTS.iter().copied().map(Wanted::Turned);
+
+        for wanted in sized.chain(turned) {
+            let Ok(word) = Scale::Wear(wanted).spelling();
+            let line = read_with::<Scale, &str>(&COMMAND, &[word]);
+            let read = line?;
+
+            assert_eq!(read.subcommand(), Ok(Some(Scale::Wear(wanted))), "{word}");
+        }
+
+        Ok(())
+    }
 }

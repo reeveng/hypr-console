@@ -16,7 +16,7 @@ use std::process::ExitCode;
 
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Event, Exit};
+use console_program_contract::{Event, Exit};
 use console_program_runtime::{Delivery, Interpreter, Subscribed, Tell, run};
 use console_program_lifetime::threads;
 use console_input_event_devices::device::INPUT;
@@ -119,9 +119,8 @@ fn main() -> ExitCode {
         }
     };
 
-    let Ok(arguments) = Arguments::of(&[]);
     let mut console = Console { devices: Some(devices), said: Readiness::NotYet };
-    let Ok(ended) = run::<Recovery, Console>("recovery", &arguments, &mut console);
+    let Ok(ended) = run::<Recovery, Console>("recovery", &(), &mut console);
 
     ended
 }

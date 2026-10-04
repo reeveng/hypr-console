@@ -22,6 +22,7 @@
 //! nothing.
 
 use console_bus::connection::{Bus, ConnectionError, NameRequestResult};
+use console_core_arguments::{Command, Operands, ValidationError};
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_music_player::bus::{PlayerState, changed, handle_message, locked, moved};
@@ -61,18 +62,27 @@ fn played_on(answering: &Arc<OnceLock<Answering>>) -> Result<(), Never> {
 }
 
 fn main() -> ExitCode {
-    match answering() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(why) => {
-            eprintln!("music-player: {why}");
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, folder, answering);
 
-            ExitCode::FAILURE
-        }
-    }
+    code
 }
 
-fn answering() -> Result<(), ConnectionError> {
-    let folder = std::env::args().nth(1).map(PathBuf::from);
+const COMMAND: Command = Command {
+    name: "music-player",
+    about: "the player, answering on the session bus, with the music under FOLDER",
+    flags: &[],
+    operands: Operands::Optional("FOLDER"),
+};
+
+fn folder(words: &[String]) -> Result<Option<PathBuf>, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, words)?;
+    let Ok(named) = line.operands();
+
+    Ok(named.first().map(PathBuf::from))
+}
+
+fn answering(folder: Option<PathBuf>) -> Result<(), ConnectionError> {
     let mut bus = Bus::session()?;
     let got = bus.request_name(answers::NAME)?;
 

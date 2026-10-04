@@ -13,33 +13,37 @@
 //! is empty, because the entry that opens the pictures folder is on the home
 //! screen, and a press there that draws nothing cannot be told from a crash.
 
-use console_core_never::Never;
-use console_panel::picker::{self, Alone};
-use console_panel::surface;
+use std::process::ExitCode;
+
+use console_core_arguments::{Command, Operands};
+use console_panel::card::{App, open_app, refusal};
 use console_media_viewer::card::Worth;
 
-fn main() {
+const COMMAND: Command = Command {
+    name: console_media_viewer::WHO,
+    about: "a picture or a film; with nothing, the pictures folder",
+    flags: &[],
+    operands: Operands::Optional("FILE-OR-FOLDER"),
+};
+
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked);
-}
+    let Ok(refusing) = refusal(&COMMAND, &asked);
 
-fn opened(asked: &[String]) -> Result<(), Never> {
-    let Ok(worth) = console_media_viewer::card::worth_opening(asked);
-
-    match worth {
-        Worth::None => return Ok(()),
-        Worth::Opening => {},
+    match refusing {
+        Some(code) => return code,
+        None => {},
     }
 
-    let Ok(alone) = picker::alone_as(console_media_viewer::WHO, asked);
+    let Ok(worth) = console_media_viewer::card::worth_opening(&asked);
 
-    match alone {
-        Alone::No => Ok(()),
-        Alone::Yes => {
-            let Ok(card) = console_media_viewer::card(asked);
+    match worth {
+        Worth::None => ExitCode::SUCCESS,
+        Worth::Opening => {
+            let Ok(code) = open_app(&asked, App { who: console_media_viewer::WHO, command: COMMAND, card: console_media_viewer::card });
 
-            surface::app(console_media_viewer::WHO, card)
-        },
+            code
+        }
     }
 }

@@ -21,6 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use console_core_arguments::{Command, Operands, ValidationError, read};
 use console_core_external_programs::Program;
 use console_files::places::Is;
 use console_files::unzipping::{self, Lift};
@@ -31,16 +32,35 @@ const KIND: &str = "files-unzip";
 
 const FULL: &str = "No free folder name to unzip into.";
 
+const ARCHIVE: [&str; 1] = ["ARCHIVE"];
+
+const COMMAND: Command = Command {
+    name: "files-unzip",
+    about: "unpack one archive into a folder of its own, and stop",
+    flags: &[],
+    operands: Operands::Named(&ARCHIVE),
+};
+
+fn archive(words: &[String]) -> Result<PathBuf, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(ARCHIVE);
+    let [archive] = operands?;
+
+    Ok(PathBuf::from(archive))
+}
+
 fn main() -> ExitCode {
-    let said = match std::env::args().nth(1) {
-        Some(said) => said,
-        None => {
-            eprintln!("usage: files-unzip ARCHIVE");
-            return ExitCode::from(2);
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let archive = match archive(&words) {
+        Ok(archive) => archive,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
         }
     };
-
-    let archive = PathBuf::from(said);
 
     let holding = match archive.parent().map(Path::to_path_buf) {
         Some(holding) => holding,

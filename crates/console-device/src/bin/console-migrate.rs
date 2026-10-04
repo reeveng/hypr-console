@@ -8,9 +8,9 @@
 
 use std::process::ExitCode;
 
-use console_device::migrating::Migrate;
+use console_core_arguments::read;
+use console_device::migrating::{COMMAND, Migrate, Migration};
 use console_device_name::device;
-use console_program_contract::Arguments;
 use console_program_runtime::Pure;
 
 #[cfg_attr(
@@ -29,11 +29,17 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mut words = vec![host];
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    words.extend(std::env::args().skip(1));
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let given: Vec<&str> = words.iter().map(String::as_str).collect();
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(migration) = Migration::of(&host, &line);
 
     match console_repository::root() {
         Ok(root) => match std::env::set_current_dir(&root) {
@@ -51,10 +57,9 @@ fn main() -> ExitCode {
         }
     }
 
-    let Ok(arguments) = Arguments::of(&given);
     let Ok(how) = console_program_runtime::run::<Migrate, Pure>(
         "console-migrate",
-        &arguments,
+        &migration,
         &mut Pure,
     );
 

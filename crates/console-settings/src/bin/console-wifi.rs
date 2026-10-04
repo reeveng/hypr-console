@@ -23,12 +23,12 @@ use std::sync::mpsc::channel;
 use console_core_external_programs::Program;
 use console_events::again::{about, scanned};
 use console_notifications::saying::journal;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use console_settings::wifi::{self, DEVICES, IN_RANGE, KNOWN, Left, Receiving, Why};
 
 fn main() -> ExitCode {
     let (say, heard) = channel();
-    let Ok(()) = about(&Topic::Wifi, scanned, say);
+    let Ok(()) = about(&EventGroup::Wifi, scanned, say);
     let mut left = Left::new();
 
     for () in heard.iter() {

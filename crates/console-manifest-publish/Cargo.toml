@@ -14,6 +14,7 @@ name = "console-manifest-publish"
 path = "src/main.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-directory-listing.workspace = true
 console-device-name.workspace = true

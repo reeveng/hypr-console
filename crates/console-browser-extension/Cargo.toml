@@ -10,6 +10,7 @@ name = "console-web"
 path = "src/bin/console-web.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-checksums.workspace = true
 console-core-never.workspace = true

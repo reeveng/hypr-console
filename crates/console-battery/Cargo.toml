@@ -10,6 +10,7 @@ name = "console_battery"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true

@@ -19,6 +19,14 @@
 //!   running unit starts -- a program whose starter went away and left it
 //!   listening.
 //!
+//! An app a person opened is the one subscriber that is meant to outlive
+//! whoever started it. Hyprland's `exec` forks twice, and a panel that opened a
+//! book closes behind it, so the books open on the screen have the user manager
+//! for a parent on every road in, and a device run with a book open named it
+//! as left behind. What a person
+//! opens is `InternalProgram::APPS`, spelled once there, and it is accounted for
+//! the way a running unit's program is.
+//!
 //! It reads rather than presses: nothing is opened and nothing is put back.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,6 +35,7 @@ use console_architecture::Architecture;
 use console_architecture::facts::{self, Fact, Kind, LIBRARY, Target, Ownership};
 use console_architecture::units::{SERVICE, SERVICE_SUFFIX, Started};
 use console_core_external_programs::Program;
+use console_core_internal_programs::APPS;
 use console_core_ini_files::{Key, field};
 use console_core_never::Never;
 use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed};
@@ -222,6 +231,17 @@ fn started_by_running(architecture: &Architecture, seen: &Seen) -> Result<BTreeS
     Ok(started)
 }
 
+fn opened_by_a_person() -> Result<BTreeSet<String>, Never> {
+    let mut opened = BTreeSet::new();
+
+    for app in APPS {
+        let Ok(name) = app.name();
+        let _ = opened.insert(String::from(name));
+    }
+
+    Ok(opened)
+}
+
 fn units_compared(architecture: &Architecture, seen: &Seen) -> Result<Vec<Difference>, Never> {
     let mapped: BTreeSet<&String> = architecture.units.iter().map(|unit| &unit.name).collect();
     let enabled: BTreeSet<&String> = architecture.enabled.iter().collect();
@@ -248,7 +268,10 @@ fn units_compared(architecture: &Architecture, seen: &Seen) -> Result<Vec<Differ
 pub fn compared(architecture: &Architecture, seen: &Seen) -> Result<Vec<Difference>, Never> {
     let Ok(mut found) = units_compared(architecture, seen);
     let Ok(subscribers) = subscribers(&architecture.facts);
-    let Ok(started) = started_by_running(architecture, seen);
+    let Ok(mut started) = started_by_running(architecture, seen);
+    let Ok(opened) = opened_by_a_person();
+
+    started.extend(opened);
 
     for pid in &seen.pool {
         let process = match seen.processes.get(pid) {
@@ -363,6 +386,8 @@ u_str ESTAB  0      0      * 301 * 302 users:((\"pipewire\",pid=30,fd=5))
             ("console-status-bar", "lib", Kind::Builds, "console_status_bar"),
             ("console-status-bar", "lib", Kind::Subscribes, "Sound"),
             ("console-screen", "console-scale", Kind::Builds, "console_scale"),
+            ("console-books", "books", Kind::Builds, "books"),
+            ("console-books", "books", Kind::Subscribes, "Theme"),
         ]);
 
         Ok(Architecture {
@@ -389,6 +414,20 @@ u_str ESTAB  0      0      * 301 * 302 users:((\"pipewire\",pid=30,fd=5))
             units: BTreeSet::from([String::from("console-bar.service")]),
             processes,
             pool: BTreeSet::from([20]),
+        };
+        let Ok(architecture) = architecture();
+        let Ok(differences) = compared(&architecture, &seen);
+
+        assert_eq!(differences, Vec::new());
+    }
+
+    #[test]
+    fn an_app_a_person_opened_is_theirs_whoever_started_it() {
+        let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar"), (30, 1, "books")]);
+        let seen = Seen {
+            units: BTreeSet::from([String::from("console-bar.service")]),
+            processes,
+            pool: BTreeSet::from([20, 30]),
         };
         let Ok(architecture) = architecture();
         let Ok(differences) = compared(&architecture, &seen);

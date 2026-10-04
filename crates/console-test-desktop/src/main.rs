@@ -57,6 +57,8 @@ use console_test_desktop::staging::{Screen, Verbosity, environment, stage_deskto
 use console_test_desktop::connection::{Inside, Instance, Outcome};
 use console_test_desktop::{Unnested, screen, scope_of, session, stage};
 use console_test_stages::picture::{Picture, where_};
+use console_core_arguments::{Flag, Operands, Presence, Subcommand, Takes, ValidationError, read_with};
+use console_core_words::Words;
 
 const KILLED_BY_A_SIGNAL: i32 = -1;
 
@@ -69,7 +71,7 @@ const KILLED_BY_A_SIGNAL: i32 = -1;
     )
 )]
 struct Arguments {
-    command: String,
+    command: Verb,
     file: Option<PathBuf>,
     seconds: Option<f64>,
     settle: Option<f64>,
@@ -84,81 +86,151 @@ struct Arguments {
     bare: bool,
 }
 
-fn parse_arguments(words: Vec<String>) -> Result<Arguments, Never> {
-    let every = |what: &str| {
-        words
-            .iter()
-            .enumerate()
-            .filter(|(_, word)| *word == what)
-            .filter_map(|(at, _)| words.get(at.saturating_add(1)).cloned())
-            .collect::<Vec<String>>()
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+enum Verb {
+    #[words(word = "run", about = "the desktop, nested, at the device's size")]
+    Run,
+    #[words(word = "shot", about = "a picture of it at FILE, once the screen has stopped changing")]
+    Shot,
+    #[words(word = "pressing", about = "once FILE has been drawn to, press --then, and wait for it to be drawn to again")]
+    Pressing,
+    #[words(word = "describe", about = "--open alone and headless, until it has described itself to --until; no picture")]
+    Describe,
+    #[words(word = "verify", about = "does the compositor config still parse")]
+    Verify,
+    #[words(word = "probe", about = "what the nested compositor thinks")]
+    Probe,
+    #[words(word = "stage", about = "the staged copy, and nothing else")]
+    Stage,
+    #[words(word = "clean", about = "forget what no one is using")]
+    Clean,
+}
+
+impl Subcommand for Verb {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Verb::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Verb::about(self)
+    }
+}
+
+const SECONDS: Flag = Flag { spelling: "--seconds", takes: Takes::Value("SECONDS"), about: "stop the desktop after that long" };
+
+const SETTLE: Flag = Flag {
+    spelling: "--settle",
+    takes: Takes::Value("SECONDS"),
+    about: "take the picture that long after, rather than once the screen is still",
+};
+
+const UNTIL: Flag = Flag { spelling: "--until", takes: Takes::Value("AT"), about: "not before AT has a line in it" };
+
+const CLIENTS: Flag = Flag { spelling: "--clients", takes: Takes::Value("AT"), about: "write what windows it had to AT" };
+
+const MONITORS: Flag = Flag { spelling: "--monitors", takes: Takes::Value("AT"), about: "write what screen it was to AT" };
+
+const OPEN: Flag = Flag { spelling: "--open", takes: Takes::Value("COMMAND"), about: "run COMMAND inside, once for every time it is said" };
+
+const PRESS: Flag = Flag {
+    spelling: "--press",
+    takes: Takes::Value("SCRIPT"),
+    about: "once the screen is still, run SCRIPT inside and wait for it to finish",
+};
+
+const THEN: Flag = Flag { spelling: "--then", takes: Takes::Value("COMMAND"), about: "what pressing presses" };
+
+const SAMPLE: Flag = Flag {
+    spelling: "--sample",
+    takes: Takes::Value("PLACE"),
+    about: "say the colour at PLACE in the picture, once for every time it is said",
+};
+
+const WINDOW: Flag = Flag { spelling: "--window", takes: Takes::None, about: "in a window here rather than headless" };
+
+const BARE: Flag = Flag { spelling: "--bare", takes: Takes::None, about: "without a ground to paint" };
+
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-desktop",
+    about: "the device's desktop, nested on this machine",
+    flags: &[SECONDS, SETTLE, UNTIL, CLIENTS, MONITORS, OPEN, PRESS, THEN, SAMPLE, WINDOW, BARE],
+    operands: Operands::Optional("FILE"),
+};
+
+fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
+    let line = read_with::<Verb, String>(&COMMAND, words)?;
+    let Ok(doing) = line.subcommand();
+    let Ok(operands) = line.operands();
+    let seconds = line.parsed::<f64>(SECONDS)?;
+    let settle = line.parsed::<f64>(SETTLE)?;
+    let path = |flag: Flag| {
+        let Ok(said) = line.value(flag);
+
+        said.map(PathBuf::from)
     };
-    let bare: Vec<&String> = words
-        .iter()
-        .enumerate()
-        .filter(|(_, word)| !word.starts_with("--"))
-        .filter(|(at, _)| {
-            *at == 0
-                || words
-                    .get(at.saturating_sub(1))
-                    .is_none_or(|before| !before.starts_with("--"))
-        })
-        .map(|(_, word)| word)
-        .collect();
+    let word = |flag: Flag| {
+        let Ok(said) = line.value(flag);
+
+        said.map(str::to_string)
+    };
+    let Ok(open) = line.values(OPEN);
+    let Ok(sample) = line.values(SAMPLE);
+    let Ok(window) = line.presence(WINDOW);
+    let Ok(bare) = line.presence(BARE);
+    let command = match doing {
+        Some(doing) => doing,
+        None => Verb::Run,
+    };
 
     Ok(Arguments {
-        command: bare
-            .first()
-            .map_or_else(|| "run".to_string(), |word| (*word).clone()),
-        file: bare.get(1).map(PathBuf::from),
-        seconds: every("--seconds").first().and_then(|said| match said.parse() {
-            Ok(seconds) => Some(seconds),
-            Err(fault) => {
-                eprintln!("console-desktop: --seconds {said}: {fault}");
-
-                None
-            }
-        }),
-        settle: every("--settle").first().and_then(|said| match said.parse() {
-            Ok(seconds) => Some(seconds),
-            Err(fault) => {
-                eprintln!("console-desktop: --settle {said}: {fault}");
-
-                None
-            }
-        }),
-        until: every("--until").first().map(PathBuf::from),
-        clients: every("--clients").first().map(PathBuf::from),
-        monitors: every("--monitors").first().map(PathBuf::from),
-        open: every("--open"),
-        press: every("--press").first().cloned(),
-        then: every("--then").first().cloned(),
-        sample: every("--sample"),
-        window: words.iter().any(|word| word == "--window"),
-        bare: words.iter().any(|word| word == "--bare"),
+        command,
+        file: operands.first().map(PathBuf::from),
+        seconds,
+        settle,
+        until: path(UNTIL),
+        clients: path(CLIENTS),
+        monitors: path(MONITORS),
+        open: open.to_vec(),
+        press: word(PRESS),
+        then: word(THEN),
+        sample: sample.to_vec(),
+        window: window == Presence::Present,
+        bare: bare == Presence::Present,
     })
 }
 
 fn main() -> ExitCode {
-    let Ok(asked) = parse_arguments(std::env::args().skip(1).collect());
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let asked = match asked(&words) {
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let done = match asked.command.as_str() {
-        "clean" => clean(),
-        "stage" => stage_desktop(Verbosity::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
-        "verify" => verify(),
-        "probe" => run(&asked, None, Action::Probing),
-        "describe" => run(&asked, None, Action::Describing),
-        "pressing" => press_file(&asked),
-        "shot" => match asked.file.clone() {
+            return ExitCode::from(code);
+        }
+    };
+
+    let done = match asked.command {
+        Verb::Clean => clean(),
+        Verb::Stage => stage_desktop(Verbosity::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0),
+        Verb::Verify => verify(),
+        Verb::Probe => run(&asked, None, Action::Probing),
+        Verb::Describe => run(&asked, None, Action::Describing),
+        Verb::Pressing => press_file(&asked),
+        Verb::Shot => match asked.file.clone() {
             Some(file) => run(&asked, Some(file), Action::Running),
             None => Err(Unnested::NowhereToWrite),
         },
-        _ => run(&asked, None, Action::Running),
+        Verb::Run => run(&asked, None, Action::Running),
     };
 
-    match asked.command.as_str() {
-        "stage" | "pressing" => {},
-        _ => {
+    match asked.command {
+        Verb::Stage | Verb::Pressing => {},
+        Verb::Run | Verb::Shot | Verb::Describe | Verb::Verify | Verb::Probe | Verb::Clean => {
             let Ok(here) = stage();
             let _ = std::fs::remove_dir_all(here);
         }

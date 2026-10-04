@@ -15,6 +15,7 @@
 //! neither does one whose sound effects were never turned on.
 
 
+use console_core_arguments::{Operands, read_with};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
@@ -28,7 +29,7 @@ fn pactl(arguments: &[String]) -> Result<String, Never> {
     let mut asking = Program::Pactl.command()?;
 
     let said = match asking.args(arguments).output() {
-        Ok(said) => said,
+        Ok(message) => message,
         Err(_would_not_start) => return Ok(String::new()),
     };
 
@@ -87,15 +88,23 @@ fn play_feedback(muted: Muted, value: Option<i64>) -> Result<(), Never> {
     Ok(())
 }
 
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-volume",
+    about: "the volume rocker on the top edge",
+    flags: &[],
+    operands: Operands::None,
+};
+
 fn main() -> std::process::ExitCode {
-    let Ok(named) = std::env::args().nth(1).as_deref().map(ButtonPress::parse).transpose();
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let read = read_with::<ButtonPress, String>(&COMMAND, &words).and_then(|line| line.require_subcommand());
 
-    let press = match named.flatten() {
-        Some(press) => press,
-        None => {
-            eprintln!("usage: console-volume [up|down|mute]");
+    let press = match read {
+        Ok(press) => press,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-            return std::process::ExitCode::from(2);
+            return std::process::ExitCode::from(code);
         }
     };
 

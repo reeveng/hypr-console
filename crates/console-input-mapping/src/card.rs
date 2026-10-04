@@ -38,18 +38,19 @@
 use std::sync::Arc;
 
 use crate::Unmapped;
-use crate::update::{FIRST, MappingEvent, MappingEffect, Setting, Setup, TABLE, WRITTEN};
+use crate::update::{Empty, MappingEvent, MappingEffect, Setting, Setup};
 use crate::rows::{Choice, PUT_BACK_SURE, PUT_BACK_YES, Part, choices, every, parts, row, rows};
 use crate::table;
 use console_button_guide::guide::{Section, in_front, reference};
+use console_core_arguments::{Command, Operands, Presence, Takes, read};
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_input_controller::mode::{Focused, Woken, Mode};
+use console_input_controller::mode::{Focused, WakeState, Mode};
 use console_panel::page::{Aside, Handler, Page, Row, Rows, Showing, Subject};
 use console_panel::card::{Card, Door};
 use console_input_bindings::bound::{Binding, EVERY, Input};
 use console_core_state_machine::{Machine, Transition};
-use console_program_contract::{Arguments, Effect, Event, FileWrite};
+use console_program_contract::{Effect, Event, FileWrite};
 
 const DOOR: &str = "buttons";
 
@@ -229,38 +230,59 @@ fn guided(section: &Section) -> Result<Page, Never> {
     Page::new(&section.title, Rows::Fixed(rows))
 }
 
-fn opening() -> Result<Arguments, Never> {
+fn first_time(argv: &[String]) -> Result<Presence, Never> {
+    match read(&COMMAND, argv) {
+        Ok(line) => line.presence(FIRST_TIME),
+        Err(refusal) => {
+            eprintln!("{refusal}, so it opens the way it usually does");
+
+            Ok(Presence::Absent)
+        }
+    }
+}
+
+fn opening(argv: &[String]) -> Result<Setting, Never> {
     let Ok(at) = table::at();
+    let Ok(first) = first_time(argv);
 
-    let mut words: Vec<String> = match &at {
-        Some(at) => vec![TABLE.to_string(), at.display().to_string()],
-        None => Vec::new(),
-    };
+    Ok(match at {
+        Some(at) => {
+            let written = match at.exists() {
+                true => Presence::Present,
+                false => Presence::Absent,
+            };
+            let Ok(empty) = Empty::of(first, written);
 
-    match std::env::args().any(|word| word == FIRST) {
-        true => words.push(FIRST.to_string()),
-        false => {},
-    }
-
-    match at.is_some_and(|at| at.exists()) {
-        true => words.push(WRITTEN.to_string()),
-        false => {},
-    }
-
-    Arguments::of(&words.iter().map(String::as_str).collect::<Vec<&str>>())
+            Setting::Initial { at, empty }
+        }
+        None => Setting::Nowhere,
+    })
 }
 
 
 pub const WHO: &str = "mapping-panel";
 
+pub const FIRST_TIME: console_core_arguments::Flag = console_core_arguments::Flag {
+    spelling: "--first",
+    takes: Takes::None,
+    about: "open it because no one has answered yet",
+};
+
+pub const COMMAND: Command = Command {
+    name: WHO,
+    about: "the buttons, and where they are on this device",
+    flags: &[FIRST_TIME],
+    operands: Operands::None,
+};
+
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)
 }
 
-pub fn card(_argv: &[String]) -> Result<Card, Never> {
-    let Ok(arguments) = opening();
+pub fn card(argv: &[String]) -> Result<Card, Never> {
+    let Ok(setting) = opening(argv);
 
-    let Ok(opened) = Setup::initial_transition(&arguments, None);
+    let Ok(opened) = Setup::initial_transition(&setting, None);
     let Ok(Transition { state: _, effects }) = Setup::transition(opened.state, Event::Opened);
 
     let writings = effects.iter().filter_map(|effect| {
@@ -313,11 +335,25 @@ fn front() -> Result<Mode, Never> {
             return Ok(Mode::Desktop);
         }
     };
-    let Ok(awake) = Woken::detect();
+    let Ok(awake) = WakeState::detect();
     let focused = match console_onscreen::in_front() {
         Ok(focused) => focused,
         Err(_the_compositor_would_not_say_which_window_is_in_front) => Focused::SomethingElse,
     };
 
     Mode::detect(&screens, awake, focused)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_card_reads_the_first_opening_off_the_words_it_has() {
+        let first = first_time(&[FIRST_TIME.spelling.to_string()]);
+        let plain = first_time(&[]);
+
+        assert_eq!(first, Ok(Presence::Present), "the host draws this panel, and the host's own command line has no --first");
+        assert_eq!(plain, Ok(Presence::Absent));
+    }
 }

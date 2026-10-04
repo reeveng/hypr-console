@@ -33,7 +33,7 @@
 
 
 use console_core_geometry::Size;
-use console_core_iteration::Step;
+use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use std::collections::BTreeMap;
@@ -44,16 +44,23 @@ use std::process::ExitCode;
 use console_panel::pictures::{self, Picture};
 use console_panel::strip::PICTURE;
 
+const COMMAND: Command = Command {
+    name: "panel-pictures",
+    about: "decode each FILE at the side asked for into the one store every list reads",
+    flags: &[pictures::SIDE],
+    operands: Operands::Any("FILE"),
+};
+
 fn main() -> ExitCode {
-    let said: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(asked) = parse_arguments(&said);
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(asked) = request(&words);
 
     let (side, wanted) = match asked {
-        Some((side, wanted)) => (side, wanted),
-        None => {
-            eprintln!("usage: panel-pictures [--side PIXELS] FILE...");
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-            return ExitCode::FAILURE;
+            return ExitCode::from(code);
         }
     };
 
@@ -96,33 +103,27 @@ fn main() -> ExitCode {
     }
 }
 
-fn parse_arguments(said: &[String]) -> Result<Option<(pictures::Side, Vec<String>)>, Never> {
+fn request(words: &[String]) -> Result<Result<(pictures::Side, Vec<String>), ValidationError>, Never> {
+    let line = match read(&COMMAND, words) {
+        Ok(line) => line,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
     let Ok(rows) = fitted::<i32, u32>(PICTURE);
-    let read = console_core_iteration::iterate((pictures::Side(rows), Vec::new(), said.iter()), |(side, mut wanted, mut words)| {
-        Ok(match words.next() {
-            Some(word) => match word.as_str() == pictures::SIDE {
-                true => match words.next().map(|said| said.parse()) {
-                    Some(Ok(said)) => Step::Again((pictures::Side(said), wanted, words)),
-                    Some(Err(_not_a_size)) => Step::Halt(None),
-                    None => Step::Halt(None),
-                },
-                false => {
-                    wanted.push(word.clone());
 
-                    Step::Again((side, wanted, words))
-                }
-            },
-            None => Step::Halt(Some((side, wanted))),
-        })
-    });
+    let side = match line.parsed::<u32>(pictures::SIDE) {
+        Ok(Some(pixels)) => pictures::Side(pixels),
+        Ok(None) => pictures::Side(rows),
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    let Ok(operands) = line.operands();
 
-    Ok(match read {
-        Ok(Some((side, wanted))) => match wanted.is_empty() {
-            true => None,
-            false => Some((side, wanted)),
-        },
-        Ok(None) => None,
-        Err(_endless) => None,
+    Ok(match operands.is_empty() {
+        true => {
+            let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["FILE"]));
+
+            Err(refusal)
+        }
+        false => Ok((side, operands.to_vec())),
     })
 }
 

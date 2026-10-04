@@ -56,11 +56,11 @@
 //! stand-in writes it, which is the same order it happened in when a panel was
 //! one process.
 //!
-//! Lines, and no version number, for `console_events::wire`'s reasons:
-//! both ends are built by the same `console apply` from the same commit, and
-//! someone holding `socat` against the socket should be able to read what
-//! went past. What is escaped here is not what is escaped there -- a topic is
-//! one token and a space is what ends it, and these are a program's arguments,
+//! Lines, and no version number, for `console_events::wire`'s reasons: both
+//! ends are built by the same `console apply` from the same commit, and someone
+//! holding `socat` against the socket should be able to read what went past.
+//! What is escaped here is not what is escaped there -- an event group is one
+//! token and a space is what ends it, and these are a program's arguments,
 //! which are allowed to hold anything at all except a nul.
 
 use std::io::{BufRead, BufReader, Write};

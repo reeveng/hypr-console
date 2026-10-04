@@ -10,7 +10,8 @@ use std::path::PathBuf;
 
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{RecordingClock, LegionGo};
+use console_input_gamepad::go::LegionGo;
+use console_waiting::clock::TestClock;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::play;
 use console_input_gamepad::world::World;
@@ -57,7 +58,7 @@ fn every_scenario_plays() -> Result<(), Box<dyn Error>> {
         let Ok(world) = World::of(seen);
         let Ok(devices) = Devices::new(descriptors, world);
         let profiles = every_profile(&root)?;
-        let mut go = LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)?;
+        let mut go = LegionGo::new(profiles, devices, TestClock::default(), console_input_gamepad::router::NAME)?;
         let said = std::fs::read_to_string(&path)?;
         let name = path.display();
 

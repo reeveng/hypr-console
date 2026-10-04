@@ -104,7 +104,7 @@ use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_events::subscription::Received;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use console_program_lifetime::threads;
 use console_response_times::{Wait, Waiting};
 use console_waiting::{Schedule, Ready, Outcome};
@@ -827,7 +827,7 @@ impl Sessions {
         let Ok(()) = threads::let_go(std::thread::spawn(move || {
             let claimed = Mutex::new(HashSet::new());
 
-            let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+            let Ok(subscriber) = console_events::subscription::connect(&[EventGroup::Compositor]);
             let Ok(received) = subscriber.received();
 
             for event in received {
@@ -883,7 +883,7 @@ impl Sessions {
         let noticing = Arc::clone(&changes);
 
         let Ok(()) = threads::let_go(std::thread::spawn(move || {
-            let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+            let Ok(subscriber) = console_events::subscription::connect(&[EventGroup::Compositor]);
             let Ok(received) = subscriber.received();
 
             for event in received {

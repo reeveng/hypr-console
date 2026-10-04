@@ -841,7 +841,7 @@ impl Watch {
 
 #[derive(Clone)]
 pub struct Subscription {
-    pub topic: console_program_contract::Topic,
+    pub event_group: console_program_contract::EventGroup,
     pub worth: console_events::again::Worthwhile,
 }
 
@@ -1029,10 +1029,10 @@ impl Page {
 
     pub fn with_subscription(
         mut self,
-        topic: console_program_contract::Topic,
+        event_group: console_program_contract::EventGroup,
         worth: console_events::again::Worthwhile,
     ) -> Result<Self, Never> {
-        self.listens = Some(Subscription { topic, worth });
+        self.listens = Some(Subscription { event_group, worth });
 
         Ok(self)
     }

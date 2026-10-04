@@ -52,7 +52,7 @@ use console_input_event_devices::{
 };
 use console_program_lifetime::{Detached, let_go, threads};
 use console_response_times::{Note, Wait};
-use console_cpu_boost::{Backoff, Boost};
+use console_cpu_boost::{HighPowerMode, Boost};
 use console_input_controller::clock;
 use console_input_controller::effect::{Effect, Reconnected};
 use console_input_controller::finding::{DeviceInfo, describe};
@@ -62,9 +62,9 @@ use console_input_controller::binds::{self, KeyBinding};
 use console_core_atomic_writes::Stored;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use console_compositor::events::CompositorEvent;
-use console_input_controller::mode::{Focused, Woken, Mode};
+use console_input_controller::mode::{Focused, WakeState, Mode};
 use console_input_controller::reading::{From, POLL, Ranges, Wake};
 use console_input_gamepad::axis::Range;
 use console_input_controller::turning::{Closed, Plugged, READ, Took, Turning};
@@ -162,7 +162,7 @@ fn main() -> std::process::ExitCode {
         Err(fault) => eprintln!("controller-desktop: {fault}"),
     }
 
-    let Ok(was_awake) = Woken::detect();
+    let Ok(was_awake) = WakeState::detect();
     let desktop = Desktop {
         out,
         machine,
@@ -170,7 +170,7 @@ fn main() -> std::process::ExitCode {
         bound,
         holding: Vec::new(),
         running: Vec::new(),
-        hurrying: Backoff::default(),
+        hurrying: HighPowerMode::default(),
         watcher: Watcher::Subscriber,
         was_awake,
     };
@@ -199,9 +199,9 @@ struct Desktop {
     bound: Bound,
     holding: Vec<(From, String)>,
     running: Vec<Detached>,
-    hurrying: Backoff,
+    hurrying: HighPowerMode,
     watcher: Watcher,
-    was_awake: Woken,
+    was_awake: WakeState,
 }
 
 struct Context<'a> {
@@ -226,7 +226,7 @@ fn turned(mut desktop: Desktop, heard: &Context<'_>) -> Result<Step<Desktop, std
         (Event::Closed, Watcher::Gone) | (Event::Came | Event::None, _) => {},
     }
 
-    let Ok(awake) = Woken::detect();
+    let Ok(awake) = WakeState::detect();
 
     let woke = awake != desktop.was_awake;
     desktop.was_awake = awake;
@@ -423,7 +423,7 @@ fn rung_on(heard: Receiver<()>, ringing: &Arc<OwnedFd>) -> Result<Receiver<()>, 
 struct Turn<'a> {
     turning: &'a mut Turning,
     machine: &'a mut Machine,
-    hurrying: &'a mut Backoff,
+    hurrying: &'a mut HighPowerMode,
     out: &'a mut VirtualDevice,
     saying: &'a Sender,
     running: &'a mut Vec<Detached>,
@@ -663,7 +663,7 @@ fn subscribe() -> Result<Receiver<()>, Never> {
 
 fn reloading() -> Result<Receiver<()>, Never> {
     let (say, heard) = channel();
-    let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+    let Ok(subscriber) = console_events::subscription::connect(&[EventGroup::Compositor]);
 
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
         let Ok(received) = subscriber.received();
@@ -694,7 +694,7 @@ fn reloading() -> Result<Receiver<()>, Never> {
 }
 
 fn closing() -> Result<(), Never> {
-    let Ok(subscriber) = console_events::subscription::connect(&[Topic::Compositor]);
+    let Ok(subscriber) = console_events::subscription::connect(&[EventGroup::Compositor]);
 
     threads::let_go(std::thread::spawn(move || {
         let Ok(received) = subscriber.received();
@@ -783,7 +783,7 @@ fn focused_now() -> Result<Focused, Never> {
 
 fn look(turning: &mut Turning) -> Result<Vec<Effect>, Unscrolled> {
     let screens = console_onscreen::screens()?;
-    let Ok(awake) = Woken::detect();
+    let Ok(awake) = WakeState::detect();
 
     let Ok(focused) = focused_now();
     let Ok(mode) = Mode::detect(&screens, awake, focused);
@@ -858,7 +858,7 @@ impl Plugged for Machine {
 
         let stick = match reported {
             Some((low, high)) => Range { low: *low, high: *high },
-            None => Ranges::default().stick,
+            None => Ranges::default().thumbstick,
         };
 
         let trigger = match told.get(&AbsoluteAxisCode::ABS_Z.0).copied() {
@@ -866,7 +866,7 @@ impl Plugged for Machine {
             None => Ranges::default().trigger,
         };
 
-        Ranges { stick, trigger }
+        Ranges { thumbstick: stick, trigger }
     }
 
     fn drain(&mut self, path: &str) -> Result<Vec<InputEvent>, Closed> {
@@ -1070,7 +1070,7 @@ fn settle_language() -> Result<(), Never> {
     let named = console_input_language::NAMED;
     let mut starting = Command::new(named);
 
-    starting.arg(console_input_language::SETTLE).stdout(Stdio::null()).stderr(Stdio::inherit());
+    starting.arg(console_input_language::SETTLE.spelling).stdout(Stdio::null()).stderr(Stdio::inherit());
 
     match let_go(&mut starting) {
         Ok(_child) => {},

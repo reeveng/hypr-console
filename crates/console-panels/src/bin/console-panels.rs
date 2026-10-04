@@ -10,8 +10,10 @@
 //! a stand-in falls back to when this is not up, and what a check runs when it
 //! wants an opening that owes nothing to a daemon.
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = console_panels::asked_for(&asked);
+    let Ok(code) = console_panels::asked_for(&asked);
+
+    code
 }

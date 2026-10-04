@@ -43,6 +43,7 @@ console-program-lifetime.workspace = true
 console-core-places = { workspace = true }
 console-core-external-programs.workspace = true
 console-core-iteration.workspace = true
+console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
 console-waiting.workspace = true

@@ -39,7 +39,7 @@ use console_core_number_conversion::index;
 use console_core_walking::{Ring, Step, where_it_is};
 use console_core_words::Words;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Answer, Arguments, Command, Effect, Event, Exit, ExitStatus};
+use console_program_contract::{Answer, Command, Effect, Event, Exit, ExitStatus};
 
 use console_input_event_devices::presses::ButtonPress;
 
@@ -133,13 +133,13 @@ pub enum Screen {
 }
 
 impl Machine for Recovery {
-    type Input = Arguments;
+    type Input = ();
     type State = Menu;
     type Request = Event<ButtonPress>;
     type Effect = Effect<Screen>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Menu>, effects: &mut Effects) -> Result<Menu, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(_input: &(), _previous: Option<Menu>, effects: &mut Effects) -> Result<Menu, Never> {
+        let Ok(opening) = initial();
 
         opening.offered(effects)
     }
@@ -155,7 +155,7 @@ type Effects = Queue<Effect<Screen>>;
 
 type Turn = Transition<Menu, Effect<Screen>>;
 
-fn initial(_arguments: &Arguments) -> Result<Turn, Never> {
+fn initial() -> Result<Turn, Never> {
     let Ok(opening) = Transition::without_effects(Menu { page: Page::Choices, at: 0, status: Status::Idle });
 
     Ok(opening)
@@ -326,7 +326,7 @@ const CLEARED: &str = "\x1b[2J\x1b[H\x1b[?25l";
 const LIT: &str = "\x1b[7m";
 const PLAIN: &str = "\x1b[0m";
 
-struct Laid {
+struct Layout {
     heading: Vec<String>,
     rows: Vec<String>,
     hint: &'static str,
@@ -346,14 +346,14 @@ fn described(snapshot: &Snapshot) -> Result<String, Never> {
     Ok(format!("{}  {}", snapshot.taken, snapshot.comments.join("  ")))
 }
 
-fn laid_out(page: &Page) -> Result<Laid, Never> {
+fn laid_out(page: &Page) -> Result<Layout, Never> {
     Ok(match page {
         Page::Choices => {
             let Ok(rows) = titles(CHOICES.iter().map(|choice| choice.title()));
 
-            Laid { heading: vec!["The desktop did not start.".to_string()], rows, hint: "Up and down to move, A to choose." }
+            Layout { heading: vec!["The desktop did not start.".to_string()], rows, hint: "Up and down to move, A to choose." }
         }
-        Page::Snapshots(snapshots) => Laid {
+        Page::Snapshots(snapshots) => Layout {
             heading: vec![match snapshots.is_empty() {
                 true => "There are no snapshots.".to_string(),
                 false => "Choose a snapshot to restart from.".to_string(),
@@ -386,13 +386,13 @@ fn laid_out(page: &Page) -> Result<Laid, Never> {
                 None => vec!["Restart from this snapshot?".to_string()],
             };
 
-            Laid { heading, rows, hint: "Up and down to move, A to choose, B to cancel." }
+            Layout { heading, rows, hint: "Up and down to move, A to choose, B to cancel." }
         }
     })
 }
 
 pub fn screen(menu: &Menu) -> Result<String, Never> {
-    let Ok(Laid { heading, rows, hint }) = laid_out(&menu.page);
+    let Ok(Layout { heading, rows, hint }) = laid_out(&menu.page);
     let Ok(lit) = index(menu.at);
     let mut written = format!("{CLEARED}\n");
 
@@ -513,13 +513,11 @@ protocol: linux
 
     #[test]
     fn choosing_the_desktop_starts_it_and_stops_once_systemd_agrees() {
-        let Ok(arguments) = Arguments::of(&[]);
-
         let starts = ["--no-block", "start", DESKTOP];
         let Ok(answered) = answer(&starts, ExitStatus::Success);
 
         let Ok(trace) = run::<Recovery>(
-            &arguments,
+            &(),
             &[Event::Custom(ButtonPress::Choose), answered],
         );
 
@@ -531,13 +529,11 @@ protocol: linux
 
     #[test]
     fn a_refused_start_stays_on_the_screen_and_says_so() {
-        let Ok(arguments) = Arguments::of(&[]);
-
         let starts = ["--no-block", "start", DESKTOP];
         let Ok(answered) = answer(&starts, ExitStatus::Failure(Some(1)));
 
         let Ok(trace) = run::<Recovery>(
-            &arguments,
+            &(),
             &[Event::Custom(ButtonPress::Choose), answered],
         );
 
@@ -551,8 +547,7 @@ protocol: linux
 
     #[test]
     fn up_from_the_top_is_the_bottom() {
-        let Ok(arguments) = Arguments::of(&[]);
-        let Ok(trace) = run::<Recovery>(&arguments, &[Event::Custom(ButtonPress::Up), Event::Custom(ButtonPress::Choose)]);
+        let Ok(trace) = run::<Recovery>(&(), &[Event::Custom(ButtonPress::Up), Event::Custom(ButtonPress::Choose)]);
         let Ok(effects) = done(&trace);
         let Ok(command) = systemctl(&["poweroff"]);
 
@@ -561,10 +556,8 @@ protocol: linux
 
     #[test]
     fn a_press_while_something_is_underway_is_not_a_second_choice() {
-        let Ok(arguments) = Arguments::of(&[]);
-
         let Ok(trace) = run::<Recovery>(
-            &arguments,
+            &(),
             &[
                 Event::Custom(ButtonPress::Down),
                 Event::Custom(ButtonPress::Down),
@@ -582,13 +575,11 @@ protocol: linux
 
     #[test]
     fn the_menu_is_shown_when_it_opens_and_again_whenever_it_changes_and_not_otherwise() {
-        let Ok(arguments) = Arguments::of(&[]);
-
         let starts = ["--no-block", "start", DESKTOP];
         let Ok(answered) = answer(&starts, ExitStatus::Failure(Some(1)));
 
         let Ok(trace) = run::<Recovery>(
-            &arguments,
+            &(),
             &[
                 Event::Opened,
                 Event::Custom(ButtonPress::Left),
@@ -616,9 +607,8 @@ protocol: linux
 
     #[test]
     fn restarting_from_a_snapshot_lists_what_limine_offers_with_the_apply_each_stands_before() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(events) = opened_snapshots();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(read) = read_limine();
         let Ok(shown) = screen(&trace.state);
@@ -630,12 +620,11 @@ protocol: linux
 
     #[test]
     fn a_chosen_snapshot_is_the_next_boot_and_then_the_machine_restarts() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(opened) = opened_snapshots();
         let Ok(set) = one_shot(NEWEST);
         let Ok(taken) = reply(set.clone(), "", ExitStatus::Success);
         let events = [opened, vec![Event::Custom(ButtonPress::Choose), taken]].concat();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(read) = read_limine();
         let Ok(restart) = systemctl(&["reboot"]);
@@ -645,12 +634,11 @@ protocol: linux
 
     #[test]
     fn a_refused_one_shot_does_not_restart_and_says_so() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(opened) = opened_snapshots();
         let Ok(set) = one_shot(NEWEST);
         let Ok(refused) = reply(set.clone(), "", ExitStatus::Failure(Some(1)));
         let events = [opened, vec![Event::Custom(ButtonPress::Choose), refused]].concat();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(read) = read_limine();
         let Ok(shown) = screen(&trace.state);
@@ -661,10 +649,9 @@ protocol: linux
 
     #[test]
     fn back_from_the_snapshots_is_the_choice_that_opened_them() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(opened) = opened_snapshots();
         let events = [opened, vec![Event::Custom(ButtonPress::Down), Event::Custom(ButtonPress::Back)]].concat();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
 
         assert_eq!(trace.state, Menu { page: Page::Choices, at: 1, status: Status::Idle });
     }
@@ -679,9 +666,8 @@ protocol: linux
 
     #[test]
     fn a_snapshot_no_apply_took_asks_first_and_opens_on_cancel() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(events) = asked_about_the_installers();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(read) = read_limine();
         let Ok(shown) = screen(&trace.state);
@@ -694,10 +680,9 @@ protocol: linux
 
     #[test]
     fn a_press_that_lands_twice_cancels_rather_than_agrees() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(asked) = asked_about_the_installers();
         let events = [asked, vec![Event::Custom(ButtonPress::Choose)]].concat();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(read) = read_limine();
 
@@ -708,10 +693,9 @@ protocol: linux
 
     #[test]
     fn b_on_the_question_cancels() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(asked) = asked_about_the_installers();
         let events = [asked, vec![Event::Custom(ButtonPress::Back)]].concat();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
 
         assert!(matches!(trace.state.page, Page::Snapshots(_)), "{:?}", trace.state);
         assert_eq!(trace.state.at, 1);
@@ -719,12 +703,11 @@ protocol: linux
 
     #[test]
     fn agreeing_restarts_from_the_snapshot_that_was_asked_about() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(asked) = asked_about_the_installers();
         let Ok(set) = one_shot(INSTALLED);
         let Ok(taken) = reply(set.clone(), "", ExitStatus::Success);
         let events = [asked, vec![Event::Custom(ButtonPress::Down), Event::Custom(ButtonPress::Choose), taken]].concat();
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(read) = read_limine();
         let Ok(restart) = systemctl(&["reboot"]);
@@ -734,11 +717,10 @@ protocol: linux
 
     #[test]
     fn a_machine_with_no_snapshots_says_so_and_choosing_does_nothing() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(read) = read_limine();
         let Ok(listed) = reply(read.clone(), "/Linux\nprotocol: linux\n", ExitStatus::Success);
         let events = [Event::Custom(ButtonPress::Down), Event::Custom(ButtonPress::Choose), listed, Event::Custom(ButtonPress::Choose)];
-        let Ok(trace) = run::<Recovery>(&arguments, &events);
+        let Ok(trace) = run::<Recovery>(&(), &events);
         let Ok(effects) = done(&trace);
         let Ok(shown) = screen(&trace.state);
 

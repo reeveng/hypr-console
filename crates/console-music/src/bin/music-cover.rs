@@ -1,77 +1,87 @@
 //! A picture, as characters, in the terminal.
 //!
 //! ```text
-//! music-cover FILE [ROWS]
+//! music-cover FILE [--rows ROWS]
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use console_core_arguments::{Command, Flag, Operands, Takes, ValidationError, read};
 use console_core_never::Never;
 use console_music::ascii;
 
 const ROWS: u32 = 40;
 
-#[derive(Debug)]
-enum Hidden {
-    NoFileSaid,
-    NoPicture(PathBuf),
+const FILE: [&str; 1] = ["FILE"];
+
+const HIGH: Flag = Flag { spelling: "--rows", takes: Takes::Value("ROWS"), about: "how many rows high to draw it, forty if none is said" };
+
+const COMMAND: Command = Command {
+    name: "music-cover",
+    about: "a picture, as characters, in the terminal",
+    flags: &[HIGH],
+    operands: Operands::Named(&FILE),
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    Picture,
+    NoPicture,
 }
 
-impl std::fmt::Display for Hidden {
-    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Hidden::NoFileSaid => write!(to, "music-cover FILE [ROWS]"),
-            Hidden::NoPicture(path) => write!(to, "no picture in {}", path.display()),
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Cover {
+    path: PathBuf,
+    rows: u32,
 }
 
-impl Hidden {
-    fn code(&self) -> Result<ExitCode, Never> {
-        Ok(match self {
-            Hidden::NoFileSaid => ExitCode::from(2),
-            Hidden::NoPicture(_) => ExitCode::FAILURE,
-        })
-    }
+fn cover(words: &[String]) -> Result<Cover, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(FILE);
+    let [path] = operands?;
+    let high = line.parsed::<u32>(HIGH);
+    let asked = high?;
+
+    let rows = match asked {
+        Some(rows) => rows,
+        None => ROWS,
+    };
+
+    Ok(Cover { path: PathBuf::from(path), rows })
 }
 
 fn main() -> ExitCode {
-    match draw_cover() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(why) => {
-            eprintln!("{why}");
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-            let Ok(code) = why.code();
+    let Cover { path, rows } = match cover(&words) {
+        Ok(cover) => cover,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-            code
+            return ExitCode::from(code);
+        }
+    };
+
+    let Ok(outcome) = draw(&path, rows);
+
+    match outcome {
+        Outcome::Picture => ExitCode::SUCCESS,
+        Outcome::NoPicture => {
+            eprintln!("no picture in {}", path.display());
+
+            ExitCode::FAILURE
         }
     }
 }
 
-fn draw_cover() -> Result<(), Hidden> {
-    let said: Vec<String> = std::env::args().skip(1).collect();
+fn draw(path: &Path, rows: u32) -> Result<Outcome, Never> {
+    let Ok(picture) = ascii::read(path, rows);
 
-    let path = match said.first().map(PathBuf::from) {
-        Some(path) => path,
-        None => return Err(Hidden::NoFileSaid),
-    };
-
-    let rows = match said.get(1).map(|said| said.parse::<u32>()) {
-        None => ROWS,
-        Some(Ok(rows)) => rows,
-
-        Some(Err(fault)) => {
-            eprintln!("music-cover: not a number of rows: {fault}; drawing {ROWS}");
-            ROWS
-        }
-    };
-
-    let Ok(read) = ascii::read(&path, rows);
-
-    let cover = match read {
+    let cover = match picture {
         Some(cover) => cover,
-        None => return Err(Hidden::NoPicture(path)),
+        None => return Ok(Outcome::NoPicture),
     };
 
     let Ok(columns) = console_core_number_conversion::index(cover.columns);
@@ -85,5 +95,5 @@ fn draw_cover() -> Result<(), Hidden> {
         println!("\x1b[0m");
     }
 
-    Ok(())
+    Ok(Outcome::Picture)
 }

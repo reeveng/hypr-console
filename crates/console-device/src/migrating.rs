@@ -37,11 +37,12 @@ use console_core_never::Never;
 use console_core_internal_programs::CONFIRM_DOES;
 use console_core_places::{Base, APPLICATION};
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Choice, Effect, Exit, Prompt, Command, ExitStatus, Event};
+use console_core_arguments::{CommandLine, NoSubcommand, Operands};
+use console_program_contract::{Choice, Effect, Exit, Prompt, Command, ExitStatus, Event};
 use console_session::reaching;
 
 use crate::deploying::How;
-use crate::deploying::{NO_CARD, SAID_NO, TREE, asked_for, card};
+use crate::deploying::{CHECK, NO_CARD, SAID_NO, TREE, YES, card, how};
 use console_device_name::HOST;
 
 pub const WAS: &str = "/etc/legion";
@@ -151,16 +152,38 @@ pub enum Migrating {
     At(Step, Going),
 }
 
+pub const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-migrate",
+    about: "move the device CONSOLE_HOST names off the names it was installed under",
+    flags: &[CHECK, YES],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Migration {
+    pub host: String,
+    pub how: How,
+}
+
+impl Migration {
+    pub fn of(host: &str, line: &CommandLine<NoSubcommand>) -> Result<Migration, Never> {
+        let (Ok(check), Ok(yes)) = (line.presence(CHECK), line.presence(YES));
+        let Ok(how) = how(check, yes);
+
+        Ok(Migration { host: host.to_string(), how })
+    }
+}
+
 pub struct Migrate;
 
 impl Machine for Migrate {
-    type Input = Arguments;
+    type Input = Migration;
     type State = Migrating;
     type Request = Event<console_core_never::Never>;
     type Effect = Effect<console_core_never::Never>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Migrating>, effects: &mut Effects) -> Result<Migrating, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(migration: &Migration, _previous: Option<Migrating>, effects: &mut Effects) -> Result<Migrating, Never> {
+        let Ok(opening) = initial(migration);
 
         opening.offered(effects)
     }
@@ -174,27 +197,21 @@ impl Machine for Migrate {
 
 type Effects = Queue<Effect<console_core_never::Never>>;
 
-fn initial(arguments: &Arguments) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
-    let Ok(first) = arguments.first();
-
-    let Ok(opening) = match first.filter(|host| !host.trim().is_empty()) {
-        None => Transition::without_effects(Migrating::Nowhere),
-        Some(host) => {
-            let Ok(said) = asked_for(arguments);
-
-            Transition::without_effects(Migrating::At(
-                Step::Owning,
-                Going {
-                    host: host.to_string(),
-                    how: said,
-                    whom: String::new(),
-                    uid: String::new(),
-                    tree: Tree::Nowhere,
-                    old: Vec::new(),
-                    attic: String::new(),
-                },
-            ))
-        },
+fn initial(migration: &Migration) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
+    let Ok(opening) = match migration.host.trim().is_empty() {
+        true => Transition::without_effects(Migrating::Nowhere),
+        false => Transition::without_effects(Migrating::At(
+            Step::Owning,
+            Going {
+                host: migration.host.clone(),
+                how: migration.how,
+                whom: String::new(),
+                uid: String::new(),
+                tree: Tree::Nowhere,
+                old: Vec::new(),
+                attic: String::new(),
+            },
+        )),
     };
 
     Ok(opening)
@@ -862,6 +879,10 @@ mod tests {
     use super::*;
     use std::error::Error;
 
+    fn handheld(how: How) -> Result<Migration, Never> {
+        Ok(Migration { host: "root@handheld".to_string(), how })
+    }
+
     fn position<T>(list: &[T], wanted: impl Fn(&T) -> bool) -> Result<Option<u32>, Never> {
         Ok((0..).zip(list).find(|(_, one)| wanted(one)).map(|(at, _)| at))
     }
@@ -954,7 +975,7 @@ mod tests {
 
     #[test]
     fn a_machine_that_names_no_device_reaches_for_nothing() {
-        let Ok(said) = run::<Migrate>(&Arguments::default(), &[Event::Opened]);
+        let Ok(said) = run::<Migrate>(&Migration { host: String::new(), how: How::Confirm }, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
         assert!(effects.iter().all(|effect| !matches!(effect, Effect::Run(_))));
@@ -962,10 +983,7 @@ mod tests {
 
     #[test]
     fn a_check_says_what_the_machine_is_called_and_changes_nothing() {
-        let mut given = vec!["root@handheld", "--check"];
-        given.dedup();
-
-        let Ok(arguments) = Arguments::of(&given);
+        let Ok(arguments) = handheld(How::Check);
         let Ok(events) = looking(&[]);
         let Ok(said) = run::<Migrate>(&arguments, &events);
         let Ok(effects) = said.effects();
@@ -992,7 +1010,7 @@ mod tests {
 
     #[test]
     fn a_machine_already_on_the_new_names_is_told_so_and_left_alone() {
-        let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
+        let Ok(arguments) = handheld(How::Yes);
         let Ok(events) = replies(&[
             Reply::Success("someone"),
             Reply::Success("1000"),
@@ -1015,7 +1033,7 @@ mod tests {
     fn a_tree_with_uncommitted_work_is_refused_before_the_desktop_goes_down() {
         let Ok(said) = looking(&[Reply::Success(" M justfile\n")]);
 
-        let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
+        let Ok(arguments) = handheld(How::Yes);
         let Ok(said) = run::<Migrate>(&arguments, &said);
         let Ok(effects) = said.effects();
 
@@ -1026,7 +1044,7 @@ mod tests {
     fn a_browser_that_is_running_is_refused_because_its_profile_moves() {
         let Ok(said) = looking(&[Reply::Success(""), Reply::Success("4242")]);
 
-        let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
+        let Ok(arguments) = handheld(How::Yes);
         let Ok(said) = run::<Migrate>(&arguments, &said);
         let Ok(effects) = said.effects();
 
@@ -1040,7 +1058,7 @@ mod tests {
     fn without_a_yes_the_question_goes_to_the_device_and_no_does_nothing() {
         let Ok(said) = looking(&[Reply::Success(""), Reply::Failure(1), Reply::Failure(SAID_NO)]);
 
-        let Ok(arguments) = Arguments::of(&["root@handheld"]);
+        let Ok(arguments) = handheld(How::Confirm);
         let Ok(said) = run::<Migrate>(&arguments, &said);
         let Ok(effects) = said.effects();
 
@@ -1054,7 +1072,7 @@ mod tests {
     fn a_device_with_no_card_to_raise_asks_at_this_terminal_instead() {
         let Ok(said) = looking(&[Reply::Success(""), Reply::Failure(1), Reply::Failure(NO_CARD)]);
 
-        let Ok(arguments) = Arguments::of(&["root@handheld"]);
+        let Ok(arguments) = handheld(How::Confirm);
         let Ok(said) = run::<Migrate>(&arguments, &said);
         let Ok(effects) = said.effects();
 
@@ -1173,7 +1191,7 @@ mod tests {
     fn a_step_that_matters_stops_the_migration_where_it_stands() {
         let Ok(said) = looking(&[Reply::Success(""), Reply::Failure(1), Reply::Success("/var/tmp/console-migration-20260829-234115"), Reply::Failure(1)]);
 
-        let Ok(arguments) = Arguments::of(&["root@handheld", "--yes"]);
+        let Ok(arguments) = handheld(How::Yes);
         let Ok(said) = run::<Migrate>(&arguments, &said);
         let Ok(effects) = said.effects();
 

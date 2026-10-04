@@ -15,8 +15,10 @@
 //! so the second visit to a folder is the listing and the pictures together.
 
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use console_content_types::Table;
+use console_core_arguments::{Command, Operands, ValidationError, read};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_places::Base;
@@ -27,14 +29,32 @@ const INTO_IT: &str = "3";
 
 const THE_START: &str = "0";
 
-fn main() {
-    let folder = match std::env::args().nth(1) {
-        Some(folder) => folder,
-        None => {
-            eprintln!("which folder");
-            return;
-        }
-    };
+const FOLDER: [&str; 1] = ["FOLDER"];
+
+const COMMAND: Command = Command {
+    name: "files-thumbnails",
+    about: "make the pictures one folder's listing wants, and stop",
+    flags: &[],
+    operands: Operands::Named(&FOLDER),
+};
+
+fn folder(words: &[String]) -> Result<String, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(FOLDER);
+    let [folder] = operands?;
+
+    Ok(folder.clone())
+}
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, folder, |folder| make(&folder));
+
+    code
+}
+
+fn make(folder: &str) -> Result<(), Never> {
 
     let Ok(cache) = Base::Cache.user();
 
@@ -43,7 +63,7 @@ fn main() {
         None => {
             eprintln!("files-thumbnails: no home, so there is nowhere to keep a picture");
 
-            return;
+            return Ok(());
         }
     };
 
@@ -57,7 +77,7 @@ fn main() {
                 store.display()
             );
 
-            return;
+            return Ok(());
         }
     }
 
@@ -70,6 +90,8 @@ fn main() {
         Ok(_every_one_tried) => {},
         Err(fault) => eprintln!("files-thumbnails: {fault}"),
     }
+
+    Ok(())
 }
 
 fn wanting(folder: &Path, store: &Path) -> Result<Vec<(PathBuf, String)>, Never> {

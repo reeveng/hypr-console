@@ -117,6 +117,7 @@
 {"kind":"starts","package":"console-control-center","target":"console-control-center","what":"PutAway"}
 {"kind":"starts","package":"console-control-center","target":"console-control-center","what":"Screenshot"}
 {"kind":"builds","package":"console-control-center","target":"lib","what":"console_control_center"}
+{"kind":"builds","package":"console-core-arguments","target":"lib","what":"console_core_arguments"}
 {"kind":"builds","package":"console-core-atomic-writes","target":"lib","what":"console_core_atomic_writes"}
 {"kind":"builds","package":"console-core-checksums","target":"lib","what":"console_core_checksums"}
 {"kind":"builds","package":"console-core-color","target":"lib","what":"console_core_color"}
@@ -134,11 +135,13 @@
 {"kind":"builds","package":"console-core-localization","target":"lib","what":"console_core_localization"}
 {"kind":"builds","package":"console-core-never","target":"lib","what":"console_core_never"}
 {"kind":"builds","package":"console-core-number-conversion","target":"lib","what":"console_core_number_conversion"}
+{"kind":"builds","package":"console-core-picture-scaling","target":"lib","what":"console_core_picture_scaling"}
 {"kind":"builds","package":"console-core-places","target":"lib","what":"console_core_places"}
 {"kind":"builds","package":"console-core-png-files","target":"lib","what":"console_core_png_files"}
 {"kind":"builds","package":"console-core-prefix-codes","target":"lib","what":"console_core_prefix_codes"}
 {"kind":"builds","package":"console-core-qr-codes","target":"lib","what":"console_core_qr_codes"}
 {"kind":"builds","package":"console-core-reconnect","target":"lib","what":"console_core_reconnect"}
+{"kind":"builds","package":"console-core-schedules","target":"lib","what":"console_core_schedules"}
 {"kind":"builds","package":"console-core-shapes","target":"lib","what":"console_core_shapes"}
 {"kind":"builds","package":"console-core-state-machine","target":"lib","what":"console_core_state_machine"}
 {"kind":"builds","package":"console-core-temporary-directories","target":"lib","what":"console_core_temporary_directories"}

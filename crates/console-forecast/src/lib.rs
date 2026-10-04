@@ -7,4 +7,4 @@
 
 pub mod card;
 
-pub use card::{WHO, card, door};
+pub use card::{COMMAND, WHO, card, door};

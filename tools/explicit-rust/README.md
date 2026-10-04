@@ -64,7 +64,7 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT040  a file is written whole or not at all
     EXPLICIT041  a program written to the contract says what it prints
     EXPLICIT042  a program ends by returning from `main`
-    EXPLICIT043  a topic listened to is a topic the program stops listening to
+    EXPLICIT043  a program that listens to an event group stops listening to it
     EXPLICIT044  a function decides from what it was handed
     EXPLICIT045  a conversion names the type it becomes
     EXPLICIT046  a jump out of a nested loop says which loop it leaves

@@ -67,7 +67,7 @@ pub enum Field {
     What,
 }
 
-pub const ANY_TOPIC: &str = "*";
+pub const ANY_EVENT_GROUP: &str = "*";
 
 pub const LIBRARY: &str = "lib";
 
@@ -232,12 +232,12 @@ pub fn subscriptions(facts: &[Fact]) -> Result<BTreeMap<Target, BTreeSet<String>
     for fact in facts.iter().filter(|fact| fact.kind == Kind::Subscribes) {
         let Ok(target) = fact.of();
         let Ok(names) = names_of(facts, &target);
-        let topics = held.entry(target).or_default();
+        let event_groups = held.entry(target).or_default();
 
-        match (fact.what == ANY_TOPIC, names.is_empty()) {
-            (true, false) => topics.extend(names),
+        match (fact.what == ANY_EVENT_GROUP, names.is_empty()) {
+            (true, false) => event_groups.extend(names),
             (true, true) | (false, true) | (false, false) => {
-                let _ = topics.insert(fact.what.clone());
+                let _ = event_groups.insert(fact.what.clone());
             }
         }
     }

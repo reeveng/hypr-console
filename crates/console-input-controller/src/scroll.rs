@@ -21,13 +21,13 @@ pub const DEADZONE: f64 = 0.20;
 pub const MAX_HZ: f64 = 14.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Stick {
+pub struct Thumbstick {
     pub value: i32,
     pub range: Range,
 }
 
-pub fn pushed(stick: Stick) -> Result<f64, Never> {
-    let Stick { value, range } = stick;
+pub fn pushed(stick: Thumbstick) -> Result<f64, Never> {
+    let Thumbstick { value, range } = stick;
     let Ok(part) = axis::part(value, range);
 
     match part.abs() < DEADZONE {
@@ -83,19 +83,19 @@ mod tests {
 
     #[test]
     fn a_stick_at_rest_is_at_rest() {
-        assert_eq!(pushed(Stick { value: 0, range: EITHER_SIDE }), Ok(0.0));
-        assert_eq!(pushed(Stick { value: 6000, range: EITHER_SIDE }), Ok(0.0), "inside the deadzone");
+        assert_eq!(pushed(Thumbstick { value: 0, range: EITHER_SIDE }), Ok(0.0));
+        assert_eq!(pushed(Thumbstick { value: 6000, range: EITHER_SIDE }), Ok(0.0), "inside the deadzone");
     }
 
     #[test]
     fn a_stick_that_rests_in_the_middle_of_a_range_from_zero_does_not_scroll() {
-        assert_eq!(pushed(Stick { value: 128, range: Range { low: 0, high: 255 } }), Ok(0.0));
+        assert_eq!(pushed(Thumbstick { value: 128, range: Range { low: 0, high: 255 } }), Ok(0.0));
     }
 
     #[test]
     fn a_stick_pushed_all_the_way_is_all_the_way() {
-        let Ok(right) = pushed(Stick { value: 32767, range: EITHER_SIDE });
-        let Ok(left) = pushed(Stick { value: -32767, range: EITHER_SIDE });
+        let Ok(right) = pushed(Thumbstick { value: 32767, range: EITHER_SIDE });
+        let Ok(left) = pushed(Thumbstick { value: -32767, range: EITHER_SIDE });
 
         assert!((right - 1.0).abs() < 1e-12);
         assert!((left + 1.0).abs() < 1e-12);
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn a_small_push_is_slower_than_its_share() {
-        let Ok(half) = pushed(Stick { value: 16383, range: EITHER_SIDE });
+        let Ok(half) = pushed(Thumbstick { value: 16383, range: EITHER_SIDE });
         assert!(half > 0.0 && half < 0.5, "half a push is {half}");
     }
 

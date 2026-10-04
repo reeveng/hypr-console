@@ -47,6 +47,7 @@ use std::collections::BTreeMap;
 use std::io::IsTerminal;
 use std::time::Instant;
 
+use console_core_arguments::{Command, Flag, Operands, Presence, ValidationError, Takes};
 use console_test_checks::select;
 use console_test_checks::Unchecked;
 use console_core_never::Never;
@@ -85,34 +86,48 @@ struct Arguments {
     all: bool,
 }
 
-fn parse_arguments(words: Vec<String>) -> Result<Arguments, Never> {
-    let said = |what: &str| words.iter().any(|word| word == what);
-    let after = |what: &str| {
-        words
-            .iter()
-            .position(|word| word == what)
-            .and_then(|at| words.get(at.saturating_add(1)))
-            .cloned()
-    };
+const LIST: Flag = Flag { spelling: "--list", takes: Takes::None, about: "what there is, and what each is" };
+
+const STAGE: Flag = Flag { spelling: "--stage", takes: Takes::Value("STAGE"), about: "where they run: here, desktop or device" };
+
+const DRY_RUN: Flag =
+    Flag { spelling: "--dry-run", takes: Takes::None, about: "print every command the device would be sent, and send none" };
+
+const YES: Flag = Flag { spelling: "--yes", takes: Takes::None, about: "the device is somebody's, and this is them saying yes" };
+
+const ALL: Flag =
+    Flag { spelling: "--all", takes: Takes::None, about: "every check written for the device, not only what nothing else can answer" };
+
+const COMMAND: Command = Command {
+    name: "console-check",
+    about: "Everything this desktop has grown, tried again, oldest first.",
+    flags: &[LIST, STAGE, DRY_RUN, YES, ALL],
+    operands: Operands::Any("CHECK"),
+};
+
+fn parse_arguments<W: AsRef<str>>(words: &[W]) -> Result<Arguments, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, words)?;
+    let Ok(only) = line.operands();
+    let Ok(stage) = line.value(STAGE);
+    let Ok(list) = line.presence(LIST);
+    let Ok(dry_run) = line.presence(DRY_RUN);
+    let Ok(yes) = line.presence(YES);
+    let Ok(all) = line.presence(ALL);
+
     Ok(Arguments {
-        only: words
-            .iter()
-            .filter(|word| !word.starts_with("--"))
-            .filter(|word| Some(word.to_string()) != after("--stage"))
-            .cloned()
-            .collect(),
-        stage: match after("--stage") {
-            Some(stage) => stage,
+        only: only.to_vec(),
+        stage: match stage {
+            Some(stage) => stage.to_string(),
             None => HERE.to_string(),
         },
-        list: said("--list"),
-        dry_run: said("--dry-run"),
-        yes: said("--yes"),
-        all: said("--all"),
+        list: list == Presence::Present,
+        dry_run: dry_run == Presence::Present,
+        yes: yes == Presence::Present,
+        all: all == Presence::Present,
     })
 }
 
-struct HexColor {
+struct Ansi {
     green: &'static str,
     red: &'static str,
     dim: &'static str,
@@ -120,11 +135,11 @@ struct HexColor {
     off: &'static str,
 }
 
-const COLORED: HexColor =
-    HexColor { green: "\x1b[32m", red: "\x1b[31m", dim: "\x1b[2m", yellow: "\x1b[33m", off: "\x1b[0m" };
-const PLAIN: HexColor = HexColor { green: "", red: "", dim: "", yellow: "", off: "" };
+const COLORED: Ansi =
+    Ansi { green: "\x1b[32m", red: "\x1b[31m", dim: "\x1b[2m", yellow: "\x1b[33m", off: "\x1b[0m" };
+const PLAIN: Ansi = Ansi { green: "", red: "", dim: "", yellow: "", off: "" };
 
-impl HexColor {
+impl Ansi {
     fn mark(&self, how: &How) -> Result<String, Never> {
         let (color, said) = match how {
             How::Ok => (self.green, "ok"),
@@ -142,7 +157,15 @@ fn main() -> std::process::ExitCode {
         false => PLAIN,
     };
 
-    let Ok(asked) = parse_arguments(std::env::args().skip(1).collect());
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let asked = match parse_arguments(&words) {
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return std::process::ExitCode::from(code);
+        }
+    };
 
     match run(asked, &ink) {
         Ok(code) => code,
@@ -172,7 +195,7 @@ fn spared(check: &Check, tier: Tier) -> Result<Option<Stage>, Never> {
 
 fn say(
     counted: &mut BTreeMap<&'static str, u32>,
-    ink: &HexColor,
+    ink: &Ansi,
     check: &Check,
     how: How,
 ) -> Result<(), Never> {
@@ -213,7 +236,7 @@ fn kept_up(host: &str, touching: DryRun) -> Result<Option<console_awake::Staying
 fn on_the_device(
     asked: &Arguments,
     checks: Vec<&'static Check>,
-    ink: &HexColor,
+    ink: &Ansi,
     counted: &mut BTreeMap<&'static str, u32>,
 ) -> Result<(), Unchecked> {
     let touching = match asked.dry_run {
@@ -394,7 +417,7 @@ fn timed(mut timing: Waiting, stage: &str, how: &How) -> Result<(), Never> {
     }
 }
 
-fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unchecked> {
+fn run(asked: Arguments, ink: &Ansi) -> Result<std::process::ExitCode, Unchecked> {
     let Ok(checks) = select(&asked.only);
 
     match checks.is_empty() {
@@ -470,4 +493,39 @@ fn run(asked: Arguments, ink: &HexColor) -> Result<std::process::ExitCode, Unche
         0 => std::process::ExitCode::SUCCESS,
         _ => std::process::ExitCode::from(1),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_refuses_a_misspelt_dry_run_rather_than_running_on_the_device() {
+        let read = parse_arguments(&["--stage", "device", "--dyr-run", "--yes"]);
+
+        assert_eq!(
+            read.map(|asked| asked.dry_run).map_err(|refusal| refusal.reason),
+            Err(console_core_arguments::Reason::NoSuchFlag("--dyr-run".to_string()))
+        );
+    }
+
+    #[test]
+    fn the_line_asks_for_the_device_run_it_reads_as() -> Result<(), ValidationError> {
+        let asked = parse_arguments(&["--stage", "device", "--dry-run", "brightness"])?;
+
+        assert_eq!(asked.stage, DEVICE);
+        assert_eq!((asked.dry_run, asked.yes, asked.all, asked.list), (true, false, false, false));
+        assert_eq!(asked.only, ["brightness"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn with_no_stage_the_checks_run_here() -> Result<(), ValidationError> {
+        let asked = parse_arguments::<&str>(&[])?;
+
+        assert_eq!(asked.stage, HERE);
+
+        Ok(())
+    }
 }

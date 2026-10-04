@@ -14,6 +14,7 @@ name = "console-check"
 path = "src/bin/console-check.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-temporary-directories.workspace = true
 console-architecture.workspace = true
 console-awake.workspace = true

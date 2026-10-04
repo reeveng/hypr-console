@@ -77,7 +77,7 @@ impl Plugged for Plug<'_> {
         let Ok(trigger) = descriptor.axis(AbsoluteAxisCode::ABS_Z.0);
 
         Ranges {
-            stick: stick.map_or(Ranges::default().stick, |axis| Range { low: axis.minimum, high: axis.maximum }),
+            thumbstick: stick.map_or(Ranges::default().thumbstick, |axis| Range { low: axis.minimum, high: axis.maximum }),
             trigger: trigger.map_or((0, 1), |axis| (axis.minimum, axis.maximum)),
         }
     }

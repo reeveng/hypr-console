@@ -12,7 +12,7 @@
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Exit, Command, ExitStatus, Event};
+use console_program_contract::{Effect, Exit, Command, ExitStatus, Event};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pulling {
@@ -44,13 +44,13 @@ impl Named {
 pub struct Pull;
 
 impl Machine for Pull {
-    type Input = Arguments;
+    type Input = Named;
     type State = Pulling;
     type Request = Event<console_core_never::Never>;
     type Effect = Effect<console_core_never::Never>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Pulling>, effects: &mut Effects) -> Result<Pulling, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(named: &Named, _previous: Option<Pulling>, effects: &mut Effects) -> Result<Pulling, Never> {
+        let Ok(opening) = initial(named);
 
         opening.offered(effects)
     }
@@ -64,10 +64,8 @@ impl Machine for Pull {
 
 type Effects = Queue<Effect<console_core_never::Never>>;
 
-fn initial(arguments: &Arguments) -> Result<Transition<Pulling, Effect<console_core_never::Never>>, Never> {
-    let Ok(first) = arguments.first();
-    let Ok(named) = Named::of(first);
-    let Ok(opening) = Transition::without_effects(Pulling::Initial(named));
+fn initial(named: &Named) -> Result<Transition<Pulling, Effect<console_core_never::Never>>, Never> {
+    let Ok(opening) = Transition::without_effects(Pulling::Initial(named.clone()));
 
     Ok(opening)
 }
@@ -175,7 +173,7 @@ mod tests {
 
     #[test]
     fn a_machine_that_names_no_device_is_told_so_and_asks_git_nothing() {
-        let Ok(said) = run::<Pull>(&Arguments::default(), &[Event::Opened]);
+        let Ok(said) = run::<Pull>(&Named::Nowhere, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
         assert!(
@@ -186,7 +184,7 @@ mod tests {
 
     #[test]
     fn a_tree_with_uncommitted_work_in_it_is_refused_before_anything_is_fetched() {
-        let Ok(arguments) = Arguments::of(&["root@handheld"]);
+        let Ok(arguments) = Named::of(Some("root@handheld"));
         let Ok(dirty) = status(" M crates/console-panel/src/panel.rs\n");
         let Ok(said) = run::<Pull>(&arguments, &[Event::Opened, dirty]);
 
@@ -202,7 +200,7 @@ mod tests {
 
     #[test]
     fn a_clean_tree_fetches_from_the_device_and_rebases_onto_what_came() {
-        let Ok(arguments) = Arguments::of(&["root@handheld"]);
+        let Ok(arguments) = Named::of(Some("root@handheld"));
         let Ok(clean) = status("");
         let Ok(fetched) = well("");
         let Ok(rebased) = well("");
@@ -228,7 +226,7 @@ mod tests {
 
     #[test]
     fn a_rebase_that_would_not_go_on_top_stops_rather_than_carrying_on() {
-        let Ok(arguments) = Arguments::of(&["root@handheld"]);
+        let Ok(arguments) = Named::of(Some("root@handheld"));
         let Ok(rebase) = Command::external(ExternalProgram::Git, &["rebase"]);
         let Ok(clean) = status("");
         let Ok(fetched) = well("");

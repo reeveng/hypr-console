@@ -19,7 +19,7 @@
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Command, Event};
+use console_program_contract::{Effect, Command, Event};
 
 pub const UP: u32 = 0;
 
@@ -54,13 +54,13 @@ pub enum Closes {
 pub struct Notifications;
 
 impl Machine for Notifications {
-    type Input = Arguments;
+    type Input = ();
     type State = Destination;
     type Request = Event<NotificationsEvent>;
     type Effect = Effect<NotificationsEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Destination>, effects: &mut Effects) -> Result<Destination, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(_input: &(), _previous: Option<Destination>, effects: &mut Effects) -> Result<Destination, Never> {
+        let Ok(opening) = initial();
 
         opening.offered(effects)
     }
@@ -74,7 +74,7 @@ impl Machine for Notifications {
 
 type Effects = Queue<Effect<NotificationsEffect>>;
 
-fn initial(_argv: &Arguments) -> Result<Transition<Destination, Effect<NotificationsEffect>>, Never> {
+fn initial() -> Result<Transition<Destination, Effect<NotificationsEffect>>, Never> {
     let Ok(opening) = Transition::without_effects(Destination::List);
 
     Ok(opening)
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn a_row_opens_onto_the_notification_it_names() {
-        let Ok(said) = run::<Notifications>(&Arguments::default(), &[Event::Custom(NotificationsEvent::Chosen(7))]);
+        let Ok(said) = run::<Notifications>(&(), &[Event::Custom(NotificationsEvent::Chosen(7))]);
 
         assert_eq!(said.state, Destination::One(7));
         assert_eq!(said.on(0), Ok(Some([Effect::Custom(NotificationsEffect::Replace(DEEPER))].as_slice())));
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn back_out_of_a_notification_is_the_list_and_back_out_of_the_list_is_the_way_out() {
         let Ok(one) = run::<Notifications>(
-            &Arguments::default(),
+            &(),
             &[Event::Custom(NotificationsEvent::Chosen(7)), Event::Custom(NotificationsEvent::Back)],
         );
 
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn dismissing_one_asks_the_daemon_and_comes_back_to_the_list() {
         let Ok(said) = run::<Notifications>(
-            &Arguments::default(),
+            &(),
             &[Event::Custom(NotificationsEvent::Chosen(7)), Event::Custom(NotificationsEvent::Dismissed(7))],
         );
 
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn clearing_them_all_stays_where_it_is_and_draws_again() {
-        let Ok(said) = run::<Notifications>(&Arguments::default(), &[Event::Custom(NotificationsEvent::ClearAll)]);
+        let Ok(said) = run::<Notifications>(&(), &[Event::Custom(NotificationsEvent::ClearAll)]);
         let Ok(clear) = clearing();
 
         assert_eq!(

@@ -30,8 +30,9 @@ use console_actor::Actor;
 use console_panel::card::{Card, Door};
 use console_panel::page::{Handler, Page, Row, Rows, Showing};
 use console_panel::running::run_output;
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
-use console_program_contract::{Arguments, Effect, Executable, Topic, Event};
+use console_program_contract::{Effect, Executable, EventGroup, Event};
 
 
 fn waiting() -> Result<Vec<Notification>, Never> {
@@ -188,7 +189,7 @@ fn pages(looking: &ActorAddress) -> Result<Vec<Page>, Never> {
     });
     let Ok(first) = tab(0);
     let Ok(waiting) = Page::new(first, asked);
-    let Ok(watching) = waiting.with_subscription(Topic::Notifications, console_events::again::notifications);
+    let Ok(watching) = waiting.with_subscription(EventGroup::Notifications, console_events::again::notifications);
     let Ok(waiting) = watching.on_back(move |showing| {
         let Ok(onto) = looking_at(&backing);
         let Ok(()) = press(&backing, NotificationsEvent::Back, showing);
@@ -216,15 +217,21 @@ pub const WHO: &str = "notifications-panel";
 
 const UNDER: i32 = 250;
 
+pub const COMMAND: Command = Command {
+    name: "notifications-panel",
+    about: "what was said while nobody was looking",
+    flags: &[],
+    operands: Operands::Optional("TAB"),
+};
+
 pub fn door(arguments: &[String]) -> Result<Door, Never> {
     Door::closing_at("notifications", arguments.first().map(String::as_str))
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
     let tab = arguments.first().cloned();
-    let Ok(opened) = Arguments::of(&tab.as_deref().into_iter().collect::<Vec<&str>>());
 
-    let Ok(card) = Card::supervised::<Notifications, _>(opened, pages);
+    let Ok(card) = Card::supervised::<Notifications, _>((), pages);
     let Ok(card) = card.under(UNDER);
 
     card.opening_at(tab.as_deref())

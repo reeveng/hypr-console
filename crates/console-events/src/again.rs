@@ -13,12 +13,12 @@
 //! [`crate::subscriber`] itself the way `console-wallpaper` does.
 //!
 //! **[`about`] cannot be called without saying what the lines mean, and it
-//! could.** It used to turn every line on a topic into *ask again* and ask
-//! no one what the lines were, which is the one thing a subscriber must not be
-//! handed: a reading answered by asking its own source is heard by the source
-//! as a change, and the bar read the volume forty-seven times a second for as
-//! long as it was up. The filter is an argument now rather than a thing a
-//! caller might remember, and a watch that truly wants every line says
+//! could.** It used to turn every line on an event group into *ask again* and
+//! ask no one what the lines were, which is the one thing a subscriber must not
+//! be handed: a reading answered by asking its own source is heard by the
+//! source as a change, and the bar read the volume forty-seven times a second
+//! for as long as it was up. The filter is an argument now rather than a thing
+//! a caller might remember, and a watch that truly wants every line says
 //! [`anything`] out loud. [`layers`] is the same call with the one filter the
 //! compositor's own words already settle.
 //!
@@ -31,7 +31,7 @@
 use std::sync::mpsc::Sender;
 
 use console_core_never::Never;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use console_program_lifetime::threads;
 
 use crate::bus;
@@ -51,13 +51,13 @@ pub fn always(_every_line_is_a_reason: &str) -> Result<Worth, Never> {
 }
 
 pub fn layers(say: Sender<()>) -> Result<(), Never> {
-    let Ok(subscriber) = subscription::connect(&[Topic::Compositor]);
+    let Ok(subscriber) = subscription::connect(&[EventGroup::Compositor]);
 
     forward(subscriber, surfaces, say)
 }
 
-pub fn about(topic: &Topic, worth: Worthwhile, say: Sender<()>) -> Result<(), Never> {
-    let Ok(subscriber) = subscription::connect(std::slice::from_ref(topic));
+pub fn about(event_group: &EventGroup, worth: Worthwhile, say: Sender<()>) -> Result<(), Never> {
+    let Ok(subscriber) = subscription::connect(std::slice::from_ref(event_group));
 
     forward(subscriber, worth, say)
 }

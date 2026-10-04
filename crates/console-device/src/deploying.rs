@@ -78,7 +78,8 @@ use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_internal_programs::{CONFIRM_DOES, InternalProgram};
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Choice, Effect, Exit, Flag, Prompt, Command, ExitStatus, Event};
+use console_core_arguments::{CommandLine, Flag, NoSubcommand, Operands, Presence, Takes};
+use console_program_contract::{Choice, Effect, Exit, Prompt, Command, ExitStatus, Event};
 use console_session::reaching;
 
 use console_device_name::HOST;
@@ -87,7 +88,22 @@ pub const TREE: &str = console_repository::DEVICE_ROOT;
 
 pub const LOCK: &str = "console-deploy.lock";
 
-pub const KNOWN: [&str; 3] = ["--check", "--yes", "--untested"];
+pub const CHECK: Flag = Flag { spelling: "--check", takes: Takes::None, about: "ask the device what this would change, and send nothing" };
+
+pub const YES: Flag = Flag { spelling: "--yes", takes: Takes::None, about: "a person already said yes, so no one is asked" };
+
+pub const UNTESTED: Flag = Flag {
+    spelling: "--untested",
+    takes: Takes::None,
+    about: "send the tree without `just ready` in front of it and the checks behind it",
+};
+
+pub const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-deploy",
+    about: "send this tree to the device CONSOLE_HOST names, and apply it there",
+    flags: &[CHECK, YES, UNTESTED],
+    operands: Operands::None,
+};
 
 pub fn card() -> Result<&'static str, Never> {
     InternalProgram::Confirm.name()
@@ -108,8 +124,28 @@ pub const NOT_ASKED: i32 = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deploying {
     Nowhere,
-    Unknown(String),
     At(Step, Going),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deployment {
+    pub host: String,
+    pub how: How,
+    pub tests: Tests,
+}
+
+impl Deployment {
+    pub fn of(host: &str, line: &CommandLine<NoSubcommand>) -> Result<Deployment, Never> {
+        let (Ok(check), Ok(yes), Ok(untested)) = (line.presence(CHECK), line.presence(YES), line.presence(UNTESTED));
+        let Ok(how) = how(check, yes);
+
+        let tests = match untested {
+            Presence::Present => Tests::Skipped,
+            Presence::Absent => Tests::Run,
+        };
+
+        Ok(Deployment { host: host.to_string(), how, tests })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,13 +266,13 @@ pub enum Alive {
 pub struct Deploy;
 
 impl Machine for Deploy {
-    type Input = Arguments;
+    type Input = Deployment;
     type State = Deploying;
     type Request = Event<DeployingEvent>;
     type Effect = Effect<DeployingEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Deploying>, effects: &mut Effects) -> Result<Deploying, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(deployment: &Deployment, _previous: Option<Deploying>, effects: &mut Effects) -> Result<Deploying, Never> {
+        let Ok(opening) = initial(deployment);
 
         opening.offered(effects)
     }
@@ -250,30 +286,21 @@ impl Machine for Deploy {
 
 type Effects = Queue<Effect<DeployingEffect>>;
 
-fn initial(arguments: &Arguments) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
-    let Ok(first) = arguments.first();
-    let Ok(stranger) = stranger(arguments);
-
-    let Ok(opening) = match (stranger, first.filter(|host| !host.trim().is_empty())) {
-        (Some(word), _) => Transition::without_effects(Deploying::Unknown(word)),
-        (None, None) => Transition::without_effects(Deploying::Nowhere),
-        (None, Some(host)) => {
-            let Ok(said) = asked_for(arguments);
-            let Ok(tests) = tests_asked_for(arguments);
-
-            Transition::without_effects(Deploying::At(
-                Step::Rooting,
-                Going {
-                    host: host.to_string(),
-                    how: said,
-                    lock: PathBuf::new(),
-                    was: String::new(),
-                    whom: String::new(),
-                    toolchain: String::new(),
-                    tests,
-                },
-            ))
-        },
+fn initial(deployment: &Deployment) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
+    let Ok(opening) = match deployment.host.trim().is_empty() {
+        true => Transition::without_effects(Deploying::Nowhere),
+        false => Transition::without_effects(Deploying::At(
+            Step::Rooting,
+            Going {
+                host: deployment.host.clone(),
+                how: deployment.how,
+                lock: PathBuf::new(),
+                was: String::new(),
+                whom: String::new(),
+                toolchain: String::new(),
+                tests: deployment.tests,
+            },
+        )),
     };
 
     Ok(opening)
@@ -289,19 +316,9 @@ fn decide(state: &Deploying, event: &Event<DeployingEvent>) -> Result<Transition
             ),
         ),
 
-        (Deploying::Unknown(word), Event::Opened) => stopped(
-            state,
-            &format!(
-                "{word} is not a word console-deploy knows, and a deploy is not the \
-                 thing to learn that on. It takes --check, which sends nothing, \
-                 --yes, which does not stop to ask, and --untested, which sends \
-                 without asking what must hold."
-            ),
-        ),
-
         (Deploying::At(step, going), word) => at(*step, going, word),
 
-        (Deploying::Nowhere | Deploying::Unknown(_), _) => Transition::without_effects(state.clone()),
+        (Deploying::Nowhere, _) => Transition::without_effects(state.clone()),
     };
 
     Ok(turn)
@@ -862,29 +879,11 @@ fn whose(going: &Going, holder: &Holder) -> Result<Transition<Deploying, Effect<
     }
 }
 
-fn stranger(arguments: &Arguments) -> Result<Option<String>, Never> {
-    let Ok(words) = arguments.words();
-
-    Ok(words.iter().skip(1).find(|word| !KNOWN.contains(&word.as_str())).cloned())
-}
-
-pub fn asked_for(arguments: &Arguments) -> Result<How, Never> {
-    let check = arguments.flag("--check")?;
-    let yes = arguments.flag("--yes")?;
-
+pub fn how(check: Presence, yes: Presence) -> Result<How, Never> {
     Ok(match (check, yes) {
-        (Flag::Present, _) => How::Check,
-        (Flag::Absent, Flag::Present) => How::Yes,
-        (Flag::Absent, Flag::Absent) => How::Confirm,
-    })
-}
-
-pub fn tests_asked_for(arguments: &Arguments) -> Result<Tests, Never> {
-    let untested = arguments.flag("--untested")?;
-
-    Ok(match untested {
-        Flag::Present => Tests::Skipped,
-        Flag::Absent => Tests::Run,
+        (Presence::Present, Presence::Present | Presence::Absent) => How::Check,
+        (Presence::Absent, Presence::Present) => How::Yes,
+        (Presence::Absent, Presence::Absent) => How::Confirm,
     })
 }
 
@@ -1075,9 +1074,20 @@ mod tests {
     }
 
     fn run_with(given: &[&str], steps: Vec<Step>) -> Result<Outcome, Never> {
-        let Ok(arguments) = Arguments::of(given);
+        let (host, flags) = match given.split_first() {
+            Some((host, flags)) => (*host, flags),
+            None => ("", given),
+        };
+
+        let line = match console_core_arguments::read(&COMMAND, flags) {
+            Ok(line) => line,
+            Err(refusal) => {
+                return Ok(Outcome { effects: Vec::new(), asks: Vec::new(), pushes: 0, failure: Some(refusal.to_string()) });
+            }
+        };
+        let Ok(deployment) = Deployment::of(host, &line);
         let Ok(events) = events(steps);
-        let Ok(said) = run::<Deploy>(&arguments, &events);
+        let Ok(said) = run::<Deploy>(&deployment, &events);
 
         told(&said)
     }
@@ -1108,7 +1118,8 @@ mod tests {
 
     #[test]
     fn a_machine_that_names_no_device_reaches_for_nothing() {
-        let Ok(said) = run::<Deploy>(&Arguments::default(), &[Event::Opened]);
+        let nowhere = Deployment { host: String::new(), how: How::Confirm, tests: Tests::Run };
+        let Ok(said) = run::<Deploy>(&nowhere, &[Event::Opened]);
         let Ok(said) = told(&said);
 
         assert!(said.asks.is_empty(), "it reached for a device it had no name for");
@@ -1374,13 +1385,11 @@ mod tests {
 
     #[test]
     fn a_word_console_deploy_does_not_know_sends_nothing_and_says_so() {
-        let Ok(said) = run_with(&["root@handheld", "--help"], vec![Step::Opened]);
+        let Ok(said) = run_with(&["root@handheld", "--dry"], vec![Step::Opened]);
 
         assert_eq!(said.pushes, 0, "an unknown word reached the machine");
-        assert!(
-            said.failure.as_deref().is_some_and(|why| why.starts_with("--help is not a word")),
-            "an unknown word was carried rather than refused"
-        );
+        assert_eq!(said.effects, Vec::new(), "an unknown word reached the machine");
+        assert_eq!(said.failure.as_deref(), Some("console-deploy: --dry is not a flag console-deploy takes"));
     }
 
     #[test]

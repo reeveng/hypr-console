@@ -18,11 +18,12 @@ use console_input_controller::turning::{Closed, Plugged, Took, Turning};
 use console_input_gamepad::axis::Range;
 use console_input_gamepad::capture::{Descriptor, load_capture};
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{RecordingClock, LegionGo};
+use console_input_gamepad::go::LegionGo;
+use console_waiting::clock::TestClock;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::world::World;
 
-pub type Go = LegionGo<World, RecordingClock>;
+pub type Go = LegionGo<World, TestClock>;
 
 pub type Failure = Box<dyn Error>;
 
@@ -42,7 +43,7 @@ pub fn go(profile: &str) -> Result<Go, Failure> {
     let Ok(devices) = Devices::new(seen, world);
     let Ok(root) = root();
     let profiles = every_profile(&root)?;
-    let go = LegionGo::new(profiles, devices, RecordingClock::default(), profile)?;
+    let go = LegionGo::new(profiles, devices, TestClock::default(), profile)?;
 
     Ok(go)
 }
@@ -108,7 +109,7 @@ impl Plugged for Plug<'_> {
         let Ok(trigger) = descriptor.axis(AbsoluteAxisCode::ABS_Z.0);
 
         Ranges {
-            stick: stick.map_or(Range { low: -1, high: 1 }, |axis| Range { low: axis.minimum, high: axis.maximum }),
+            thumbstick: stick.map_or(Range { low: -1, high: 1 }, |axis| Range { low: axis.minimum, high: axis.maximum }),
             trigger: trigger.map_or((0, 1), |axis| (axis.minimum, axis.maximum)),
         }
     }

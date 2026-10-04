@@ -21,6 +21,7 @@ path = "src/bin/home-square.rs"
 console-core-atomic-writes.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
+console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-walking.workspace = true
 console-compositor.workspace = true

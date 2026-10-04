@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-never.workspace = true
 
 [lints]

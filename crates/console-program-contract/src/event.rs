@@ -6,7 +6,7 @@
 //! not.
 //!
 //! [`Change`] carries a source's line untouched: the program that asked to
-//! hear a topic is the one that knows what its events mean.
+//! hear an event group is the one that knows what its events mean.
 //!
 //! There is no `Event::Now`. A clock reaching a program through the side of it
 //! is the same fault as a file reaching it through the side of it -- two runs
@@ -50,12 +50,12 @@ pub type Elapsed = std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    pub topic: Topic,
+    pub event_group: EventGroup,
     pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Topic {
+pub enum EventGroup {
     Compositor,
     Sound,
     Network,

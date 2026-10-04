@@ -22,6 +22,7 @@ name = "console-pull"
 path = "src/bin/console-pull.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-awake.workspace = true
 console-core-external-programs.workspace = true
 console-core-atomic-writes.workspace = true

@@ -7,15 +7,15 @@
 
 extern crate console_program_contract;
 
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 
 // GOOD — the whole output of this program, and no `Effect` anywhere in it.
-fn draws(woken: Topic) {
+fn draws(woken: EventGroup) {
     match woken {
-        Topic::Player => println!("{{\"text\":\"playing\"}}"),
+        EventGroup::Player => println!("{{\"text\":\"playing\"}}"),
     }
 }
 
 fn main() {
-    draws(Topic::Player);
+    draws(EventGroup::Player);
 }

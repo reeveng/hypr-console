@@ -346,9 +346,9 @@ enum Role {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Settled {
-    Waiting,
-    Settled,
+enum Ready {
+    No,
+    Yes,
 }
 
 struct Up {
@@ -617,8 +617,8 @@ impl Surface {
         self.bound.timing = Some(timing);
 
         self.dispatched_until(|bound| match (bound.logical, bound.closed) {
-            (None, Closed::No) => Settled::Waiting,
-            (Some(_), _) | (None, Closed::Yes) => Settled::Settled,
+            (None, Closed::No) => Ready::No,
+            (Some(_), _) | (None, Closed::Yes) => Ready::Yes,
         })
     }
 
@@ -656,16 +656,16 @@ impl Surface {
         self.bound.timing = Some(timing);
 
         self.dispatched_until(|bound| match (bound.logical, bound.closed) {
-            (None, Closed::No) => Settled::Waiting,
-            (Some(_), _) | (None, Closed::Yes) => Settled::Settled,
+            (None, Closed::No) => Ready::No,
+            (Some(_), _) | (None, Closed::Yes) => Ready::Yes,
         })
     }
 
-    fn dispatched_until(&mut self, settled: impl Fn(&Bound) -> Settled) -> Result<(), SurfaceError> {
+    fn dispatched_until(&mut self, settled: impl Fn(&Bound) -> Ready) -> Result<(), SurfaceError> {
         let dispatched = std::iter::repeat(()).try_fold(self, |this, ()| {
             match settled(&this.bound) {
-                Settled::Settled => return ControlFlow::Break(Ok(())),
-                Settled::Waiting => {}
+                Ready::Yes => return ControlFlow::Break(Ok(())),
+                Ready::No => {}
             }
 
             match this.queue.blocking_dispatch(&mut this.bound) {
@@ -715,8 +715,8 @@ impl Surface {
         self.bound.timing = Some(timing);
 
         self.dispatched_until(|bound| match (bound.logical, bound.lock) {
-            (None, Lock::Waiting) => Settled::Waiting,
-            (Some(_), _) | (None, Lock::Acquired | Lock::Denied) => Settled::Settled,
+            (None, Lock::Waiting) => Ready::No,
+            (Some(_), _) | (None, Lock::Acquired | Lock::Denied) => Ready::Yes,
         })?;
 
         Ok(self.bound.lock)

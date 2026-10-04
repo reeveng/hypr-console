@@ -16,7 +16,9 @@
 //! somewhere an update cannot replace them.
 
 
+use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Reason, Takes, ValidationError};
 use console_core_geometry::Size;
+use console_core_internal_programs::{WALLPAPER_DROPPED, WALLPAPER_TAKE};
 use console_core_never::Never;
 use console_core_number_conversion::Float;
 use std::path::{Path, PathBuf};
@@ -46,19 +48,14 @@ enum Action {
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("{fault}");
-            ExitCode::FAILURE
-        }
-    }
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, asked, |(effect, into)| run(effect, into));
+
+    code
 }
 
 #[derive(Debug)]
 enum Unrendered {
-    NoDirectory,
-    NothingSaid,
     NoOnes,
     Read(PathBuf, std::io::Error),
     Painting(Unpainted),
@@ -76,8 +73,6 @@ enum Unrendered {
 impl std::fmt::Display for Unrendered {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unrendered::NoDirectory => write!(to, "--into wants a directory"),
-            Unrendered::NothingSaid => write!(to, "{HELP}"),
             Unrendered::NoOnes => write!(to, "this machine will not say whose it is"),
             Unrendered::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
@@ -123,41 +118,88 @@ impl From<console_screen::Undeclared> for Unrendered {
     }
 }
 
-fn run() -> Result<(), Unrendered> {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let mut words: Vec<&str> = words.iter().map(String::as_str).collect();
+const AGAIN: Flag = Flag { spelling: "--again", takes: Takes::None, about: "render all of them, whether or not they are here" };
 
-    let mut into: Option<PathBuf> = None;
+const INTO: Flag = Flag { spelling: "--into", takes: Takes::Value("DIR"), about: "write them somewhere else" };
 
-    match words.iter().position(|word| *word == "--into") {
-        Some(at) => {
-            let named = words.get(at.saturating_add(1)).ok_or(Unrendered::NoDirectory)?;
-            into = Some(PathBuf::from(named));
-            words.drain(at..=at.saturating_add(1));
+const CUBE: Flag = Flag {
+    spelling: "--cube",
+    takes: Takes::None,
+    about: "one GRADE as a cube at PATH, to look at; a grade is four numbers, keep,pull,floor,ceiling",
+};
+
+const TRY: Flag = Flag { spelling: "--try", takes: Takes::None, about: "render one SOURCE in one GRADE to TO, to look at" };
+
+const COMMAND: Command = Command {
+    name: "wallpaper-render",
+    about: "render what the table names and this has not",
+    flags: &[AGAIN, WALLPAPER_DROPPED, WALLPAPER_TAKE, INTO, CUBE, TRY],
+    operands: Operands::Any("PATH"),
+};
+
+fn asked(words: &[String]) -> Result<(Action, Option<PathBuf>), ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, words)?;
+    let Ok(into) = line.value(INTO);
+    let chosen = chosen(&line)?;
+
+    let effect = match chosen {
+        None => {
+            let [] = line.exactly([])?;
+
+            Action::Set { again: Again::No }
         }
-        None => {},
-    }
+        Some(AGAIN) => {
+            let [] = line.exactly([])?;
 
-    let effect = match words.as_slice() {
-        [] => Action::Set { again: Again::No },
-        ["--again"] => Action::Set { again: Again::Yes },
-        ["--dropped"] => Action::Dropped,
-        ["--help"] | ["-h"] => {
-            println!("{HELP}");
-            return Ok(());
+            Action::Set { again: Again::Yes }
         }
-        ["--take", first, rest @ ..] => Action::Take(
-            std::iter::once(first).chain(rest).map(PathBuf::from).collect(),
-        ),
-        ["--cube", how, at] => Action::Cube { how: (*how).to_string(), into: PathBuf::from(at) },
-        ["--try", from, how, at] => Action::Try {
-            source: PathBuf::from(from),
-            how: (*how).to_string(),
-            into: PathBuf::from(at),
-        },
-        _ => return Err(Unrendered::NothingSaid),
+        Some(WALLPAPER_DROPPED) => {
+            let [] = line.exactly([])?;
+
+            Action::Dropped
+        }
+        Some(WALLPAPER_TAKE) => {
+            let paths = taken(&line)?;
+
+            Action::Take(paths)
+        }
+        Some(CUBE) => {
+            let [how, at] = line.exactly(["GRADE", "PATH"])?;
+
+            Action::Cube { how: how.clone(), into: PathBuf::from(at) }
+        }
+        Some(_try) => {
+            let [from, how, at] = line.exactly(["SOURCE", "GRADE", "TO"])?;
+
+            Action::Try { source: PathBuf::from(from), how: how.clone(), into: PathBuf::from(at) }
+        }
     };
 
+    Ok((effect, into.map(PathBuf::from)))
+}
+
+fn chosen(line: &CommandLine<NoSubcommand>) -> Result<Option<Flag>, ValidationError> {
+    match line.one_of(&[AGAIN, WALLPAPER_DROPPED, WALLPAPER_TAKE, CUBE, TRY]) {
+        Ok(flag) => Ok(Some(flag)),
+        Err(ValidationError { reason: Reason::MissingFlag(_), .. }) => Ok(None),
+        Err(refusal) => Err(refusal),
+    }
+}
+
+fn taken(line: &CommandLine<NoSubcommand>) -> Result<Vec<PathBuf>, ValidationError> {
+    let Ok(operands) = line.operands();
+
+    match operands.is_empty() {
+        true => {
+            let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["PATH"]));
+
+            Err(refusal)
+        }
+        false => Ok(operands.iter().map(PathBuf::from).collect()),
+    }
+}
+
+fn run(effect: Action, into: Option<PathBuf>) -> Result<(), Unrendered> {
     match effect {
         Action::Cube { how, into } => {
             let ramp = read_ramp()?;
@@ -204,16 +246,6 @@ fn run() -> Result<(), Unrendered> {
     }
 }
 
-const HELP: &str = "\
-wallpaper-render                     render what the table names and this has not
-wallpaper-render --again             render all of them, whether or not they are here
-wallpaper-render --dropped           render what is in Pictures/Wallpapers
-wallpaper-render --take PATH...      render these, whatever and wherever they are
-wallpaper-render --into DIR          write them somewhere else
-wallpaper-render --cube GRADE PATH   one grade as a cube, to look at
-wallpaper-render --try SRC GRADE TO  render one source, to look at
-
-A GRADE is four numbers: keep,pull,floor,ceiling.";
 
 fn read(named: &str) -> Result<String, Unrendered> {
     let Ok(tree) = place::tree();

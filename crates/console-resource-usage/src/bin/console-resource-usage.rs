@@ -18,36 +18,61 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use console_core_iteration::{Endless, Step};
+use console_core_arguments::{Command, Flag, Operands, Subcommand, Takes, read_with};
 use console_core_never::Never;
+use console_core_words::Words;
 use console_response_times::measuring::{self, Measuring};
 use console_resource_usage::{Moment, usage_between, append, of, sample, summarize, where_};
 
-const USAGE: &str = "usage: console-resource-usage [note] [--file PATH]";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+enum Taking {
+    #[words(word = "note", about = "take one reading and keep it, which is what the timer runs")]
+    Note,
+}
 
-const NOTE: &str = "note";
+impl Subcommand for Taking {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Taking::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Taking::about(self)
+    }
+}
+
+const FILE: Flag = Flag {
+    spelling: "--file",
+    takes: Takes::Value("PATH"),
+    about: "read and keep the readings somewhere other than the store",
+};
+
+const COMMAND: Command = Command {
+    name: "console-resource-usage",
+    about: "what the machine has been spending, and what spent it",
+    flags: &[FILE],
+    operands: Operands::None,
+};
 
 fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(at) = where_();
-    let reading = Reading { words: asked.iter(), note: Note::No, at };
-    let read = console_core_iteration::iterate(reading, |mut reading| {
-        Ok(match reading.words.next() {
-            None => Step::Halt(Some(reading)),
-            Some(word) => match heard(&mut reading, word) {
-                Ok(Recognized::Understood) => Step::Again(reading),
-                Ok(Recognized::Not) => Step::Halt(None),
-            },
-        })
-    });
+    let line = match read_with::<Taking, String>(&COMMAND, &asked) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let Reading { note, at, .. } = match read {
-        Ok(Some(reading)) => reading,
-        Ok(None) | Err(Endless) => {
-            eprintln!("{USAGE}");
-
-            return ExitCode::FAILURE;
+            return ExitCode::from(code);
         }
+    };
+    let Ok(taking) = line.subcommand();
+    let Ok(file) = line.value(FILE);
+    let Ok(store) = where_();
+    let at = match file {
+        Some(file) => Some(PathBuf::from(file)),
+        None => store,
     };
 
     let at = match at {
@@ -59,8 +84,8 @@ fn main() -> ExitCode {
         }
     };
 
-    match note {
-        Note::Yes => {
+    match taking {
+        Some(Taking::Note) => {
             let Ok(chosen) = measuring::current();
 
             match chosen {
@@ -87,7 +112,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Note::No => {
+        None => {
             let store = match File::open(&at) {
                 Ok(store) => store,
                 Err(_nothing_kept_yet) => {
@@ -115,37 +140,6 @@ fn main() -> ExitCode {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Note {
-    Yes,
-    No,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Recognized {
-    Understood,
-    Not,
-}
-
-struct Reading<'a> {
-    words: std::slice::Iter<'a, String>,
-    note: Note,
-    at: Option<PathBuf>,
-}
-
-fn heard(reading: &mut Reading<'_>, word: &str) -> Result<Recognized, Never> {
-    match word {
-        NOTE => reading.note = Note::Yes,
-        "--file" => match reading.words.next() {
-            Some(said) => reading.at = Some(PathBuf::from(said)),
-            None => return Ok(Recognized::Not),
-        },
-        _unknown => return Ok(Recognized::Not),
-    }
-
-    Ok(Recognized::Understood)
 }
 
 fn read_moments(store: File) -> Result<Vec<Moment>, Never> {

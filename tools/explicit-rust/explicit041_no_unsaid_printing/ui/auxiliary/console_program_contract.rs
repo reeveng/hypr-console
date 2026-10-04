@@ -8,6 +8,6 @@ pub enum Effect {
 
 // The event vocabulary, which is a different thing: a crate that wants to be
 // woken when something changes names this and hands no one a `Effect`.
-pub enum Topic {
+pub enum EventGroup {
     Player,
 }

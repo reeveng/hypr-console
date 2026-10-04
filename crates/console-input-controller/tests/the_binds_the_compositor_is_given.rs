@@ -161,7 +161,7 @@ fn the_alphabets_step_both_ways_and_shift_is_the_way_back() -> Result<(), Failur
     );
     assert!(
         back.runs.contains(console_input_language::NAMED)
-            && back.runs.contains(console_input_language::BACK),
+            && back.runs.contains(console_input_language::BACK.spelling),
         "the other half runs {:?}, which is not the same walk the other way",
         back.runs
     );

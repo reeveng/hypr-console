@@ -307,7 +307,7 @@ fn a_stick_pushed_after_a_minute_of_nothing_scrolls_as_far_as_a_stick_pushed_at_
     let (mut go, mut daemon) = desktop()?;
     let Ok(()) = daemon.run(&mut go, 1);
     let Ok(()) = daemon.idle_for(60.0);
-    go.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+    go.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
     let Ok(()) = daemon.run(&mut go, 11);
     let Ok(scrolled) = daemon.did.total(WHEEL);
 
@@ -448,7 +448,7 @@ fn the_dpad_alone_is_not_the_brightness() -> Result<(), Failure> {
 #[test]
 fn the_right_stick_turns_the_wheel() -> Result<(), Failure> {
     let (mut go, mut daemon) = desktop()?;
-    go.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+    go.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
     let Ok(()) = daemon.run(&mut go, 11);
 
     let Ok(turned) = daemon.did.total(WHEEL);
@@ -461,11 +461,11 @@ fn the_right_stick_turns_the_wheel() -> Result<(), Failure> {
 #[test]
 fn a_half_pushed_stick_scrolls_less_than_a_quarter_as_fast() -> Result<(), Failure> {
     let (mut full, mut turning_full) = desktop()?;
-    full.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+    full.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
     let Ok(()) = turning_full.run(&mut full, 44);
 
     let (mut half, mut turning_half) = desktop()?;
-    half.stick("right-stick", Point { x: 0.0, y: -0.6 })?;
+    half.thumbstick("right-stick", Point { x: 0.0, y: -0.6 })?;
     let Ok(()) = turning_half.run(&mut half, 44);
 
     let Ok(half) = turning_half.did.total(WHEEL);
@@ -482,7 +482,7 @@ fn a_half_pushed_stick_scrolls_less_than_a_quarter_as_fast() -> Result<(), Failu
 #[test]
 fn inside_the_deadzone_the_page_stays_where_it_is() -> Result<(), Failure> {
     let (mut go, mut daemon) = desktop()?;
-    go.stick("right-stick", Point { x: 0.0, y: -0.15 })?;
+    go.thumbstick("right-stick", Point { x: 0.0, y: -0.15 })?;
     let Ok(()) = daemon.run(&mut go, 20);
     let Ok(notches) = daemon.did.of_kind(WHEEL);
 
@@ -494,10 +494,10 @@ fn inside_the_deadzone_the_page_stays_where_it_is() -> Result<(), Failure> {
 #[test]
 fn pushing_up_scrolls_up_and_pushing_down_scrolls_down() -> Result<(), Failure> {
     let (mut up, mut reading_up) = desktop()?;
-    up.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+    up.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
     let Ok(()) = reading_up.run(&mut up, 11);
     let (mut down, mut reading_down) = desktop()?;
-    down.stick("right-stick", Point { x: 0.0, y: 1.0 })?;
+    down.thumbstick("right-stick", Point { x: 0.0, y: 1.0 })?;
     let Ok(()) = reading_down.run(&mut down, 11);
     let Ok(upwards) = reading_up.did.total(WHEEL);
     let Ok(downwards) = reading_down.did.total(WHEEL);

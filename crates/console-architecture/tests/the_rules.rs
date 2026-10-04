@@ -54,7 +54,7 @@ fn nothing_but_the_pool_opens_the_compositors_events() -> Result<(), Failure> {
     let Ok(found) = facts::whose(&architecture.facts, Kind::Socket, "Events");
 
     let Ok(()) = ratchet(
-        "these reach for the compositor's event socket themselves; subscribe to Topic::Compositor through \
+        "these reach for the compositor's event socket themselves; subscribe to EventGroup::Compositor through \
          console_events instead",
         found,
         &COMPOSITOR_EVENTS_EXCUSED,
@@ -105,19 +105,19 @@ const SOURCELESS: [(&str, &str); 1] = [(
 )];
 
 #[test]
-fn every_topic_the_pool_serves_has_a_source() -> Result<(), Failure> {
+fn every_event_group_the_pool_serves_has_a_source() -> Result<(), Failure> {
     let architecture = architecture()?;
     let Ok(handled) = facts::of_kind(&architecture.facts, Kind::Handles);
     let Ok(sourced) = facts::of_kind(&architecture.facts, Kind::Sources);
 
     assert!(
         !handled.is_empty(),
-        "no topic was seen handled in console_events::sources::hold, so this rule would be asking nothing; \
+        "nothing in console_events::sources::hold handles an event group, so this rule asks nothing; \
          the lint has lost the function"
     );
 
     let Ok(()) = ratchet(
-        "these topics can be subscribed to and nothing in console_events::sources::hold says anything on them",
+        "a program can subscribe to these event groups and nothing in console_events::sources::hold says anything on them",
         handled.difference(&sourced).cloned().collect(),
         &SOURCELESS,
     );
@@ -154,7 +154,7 @@ const TICKING: [(&str, &str); 6] = [
     (
         "console-input-controller",
         "the profile loader asks the bus again every second until it answers, which is waiting for a thing to \
-         come up rather than reading a topic again",
+         come up rather than reading an event group again",
     ),
 ];
 
@@ -166,7 +166,7 @@ fn nothing_both_subscribes_and_keeps_a_clock() -> Result<(), Failure> {
     let found = subscribing.keys().filter(|package| timing.contains_key(*package)).cloned().collect();
 
     let Ok(()) = ratchet(
-        "these subscribe to a topic and also keep a clock of their own; a reading the pool tells about needs no \
+        "these subscribe to an event group and also keep a clock of their own; a reading the pool tells about needs no \
          tick behind it",
         found,
         &TICKING,

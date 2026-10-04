@@ -50,7 +50,8 @@
 
 
 use console_core_external_programs::Program;
-use console_core_number_conversion::{fitted, toward_zero_u32};
+use console_core_number_conversion::{duration_from_seconds, fitted};
+use console_waiting::Schedule;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -147,6 +148,8 @@ pub const LET_GO: f64 = 0.12;
 pub const SETTLED: f64 = 0.6;
 
 pub const PATIENCE: f64 = 4.0;
+
+const ASKING: Duration = Duration::from_millis(500);
 
 pub const OPENING: f64 = 12.0;
 
@@ -528,7 +531,7 @@ impl Device {
         self.axis(&format!("Gamepad:Trigger:{named}"), Value(&format!("d {amount:.3}")))
     }
 
-    pub fn stick(&mut self, which: &str, to: Point<f64>) -> CheckResult {
+    pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> CheckResult {
         let Ok(found) = lookup(&vocabulary::AXES, which);
 
         let named = match found {
@@ -536,14 +539,14 @@ impl Device {
             None => {
                 let Ok(said) = suggestions(&vocabulary::AXES);
 
-                return failed(format!("there is no stick called {which:?}; {said}"));
+                return failed(format!("there is no thumbstick called {which:?}; {said}"));
             }
         };
 
         for amount in [to.x, to.y] {
             match (-1.0..=1.0).contains(&amount) {
                 true => {},
-                false => return failed(format!("a stick is pushed between -1 and 1, not {amount}")),
+                false => return failed(format!("push a thumbstick between -1 and 1, not {amount}")),
             }
         }
 
@@ -561,7 +564,7 @@ impl Device {
         self.pushed = Pushed::None;
 
         for (spoken, _) in vocabulary::AXES {
-            self.stick(spoken, Point { x: 0.0, y: 0.0 })?;
+            self.thumbstick(spoken, Point { x: 0.0, y: 0.0 })?;
         }
 
         for (spoken, _) in vocabulary::TRIGGERS {
@@ -1233,9 +1236,11 @@ impl Device {
         mut what: impl FnMut(&mut M, &mut Self) -> Result<Ready, Why>,
         seconds: f64,
     ) -> Result<Outcome, Why> {
-        let Ok(rounds) = toward_zero_u32(seconds / 0.5);
+        let Ok(patience) = duration_from_seconds(seconds);
+        let Ok(schedule) = Schedule::asking_every(patience, ASKING);
+        let Ok(gaps) = schedule.delays();
 
-        for _ in 0..rounds {
+        for gap in gaps {
             let Ok(stop) = crate::stopping::stop_state();
 
             match stop {
@@ -1250,7 +1255,7 @@ impl Device {
                     reason = "this is the gap between two questions to the handheld, which is the one caller the sleep below it is for; the calls that still name a number say at their own sites why the elapsing was what was asked for"
                 )
             )]
-            let Ok(()) = self.settle(0.5);
+            let Ok(()) = self.settle(gap.as_secs_f64());
 
             let seen = what(handed, self)?;
 
@@ -1642,6 +1647,46 @@ mod tests {
             named, wanted,
             "the desktop the manifest enables is not the desktop the checks ask about"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_patience_on_the_handheld_is_counted_in_half_second_gaps() -> Result<(), Box<dyn Error>> {
+        let mut stage = dry()?;
+        let mut asks = 0_u32;
+        let Ok(waited) = stage.until_handed::<u32, Never>(
+            &mut asks,
+            |asks, _seen| {
+                *asks = (*asks).saturating_add(1);
+
+                Ok(Ready::NotYet)
+            },
+            PATIENCE,
+        );
+
+        assert_eq!(waited, Outcome::RanOut);
+        assert_eq!(asks, 8, "four seconds of patience is eight questions, however long each of them took");
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_thing_already_there_on_the_handheld_is_asked_about_once() -> Result<(), Box<dyn Error>> {
+        let mut stage = dry()?;
+        let mut asks = 0_u32;
+        let Ok(waited) = stage.until_handed::<u32, Never>(
+            &mut asks,
+            |asks, _seen| {
+                *asks = (*asks).saturating_add(1);
+
+                Ok(Ready::Yes)
+            },
+            PATIENCE,
+        );
+
+        assert_eq!(waited, Outcome::Happened);
+        assert_eq!(asks, 1);
 
         Ok(())
     }

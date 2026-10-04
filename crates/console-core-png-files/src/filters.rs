@@ -7,6 +7,11 @@
 //! unfiltered a row at a time from the top. "To its left" is the same byte of
 //! the pixel before, or the byte before for a pixel smaller than a byte.
 //!
+//! Writing a row asks which filter leaves the smallest differences, counting
+//! each byte as how far it is from zero either way, which is libpng's own
+//! guess at what deflate will make shortest. It is not the answer every time,
+//! but trying each filter through deflate would be five deflates a row.
+//!
 //! An interlaced picture is sent as seven smaller pictures, Adam7's passes,
 //! each a lattice of the whole that starts somewhere in an eight by eight
 //! square and steps across it; each pass is filtered on its own. A picture
@@ -44,6 +49,10 @@ enum Filter {
     Average,
     Paeth,
 }
+
+const NAMED: [(u8, Filter); 4] = [(1, Filter::Sub), (2, Filter::Up), (3, Filter::Average), (4, Filter::Paeth)];
+
+const NONE: u8 = 0;
 
 pub(crate) fn passes(header: &Header) -> Result<Vec<Pass>, Never> {
     let whole = header.size;
@@ -112,13 +121,10 @@ pub(crate) fn unfiltered(rows: &mut [u8], header: &Header, wide: u32) -> Result<
             None => return Err(PngError::Corrupt),
         };
 
-        let filter = match *filter {
-            0 => None,
-            1 => Some(Filter::Sub),
-            2 => Some(Filter::Up),
-            3 => Some(Filter::Average),
-            4 => Some(Filter::Paeth),
-            _ => return Err(PngError::Corrupt),
+        let filter = match (*filter, NAMED.iter().find(|(byte, _)| byte == filter)) {
+            (NONE, _) => None,
+            (_, Some((_, filter))) => Some(*filter),
+            (_, None) => return Err(PngError::Corrupt),
         };
 
         match filter {
@@ -132,6 +138,67 @@ pub(crate) fn unfiltered(rows: &mut [u8], header: &Header, wide: u32) -> Result<
     })?;
 
     Ok(())
+}
+
+pub(crate) fn filtered(raw: &[u8], header: &Header) -> Result<Vec<u8>, Never> {
+    let Ok(length) = row_length(header, header.size.width);
+    let Ok(pixel) = pixel_length(header);
+    let Ok(stride) = index(length);
+    let nothing_above = vec![0u8; stride];
+    let Ok(rows) = index(header.size.height);
+    let mut filtered = Vec::with_capacity(raw.len().saturating_add(rows));
+    let mut above = nothing_above.as_slice();
+
+    for row in raw.chunks_exact(stride) {
+        let Ok((byte, made)) = least(row, (above, pixel));
+
+        filtered.push(byte);
+        filtered.extend_from_slice(&made);
+        above = row;
+    }
+
+    Ok(filtered)
+}
+
+fn least(row: &[u8], above: (&[u8], u32)) -> Result<(u8, Vec<u8>), Never> {
+    let Ok(plain) = cost(row);
+    let unfiltered = (plain, NONE, row.to_vec());
+
+    let (_, byte, made) = NAMED.iter().fold(unfiltered, |least, (byte, filter)| {
+        let Ok(made) = made(row, above, *filter);
+        let Ok(spent) = cost(&made);
+
+        match spent < least.0 {
+            true => (spent, *byte, made),
+            false => least,
+        }
+    });
+
+    Ok((byte, made))
+}
+
+fn cost(bytes: &[u8]) -> Result<u64, Never> {
+    Ok(bytes.iter().fold(0u64, |cost, byte| cost.saturating_add(u64::from(i8::from_le_bytes([*byte]).unsigned_abs()))))
+}
+
+fn made(row: &[u8], above: (&[u8], u32), filter: Filter) -> Result<Vec<u8>, Never> {
+    let (above, pixel) = above;
+    let Ok(pixel) = index(pixel);
+    let mut made = Vec::with_capacity(row.len());
+    let mut left = [0u8; 8];
+    let mut corner = [0u8; 8];
+
+    for (pixel, over) in row.chunks_exact(pixel).zip(above.chunks_exact(pixel)) {
+        for (((byte, up), left), corner) in pixel.iter().zip(over).zip(left.iter_mut()).zip(corner.iter_mut()) {
+            let Ok(guess) = predicted(filter, (*left, *up, *corner));
+
+            made.push(byte.wrapping_sub(guess));
+            *left = *byte;
+            *corner = *up;
+        }
+    }
+
+    Ok(made)
 }
 
 fn undone(bytes: &mut [u8], above: (&[u8], u32), filter: Filter) -> Result<(), Never> {

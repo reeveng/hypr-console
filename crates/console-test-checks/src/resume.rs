@@ -82,6 +82,7 @@ use std::time::Duration;
 use console_compositor::Window;
 use console_core_never::Never;
 use console_program_lifetime::{BoundToParent, Still};
+use console_resume::SAVE_EVERY;
 use console_test_stages::checking::{Body, Check, CheckResult, cannot, failed, same};
 use console_test_stages::desktop::{Desktop, Installed};
 use console_test_stages::here::Here;
@@ -95,9 +96,9 @@ const CLASS: &str = "Alacritty";
 
 const SAVED: &str = "default";
 
-const SAVING: &str = "--save-interval=1";
+const SAVING: Duration = Duration::from_secs(1);
 
-const NOT_SAVING_AGAIN: &str = "--save-interval=3600";
+const NOT_SAVING_AGAIN: Duration = Duration::from_secs(3600);
 
 const ASKING_AGAIN: &str = "0.2";
 
@@ -107,7 +108,7 @@ const ONE: u32 = 1;
 
 const KEEPER: &str = "console-resume";
 
-const UNKNOWN: &str = "--help";
+const UNKNOWN: &str = "--version";
 
 const REFUSING: Duration = Duration::from_secs(5);
 
@@ -141,11 +142,11 @@ fn ours(name: &str) -> Result<PathBuf, Unchecked> {
     console_core_temporary_directories::fresh(&format!("resume-{name}")).map_err(Unchecked::Temporary)
 }
 
-fn resume_command(at: &Path, how_often: &str) -> Result<String, Never> {
-    Ok(format!("CONSOLE_RESUME_PATH={} console-resume {how_often}", at.display()))
+fn resume_command(at: &Path, how_often: Duration) -> Result<String, Never> {
+    Ok(format!("CONSOLE_RESUME_PATH={} {KEEPER} {} {}", at.display(), SAVE_EVERY.spelling, how_often.as_secs()))
 }
 
-fn logged_resume_command(at: &Path, how_often: &str, said: &Path) -> Result<String, Never> {
+fn logged_resume_command(at: &Path, how_often: Duration, said: &Path) -> Result<String, Never> {
     let Ok(keeping) = resume_command(at, how_often);
 
     Ok(format!("{keeping} >> {} 2>&1", said.display()))
@@ -392,7 +393,7 @@ mod tests {
         let Ok(keeping) = resume_command(Path::new("/tmp/somewhere"), SAVING);
 
         assert!(keeping.starts_with("CONSOLE_RESUME_PATH=/tmp/somewhere "), "{keeping}");
-        assert!(keeping.ends_with("console-resume --save-interval=1"), "{keeping}");
+        assert!(keeping.ends_with(&format!("{KEEPER} {} 1", SAVE_EVERY.spelling)), "{keeping}");
     }
 
     #[test]

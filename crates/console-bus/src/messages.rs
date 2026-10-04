@@ -965,13 +965,13 @@ impl Writing {
 
                 Ok(WriteStep::Wrote)
             }
-            ('n', Value::Signed16(value)) => self.laid(Edge::Two, &value.to_le_bytes()),
-            ('q', Value::Unsigned16(value)) => self.laid(Edge::Two, &value.to_le_bytes()),
-            ('i', Value::Signed32(value)) => self.laid(Edge::Four, &value.to_le_bytes()),
-            ('u', Value::Unsigned32(value)) | ('h', Value::Unsigned32(value)) => self.laid(Edge::Four, &value.to_le_bytes()),
-            ('x', Value::Signed64(value)) => self.laid(Edge::Eight, &value.to_le_bytes()),
-            ('t', Value::Unsigned64(value)) => self.laid(Edge::Eight, &value.to_le_bytes()),
-            ('d', Value::Fraction(value)) => self.laid(Edge::Eight, &value.to_le_bytes()),
+            ('n', Value::Signed16(value)) => self.write_aligned(Edge::Two, &value.to_le_bytes()),
+            ('q', Value::Unsigned16(value)) => self.write_aligned(Edge::Two, &value.to_le_bytes()),
+            ('i', Value::Signed32(value)) => self.write_aligned(Edge::Four, &value.to_le_bytes()),
+            ('u', Value::Unsigned32(value)) | ('h', Value::Unsigned32(value)) => self.write_aligned(Edge::Four, &value.to_le_bytes()),
+            ('x', Value::Signed64(value)) => self.write_aligned(Edge::Eight, &value.to_le_bytes()),
+            ('t', Value::Unsigned64(value)) => self.write_aligned(Edge::Eight, &value.to_le_bytes()),
+            ('d', Value::Fraction(value)) => self.write_aligned(Edge::Eight, &value.to_le_bytes()),
             ('s', Value::Word(value)) | ('o', Value::Path(value)) => {
                 self.word(value)?;
 
@@ -996,7 +996,7 @@ impl Writing {
         }
     }
 
-    fn laid<'v>(&mut self, edge: Edge, bytes: &[u8]) -> Result<WriteStep<'v>, Error> {
+    fn write_aligned<'v>(&mut self, edge: Edge, bytes: &[u8]) -> Result<WriteStep<'v>, Error> {
         self.pad(edge)?;
         self.bytes.extend_from_slice(bytes);
 

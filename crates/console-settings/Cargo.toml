@@ -62,6 +62,7 @@ console-core-geometry.workspace = true
 console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-battery.workspace = true
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-color.workspace = true
 console-core-shapes.workspace = true

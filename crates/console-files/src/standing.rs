@@ -88,8 +88,8 @@ pub enum FilesEvent {
     Entered { tab: u32, name: String, at: u32 },
     Walked { tab: u32, steps: Vec<String> },
     Up { tab: u32 },
-    PickedUp(Holding),
-    PutDown,
+    Copy(Holding),
+    Paste,
     Arrived { tab: u32, names: Vec<String> },
     Back { tab: u32 },
 }
@@ -195,11 +195,11 @@ fn decide(state: &Standing, event: &Event<FilesEvent>) -> Result<Transition<Stan
 
         FilesEvent::Up { tab } => went_up(state, *tab),
 
-        FilesEvent::PickedUp(holding) => {
+        FilesEvent::Copy(holding) => {
             Transition::without_effects(Standing { holding: Some(holding.clone()), ..state.clone() })
         }
 
-        FilesEvent::PutDown => Transition::new(
+        FilesEvent::Paste => Transition::new(
             Standing { holding: None, ..state.clone() },
             vec![Effect::Custom(FilesEffect::Replace(LINE))],
         ),
@@ -603,11 +603,11 @@ mod tests {
         };
         let Ok(standing) = standing();
 
-        let Ok(after) = said(&standing, &[FilesEvent::PickedUp(holding.clone())]);
+        let Ok(after) = said(&standing, &[FilesEvent::Copy(holding.clone())]);
 
         assert_eq!(after.state.holding, Some(holding));
 
-        let Ok(down) = said(&after.state, &[FilesEvent::PutDown]);
+        let Ok(down) = said(&after.state, &[FilesEvent::Paste]);
 
         assert_eq!(down.state.holding, None);
         assert_eq!(down.effects(), Ok(vec![Effect::Custom(FilesEffect::Replace(LINE))]));
@@ -623,7 +623,7 @@ mod tests {
 
         assert_eq!(first_thing(&down.state, 0), Ok(LINE.saturating_add(2)));
 
-        let Ok(carrying) = said(&down.state, &[FilesEvent::PickedUp(Holding {
+        let Ok(carrying) = said(&down.state, &[FilesEvent::Copy(Holding {
             name: "else".to_string(),
             paths: vec![PathBuf::from("/somewhere/else")],
             moving: Carrying::ToCopy,

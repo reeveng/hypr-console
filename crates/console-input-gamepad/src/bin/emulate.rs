@@ -12,19 +12,21 @@
 //! pointer is on.
 
 use std::io::BufRead;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{LegionGo, Passing};
+use console_input_gamepad::go::LegionGo;
+use console_waiting::clock::LiveClock;
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::script::{self, VERBS};
 use console_input_gamepad::GamepadError;
 use console_input_gamepad::uinput::Uinput;
-use console_core_iteration::Step;
+use console_core_arguments::{Command, Flag, Operands, Subcommand, Takes, ValidationError, read_with};
 use console_core_never::Never;
+use console_core_words::Words;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Action {
@@ -38,25 +40,18 @@ enum Action {
 struct Arguments {
     effect: Action,
     profile: String,
-    root: PathBuf,
+    root: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(code) => code,
-        Err(fault) => {
-            eprintln!("{fault}");
-            ExitCode::FAILURE
-        }
-    }
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, asked, run);
+
+    code
 }
 
 #[derive(Debug)]
 enum Unemulated {
-    NoProfileName,
-    NoRootPath,
-    NoScenario,
-    NoSuchCommand(String),
     Rootless(console_repository::NotFound),
     Read(PathBuf, std::io::Error),
     NoDevices(GamepadError),
@@ -67,20 +62,14 @@ enum Unemulated {
 impl std::fmt::Display for Unemulated {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unemulated::NoProfileName => write!(to, "--profile takes a name"),
-            Unemulated::NoRootPath => write!(to, "--root takes a path"),
-            Unemulated::NoScenario => write!(to, "run takes a scenario to play"),
-            Unemulated::NoSuchCommand(other) => {
-                write!(to, "no such command as {other:?}\n{HELP}")
-            }
             Unemulated::Rootless(fault) => write!(to, "{fault}"),
             Unemulated::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
             }
-            Unemulated::NoDevices(fault) => write!(to, "console-emulate: {fault}"),
+            Unemulated::NoDevices(fault) => write!(to, "{fault}"),
             Unemulated::NoUinput(fault) => write!(
                 to,
-                "console-emulate: {fault}. Tests that need no devices at all are \
+                "{fault}. Tests that need no devices at all are \
                  `just test`; see docs/emulator.md for the one rule that grants this."
             ),
             Unemulated::Pressing(fault) => write!(to, "{fault}"),
@@ -102,19 +91,15 @@ impl From<GamepadError> for Unemulated {
     }
 }
 
-fn run() -> Result<ExitCode, Unemulated> {
-    let said = read(std::env::args().skip(1).collect())?;
-    let asked = match said {
-        None => {
-            println!("{HELP}");
-            return Ok(ExitCode::SUCCESS);
-        }
-        Some(asked) => asked,
+fn run(asked: Arguments) -> Result<ExitCode, Unemulated> {
+    let root = match &asked.root {
+        Some(root) => root.clone(),
+        None => console_repository::root()?,
     };
 
     match &asked.effect {
         Action::Describe(buttons) => {
-            let profiles = every_profile(&asked.root)?;
+            let profiles = every_profile(&root)?;
 
             let Ok(()) = what(buttons, &profiles);
 
@@ -130,10 +115,11 @@ fn run() -> Result<ExitCode, Unemulated> {
 
     let descriptors = load_capture().map_err(Unemulated::NoDevices)?;
     let sink = Uinput::of(&descriptors).map_err(Unemulated::NoUinput)?;
-    let profiles = every_profile(&asked.root)?;
+    let profiles = every_profile(&root)?;
     let Ok(devices) = Devices::new(descriptors, sink);
 
-    let mut go = LegionGo::new(profiles, devices, Passing, &asked.profile)?;
+    let Ok(clock) = LiveClock::started();
+    let mut go = LegionGo::new(profiles, devices, clock, &asked.profile)?;
 
     match &asked.effect {
         Action::ButtonPress(buttons) => {
@@ -156,73 +142,76 @@ fn run() -> Result<ExitCode, Unemulated> {
     Ok(ExitCode::SUCCESS)
 }
 
-struct Reading {
-    waiting: std::vec::IntoIter<String>,
-    profile: String,
-    root: PathBuf,
-    rest: Vec<String>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+enum Verb {
+    #[words(word = "press", about = "press those buttons and stop")]
+    Press,
+    #[words(word = "run", about = "play a file of the same commands")]
+    Run,
+    #[words(word = "what", about = "what those buttons do, in every profile")]
+    Describe,
+    #[words(word = "devices", about = "what the emulator publishes")]
+    Devices,
 }
 
-fn read(arguments: Vec<String>) -> Result<Option<Arguments>, Unemulated> {
-    let reading = Reading {
-        waiting: arguments.into_iter(),
-        profile: console_input_gamepad::router::NAME.to_string(),
-        root: PathBuf::from("."),
-        rest: Vec::new(),
-    };
-    let read = console_core_iteration::iterate(reading, |mut reading| {
-        Ok(match reading.waiting.next() {
-            None => Step::Halt(Ok(Some(reading))),
-            Some(word) => match word.as_str() {
-                "--help" | "-h" => Step::Halt(Ok(None)),
-                "--profile" => match reading.waiting.next() {
-                    Some(name) => Step::Again(Reading { profile: name, ..reading }),
-                    None => Step::Halt(Err(Unemulated::NoProfileName)),
-                },
-                "--root" => match reading.waiting.next() {
-                    Some(path) => Step::Again(Reading { root: PathBuf::from(path), ..reading }),
-                    None => Step::Halt(Err(Unemulated::NoRootPath)),
-                },
-                _ => {
-                    reading.rest.push(word);
+impl Subcommand for Verb {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Verb::VARIANTS.iter().copied())
+    }
 
-                    Step::Again(reading)
-                }
-            },
-        })
-    });
-    let Reading { profile, root, rest, .. } = match read {
-        Ok(Ok(Some(reading))) => reading,
-        Ok(Ok(None)) => return Ok(None),
-        Ok(Err(fault)) => return Err(fault),
-        Err(_endless) => return Ok(None),
-    };
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
 
-    let root = match root == Path::new(".") {
-        true => console_repository::root()?,
-        false => root,
-    };
-    let named = |rest: &[String]| match rest.get(1..) {
-        Some(after) => after.to_vec(),
-        None => Vec::new(),
-    };
-    let effect = match rest.first().map(String::as_str) {
+    fn about(self) -> Result<&'static str, Never> {
+        Verb::about(self)
+    }
+}
+
+const PROFILE: Flag = Flag { spelling: "--profile", takes: Takes::Value("NAME"), about: "which profile the presses go through" };
+
+const ROOT: Flag = Flag { spelling: "--root", takes: Takes::Value("PATH"), about: "the checkout the profiles are read from" };
+
+const COMMAND: Command = Command {
+    name: "console-emulate",
+    about: "make the devices of a Legion Go and take commands, or do one thing with them and stop",
+    flags: &[PROFILE, ROOT],
+    operands: Operands::Any("BUTTON"),
+};
+
+fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
+    let line = read_with::<Verb, String>(&COMMAND, words)?;
+    let Ok(verb) = line.subcommand();
+    let Ok(operands) = line.operands();
+    let Ok(profile) = line.value(PROFILE);
+    let Ok(root) = line.value(ROOT);
+
+    let effect = match verb {
         None => Action::Interactive,
-        Some("press") => Action::ButtonPress(named(&rest)),
-        Some("what") => Action::Describe(named(&rest)),
-        Some("devices") => Action::Devices,
-        Some("run") => {
-            let scenario = rest.get(1).ok_or(Unemulated::NoScenario)?;
+        Some(Verb::Press) => Action::ButtonPress(operands.to_vec()),
+        Some(Verb::Describe) => Action::Describe(operands.to_vec()),
+        Some(Verb::Devices) => {
+            let [] = line.exactly([])?;
 
-            Action::Run(std::path::PathBuf::from(scenario))
+            Action::Devices
         }
-        Some(other) => return Err(Unemulated::NoSuchCommand(other.to_string())),
+        Some(Verb::Run) => {
+            let [scenario] = line.exactly(["SCENARIO"])?;
+
+            Action::Run(PathBuf::from(scenario))
+        }
     };
-    Ok(Some(Arguments { effect, profile, root }))
+
+    let profile = match profile {
+        Some(named) => named,
+        None => console_input_gamepad::router::NAME,
+    };
+
+    Ok(Arguments { effect, profile: profile.to_string(), root: root.map(PathBuf::from) })
 }
 
 fn interactive<S: console_input_gamepad::devices::Sink>(
-    go: &mut LegionGo<S, Passing>,
+    go: &mut LegionGo<S, LiveClock>,
 ) -> Result<(), Never> {
     let paths = go.devices.paths()?;
 
@@ -338,13 +327,4 @@ fn devices() -> Result<(), Never> {
     Ok(())
 }
 
-const HELP: &str = "\
-console-emulate                  make the devices and take commands
-console-emulate press a b        press those and stop
-console-emulate run scenario     play a file of the same commands
-console-emulate what x           what that button does, in every profile
-console-emulate devices          what the emulator publishes
-
-  --profile <name>              which profile the presses go through
-  --root <path>                 the checkout the profiles are read from";
 

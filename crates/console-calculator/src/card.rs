@@ -15,6 +15,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_panel::card::{Card, Door};
 use console_panel::icons::Icon;
@@ -45,6 +46,13 @@ const KEYPAD: [&[(Label, Key)]; 5] = [
     &[(Written("1"), Key::Digit(1)), (Written("2"), Key::Digit(2)), (Written("3"), Key::Digit(3)), (Written("+"), Key::Operator(Operator::Add))],
     &[(Written("0"), Key::Digit(0)), (Written("."), Key::Point), (Symbol(Icon::Backspace), Key::Backspace), (Written("="), Key::Equals)],
 ];
+
+pub const COMMAND: Command = Command {
+    name: "calculator",
+    about: "a calculator",
+    flags: &[],
+    operands: Operands::None,
+};
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)

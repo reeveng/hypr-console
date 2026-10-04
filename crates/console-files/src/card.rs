@@ -559,7 +559,7 @@ fn put_down_row(held: &ActorAddress, holding: &Holding, here: &Path) -> Result<R
     let says = holding.says()?;
 
     let Ok(puts) = Handler::and_stay(move |showing| {
-        let Ok(()) = press(&held, FilesEvent::PutDown, showing);
+        let Ok(()) = press(&held, FilesEvent::Paste, showing);
 
         showing.later(arguments.clone());
     });
@@ -846,7 +846,7 @@ fn perform(
             };
             let holding = Holding::of(thing, path.to_path_buf(), carrying)?;
 
-            quietly(held, FilesEvent::PickedUp(holding))?;
+            quietly(held, FilesEvent::Copy(holding))?;
             back_to_the_folder(held, tab, showing, from)?;
         }
         FileAction::Select => {
@@ -872,7 +872,7 @@ fn perform(
 
             let at = path_text(path)?;
 
-            showing.later(vec!["wallpaper-render".to_string(), "--take".to_string(), at]);
+            showing.later(vec!["wallpaper-render".to_string(), console_core_internal_programs::WALLPAPER_TAKE.spelling.to_string(), at]);
         }
         FileAction::Rename => {
             let held = held.clone();
@@ -966,7 +966,7 @@ fn carried_many(page: Page, held: &ActorAddress, deed: FileAction, moving: Carry
     page.selecting(says, move |_, keys| {
         let paths = keys.iter().map(PathBuf::from).collect();
         let Ok(holding) = Holding::many(paths, moving);
-        let Ok(()) = quietly(&held, FilesEvent::PickedUp(holding));
+        let Ok(()) = quietly(&held, FilesEvent::Copy(holding));
     })
 }
 

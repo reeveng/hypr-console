@@ -22,7 +22,7 @@ use console_core_never::Never;
 use console_events::serving;
 use console_events::sources::Subscribed;
 use console_events::subscription::Received;
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::threads;
 use console_waiting::{Outcome, Ready, Schedule};
 
@@ -41,8 +41,8 @@ const EVERY_SO_OFTEN: Duration = Duration::from_millis(5);
 )]
 static SAYING: OnceLock<Sender<Sender<Change>>> = OnceLock::new();
 
-fn source(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
-    console_events::sources::handed_to(SAYING.get(), &Topic::Sound, topic, say)
+fn source(event_group: &EventGroup, say: Sender<Change>) -> Result<Subscribed, Never> {
+    console_events::sources::handed_to(SAYING.get(), &EventGroup::Sound, event_group, say)
 }
 
 pub fn socket(named: &str) -> Result<PathBuf, Failure> {
@@ -82,7 +82,7 @@ pub fn up(at: &Path) -> Result<(), Failure> {
 }
 
 pub fn change(text: &str) -> Result<Change, Never> {
-    Ok(Change { topic: Topic::Sound, text: text.to_string() })
+    Ok(Change { event_group: EventGroup::Sound, text: text.to_string() })
 }
 
 pub fn before_long(heard: &Receiver<Received>) -> Result<Option<Change>, Never> {

@@ -29,7 +29,7 @@ mod pruning;
 mod snapshot;
 mod room;
 mod screen;
-mod settled;
+mod up_to_date;
 mod units;
 mod confirmation;
 
@@ -42,7 +42,9 @@ use building::Names;
 use crate::install::User;
 use console_core_atomic_writes::Stored;
 use console_how_far::Progress;
+use console_core_arguments::{Command, Flag, Operands, Presence, Subcommand, Takes, ValidationError, read_with};
 use console_core_external_programs::Program;
+use console_core_words::Words;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
@@ -50,7 +52,7 @@ use console_manifest_migrations::done::Outstanding;
 use laying::{Deploy, Put};
 use machine::Ran;
 use manifest::{Manifest, Section};
-use settled::Settled;
+use up_to_date::UpToDate;
 use unapplied::Unapplied;
 
 const ROOT: &str = console_repository::DEVICE_ROOT;
@@ -64,18 +66,125 @@ const OFF: &str = "\x1b[0m";
 
 const COLUMN: u32 = 18;
 
-fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
-    let nothing: &[String] = &[];
-    let (command, rest) = asked
-        .split_first()
-        .map_or(("check", nothing), |(one, rest)| (one.as_str(), rest));
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+enum Action {
+    #[words(word = "list", about = "what the desktop is made of")]
+    List,
+    #[words(word = "check", about = "where the machine has drifted from it, which is what no word does")]
+    Check,
+    #[words(word = "apply", about = "bring the machine back to it")]
+    Apply,
+    #[words(word = "room", about = "whether there is room on the disk for the next apply")]
+    Room,
+    #[words(word = "buttons", about = "write the profiles again, with this device's buttons in them")]
+    Buttons,
+    #[words(word = "health", about = "whether what the desktop runs is running")]
+    Health,
+    #[words(word = "save", about = "take the files at PATH, or every one edited in place, back into the source")]
+    Save,
+    #[words(word = "migrate", about = "run what this machine has not run")]
+    Migrate,
+    #[words(word = "boot-started", about = "what a boot says about the newest generation as it starts")]
+    BootStarted,
+    #[words(word = "boot-complete", about = "what a boot says about the newest generation once it is up")]
+    BootComplete,
+    #[words(word = "boot-failed", about = "what a boot says about the newest generation when it fell over")]
+    BootFailed,
+}
 
-    let boot = match command {
-        "boot-started" => Some(boots::Event::Started),
-        "boot-complete" => Some(boots::Event::Complete),
-        "boot-failed" => Some(boots::Event::Failed),
-        _ => None,
+impl Subcommand for Action {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Action::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Action::about(self)
+    }
+}
+
+const TREE: Flag = Flag { spelling: "--root", takes: Takes::Value("PATH"), about: "read the desktop out of PATH rather than this machine's own" };
+
+const PENDING: Flag = Flag { spelling: "--pending", takes: Takes::None, about: "with migrate, say what has not run and run none of it" };
+
+const COMMAND: Command = Command {
+    name: "console",
+    about: "the machine as desktop.conf says it should be",
+    flags: &[TREE, PENDING],
+    operands: Operands::Any("PATH"),
+};
+
+struct Arguments {
+    action: Action,
+    root: PathBuf,
+    pending: Presence,
+    paths: Vec<String>,
+}
+
+fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
+    let line = read_with::<Action, String>(&COMMAND, words)?;
+    let Ok(said) = line.subcommand();
+    let Ok(root) = line.value(TREE);
+    let Ok(pending) = line.presence(PENDING);
+    let Ok(paths) = line.operands();
+    let action = match said {
+        Some(action) => action,
+        None => Action::Check,
+    };
+
+    match action {
+        Action::Save => {},
+        Action::List
+        | Action::Check
+        | Action::Apply
+        | Action::Room
+        | Action::Buttons
+        | Action::Health
+        | Action::Migrate
+        | Action::BootStarted
+        | Action::BootComplete
+        | Action::BootFailed => {
+            let [] = line.exactly([])?;
+        },
+    }
+
+    Ok(Arguments {
+        action,
+        root: match root {
+            Some(root) => PathBuf::from(root),
+            None => PathBuf::from(ROOT),
+        },
+        pending,
+        paths: paths.to_vec(),
+    })
+}
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let asked = match asked(&words) {
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+
+    let boot = match asked.action {
+        Action::BootStarted => Some(boots::Event::Started),
+        Action::BootComplete => Some(boots::Event::Complete),
+        Action::BootFailed => Some(boots::Event::Failed),
+        Action::List
+        | Action::Check
+        | Action::Apply
+        | Action::Room
+        | Action::Buttons
+        | Action::Health
+        | Action::Save
+        | Action::Migrate => None,
     };
 
     match boot {
@@ -87,14 +196,7 @@ fn main() -> ExitCode {
         None => {}
     }
 
-    let (root, rest) = match (command, rest.split_first()) {
-        ("list" | "check" | "migrate" | "room", Some((flag, [at, more @ ..]))) => match flag.as_str() {
-            "--root" => (PathBuf::from(at), more),
-            _ => (PathBuf::from(ROOT), rest),
-        },
-        _ => (PathBuf::from(ROOT), rest),
-    };
-
+    let root = asked.root;
     let manifest = match read(&root) {
         Ok(manifest) => manifest,
         Err(fault) => {
@@ -103,64 +205,50 @@ fn main() -> ExitCode {
         }
     };
 
-    match command {
-        "list" => {
+    match asked.action {
+        Action::List => {
             let Ok(()) = list(&manifest);
         }
-        "check" => {
+        Action::Check => {
             let Ok(said) = check(&root, &manifest);
 
             return said;
         }
-        "apply" => {
+        Action::Apply => {
             let Ok(said) = report(apply(&root, &manifest));
 
             return said;
         }
-        "room" => {
+        Action::Room => {
             let Ok(said) = room(&root);
 
             return said;
         }
-        "buttons" => {
+        Action::Buttons => {
             let Ok(said) = report(rebuttoned(&root, &manifest));
 
             return said;
         }
-        "health" => {
+        Action::Health => {
             let Ok(said) = health(&root, &manifest);
 
             return said;
         }
-        "save" => {
-            let Ok(said) = report(save(&root, &manifest, rest));
+        Action::Save => {
+            let Ok(said) = report(save(&root, &manifest, &asked.paths));
 
             return said;
         }
-        "migrate" => {
-            let Ok(said) = report(migrate(rest));
+        Action::Migrate => {
+            let Ok(said) = report(migrate(asked.pending));
 
             return said;
         }
-        _ => {
-            println!("{}", HELP);
-            return ExitCode::from(2);
-        }
+        Action::BootStarted | Action::BootComplete | Action::BootFailed => {}
     }
 
     ExitCode::SUCCESS
 }
-
-const HELP: &str = "\
-console list      what the desktop is made of
-console check     where the machine has drifted from it
-console apply     bring the machine back to it
-console room      whether there is room on the disk for the next apply
-console buttons   write the profiles again, with this device's buttons in them
-console save      take a file edited in place back into the source
-console migrate   run what this machine has not run; --pending only says what
-console boot-started, boot-complete, boot-failed
-                  what a boot says about the newest generation";
 
 fn read(root: &Path) -> Result<Manifest, Unapplied> {
     let at = root.join(manifest::MARK);
@@ -210,10 +298,10 @@ fn line(color: &str, said: StatusLine<'_>) -> Result<(), Never> {
     Ok(())
 }
 
-fn status_color(ok: Settled) -> Result<&'static str, Never> {
+fn status_color(ok: UpToDate) -> Result<&'static str, Never> {
     Ok(match ok {
-        Settled::Yes => GREEN,
-        Settled::No => RED,
+        UpToDate::Yes => GREEN,
+        UpToDate::No => RED,
     })
 }
 
@@ -263,7 +351,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         confirmation::to("packages", || {
             let Ok(drift) = under("packages", named, |package| {
                 let Ok(held) = packages::package_state(&have, &asked_for, package);
-                let Ok(settled) = held.settled();
+                let Ok(settled) = held.up_to_date();
                 let Ok(name) = held.name();
 
                 (settled, String::from(name), package.clone())
@@ -274,7 +362,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
         confirmation::to("built", || {
             let Ok(drift) = under("built", built, |name| {
                 let Ok(state) = build::state(root, name);
-                let Ok(settled) = state.settled();
+                let Ok(settled) = state.up_to_date();
                 let Ok(said) = state.name();
                 let Ok(live) = build::live(name);
 
@@ -287,7 +375,7 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
             let Ok(drift) = under("files", files, |path| {
                 let Ok(written) = manifest.write_policy(path);
                 let Ok(state) = install::state(&source, path, User(whoever), written);
-                let Ok(settled) = state.settled();
+                let Ok(settled) = state.up_to_date();
                 let Ok(said) = state.name();
 
                 (settled, String::from(said), path.clone())
@@ -332,8 +420,8 @@ fn units_drift(services: &[String]) -> Result<u32, Never> {
         let Ok(drift) = under("services", services, |unit| {
             let Ok((enabled, active)) = machine::unit_state(unit);
             let ok = match enabled == "enabled" && active == "active" {
-                true => Settled::Yes,
-                false => Settled::No,
+                true => UpToDate::Yes,
+                false => UpToDate::No,
             };
 
             (ok, format!("{enabled}, {active}"), unit.clone())
@@ -492,8 +580,8 @@ fn masked_drift(masked: &[String]) -> Result<u32, Never> {
         let Ok(drift) = under("masked", masked, |unit| {
             let Ok((enabled, _)) = machine::unit_state(unit);
             let ok = match enabled == "masked" {
-                true => Settled::Yes,
-                false => Settled::No,
+                true => UpToDate::Yes,
+                false => UpToDate::No,
             };
             let said = match enabled.is_empty() {
                 true => "not masked".to_string(),
@@ -510,7 +598,7 @@ fn masked_drift(masked: &[String]) -> Result<u32, Never> {
 fn front(standing: &buttons::Standing) -> Result<(), Never> {
     println!("{YELLOW}buttons{OFF}");
 
-    let Ok(settled) = standing.settled();
+    let Ok(settled) = standing.up_to_date();
 
     match (standing.asked, settled) {
         (false, _) => {
@@ -520,13 +608,13 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
                     about: "InputPlumber did not say what this device sends",
                 });
         }
-        (true, Settled::Yes) => {
+        (true, UpToDate::Yes) => {
             let Ok(()) = line(GREEN, StatusLine {
                 state: "all here",
                 about: "every button this desktop binds",
             });
         }
-        (true, Settled::No) => {
+        (true, UpToDate::No) => {
             for lost in &standing.missing {
                 let Ok(()) = line(RED, StatusLine { state: "not here", about: lost });
             }
@@ -563,7 +651,7 @@ fn front(standing: &buttons::Standing) -> Result<(), Never> {
 fn under<T>(
     name: &str,
     entries: &[T],
-    state: impl Fn(&T) -> (Settled, String, String),
+    state: impl Fn(&T) -> (UpToDate, String, String),
 ) -> Result<u32, Never> {
     println!("{YELLOW}{name}{OFF}");
 
@@ -574,7 +662,7 @@ fn under<T>(
             let Ok(color) = status_color(*ok);
             let Ok(()) = line(color, StatusLine { state: said, about });
 
-            *ok == Settled::No
+            *ok == UpToDate::No
         })
         .count());
 
@@ -723,9 +811,9 @@ fn health_check(root: &Path, manifest: &Manifest) -> Result<health::Standing, Un
     for live in files {
         let Ok(written) = manifest.write_policy(live);
         let Ok(state) = install::state(&source, live, User(user), written);
-        let Ok(settled) = state.settled();
+        let Ok(settled) = state.up_to_date();
 
-        match state != install::State::Unreadable && settled == Settled::No {
+        match state != install::State::Unreadable && settled == UpToDate::No {
             true => standing.adrift.push(live.clone()),
             false => {},
         }
@@ -733,9 +821,9 @@ fn health_check(root: &Path, manifest: &Manifest) -> Result<health::Standing, Un
 
     for name in built {
         let Ok(state) = build::state(root, name);
-        let Ok(settled) = state.settled();
+        let Ok(settled) = state.up_to_date();
 
-        match settled == Settled::No {
+        match settled == UpToDate::No {
             true => {
                 let Ok(live) = build::live(name);
 
@@ -907,11 +995,9 @@ fn health(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
     Ok(ExitCode::FAILURE)
 }
 
-fn migrate(rest: &[String]) -> Result<(), Unapplied> {
-    let asking = rest.iter().any(|word| word == "--pending" || word == "--check");
-
-    match asking {
-        true => {
+fn migrate(pending: Presence) -> Result<(), Unapplied> {
+    match pending {
+        Presence::Present => {
             let pending = migrating::outstanding()?;
 
             match pending {
@@ -930,7 +1016,7 @@ fn migrate(rest: &[String]) -> Result<(), Unapplied> {
 
             Ok(())
         }
-        false => {
+        Presence::Absent => {
             let Ok(root_is) = nix_is_root();
 
             match root_is == Root::No {
@@ -1520,9 +1606,9 @@ fn told_the_browsers() -> Result<(), Never> {
 fn told_the_front(root: &Path) -> Result<(), Never> {
     let Ok(home) = home();
     let Ok(standing) = buttons::check_buttons(root, &home);
-    let Ok(settled) = standing.settled();
+    let Ok(settled) = standing.up_to_date();
 
-    match !standing.asked || settled == Settled::Yes {
+    match !standing.asked || settled == UpToDate::Yes {
         true => return Ok(()),
         false => {},
     }
@@ -1659,9 +1745,9 @@ fn compile(
         .iter()
         .filter(|name| {
             let Ok(state) = build::state(root, name);
-            let Ok(settled) = state.settled();
+            let Ok(settled) = state.up_to_date();
 
-            settled == Settled::No
+            settled == UpToDate::No
         })
         .collect();
     let Ok(many) = fitted::<_, u32>(staging.len());

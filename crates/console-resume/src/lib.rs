@@ -29,6 +29,8 @@
 //! process says what started it, and a terminal's process tree says what was
 //! going on inside it. Nothing here spawns a program to find something out.
 
+use console_core_arguments::{Flag, Takes};
+
 pub mod already;
 pub mod lua;
 pub mod session;
@@ -36,6 +38,12 @@ pub mod starting;
 pub mod terminal;
 
 pub const APPLICATION: &str = "resume";
+
+pub const SAVE_EVERY: Flag = Flag {
+    spelling: "--save-interval",
+    takes: Takes::Value("SECONDS"),
+    about: "how long between two saves, and never nought",
+};
 
 #[derive(Debug)]
 pub enum Unresumed {

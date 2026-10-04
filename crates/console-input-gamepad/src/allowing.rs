@@ -18,7 +18,7 @@
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Exit, Command, ExitStatus, Event, FileWrite};
+use console_program_contract::{Effect, Exit, Command, ExitStatus, Event, FileWrite};
 
 pub const MODULE: &str = "/etc/modules-load.d/uinput.conf";
 
@@ -60,13 +60,13 @@ pub enum Allowing {
 pub struct Allow;
 
 impl Machine for Allow {
-    type Input = Arguments;
+    type Input = Allowing;
     type State = Allowing;
     type Request = Event<Never>;
     type Effect = Effect<Never>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Allowing>, effects: &mut Effects) -> Result<Allowing, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(opening: &Allowing, _previous: Option<Allowing>, effects: &mut Effects) -> Result<Allowing, Never> {
+        let Ok(opening) = Transition::without_effects(opening.clone());
 
         opening.offered(effects)
     }
@@ -79,16 +79,6 @@ impl Machine for Allow {
 }
 
 type Effects = Queue<Effect<Never>>;
-
-fn initial(arguments: &Arguments) -> Result<Transition<Allowing, Effect<Never>>, Never> {
-    let Ok(named) = arguments.after("--for");
-    let whom = named.filter(|whom| !whom.is_empty()).map(str::to_string);
-    let Ok(first) = arguments.first();
-    let Ok(whoever) = Whoever::of(first);
-    let Ok(opening) = Transition::without_effects(Allowing::Opening { whoever, whom });
-
-    Ok(opening)
-}
 
 fn decide(state: &Allowing, event: &Event<Never>) -> Result<Transition<Allowing, Effect<Never>>, Never> {
     let Ok(turn) = match (state, event) {
@@ -220,17 +210,23 @@ mod tests {
         Ok(Event::Replied(Answer { command: ran, output: String::new(), status }))
     }
 
+    fn opening(uid: &str, whom: Option<&str>) -> Result<Allowing, Never> {
+        let Ok(whoever) = Whoever::of(Some(uid));
+
+        Ok(Allowing::Opening { whoever, whom: whom.map(str::to_string) })
+    }
+
     fn asked(events: &[Event<Never>]) -> Result<Vec<Effect<Never>>, Never> {
-        let Ok(arguments) = Arguments::of(&["0", "--for", "someone"]);
-        let Ok(said) = run::<Allow>(&arguments, events);
+        let Ok(root) = opening("0", Some("someone"));
+        let Ok(said) = run::<Allow>(&root, events);
 
         said.effects()
     }
 
     #[test]
     fn without_root_it_writes_nothing_and_says_how_to_run_it() {
-        let Ok(arguments) = Arguments::of(&["1000"]);
-        let Ok(said) = run::<Allow>(&arguments, &[Event::Opened]);
+        let Ok(someone) = opening("1000", None);
+        let Ok(said) = run::<Allow>(&someone, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
         assert!(
@@ -294,8 +290,8 @@ mod tests {
     #[test]
     fn a_machine_with_no_one_to_name_still_gets_the_rule() {
         let Ok(well) = answered(ExitStatus::Success);
-        let Ok(arguments) = Arguments::of(&["0"]);
-        let Ok(said) = run::<Allow>(&arguments, &[Event::Opened, well.clone(), well.clone(), well.clone(), well]);
+        let Ok(root) = opening("0", None);
+        let Ok(said) = run::<Allow>(&root, &[Event::Opened, well.clone(), well.clone(), well.clone(), well]);
         let Ok(effects) = said.effects();
 
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Write(_))));

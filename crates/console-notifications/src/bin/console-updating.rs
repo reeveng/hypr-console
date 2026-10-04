@@ -15,24 +15,39 @@
 //! Nothing here is worth failing an apply over: an apply that worked and could
 //! not say so is an apply that worked.
 
+use console_core_arguments::{Command, Operands, Subcommand, read_with};
 use console_core_never::Never;
+use console_core_words::Words;
 use console_notifications::saying::{StatePath, Notification, Content, raise_kept};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+const COMMAND: Command = Command {
+    name: "console-updating",
+    about: "say, on the screen, that the desktop is being rebuilt under it",
+    flags: &[],
+    operands: Operands::None,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Step {
+    #[words(word = "start", about = "put a notification up, and leave it up")]
     Start,
+    #[words(word = "done", about = "replace it with one that goes by itself")]
     Succeeded,
+    #[words(word = "failed", about = "replace it with one that says it did not")]
     Failed,
 }
 
-impl Step {
-    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
-        Ok(match word {
-            "start" => Some(Step::Start),
-            "done" => Some(Step::Succeeded),
-            "failed" => Some(Step::Failed),
-            _ => None,
-        })
+impl Subcommand for Step {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Step::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Step::about(self)
     }
 }
 
@@ -78,19 +93,15 @@ pub enum Keeps {
 }
 
 fn main() -> std::process::ExitCode {
-    let word = match std::env::args().nth(1) {
-        Some(word) => word,
-        None => String::new(),
-    };
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let read = read_with::<Step, String>(&COMMAND, &words).and_then(|line| line.require_subcommand());
 
-    let Ok(named) = Step::parse(&word);
+    let step = match read {
+        Ok(step) => step,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let step = match named {
-        Some(step) => step,
-        None => {
-            eprintln!("usage: console-updating start|done|failed");
-
-            return std::process::ExitCode::from(2);
+            return std::process::ExitCode::from(code);
         }
     };
 
@@ -117,9 +128,9 @@ mod tests {
 
     #[test]
     fn nothing_but_the_three_words_is_a_step() {
-        assert_eq!(Step::parse("start"), Ok(Some(Step::Start)));
-        assert_eq!(Step::parse("Done"), Ok(None));
-        assert_eq!(Step::parse(""), Ok(None));
+        assert_eq!(Step::from_word("start"), Ok(Some(Step::Start)));
+        assert_eq!(Step::from_word("Done"), Ok(None));
+        assert_eq!(Step::from_word(""), Ok(None));
     }
 
     #[test]

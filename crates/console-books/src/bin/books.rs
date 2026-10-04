@@ -77,6 +77,7 @@ use console_books::pages::{self, Layout, Page, Style};
 use console_books::progress::{self, Fraction, Location, Position};
 use console_books::reading::{self, End, PagePosition, Turn, Destination};
 use console_books::grid::{self, Direction, ScrollOffset, Selection, Grid};
+use console_core_arguments::{Command, Operands};
 use console_core_color::Oklch;
 use console_core_color::palette::{Wearing, WearingError};
 use console_core_external_programs::Program;
@@ -84,7 +85,7 @@ use console_core_iteration::{Endless, Step, iterate};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_events::subscription::Received;
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::{BoundToParent, Still};
 use std::sync::mpsc::Receiver;
 use console_core_number_conversion::{fitted, toward_zero_i32};
@@ -94,6 +95,7 @@ use console_core_state_machine::{Machine, Transition};
 use console_draw_painting::Run;
 use console_draw_surface::standing::{Closed, KeyboardEvent, PointerEvent, Window};
 use console_draw_surface::{Keysym, Surface};
+use console_panel::card::refusal;
 use console_panel::picker::{self, Alone};
 use console_panel::pictures::{self as store, Side};
 
@@ -288,8 +290,23 @@ enum Zoom {
     ZoomedIn,
 }
 
+const COMMAND: Command = Command {
+    name: "books",
+    about: "the library, and the book open on it; with nothing, the book that was open when it was left",
+    flags: &[],
+    operands: Operands::Optional("BOOK"),
+};
+
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
+
+    let Ok(refusing) = refusal(&COMMAND, &arguments);
+
+    match refusing {
+        Some(code) => return code,
+        None => {},
+    }
+
     let Ok(named) = InternalProgram::Books.name();
     let Ok(alone) = picker::alone_as(named, &arguments);
 
@@ -366,7 +383,7 @@ fn run(arguments: &[String]) -> Result<(), BooksError> {
 
 fn event_loop(app: &mut App, surface: &mut Surface) -> Result<(), BooksError> {
     let Ok(shelf) = library::books_folder(&app.library.home);
-    let Ok(changes) = console_events::subscription::connect(&[Topic::Path(shelf)]);
+    let Ok(changes) = console_events::subscription::connect(&[EventGroup::Path(shelf)]);
     let Ok(arriving) = changes.received();
     let looked = iterate((app, surface, Update::Redraw, None::<Size<u32>>), |(app, surface, update, drawn_at)| {
         let drawn_at = match update {
@@ -597,23 +614,23 @@ impl Library {
     fn apply_change(&mut self, change: &Change) -> Result<Update, Never> {
         let Ok(folder) = library::books_folder(&self.home);
 
-        Ok(match (&change.topic, Path::new(&change.text).starts_with(&folder)) {
-            (Topic::Path(_), true) => {
+        Ok(match (&change.event_group, Path::new(&change.text).starts_with(&folder)) {
+            (EventGroup::Path(_), true) => {
                 let Ok(()) = self.reload();
 
                 Update::Redraw
             },
-            (Topic::Path(_), false)
+            (EventGroup::Path(_), false)
             | (
-                Topic::Compositor
-                | Topic::Sound
-                | Topic::Network
-                | Topic::Wifi
-                | Topic::Bluetooth
-                | Topic::Battery
-                | Topic::Notifications
-                | Topic::Units
-                | Topic::Player,
+                EventGroup::Compositor
+                | EventGroup::Sound
+                | EventGroup::Network
+                | EventGroup::Wifi
+                | EventGroup::Bluetooth
+                | EventGroup::Battery
+                | EventGroup::Notifications
+                | EventGroup::Units
+                | EventGroup::Player,
                 _,
             ) => Update::None,
         })
@@ -3781,11 +3798,11 @@ mod tests {
         console_core_atomic_writes::whole(&book, b"")?;
         let song = home.join("Music").join("Africa [x].opus");
 
-        let Ok(elsewhere) = open.apply_change(&Change { topic: Topic::Path(folder.clone()), text: song.display().to_string() });
+        let Ok(elsewhere) = open.apply_change(&Change { event_group: EventGroup::Path(folder.clone()), text: song.display().to_string() });
 
         assert_eq!(elsewhere, Update::None, "a song is not a book");
 
-        let Ok(landed) = open.apply_change(&Change { topic: Topic::Path(folder.clone()), text: book.display().to_string() });
+        let Ok(landed) = open.apply_change(&Change { event_group: EventGroup::Path(folder.clone()), text: book.display().to_string() });
 
         assert_eq!(landed, Update::Redraw, "the finished download went unnoticed");
         assert_eq!(open.books.len(), 1);
@@ -4366,7 +4383,7 @@ mod tests {
     #[test]
     fn a_comic_is_read_off_the_picture_and_highlighted_the_same_way() -> Result<(), Error> {
         let (mut app, home) = opening("books-comic", Path::new("a-comic.cbz"))?;
-        let patience = console_waiting::Schedule { until: Duration::from_secs(30), between: Duration::from_millis(100) };
+        let Ok(patience) = console_waiting::Schedule::asking_every(Duration::from_secs(30), Duration::from_millis(100));
         let Ok(recognized) = console_waiting::until_handed(patience, &mut app, |app| {
             let Ok(update) = app.poll_live_text();
 

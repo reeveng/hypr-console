@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use console_core_internal_programs::InternalProgram;
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_panel::card::{Card, Door};
 use console_panel::page::{Answer, Aside, Handler, Page, Row, Rows, Showing, shown_or_selected};
@@ -37,6 +38,13 @@ const FIRST_ROW_UNDER_THE_WAY_BACK: u32 = 1;
 const NEW_NOTE_ROW: u32 = 0;
 
 type Open = Arc<Mutex<Option<PathBuf>>>;
+
+pub const COMMAND: Command = Command {
+    name: "notes",
+    about: "notes, each a title and a body",
+    flags: &[],
+    operands: Operands::None,
+};
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)

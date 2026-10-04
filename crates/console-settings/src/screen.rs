@@ -80,16 +80,6 @@ pub enum Way {
     Down,
 }
 
-impl Way {
-    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
-        match word {
-            "up" => Ok(Some(Way::Up)),
-            "down" => Ok(Some(Way::Down)),
-            _not_a_way_anyone_said => Ok(None),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Was(pub i64);
 
@@ -385,13 +375,6 @@ mod tests {
 
         assert_eq!(brightness_label(full), Ok("Brightness 100%".to_string()));
         assert_eq!(brightness_label(none), Ok("Brightness 0%".to_string()));
-    }
-
-    #[test]
-    fn nothing_but_the_two_words_is_a_way() {
-        assert_eq!(Way::parse("up"), Ok(Some(Way::Up)));
-        assert_eq!(Way::parse("Up"), Ok(None));
-        assert_eq!(Way::parse("get"), Ok(None));
     }
 
     #[test]

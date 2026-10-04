@@ -6,28 +6,42 @@
 //! here. It halves whatever it is applied to, and half of a color chosen to
 //! clear 7:1 is a color that does not.
 
+use console_core_arguments::{Command, Flag, Operands, Takes};
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use crate::guide::Section;
+
+pub const IDENTIFY: Flag = Flag {
+    spelling: "--identify",
+    takes: Takes::None,
+    about: "press a button and be told which one it is",
+};
+
+pub const COMMAND: Command = Command {
+    name: "console-buttons",
+    about: "print what every button does",
+    flags: &[IDENTIFY],
+    operands: Operands::None,
+};
 
 pub const RULE: u32 = 46;
 
 pub const COLUMN: u32 = 22;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HexColor {
+pub struct Ansi {
     pub bold: &'static str,
     pub quiet: &'static str,
     pub pink: &'static str,
     pub off: &'static str,
 }
 
-pub const COLORED: HexColor =
-    HexColor { bold: "\u{1b}[1m", quiet: "\u{1b}[37m", pink: "\u{1b}[35m", off: "\u{1b}[0m" };
+pub const COLORED: Ansi =
+    Ansi { bold: "\u{1b}[1m", quiet: "\u{1b}[37m", pink: "\u{1b}[35m", off: "\u{1b}[0m" };
 
-pub const PLAIN: HexColor = HexColor { bold: "", quiet: "", pink: "", off: "" };
+pub const PLAIN: Ansi = Ansi { bold: "", quiet: "", pink: "", off: "" };
 
-pub fn guide(sections: &[Section], ink: HexColor) -> Result<String, Never> {
+pub fn guide(sections: &[Section], ink: Ansi) -> Result<String, Never> {
     let mut said = format!("\n{}The buttons on this device{}\n", ink.bold, ink.off);
     let Ok(rule) = index(RULE);
     let Ok(column) = index(COLUMN);
@@ -53,8 +67,8 @@ pub fn guide(sections: &[Section], ink: HexColor) -> Result<String, Never> {
     }
 
     said.push_str(&format!(
-        "\n{}  Not sure which paddle is which? Run:  console-buttons --identify{}\n\n",
-        ink.quiet, ink.off
+        "\n{}  Not sure which paddle is which? Run:  {} {}{}\n\n",
+        ink.quiet, COMMAND.name, IDENTIFY.spelling, ink.off
     ));
     Ok(said)
 }

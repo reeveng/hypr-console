@@ -20,7 +20,10 @@
 //! joined before the next one opens, and a value dropped at the end of a
 //! process is a thing that never had to be said out loud.
 
+use std::process::ExitCode;
+
 use console_actor::{Actor, BootError, Booted};
+use console_core_arguments::{Command, read};
 use console_core_never::Never;
 use console_core_state_machine::Machine;
 
@@ -118,29 +121,76 @@ impl Card {
 
 pub struct Panel {
     pub who: &'static str,
+    pub command: Command,
     pub door: fn(&[String]) -> Result<Door, Never>,
     pub card: fn(&[String]) -> Result<Card, Never>,
 }
 
-pub fn opened(asked: &[String], panel: Panel) -> Result<(), Never> {
+pub struct App {
+    pub who: &'static str,
+    pub command: Command,
+    pub card: fn(&[String]) -> Result<Card, Never>,
+}
+
+pub fn refusal(command: &Command, asked: &[String]) -> Result<Option<ExitCode>, Never> {
+    Ok(match read(command, asked) {
+        Ok(_line) => None,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            Some(ExitCode::from(code))
+        }
+    })
+}
+
+pub fn open_app(asked: &[String], app: App) -> Result<ExitCode, Never> {
+    let Ok(refusing) = refusal(&app.command, asked);
+
+    match refusing {
+        Some(code) => return Ok(code),
+        None => {},
+    }
+
+    let Ok(alone) = crate::picker::alone_as(app.who, asked);
+
+    match alone {
+        crate::picker::Alone::No => {},
+        crate::picker::Alone::Yes => {
+            let Ok(card) = (app.card)(asked);
+            let Ok(()) = crate::surface::app(app.who, card);
+        },
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+pub fn opened(asked: &[String], panel: Panel) -> Result<ExitCode, Never> {
+    let Ok(refusing) = refusal(&panel.command, asked);
+
+    match refusing {
+        Some(code) => return Ok(code),
+        None => {},
+    }
+
     let Ok(door) = (panel.door)(asked);
     let Ok(alone) = crate::picker::alone_once_drawn(&door.name, door.again);
 
     match alone {
-        crate::picker::Alone::No => return Ok(()),
+        crate::picker::Alone::No => return Ok(ExitCode::SUCCESS),
         crate::picker::Alone::Yes => {},
     }
 
     let Ok(drawn) = crate::handoff::stood_in(panel.who, asked);
 
     match drawn {
-        crate::handoff::DrawnBy::ByTheHost => Ok(()),
+        crate::handoff::DrawnBy::ByTheHost => {},
         crate::handoff::DrawnBy::Here => {
             let Ok(card) = (panel.card)(asked);
-
-            crate::surface::drawn_here(panel.who, card)
+            let Ok(()) = crate::surface::drawn_here(panel.who, card);
         },
     }
+
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]

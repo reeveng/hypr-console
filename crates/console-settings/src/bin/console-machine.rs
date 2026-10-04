@@ -28,26 +28,71 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use console_core_arguments::{Operands, ValidationError, read_with};
 use console_core_atomic_writes::Stored;
 use console_core_external_programs::Program;
+use console_settings::machine::MachineSetting;
 use console_settings::named::{self, Allowed};
 use console_settings::languages::{self, LOCALE_CONF, LOCALE_GEN, SUPPORTED};
 
-const USAGE: &str = "usage: console-machine [language <name> <charset>|hour <zone>|name <name>]";
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-machine",
+    about: "the three things about this machine that a person chooses and root owns",
+    flags: &[],
+    operands: Operands::Any("VALUE"),
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Setting {
+    Language { name: String, charset: String },
+    Hour(String),
+    Name(String),
+}
+
+fn setting(words: &[String]) -> Result<Setting, ValidationError> {
+    let read = read_with::<MachineSetting, String>(&COMMAND, words);
+    let line = read?;
+    let required = line.require_subcommand();
+    let chosen = required?;
+
+    match chosen {
+        MachineSetting::Language => {
+            let operands = line.exactly(["NAME", "CHARSET"]);
+            let [name, charset] = operands?;
+
+            Ok(Setting::Language { name: name.clone(), charset: charset.clone() })
+        }
+        MachineSetting::Hour => {
+            let operands = line.exactly(["ZONE"]);
+            let [zone] = operands?;
+
+            Ok(Setting::Hour(zone.clone()))
+        }
+        MachineSetting::Name => {
+            let operands = line.exactly(["NAME"]);
+            let [name] = operands?;
+
+            Ok(Setting::Name(name.clone()))
+        }
+    }
+}
 
 fn main() -> ExitCode {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let done = match words.as_slice() {
-        ["language", name, charset] => language(Locale { name, charset }),
-        ["hour", zone] => hour(zone),
-        ["name", name] => called(name),
-        _ => {
-            eprintln!("{USAGE}");
+    let chosen = match setting(&words) {
+        Ok(chosen) => chosen,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-            return ExitCode::from(2);
+            return ExitCode::from(code);
         }
+    };
+
+    let done = match &chosen {
+        Setting::Language { name, charset } => language(Locale { name, charset }),
+        Setting::Hour(zone) => hour(zone),
+        Setting::Name(name) => called(name),
     };
 
     match done {
@@ -230,4 +275,35 @@ fn called(name: &str) -> Result<(), Unset> {
     println!("{name}");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console_core_arguments::Reason;
+    use console_core_never::Never;
+
+    fn words(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
+    }
+
+    #[test]
+    fn each_setting_takes_exactly_the_words_it_names() {
+        let Ok(language) = words(&["language", "nl_NL.UTF-8", "UTF-8"]);
+        let Ok(hour) = words(&["hour", "Europe/Amsterdam"]);
+        let Ok(half) = words(&["language", "nl_NL.UTF-8"]);
+        let Ok(spare) = words(&["name", "legion", "go"]);
+
+        assert_eq!(setting(&language), Ok(Setting::Language { name: "nl_NL.UTF-8".to_string(), charset: "UTF-8".to_string() }));
+        assert_eq!(setting(&hour), Ok(Setting::Hour("Europe/Amsterdam".to_string())));
+        assert_eq!(setting(&half).map_err(|refusal| refusal.reason), Err(Reason::MissingOperands(vec!["CHARSET"])));
+        assert_eq!(setting(&spare).map_err(|refusal| refusal.reason), Err(Reason::ExtraArgument("go".to_string())));
+    }
+
+    #[test]
+    fn it_refuses_a_setting_it_does_not_own_before_it_writes_anything() {
+        let Ok(owner) = words(&["owner", "root"]);
+
+        assert_eq!(setting(&owner).map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("owner".to_string())));
+    }
 }

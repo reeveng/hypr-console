@@ -18,10 +18,8 @@ use console_input_event_devices::presses::ButtonPress;
 use console_login_pattern::{Clicked, Direction, Pattern, Touch};
 use console_login_window::protocol::{FromGreeter, ToGreeter};
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Event, Exit, Flag};
+use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::lock_screen::{LockScreenBar, LockScreenBarEffect, LockScreenBarEvent};
-
-pub const FELL: &str = "--fell";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
@@ -61,20 +59,15 @@ pub enum GreeterEffect {
 pub struct Greeter;
 
 impl Machine for Greeter {
-    type Input = Arguments;
+    type Input = Status;
     type State = GreeterState;
     type Request = Event<GreeterEvent>;
     type Effect = Effect<GreeterEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<GreeterState>, _effects: &mut Effects) -> Result<GreeterState, Never> {
+    fn initialize(status: &Status, _previous: Option<GreeterState>, _effects: &mut Effects) -> Result<GreeterState, Never> {
         let Ok(pattern) = Pattern::new();
-        let Ok(fell) = arguments.flag(FELL);
-        let status = match fell {
-            Flag::Present => Status::Fell,
-            Flag::Absent => Status::Waiting,
-        };
 
-        Ok(GreeterState { greeting: Greeting { pattern, status }, bar: LockScreenBar::default() })
+        Ok(GreeterState { greeting: Greeting { pattern, status: status.clone() }, bar: LockScreenBar::default() })
     }
 
     fn handle(state: GreeterState, event: Event<GreeterEvent>, effects: &mut Effects) -> Result<GreeterState, Never> {
@@ -222,8 +215,7 @@ mod tests {
             ButtonPress::Down,
             ButtonPress::Choose,
         ]);
-        let Ok(arguments) = Arguments::of(&[]);
-        let Ok(trace) = run::<Greeter>(&arguments, &events);
+        let Ok(trace) = run::<Greeter>(&Status::Waiting, &events);
         let Ok(effects) = trace.effects();
 
         assert_eq!(trace.state.greeting.status, Status::Checking);
@@ -238,8 +230,7 @@ mod tests {
         let c = over('c').ok_or("no dot for c")?;
         let touches = [Touch::Down(a), Touch::Moved(e), Touch::Moved(c), Touch::Up];
         let events: Vec<Event<GreeterEvent>> = touches.iter().map(|touch| Event::Custom(GreeterEvent::Touched(*touch))).collect();
-        let Ok(arguments) = Arguments::of(&[]);
-        let Ok(trace) = run::<Greeter>(&arguments, &events);
+        let Ok(trace) = run::<Greeter>(&Status::Waiting, &events);
         let Ok(effects) = trace.effects();
 
         assert_eq!(trace.state.greeting.status, Status::Checking);
@@ -284,15 +275,13 @@ mod tests {
 
     #[test]
     fn a_desktop_that_fell_is_said_on_the_first_screen() {
-        let Ok(arguments) = Arguments::of(&[FELL]);
-        let Ok(trace) = run::<Greeter>(&arguments, &[]);
+        let Ok(trace) = run::<Greeter>(&Status::Fell, &[]);
 
         assert_eq!(trace.state.greeting.status, Status::Fell);
     }
 
     fn at_the_top() -> Result<GreeterState, Never> {
-        let Ok(arguments) = Arguments::of(&[]);
-        let Ok(trace) = run::<Greeter>(&arguments, &[]);
+        let Ok(trace) = run::<Greeter>(&Status::Waiting, &[]);
 
         Ok(trace.state)
     }

@@ -51,7 +51,8 @@ const NOTHING_NAMED: &str = "";
 const NOTHING_GUESSED: &str = "none";
 
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Choice, Effect, Exit, Prompt, Command, ExitStatus, Event, FileWrite};
+use console_core_arguments::{CommandLine, Flag, NoSubcommand, Operands, Reason, Takes, ValidationError};
+use console_program_contract::{Choice, Effect, Exit, Prompt, Command, ExitStatus, Event, FileWrite};
 
 pub const THREADS: &str = crate::THREADS;
 
@@ -222,7 +223,6 @@ pub struct Hear {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
-    Error(String),
     Initial,
     Sizing,
     Fetching(Vec<(String, PathBuf)>),
@@ -252,31 +252,62 @@ pub struct Comparing {
     pub report: Vec<String>,
 }
 
+pub const RECORD: Flag = Flag { spelling: "--record", takes: Takes::None, about: "say the clips, once" };
+
+pub const FETCH_MODELS: Flag = Flag { spelling: "--models", takes: Takes::None, about: "fetch the models" };
+
+pub const BUILD: Flag = Flag { spelling: "--build", takes: Takes::None, about: "build the second engine, which is slow" };
+
+pub const FETCH: Flag = Flag { spelling: "--fetch", takes: Takes::None, about: "fetch the models and build the second engine" };
+
+pub const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "voice-compare",
+    about: "which hearing this device should use, measured on this device: every clip read with every model, unless one of these says otherwise",
+    flags: &[RECORD, FETCH_MODELS, BUILD, FETCH],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comparison {
+    pub at: Where,
+    pub job: Task,
+}
+
+impl Task {
+    pub fn of(line: &CommandLine<NoSubcommand>) -> Result<Task, ValidationError> {
+        let chosen = line.one_of(&[RECORD, FETCH_MODELS, BUILD, FETCH]);
+
+        match chosen {
+            Ok(flag) => {
+                let Ok(task) = Task::chosen_by(flag);
+
+                Ok(task)
+            }
+            Err(ValidationError { reason: Reason::MissingFlag(_), .. }) => Ok(Task::Compare),
+            Err(refusal) => Err(refusal),
+        }
+    }
+
+    fn chosen_by(flag: Flag) -> Result<Task, Never> {
+        Ok(match flag {
+            RECORD => Task::Record,
+            FETCH_MODELS => Task::Models,
+            BUILD => Task::Build,
+            _fetch => Task::Fetch,
+        })
+    }
+}
+
 pub struct Compare;
 
 impl Machine for Compare {
-    type Input = Arguments;
+    type Input = Comparison;
     type State = Comparing;
     type Request = Event<CompareEvent>;
     type Effect = Effect<CompareEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Comparing>, _effects: &mut Effects) -> Result<Comparing, Never> {
-        let Ok(words) = arguments.words();
-
-        let said = |at: u32| {
-            let Ok(at) = index(at);
-
-            match words.get(at).cloned() {
-                Some(said) => said,
-                None => String::new(),
-            }
-        };
-        let at = Where { kept: PathBuf::from(said(0)), host: said(1), stamp: said(2) };
-
-        let Ok(job) = asked_for(words.get(3).map(String::as_str));
-        let Ok(step) = work(words.get(3).map(String::as_str));
-
-        Ok(Comparing { job, step, at, there: Vec::new(), report: Vec::new() })
+    fn initialize(comparison: &Comparison, _previous: Option<Comparing>, _effects: &mut Effects) -> Result<Comparing, Never> {
+        Ok(Comparing { job: comparison.job, step: Step::Initial, at: comparison.at.clone(), there: Vec::new(), report: Vec::new() })
     }
 
     fn handle(state: Comparing, event: Event<CompareEvent>, effects: &mut Effects) -> Result<Comparing, Never> {
@@ -290,11 +321,6 @@ type Effects = Queue<Effect<CompareEffect>>;
 
 fn decide(state: &Comparing, event: &Event<CompareEvent>) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
     match (&state.step, event) {
-        (Step::Error(said), Event::Opened) => badly(
-            state,
-            &format!("{said} is not a word this takes: --record, --models, --build, --fetch"),
-        ),
-
         (Step::Initial, Event::Opened) => begun(state),
 
         (Step::Sizing, Event::Custom(CompareEvent::Looked(seen))) => {
@@ -406,24 +432,6 @@ fn decide(state: &Comparing, event: &Event<CompareEvent>) -> Result<Transition<C
 
         (_, _) => Transition::without_effects(state.clone()),
     }
-}
-
-fn work(said: Option<&str>) -> Result<Step, Never> {
-    Ok(match said {
-        None => Step::Initial,
-        Some("--record" | "--models" | "--build" | "--fetch") => Step::Initial,
-        Some(said) => Step::Error(said.to_string()),
-    })
-}
-
-pub fn asked_for(said: Option<&str>) -> Result<Task, Never> {
-    Ok(match said {
-        Some("--record") => Task::Record,
-        Some("--models") => Task::Models,
-        Some("--build") => Task::Build,
-        Some("--fetch") => Task::Fetch,
-        Some(_) | None => Task::Compare,
-    })
 }
 
 fn begun(state: &Comparing) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
@@ -1197,31 +1205,31 @@ mod tests {
         Ok(there)
     }
 
-    fn given(job: &str) -> Result<Arguments, Never> {
+    fn given(job: Task) -> Result<Comparison, Never> {
         let Ok(at) = place();
-        let mut words = vec![
-            at.kept.to_string_lossy().to_string(),
-            at.host.clone(),
-            at.stamp.clone(),
-        ];
 
-        match job.is_empty() {
-            true => {},
-            false => words.push(job.to_string()),
-        }
-
-        let Ok(arguments) = Arguments::of(&words.iter().map(String::as_str).collect::<Vec<&str>>());
-
-        Ok(arguments)
+        Ok(Comparison { at, job })
     }
 
     #[test]
     fn a_word_this_does_not_take_is_refused_rather_than_read_as_a_comparison() {
-        let Ok(everything) = given("--everything");
-        let Ok(said) = run::<Compare>(&everything, &[Event::Opened]);
-        let Ok(effects) = said.effects();
+        let everything = console_core_arguments::read(&COMMAND, &["--everything"]);
 
-        assert!(matches!(effects.last(), Some(Effect::Stop(Exit::Failure(_)))));
+        assert_eq!(everything.map(drop).map_err(|refusal| refusal.reason), Err(Reason::NoSuchFlag("--everything".to_string())));
+    }
+
+    #[test]
+    fn one_flag_chooses_the_job_none_compares_and_two_are_refused() -> Result<(), ValidationError> {
+        let nothing: [&str; 0] = [];
+        let models = console_core_arguments::read(&COMMAND, &["--models"])?;
+        let plain = console_core_arguments::read(&COMMAND, &nothing)?;
+        let both = console_core_arguments::read(&COMMAND, &["--record", "--build"])?;
+
+        assert_eq!(Task::of(&models), Ok(Task::Models));
+        assert_eq!(Task::of(&plain), Ok(Task::Compare));
+        assert_eq!(Task::of(&both).map_err(|refusal| refusal.reason), Err(Reason::ExtraArgument("--build".to_string())));
+
+        Ok(())
     }
 
     #[test]
@@ -1244,7 +1252,7 @@ mod tests {
     #[test]
     fn a_machine_with_no_hearing_of_its_own_stops_rather_than_measuring_the_packaged_one() {
         let Ok(at) = place();
-        let Ok(given) = given("");
+        let Ok(given) = given(Task::Compare);
         let Ok(whisper) = at.whisper();
 
         let Ok(said) = run::<Compare>(
@@ -1266,7 +1274,7 @@ mod tests {
     #[test]
     fn nothing_recorded_stops_before_a_single_model_is_loaded() {
         let Ok(at) = place();
-        let Ok(given) = given("");
+        let Ok(given) = given(Task::Compare);
         let Ok(whisper) = at.whisper();
 
         let Ok(said) = run::<Compare>(
@@ -1398,7 +1406,7 @@ mod tests {
     fn a_model_lands_beside_its_name_and_is_moved_onto_it_only_once_it_is_whole() {
         let Ok(at) = place();
         let Ok(every) = fetches(&at);
-        let Ok(models) = given("--models");
+        let Ok(models) = given(Task::Models);
 
         let Ok(said) = run::<Compare>(
             &models,
@@ -1431,7 +1439,7 @@ mod tests {
     fn a_model_already_there_is_not_fetched_again() {
         let Ok(at) = place();
         let Ok(every) = fetches(&at);
-        let Ok(models) = given("--models");
+        let Ok(models) = given(Task::Models);
 
         let Ok(said) = run::<Compare>(
             &models,
@@ -1456,7 +1464,7 @@ mod tests {
     #[test]
     fn an_engine_already_built_is_not_built_again() {
         let Ok(at) = place();
-        let Ok(build) = given("--build");
+        let Ok(build) = given(Task::Build);
 
         let Ok(llama) = at.llama();
 
@@ -1500,7 +1508,7 @@ mod tests {
 
     #[test]
     fn recording_waits_for_a_press_before_it_listens_and_for_another_before_it_stops() {
-        let Ok(record) = given("--record");
+        let Ok(record) = given(Task::Record);
 
         let Ok(said) = run::<Compare>(
             &record,

@@ -25,8 +25,9 @@ use std::process::{Command, ExitCode, Stdio};
 
 use console_core_internal_programs::InternalProgram;
 use console_program_lifetime::let_go;
+use console_core_arguments::{Presence, Reason, ValidationError};
 use console_input_dictation::{
-    VoiceActivity, detect_speech, cloning, compiling, configuring, fetching, whisper_arguments, languages, whisper_binary, making,
+    BUILD, COMMAND, FETCH, VoiceActivity, detect_speech, cloning, compiling, configuring, fetching, whisper_arguments, languages, whisper_binary, making,
     Note, model, recording, recording_path, serialize_note, taking, tidy, told_by, typing, whisper,
 };
 use console_core_external_programs::Program;
@@ -37,11 +38,43 @@ use console_waiting::{Schedule, Ready, until};
 use rustix::process::{Pid, kill_process, Signal};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Task {
+    Fetch,
+    Build,
+    Dictate,
+}
+
+fn task(words: &[String]) -> Result<Task, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, words)?;
+    let Ok(fetch) = line.presence(FETCH);
+    let Ok(build) = line.presence(BUILD);
+
+    match (fetch, build) {
+        (Presence::Present, Presence::Absent) => Ok(Task::Fetch),
+        (Presence::Absent, Presence::Present) => Ok(Task::Build),
+        (Presence::Absent, Presence::Absent) => Ok(Task::Dictate),
+        (Presence::Present, Presence::Present) => {
+            let Ok(refusal) = line.refusal(Reason::ExtraArgument(BUILD.spelling.to_string()));
+
+            Err(refusal)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
+    let task = match task(&asked) {
+        Ok(task) => task,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    match asked.first().map(String::as_str) {
-        Some("--fetch") => {
+            return ExitCode::from(code);
+        }
+    };
+
+    match task {
+        Task::Fetch => {
             match fetched() {
                 Ok(()) => {},
                 Err(why) => {
@@ -64,7 +97,7 @@ fn main() -> ExitCode {
 
             ExitCode::SUCCESS
         }
-        Some("--build") => {
+        Task::Build => {
             match built() {
                 Ok(()) => {},
                 Err(why) => {
@@ -77,12 +110,7 @@ fn main() -> ExitCode {
 
             ExitCode::SUCCESS
         },
-        Some(word) => {
-            eprintln!("console-dictate: {word} is not a word this takes");
-
-            ExitCode::from(2)
-        }
-        None => {
+        Task::Dictate => {
             let Ok(taken) = claim_state();
 
             match taken {
@@ -391,7 +419,7 @@ fn engine() -> Result<PathBuf, Never> {
     }
 
     let Ok(mut building) = InternalProgram::Dictate.command();
-    building.arg("--build").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    building.arg(BUILD.spelling).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
 
     let _ = let_go(&mut building);
 

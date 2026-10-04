@@ -55,6 +55,12 @@
 //! Where a caller does need to know, it should ask before it converts. The
 //! range is not a secret.
 //!
+//! A span said in seconds is the same question with a `Duration` at the end
+//! of it, and `Duration::from_secs_f64` answers it by panicking on anything
+//! negative, infinite or NaN. `duration_from_seconds` answers it the way
+//! everything else here does: nothing for a span that ended before it began
+//! or was never said, and the longest there is for one too long to hold.
+//!
 //! # Where a `usize` is met
 //!
 //! EXPLICIT051 holds every quantity at a width the source says, and the
@@ -71,6 +77,7 @@ const IMPLIED: u64 = 1 << 52;
 const BIAS: u64 = 1023;
 
 use console_core_never::Never;
+use std::time::Duration;
 
 enum Split {
     NotANumber,
@@ -207,6 +214,16 @@ where
     fitted::<F, usize>(value)
 }
 
+pub fn duration_from_seconds(value: f64) -> Result<Duration, Never> {
+    Ok(match Duration::try_from_secs_f64(value) {
+        Ok(span) => span,
+        Err(_out_of_range) => match value > 0.0 {
+            true => Duration::MAX,
+            false => Duration::ZERO,
+        },
+    })
+}
+
 pub trait Float {
     fn float(self) -> Result<f64, Never>;
 }
@@ -273,6 +290,15 @@ mod tests {
         assert_eq!(whole_u32(0.9), Ok(1));
         assert_eq!(toward_zero_i32(-2.6), Ok(-2));
         assert_eq!(whole_i32(-2.6), Ok(-3));
+    }
+
+    #[test]
+    fn a_span_in_seconds_saturates_rather_than_falling_over() {
+        assert_eq!(duration_from_seconds(0.02), Ok(Duration::from_millis(20)));
+        assert_eq!(duration_from_seconds(f64::INFINITY), Ok(Duration::MAX));
+        assert_eq!(duration_from_seconds(1e300), Ok(Duration::MAX));
+        assert_eq!(duration_from_seconds(-1.0), Ok(Duration::ZERO), "a span that ended before it began is no span");
+        assert_eq!(duration_from_seconds(f64::NAN), Ok(Duration::ZERO));
     }
 
     #[test]

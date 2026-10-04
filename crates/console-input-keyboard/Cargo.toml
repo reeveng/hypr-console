@@ -41,6 +41,7 @@ port = [
 ]
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-number-conversion.workspace = true
 console-core-color.workspace = true
 console-core-words.workspace = true

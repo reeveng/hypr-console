@@ -27,33 +27,34 @@ use console_core_prefix_codes::{Bits, Code, PastTheEnd};
 
 use crate::ZipError;
 
-const LENGTH_BASE: [u16; 29] = [
+pub(crate) const LENGTH_BASE: [u16; 29] = [
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
     131, 163, 195, 227, 258,
 ];
 
-const LENGTH_EXTRA: [u8; 29] =
+pub(crate) const LENGTH_EXTRA: [u8; 29] =
     [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
 
-const DISTANCE_BASE: [u16; 30] = [
+pub(crate) const DISTANCE_BASE: [u16; 30] = [
     1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
     2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
 ];
 
-const DISTANCE_EXTRA: [u8; 30] = [
+pub(crate) const DISTANCE_EXTRA: [u8; 30] = [
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
     13,
 ];
 
-const LENGTHS_IN_ORDER: [u8; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+pub(crate) const LENGTHS_IN_ORDER: [u8; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
-const END_OF_BLOCK: u16 = 256;
+pub(crate) const END_OF_BLOCK: u16 = 256;
 
-const FIRST_LENGTH: u16 = 257;
+pub(crate) const FIRST_LENGTH: u16 = 257;
 
-struct BackReference {
-    distance: u32,
-    length: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BackReference {
+    pub(crate) distance: u32,
+    pub(crate) length: u32,
 }
 
 struct Output {
@@ -249,18 +250,23 @@ fn stored_block(bits: &mut Bits<'_>, output: &mut Output) -> Result<(), ZipError
     Ok(())
 }
 
-fn fixed_tables() -> Result<Tables, ZipError> {
-    let lengths: Vec<u8> = (0u16..288)
+pub(crate) const FIXED_DISTANCES: [u8; 30] = [5; 30];
+
+pub(crate) fn fixed_lengths() -> Result<Vec<u8>, Never> {
+    Ok((0u16..288)
         .map(|symbol| match symbol {
             0..=143 => 8,
             144..=255 => 9,
             256..=279 => 7,
             _ => 8,
         })
-        .collect();
+        .collect())
+}
 
+fn fixed_tables() -> Result<Tables, ZipError> {
+    let Ok(lengths) = fixed_lengths();
     let lengths = code(&lengths)?;
-    let distances = code(&[5u8; 30])?;
+    let distances = code(&FIXED_DISTANCES)?;
 
     Ok(Tables { lengths, distances })
 }

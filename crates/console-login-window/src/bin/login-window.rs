@@ -43,6 +43,7 @@ use std::os::fd::AsFd;
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
+use console_core_arguments::{Flag, Operands, Presence, Reason, Takes, ValidationError, read};
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
@@ -52,7 +53,7 @@ use console_login_window::stored_pattern::{self, Hash, Matched, NOT_THE_PATTERN,
 use console_login_window::protocol::{FromGreeter, ToGreeter, from_greeter, line_to_greeter};
 use console_login_window::sessions::{self, CHOSEN, SESSIONS};
 use console_login_window::system::{self, Person, Terminal};
-use console_login_window::way_in::{Autologin, Before, Ended, WayIn, way_in};
+use console_login_window::way_in::{Autologin, Before, Ended, FELL, WayIn, way_in};
 use console_program_lifetime::alongside;
 
 const CONSOLE: &str = "/dev/tty1";
@@ -65,11 +66,22 @@ const GREETING: &str = "console-greeter";
 
 const GREETER: &str = "console-greeter";
 
-const AUTOLOGIN: &str = "--autologin";
+const PERSON: [&str; 1] = ["PERSON"];
 
-const FELL: &str = "--fell";
+const AUTOLOGIN: Flag = Flag { spelling: "--autologin", takes: Takes::None, about: "let PERSON in once, at boot, without the greeter" };
 
-const SESSION: &str = "--session";
+const SESSION: Flag = Flag {
+    spelling: "--session",
+    takes: Takes::Value("KIND"),
+    about: "be PERSON's greeter or PERSON's desktop, which is how this starts itself",
+};
+
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "login-window",
+    about: "the login on the first console: the greeter, then PERSON's desktop, and the greeter again when it ends",
+    flags: &[AUTOLOGIN, SESSION, FELL],
+    operands: Operands::Named(&PERSON),
+};
 
 const GREETER_SESSION: &str = "greeter";
 
@@ -78,7 +90,6 @@ const DESKTOP_SESSION: &str = "desktop";
 const TERMINAL: &str = "getty@tty1.service";
 
 enum LoginWindowError {
-    Arguments,
     Nobody(String),
     Account(String, io::Error),
     Console(io::Error),
@@ -94,10 +105,6 @@ enum LoginWindowError {
 impl std::fmt::Display for LoginWindowError {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoginWindowError::Arguments => write!(
-                to,
-                "usage: login-window <person> [{AUTOLOGIN}], or {SESSION} {GREETER_SESSION}|{DESKTOP_SESSION} <person> [{FELL}]"
-            ),
             LoginWindowError::Nobody(name) => write!(to, "{name} is not an account on this machine"),
             LoginWindowError::Account(name, why) => write!(to, "cannot look {name} up: {why}"),
             LoginWindowError::Console(why) => write!(to, "cannot hold {CONSOLE}: {why}"),
@@ -123,50 +130,69 @@ enum Worker {
     Desktop,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Arguments {
+    Window(String, Autologin),
+    Worker(Worker, String),
+}
+
 fn main() -> ExitCode {
-    let Ok(ran) = run();
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, asked, |asked| {
+        let Ok(ran) = run(asked);
 
-    match ran {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(why) => {
-            eprintln!("login-window: {why}");
+        ran
+    });
 
-            ExitCode::FAILURE
+    code
+}
+
+fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(PERSON);
+    let [name] = operands?;
+    let Ok(session) = line.value(SESSION);
+    let Ok(autologin) = line.presence(AUTOLOGIN);
+    let Ok(fell) = line.presence(FELL);
+
+    let decided = match session {
+        None => match (autologin, fell) {
+            (Presence::Present, Presence::Absent) => Ok(Arguments::Window(name.clone(), Autologin::Yes)),
+            (Presence::Absent, Presence::Absent) => Ok(Arguments::Window(name.clone(), Autologin::No)),
+            (Presence::Present | Presence::Absent, Presence::Present) => Err(Reason::ExtraArgument(FELL.spelling.to_string())),
+        },
+        Some(kind) => match (autologin, kind, fell) {
+            (Presence::Absent, GREETER_SESSION, Presence::Absent) => Ok(Arguments::Worker(Worker::Greeter(Before::Boot), name.clone())),
+            (Presence::Absent, GREETER_SESSION, Presence::Present) => {
+                Ok(Arguments::Worker(Worker::Greeter(Before::Desktop(Ended::Fell)), name.clone()))
+            }
+            (Presence::Absent, DESKTOP_SESSION, Presence::Absent) => Ok(Arguments::Worker(Worker::Desktop, name.clone())),
+            (Presence::Absent, DESKTOP_SESSION, Presence::Present) => Err(Reason::ExtraArgument(FELL.spelling.to_string())),
+            (Presence::Present, _kind, Presence::Absent | Presence::Present) => {
+                Err(Reason::ExtraArgument(AUTOLOGIN.spelling.to_string()))
+            }
+            (Presence::Absent, other, Presence::Absent | Presence::Present) => {
+                Err(Reason::InvalidValue { of: SESSION.spelling, value: other.to_string() })
+            }
+        },
+    };
+
+    match decided {
+        Ok(asked) => Ok(asked),
+        Err(reason) => {
+            let Ok(refusal) = line.refusal(reason);
+
+            Err(refusal)
         }
     }
 }
 
-fn run() -> Result<Result<(), LoginWindowError>, Never> {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let worker = match arguments.as_slice() {
-        [flag, kind, name, rest @ ..] => match (flag.as_str(), kind.as_str(), rest) {
-            (SESSION, GREETER_SESSION, []) => Some((Worker::Greeter(Before::Boot), name.clone())),
-            (SESSION, GREETER_SESSION, [fell]) => match fell.as_str() {
-                FELL => Some((Worker::Greeter(Before::Desktop(Ended::Fell)), name.clone())),
-                _ => return Ok(Err(LoginWindowError::Arguments)),
-            },
-            (SESSION, DESKTOP_SESSION, []) => Some((Worker::Desktop, name.clone())),
-            (SESSION, _, _) => return Ok(Err(LoginWindowError::Arguments)),
-            (_, _, _) => None,
-        },
-        _ => None,
-    };
-
-    match worker {
-        Some((worker, name)) => return Ok(worked(worker, &name)),
-        None => {}
-    }
-
-    let (name, autologin) = match arguments.as_slice() {
-        [name] => (name.clone(), Autologin::No),
-        [name, flag] => match flag.as_str() {
-            AUTOLOGIN => (name.clone(), Autologin::Yes),
-            _ => return Ok(Err(LoginWindowError::Arguments)),
-        },
-        _ => return Ok(Err(LoginWindowError::Arguments)),
-    };
-
-    Ok(looped(&name, autologin))
+fn run(asked: Arguments) -> Result<Result<(), LoginWindowError>, Never> {
+    Ok(match asked {
+        Arguments::Worker(worker, name) => worked(worker, &name),
+        Arguments::Window(name, autologin) => looped(&name, autologin),
+    })
 }
 
 fn looped(name: &str, autologin: Autologin) -> Result<(), LoginWindowError> {
@@ -244,22 +270,21 @@ fn turn(around: Turn<'_>, before: Before) -> Result<Step<Before, ()>, LoginWindo
 
 fn worker(kind: Worker, person: &Person) -> Result<Command, Never> {
     let Ok(mut starting) = InternalProgram::LoginWindow.command();
+    let Ok(words) = worker_words(kind, &person.name);
 
-    starting.arg(SESSION);
-
-    match kind {
-        Worker::Greeter(Before::Desktop(Ended::Fell)) => {
-            starting.args([GREETER_SESSION, person.name.as_str(), FELL]);
-        }
-        Worker::Greeter(Before::Boot | Before::Desktop(Ended::Well)) => {
-            starting.args([GREETER_SESSION, person.name.as_str()]);
-        }
-        Worker::Desktop => {
-            starting.args([DESKTOP_SESSION, person.name.as_str()]);
-        }
-    }
+    starting.args(words);
 
     Ok(starting)
+}
+
+fn worker_words(kind: Worker, name: &str) -> Result<Vec<String>, Never> {
+    let said: &[&str] = match kind {
+        Worker::Greeter(Before::Desktop(Ended::Fell)) => &[SESSION.spelling, GREETER_SESSION, name, FELL.spelling],
+        Worker::Greeter(Before::Boot | Before::Desktop(Ended::Well)) => &[SESSION.spelling, GREETER_SESSION, name],
+        Worker::Desktop => &[SESSION.spelling, DESKTOP_SESSION, name],
+    };
+
+    Ok(said.iter().map(|word| (*word).to_string()).collect())
 }
 
 fn worked(kind: Worker, name: &str) -> Result<(), LoginWindowError> {
@@ -418,7 +443,7 @@ fn greeter_session(greeter: &Person, before: Before) -> Result<Ended, LoginWindo
 
     match before {
         Before::Desktop(Ended::Fell) => {
-            starting.arg(FELL);
+            starting.arg(FELL.spelling);
         }
         Before::Boot | Before::Desktop(Ended::Well) => {}
     }
@@ -494,4 +519,50 @@ fn send(writing: &mut impl Write, message: &ToGreeter) -> Result<(), Never> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_way_this_starts_itself_reads_back_as_the_worker_it_means() -> Result<(), ValidationError> {
+        let workers = [Worker::Greeter(Before::Boot), Worker::Greeter(Before::Desktop(Ended::Fell)), Worker::Desktop];
+
+        for meant in workers {
+            let Ok(words) = worker_words(meant, "someone");
+            let read = asked(&words)?;
+
+            assert_eq!(read, Arguments::Worker(meant, "someone".to_string()), "{words:?}");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn the_unit_line_is_the_window_letting_its_person_in() -> Result<(), ValidationError> {
+        let unit = ["someone".to_string(), AUTOLOGIN.spelling.to_string()];
+        let read = asked(&unit)?;
+
+        assert_eq!(read, Arguments::Window("someone".to_string(), Autologin::Yes));
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_line_that_mixes_the_forms_is_refused() {
+        let mixed = [
+            vec!["someone", "--fell"],
+            vec!["--session", "desktop", "someone", "--fell"],
+            vec!["--session", "greeter", "someone", "--autologin"],
+            vec!["--session", "lobby", "someone"],
+            vec!["--autologin"],
+        ];
+
+        for words in mixed {
+            let owned: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
+
+            assert!(matches!(asked(&owned), Err(_refusal)), "{words:?}");
+        }
+    }
 }

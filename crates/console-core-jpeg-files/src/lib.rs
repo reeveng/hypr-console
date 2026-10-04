@@ -32,10 +32,17 @@
 //! caller as [`Task`]s for it to spread however it spreads work, with the
 //! reading of the next round of rows as one of them. Nothing in here starts a
 //! thread.
+//!
+//! [`encoded`] is the other way: RGBA written as the baseline JPEG libjpeg
+//! writes when it is handed a [`Quality`] and nothing else, which is the JPEG
+//! every reader reads. A quality is the one to a hundred every encoder takes,
+//! and a number past either end is the end it is past.
 
 mod assembly;
 mod bits;
+mod entropy;
 mod exif;
+mod fdct;
 mod frame;
 mod huffman;
 mod idct;
@@ -43,8 +50,10 @@ mod kept;
 mod scans;
 mod segments;
 mod strips;
+mod writing;
 
 use console_core_geometry::Size;
+use console_core_never::Never;
 
 pub use crate::strips::{Spread, Task};
 
@@ -55,6 +64,7 @@ pub enum JpegError {
     Corrupt,
     TooLarge,
     Unsupported(Unsupported),
+    Mismatched,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +87,7 @@ impl std::fmt::Display for JpegError {
             JpegError::Corrupt => write!(to, "the picture in here is damaged"),
             JpegError::TooLarge => write!(to, "this picture would take more memory than any photograph"),
             JpegError::Unsupported(how) => write!(to, "this JPEG is written {how}, which is not read here"),
+            JpegError::Mismatched => write!(to, "the pixels handed over are not the picture their size says"),
         }
     }
 }
@@ -98,6 +109,15 @@ impl std::fmt::Display for Unsupported {
 
 impl std::error::Error for JpegError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Quality(u8);
+
+impl Quality {
+    pub fn percent(percent: u8) -> Result<Quality, Never> {
+        Ok(Quality(percent.clamp(1, 100)))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Picture {
     pub size: Size<u32>,
@@ -115,6 +135,10 @@ pub fn measured(bytes: &[u8]) -> Result<Size<u32>, JpegError> {
         },
         segments::Stage::Opening | segments::Stage::Drawing(_) => Err(JpegError::Truncated),
     }
+}
+
+pub fn encoded(picture: &Picture, quality: Quality) -> Result<Vec<u8>, JpegError> {
+    writing::encoded(picture, quality)
 }
 
 pub fn decoded(bytes: &[u8], covering: Size<u32>) -> Result<Picture, JpegError> {

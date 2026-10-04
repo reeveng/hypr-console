@@ -15,7 +15,9 @@
 //! list that moves under a thumb already reaching for a row.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, ExitCode};
+
+use console_core_arguments::{Operands, Reason, ValidationError, read};
 
 use console_downloads::covers::{self, Fetched};
 use console_downloads::gutenberg;
@@ -25,34 +27,53 @@ use console_downloads::store::{self, Kind, SIDE};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
-fn main() {
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "downloads-find",
+    about: "look for something of one kind, and write down what comes back",
+    flags: &Kind::FLAGS,
+    operands: Operands::Verbatim("WORDS"),
+};
+
+fn request(words: &[String]) -> Result<(Kind, String), ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let choice = line.one_of(&Kind::FLAGS);
+    let flag = choice?;
+    let Ok(operands) = line.operands();
+    let looking_for = operands.join(" ").trim().to_string();
+
+    match (Kind::from_flag(flag.spelling), looking_for.is_empty()) {
+        (Ok(Some(kind)), false) => Ok((kind, looking_for)),
+        (Ok(Some(_kind)), true) => {
+            let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["WORDS"]));
+
+            Err(refusal)
+        }
+        (Ok(None), _empty) => {
+            let Ok(refusal) = line.refusal(Reason::MissingFlag(Kind::FLAGS.iter().map(|flag| flag.spelling).collect()));
+
+            Err(refusal)
+        }
+    }
+}
+
+fn main() -> ExitCode {
     let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let kind = match words.first().and_then(|word| {
-        let Ok(kind) = Kind::read(word);
+    let (kind, asked) = match request(&words) {
+        Ok(request) => request,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-        kind
-    }) {
-        Some(kind) => kind,
-        None => {
-            eprintln!("which kind: --audio, --video or --book");
-            return;
+            return ExitCode::from(code);
         }
     };
+    let Ok(()) = find(kind, &asked);
 
-    let asked = match words.get(1..) {
-        Some(after) => after.join(" ").trim().to_string(),
-        None => String::new(),
-    };
+    ExitCode::SUCCESS
+}
 
-    match asked.is_empty() {
-        true => {
-            eprintln!("what to look for");
-            return;
-        }
-        false => {},
-    }
-
+fn find(kind: Kind, asked: &str) -> Result<(), Never> {
     let Ok(cache) = store::cache();
 
     let cache = match cache {
@@ -61,11 +82,11 @@ fn main() {
         None => {
             eprintln!("downloads-find: no HOME, so there is nowhere to write what was found");
 
-            return;
+            return Ok(());
         }
     };
 
-    let Ok(looked) = look(kind, &asked);
+    let Ok(looked) = look(kind, asked);
     let Ok(pictures) = store::pictures(&cache);
     let _ = std::fs::create_dir_all(pictures);
 
@@ -74,6 +95,8 @@ fn main() {
     }
 
     let Ok(()) = wrote(&cache, kind, &looked);
+
+    Ok(())
 }
 
 fn look(kind: Kind, asked: &str) -> Result<Looked, Never> {
@@ -213,4 +236,27 @@ fn wrote(cache: &Path, kind: Kind, looked: &Looked) -> Result<(), Never> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
+    }
+
+    #[test]
+    fn what_a_person_types_reads_as_words_after_two_dashes_even_when_it_starts_with_dashes() {
+        let Ok(typed) = words(&["--audio", "--", "--toto africa"]);
+        let Ok(plain) = words(&["--video", "toto", "africa"]);
+        let Ok(no_kind) = words(&["toto"]);
+
+        assert_eq!(request(&typed), Ok((Kind::Sound, "--toto africa".to_string())));
+        assert_eq!(request(&plain), Ok((Kind::Film, "toto africa".to_string())));
+        assert_eq!(
+            request(&no_kind).map_err(|refusal| refusal.reason),
+            Err(Reason::MissingFlag(vec!["--audio", "--video", "--book"]))
+        );
+    }
 }

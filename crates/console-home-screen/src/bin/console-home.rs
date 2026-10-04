@@ -160,19 +160,19 @@ use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_events::again::Worth;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::{Rendered, Run, painter};
 use console_draw_surface::{
     Anchor, Closed, Keyboard, Margin, PointerEvent, Room, Surface, Under, Wanted,
 };
-use console_home_screen::shape::{self, Laid, Shape as Grid};
+use console_home_screen::shape::{self, Layout, Shape as Grid};
 use console_home_screen::{
     Bare, Flick, LongPress, HomeScreen, Moved, On, Reached, Spot, Touch, Way, flicked, long_press, moved, nudged,
     on_a_bare_square, paned, classify_touch,
 };
-use console_onscreen::{Woken, Hand, Over, PadInput, over_the_desktop};
+use console_onscreen::{WakeState, Hand, Over, PadInput, over_the_desktop};
 use console_panel::pictures::Side;
 
 const NAMESPACE: &str = "console-home";
@@ -270,7 +270,7 @@ struct Screen {
     home: HomeScreen,
     applications: Named,
     carrying: Option<Carrying>,
-    woken: Woken,
+    woken: WakeState,
     pointer: Pointer,
     seen: Option<(Spot, (f64, f64))>,
     settled: Option<Showing>,
@@ -312,7 +312,7 @@ impl Screen {
             home: HomeScreen::default(),
             applications: BTreeMap::new(),
             carrying: None,
-            woken: Woken::No,
+            woken: WakeState::No,
             pointer: Pointer::Elsewhere,
             seen: None,
             settled: None,
@@ -376,13 +376,13 @@ impl Screen {
 
     fn wakes(&mut self) -> Result<Woke, Never> {
         match self.woken {
-            Woken::Yes => return Ok(Woke::Already),
-            Woken::No => {},
+            WakeState::Yes => return Ok(Woke::Already),
+            WakeState::No => {},
         }
 
-        self.woken = Woken::Yes;
+        self.woken = WakeState::Yes;
 
-        match console_onscreen::set_awake(Woken::Yes) {
+        match console_onscreen::set_awake(WakeState::Yes) {
             Ok(()) => {},
             Err(fault) => eprintln!("console-home: no one was told it is awake: {fault}"),
         }
@@ -392,13 +392,13 @@ impl Screen {
 
     fn sleeps(&mut self) -> Result<(), Never> {
         match self.woken {
-            Woken::Yes => {},
-            Woken::No => return Ok(()),
+            WakeState::Yes => {},
+            WakeState::No => return Ok(()),
         }
 
-        self.woken = Woken::No;
+        self.woken = WakeState::No;
 
-        match console_onscreen::set_awake(Woken::No) {
+        match console_onscreen::set_awake(WakeState::No) {
             Ok(()) => {},
             Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
         }
@@ -408,8 +408,8 @@ impl Screen {
 
     fn shows(&self) -> Result<Shows, Never> {
         Ok(match (self.woken, self.pointer) {
-            (Woken::Yes, _) | (_, Pointer::OnASquare) => Shows::AHighlight,
-            (Woken::No, Pointer::Elsewhere) => Shows::None,
+            (WakeState::Yes, _) | (_, Pointer::OnASquare) => Shows::AHighlight,
+            (WakeState::No, Pointer::Elsewhere) => Shows::None,
         })
     }
 
@@ -813,7 +813,7 @@ fn middle(centred: Centred) -> Result<i32, Never> {
     Ok(room.saturating_sub(thing).saturating_div(2))
 }
 
-fn plate(laid: &Laid, rounding: i32) -> Result<Panel, Never> {
+fn plate(laid: &Layout, rounding: i32) -> Result<Panel, Never> {
     let Ok(round) = up(rounding);
 
     Ok(Panel {
@@ -937,7 +937,7 @@ fn drawing(screen: &mut Screen, wears: &Wears, room: (i32, i32)) -> Result<Drawi
     for row in 0..grid.rows {
         'over_columns: for column in 0..grid.columns {
             let spot = Spot { pane: here.pane, row, column };
-            let laid = shape::laid(room, grid, spot)?;
+            let laid = shape::layout(room, grid, spot)?;
             let plate = plate(&laid, square.rounding)?;
 
             touching.push((spot, plate));
@@ -1173,7 +1173,7 @@ fn stirring() -> Result<Option<OwnedFd>, Never> {
     };
 
     let (say, heard) = std::sync::mpsc::channel();
-    let Ok(()) = console_events::again::about(&Topic::Compositor, worth_asking_after, say);
+    let Ok(()) = console_events::again::about(&EventGroup::Compositor, worth_asking_after, say);
 
     let Ok(()) = console_program_lifetime::threads::let_go(std::thread::spawn(move || {
         for () in heard.iter() {
@@ -1576,7 +1576,7 @@ fn main() {
     let Ok(stirring) = stirring();
     let Ok(searching) = searching();
 
-    match console_onscreen::set_awake(Woken::No) {
+    match console_onscreen::set_awake(WakeState::No) {
         Ok(()) => {},
         Err(fault) => eprintln!("console-home: no one was told it is asleep: {fault}"),
     }

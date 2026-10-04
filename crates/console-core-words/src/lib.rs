@@ -23,7 +23,13 @@
 //!
 //! which is `tag`, `name` and `written`, each a `const fn` over every variant,
 //! and `from_tag`, `from_name` and `from_written`, the way back from a word to
-//! the variant that says it, or `None` for a word none of them says. Each is as
+//! the variant that says it, or `None` for a word none of them says. Beside
+//! them is `VARIANTS`, every variant in the order it is declared, which is the
+//! list a crate wrote out by hand whenever it had to show every word at once --
+//! a menu, a usage line, a test over each -- and which drifted from the enum
+//! the day a variant was added to one and not the other. strum calls it the
+//! same thing. A list in some other order, the order a menu shows, is a
+//! different list and keeps its own name. Each is as
 //! public as the enum that carries the words -- a word is as
 //! reachable as the thing it is a word for. What a reader gains is that the
 //! three words for one variant are on one line instead of a page apart in three
@@ -100,6 +106,11 @@ fn expand_derive(asked: &DeriveInput) -> Result<Written, Error> {
 
     let every = gather_words(&asked.ident, &spelled)?;
     let holding = &asked.ident;
+    let declared = spelled.iter().map(|said| {
+        let variant = &said.variant;
+
+        quote! { #holding::#variant }
+    });
     let visibility = &asked.vis;
     let (outside, inside, clause) = asked.generics.split_for_impl();
 
@@ -127,6 +138,9 @@ fn expand_derive(asked: &DeriveInput) -> Result<Written, Error> {
 
     Ok(quote! {
         impl #outside #holding #inside #clause {
+            #[allow(dead_code, reason = "every variant is listed for every enum that says words, and an enum only ever read one word at a time never walks it")]
+            #visibility const VARIANTS: &'static [Self] = &[#(#declared),*];
+
             #(#each)*
         }
     })
@@ -283,6 +297,27 @@ mod tests {
         assert!(written.contains(r#"Layer :: Latin => "us""#), "{written}");
         assert!(written.contains(r#"Layer :: Thai => "th""#), "{written}");
         assert!(written.contains(r#"Layer :: Thai => "ไทย""#), "{written}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn every_variant_stands_in_the_order_the_enum_declares_it() -> Result<(), Box<dyn std::error::Error>> {
+        let written = expand(
+            r#"
+            pub enum Layer {
+                #[words(tag = "us")]
+                Latin,
+                #[words(tag = "th")]
+                Thai,
+                #[words(tag = "el")]
+                Greek,
+            }
+            "#,
+        )?;
+
+        assert!(written.contains("pub const VARIANTS"), "{written}");
+        assert!(written.contains("[Layer :: Latin , Layer :: Thai , Layer :: Greek]"), "{written}");
 
         Ok(())
     }

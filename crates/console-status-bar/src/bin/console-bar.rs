@@ -104,7 +104,7 @@ use console_draw_surface::standing::{
 };
 use console_draw_surface::{SurfaceError, PointerEvent, Surface};
 use console_music::player::Sound;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use console_status_bar::clock;
 use console_status_bar::dwindling::Watching;
 use console_program_lifetime::{Detached, Still};
@@ -116,7 +116,7 @@ use console_status_bar::measuring::sized;
 use console_status_bar::showing::{self, BarAction, Rendered, Filling, Fitting, Wearing};
 use console_notifications::updating;
 use console_status_bar::watch;
-use console_waiting::woken;
+use console_waiting::latch;
 use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
@@ -210,7 +210,7 @@ fn drawing() -> Result<(), Cannot> {
     let spent = palette::spent()?;
     let wearing = Wearing::out_of(&spent)?;
     let mut surface = Surface::connect()?;
-    let waking = woken::pipe().map_err(Cannot::Pipe)?;
+    let waking = latch::pipe().map_err(Cannot::Pipe)?;
     let hearing = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).map_err(Cannot::Deaf)?;
     let Ok(folders) = heard_in();
 
@@ -350,7 +350,7 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, Result<(
         requested.extend(asked);
     }
 
-    let Ok(()) = woken::drain(waking_fd);
+    let Ok(()) = latch::drain(waking_fd);
     let Ok(()) = heard_again(hearing);
     let Ok((still, ended)) = reaped(started);
 
@@ -926,7 +926,7 @@ fn sources(
 
     let (say, heard) = channel();
     let Ok(()) =
-        console_events::again::about(&Topic::Player, console_music::player::worth_asking_after, say);
+        console_events::again::about(&EventGroup::Player, console_music::player::worth_asking_after, say);
     let Ok(()) = forwarded(Woke::Player, heard, seen, saying);
 
     Ok(())

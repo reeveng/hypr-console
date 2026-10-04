@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-never.workspace = true
+rustix.workspace = true
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true

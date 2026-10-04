@@ -13,7 +13,9 @@
 //! anything -- so the figure is said at the moment it changes, where someone
 //! is already looking.
 
+use console_core_arguments::Subcommand;
 use console_core_never::Never;
+use console_core_words::Words;
 
 use crate::level::Muted;
 
@@ -24,21 +26,27 @@ pub const SINK: &str = "@DEFAULT_SINK@";
 
 pub const STEP: &str = "5%";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum ButtonPress {
+    #[words(word = "up", about = "louder, and unsilenced")]
     Up,
+    #[words(word = "down", about = "quieter")]
     Down,
+    #[words(word = "mute", about = "silence it, or stop silencing it")]
     Mute,
 }
 
-impl ButtonPress {
-    pub fn parse(word: &str) -> Result<Option<Self>, Never> {
-        match word {
-            "up" => Ok(Some(ButtonPress::Up)),
-            "down" => Ok(Some(ButtonPress::Down)),
-            "mute" => Ok(Some(ButtonPress::Mute)),
-            _ => Ok(None),
-        }
+impl Subcommand for ButtonPress {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(ButtonPress::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        ButtonPress::about(self)
     }
 }
 
@@ -132,9 +140,9 @@ mod tests {
 
     #[test]
     fn nothing_but_the_three_words_is_a_press() {
-        assert_eq!(ButtonPress::parse("up"), Ok(Some(ButtonPress::Up)));
-        assert_eq!(ButtonPress::parse("UP"), Ok(None));
-        assert_eq!(ButtonPress::parse(""), Ok(None));
+        assert_eq!(ButtonPress::from_word("up"), Ok(Some(ButtonPress::Up)));
+        assert_eq!(ButtonPress::from_word("UP"), Ok(None));
+        assert_eq!(ButtonPress::from_word(""), Ok(None));
     }
 
     #[test]

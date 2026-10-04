@@ -14,6 +14,7 @@ name = "language-switch"
 path = "src/bin/language-switch.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-input-alphabets.workspace = true
 console-compositor.workspace = true
 console-core-never.workspace = true

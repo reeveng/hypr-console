@@ -17,15 +17,15 @@ use console_core_never::Never;
 pub const QUIET: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Woken {
+pub enum Wake {
     Yes,
     No,
 }
 
-pub fn awake(since: Duration) -> Result<Woken, Never> {
+pub fn awake(since: Duration) -> Result<Wake, Never> {
     Ok(match since < QUIET {
-        true => Woken::Yes,
-        false => Woken::No,
+        true => Wake::Yes,
+        false => Wake::No,
     })
 }
 
@@ -33,18 +33,18 @@ pub fn awake(since: Duration) -> Result<Woken, Never> {
 mod tests {
     use std::time::Duration;
 
-    use super::{Woken, QUIET, awake};
+    use super::{Wake, QUIET, awake};
 
     #[test]
     fn a_card_just_pressed_is_awake() {
-        assert_eq!(awake(Duration::ZERO), Ok(Woken::Yes));
-        assert_eq!(awake(QUIET - Duration::from_millis(1)), Ok(Woken::Yes));
+        assert_eq!(awake(Duration::ZERO), Ok(Wake::Yes));
+        assert_eq!(awake(QUIET - Duration::from_millis(1)), Ok(Wake::Yes));
     }
 
     #[test]
     fn a_card_no_one_has_touched_is_only_the_picture() {
-        assert_eq!(awake(QUIET), Ok(Woken::No));
-        assert_eq!(awake(Duration::from_secs(600)), Ok(Woken::No));
+        assert_eq!(awake(QUIET), Ok(Wake::No));
+        assert_eq!(awake(Duration::from_secs(600)), Ok(Wake::No));
     }
 
     #[test]

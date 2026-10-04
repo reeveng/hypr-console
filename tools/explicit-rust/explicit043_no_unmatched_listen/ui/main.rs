@@ -1,6 +1,6 @@
-// UI test for EXPLICIT043 — a topic listened to is a topic the program stops listening to. The
-// question is asked of the crate rather than of the line, so what this file
-// says once about `Subscriber` is what settles both of its calls.
+// UI test for EXPLICIT043 — a program that listens to an event group stops
+// listening to it. The crate answers the question rather than the line, so
+// what this file says once about `Subscriber` settles both of its calls.
 
 pub struct Subscription(pub &'static str);
 
@@ -13,9 +13,9 @@ pub enum Effect {
 pub struct Subscriber;
 
 impl Subscriber {
-    pub fn subscribe(&self, _topic: &str) {}
+    pub fn subscribe(&self, _event_group: &str) {}
 
-    pub fn unsubscribe(&self, _topic: &str) {}
+    pub fn unsubscribe(&self, _event_group: &str) {}
 }
 
 // BAD EXPLICIT043 — this crate says `Subscribe` and never says `Unsubscribe`, so

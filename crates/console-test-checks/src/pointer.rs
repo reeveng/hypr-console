@@ -25,14 +25,14 @@ pub const TOUCHPAD: Check = Check {
 };
 
 fn scroll_here(stage: &mut Here) -> CheckResult {
-    stage.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+    stage.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
 
     let Ok(()) = stage.settle(HELD);
     let Ok(up) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
 
     more_than(up, 0, || "the wheel did not turn".to_string())?;
 
-    stage.stick("right-stick", Point { x: 0.0, y: 1.0 })?;
+    stage.thumbstick("right-stick", Point { x: 0.0, y: 1.0 })?;
 
     let Ok(()) = stage.settle(HELD);
     let Ok(back) = stage.wrote(EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);

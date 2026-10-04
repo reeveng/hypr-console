@@ -22,7 +22,7 @@ use std::collections::HashSet;
 use console_core_never::Never;
 use console_core_words::Words;
 
-use crate::settled::Settled;
+use crate::up_to_date::UpToDate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum PackageState {
@@ -35,10 +35,10 @@ pub enum PackageState {
 }
 
 impl PackageState {
-    pub fn settled(self) -> Result<Settled, Never> {
+    pub fn up_to_date(self) -> Result<UpToDate, Never> {
         Ok(match self == PackageState::Ok {
-            true => Settled::Yes,
-            false => Settled::No,
+            true => UpToDate::Yes,
+            false => UpToDate::No,
         })
     }
 }
@@ -110,13 +110,13 @@ mod tests {
 
     #[test]
     fn only_a_package_someone_asked_for_is_settled() {
-        let Ok(asked_for) = PackageState::Ok.settled();
-        let Ok(borrowed) = PackageState::Borrowed.settled();
-        let Ok(missing) = PackageState::Missing.settled();
+        let Ok(asked_for) = PackageState::Ok.up_to_date();
+        let Ok(borrowed) = PackageState::Borrowed.up_to_date();
+        let Ok(missing) = PackageState::Missing.up_to_date();
 
-        assert_eq!(asked_for, Settled::Yes);
-        assert_eq!(borrowed, Settled::No);
-        assert_eq!(missing, Settled::No);
+        assert_eq!(asked_for, UpToDate::Yes);
+        assert_eq!(borrowed, UpToDate::No);
+        assert_eq!(missing, UpToDate::No);
     }
 
     #[test]

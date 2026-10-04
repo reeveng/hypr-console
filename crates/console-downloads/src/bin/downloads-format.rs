@@ -18,7 +18,9 @@
 //! places they were not thinking of.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
+
+use console_core_arguments::{Operands, read};
 
 use console_downloads::getting;
 use console_downloads::same::{self, Wants};
@@ -44,9 +46,33 @@ enum Ran {
     Badly,
 }
 
-fn main() {
-    let where_: Vec<PathBuf> = match std::env::args().nth(1) {
-        Some(said) => vec![PathBuf::from(said)],
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "downloads-format",
+    about: "make everything in FOLDER the one format this device keeps; with no FOLDER, the music folder and the videos folder",
+    flags: &[],
+    operands: Operands::Optional("FOLDER"),
+};
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(operands) = line.operands();
+    let Ok(()) = format(operands.first());
+
+    ExitCode::SUCCESS
+}
+
+fn format(folder: Option<&String>) -> Result<(), Never> {
+    let where_: Vec<PathBuf> = match folder {
+        Some(folder) => vec![PathBuf::from(folder)],
         None => Kind::BOTH
             .iter()
             .map(|kind| {
@@ -73,6 +99,8 @@ fn main() {
     }
 
     let Ok(()) = notify(Converted { made, left }, &where_);
+
+    Ok(())
 }
 
 fn wanting(folder: &Path) -> Result<Vec<PathBuf>, Never> {

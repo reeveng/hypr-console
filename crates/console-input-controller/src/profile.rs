@@ -54,7 +54,8 @@ use console_core_never::Never;
 const THE_PROFILE: &str = "the profile";
 
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Exit, Flag, Timer, Command, Subscription, ExitStatus, Event};
+use console_core_arguments::{CommandLine, Operands, Subcommand};
+use console_program_contract::{Effect, Exit, Timer, Command, Subscription, ExitStatus, Event};
 
 const BUS: &str = "org.shadowblip.InputPlumber";
 
@@ -68,28 +69,69 @@ const MOST: u32 = 60;
 
 const GAME: &str = "game.yaml";
 
-pub const PAD: &str = "--pad";
-
 const NO_PAD: &str = "this machine has no pad, so there is nothing to put a profile on";
+
+pub const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "controller-profile",
+    about: "the profile the pad wears, or which one it is wearing when none is named",
+    flags: &[],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+pub enum ProfileName {
+    #[words(word = "router", about = "every button, said as itself, for the daemon")]
+    Router,
+    #[words(word = "desktop", about = "the router, by the word the desktop used to have")]
+    Desktop,
+    #[words(word = "tabs", about = "the router, by the word a picker used to have")]
+    Tabs,
+    #[words(word = "game", about = "buttons stay a gamepad, for Steam and games")]
+    Game,
+}
+
+impl Subcommand for ProfileName {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(ProfileName::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        ProfileName::about(self)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProfileState {
     Router,
     Game,
     Attempt,
-    Error(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Switch {
+    pub profile: ProfileState,
+    pub pad: Has,
+}
+
+impl Switch {
+    pub fn of(line: &CommandLine<ProfileName>, pad: Has) -> Result<Switch, Never> {
+        let Ok(named) = line.subcommand();
+        let Ok(profile) = ProfileState::of(named);
+
+        Ok(Switch { profile, pad })
+    }
 }
 
 impl ProfileState {
-    pub fn of(arguments: &Arguments) -> Result<Self, Never> {
-        let Ok(words) = arguments.words();
-        let first = words.iter().map(String::as_str).find(|word| *word != PAD);
-
-        Ok(match first {
+    pub fn of(named: Option<ProfileName>) -> Result<Self, Never> {
+        Ok(match named {
             None => ProfileState::Attempt,
-            Some("router" | "desktop" | "tabs") => ProfileState::Router,
-            Some("game") => ProfileState::Game,
-            Some(word) => ProfileState::Error(word.to_string()),
+            Some(ProfileName::Router | ProfileName::Desktop | ProfileName::Tabs) => ProfileState::Router,
+            Some(ProfileName::Game) => ProfileState::Game,
         })
     }
 
@@ -97,7 +139,7 @@ impl ProfileState {
         Ok(match self {
             ProfileState::Router => Some(format!("{PROFILES}{}", router::FILE)),
             ProfileState::Game => Some(format!("{PROFILES}{GAME}")),
-            ProfileState::Attempt | ProfileState::Error(_) => None,
+            ProfileState::Attempt => None,
         })
     }
 
@@ -105,7 +147,7 @@ impl ProfileState {
         Ok(match self {
             ProfileState::Router => Some(Buzz::Off),
             ProfileState::Game => Some(Buzz::On),
-            ProfileState::Attempt | ProfileState::Error(_) => None,
+            ProfileState::Attempt => None,
         })
     }
 }
@@ -142,13 +184,13 @@ pub struct Attempt {
 pub struct Profile;
 
 impl Machine for Profile {
-    type Input = Arguments;
+    type Input = Switch;
     type State = Attempt;
     type Request = Event<console_core_never::Never>;
     type Effect = Effect<ProfileEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Attempt>, effects: &mut Effects) -> Result<Attempt, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(switch: &Switch, _previous: Option<Attempt>, effects: &mut Effects) -> Result<Attempt, Never> {
+        let Ok(opening) = initial(switch);
 
         opening.offered(effects)
     }
@@ -162,11 +204,8 @@ impl Machine for Profile {
 
 type Effects = Queue<Effect<ProfileEffect>>;
 
-fn initial(arguments: &Arguments) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
-    let Ok(subscriptions) = ProfileState::of(arguments);
-    let Ok(given) = arguments.flag(PAD);
-    let Ok(pad) = has(given);
-    let holding = Attempt { subscriptions, pad, step: Step::Initial, tried: 0 };
+fn initial(switch: &Switch) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
+    let holding = Attempt { subscriptions: switch.profile.clone(), pad: switch.pad, step: Step::Initial, tried: 0 };
     let Ok(file) = holding.subscriptions.file();
 
     #[cfg_attr(
@@ -176,7 +215,7 @@ fn initial(arguments: &Arguments) -> Result<Transition<Attempt, Effect<ProfileEf
             reason = "the bus is asked again on this clock until the profile loads or will not, and either one stops the program, so it ticks exactly as long as the program runs"
         )
     )]
-    let Ok(opening) = match (file, pad) {
+    let Ok(opening) = match (file, switch.pad) {
         (Some(_), Has::Yes) => Transition::new(holding, vec![Effect::Subscribe(Subscription::Timer(AGAIN))]),
         (Some(_), Has::No) | (None, _) => Transition::without_effects(holding),
     };
@@ -186,13 +225,6 @@ fn initial(arguments: &Arguments) -> Result<Transition<Attempt, Effect<ProfileEf
 
 fn decide(state: &Attempt, event: &Event<console_core_never::Never>) -> Result<Transition<Attempt, Effect<ProfileEffect>>, Never> {
     let Ok(turn) = match (state.pad, &state.subscriptions, event) {
-        (_, ProfileState::Error(word), Event::Opened) => Transition::new(
-            state.clone(),
-            vec![Effect::Stop(Exit::Failure(format!(
-                "{word}: usage: controller-profile [router|game]"
-            )))],
-        ),
-
         (Has::No, ProfileState::Attempt | ProfileState::Router | ProfileState::Game, Event::Opened) => Transition::new(
             state.clone(),
             vec![Effect::Print(NO_PAD.to_string()), Effect::Stop(Exit::Success)],
@@ -310,13 +342,6 @@ fn tried(state: &Attempt) -> Result<Transition<Attempt, Effect<ProfileEffect>>, 
     }
 }
 
-fn has(given: Flag) -> Result<Has, Never> {
-    Ok(match given {
-        Flag::Present => Has::Yes,
-        Flag::Absent => Has::No,
-    })
-}
-
 fn buzzing(subscriptions: &ProfileState) -> Result<Vec<Effect<ProfileEffect>>, Never> {
     let Ok(buzz) = subscriptions.buzz();
 
@@ -357,6 +382,15 @@ mod tests {
     use console_core_state_machine::run;
 
     use super::*;
+    use console_core_arguments::{Reason, ValidationError, read_with};
+
+    fn switch(words: &[&str], pad: Has) -> Result<Switch, ValidationError> {
+        let read = read_with::<ProfileName, &str>(&COMMAND, words);
+        let line = read?;
+        let Ok(switched) = Switch::of(&line, pad);
+
+        Ok(switched)
+    }
 
     fn answered_with(went: ExitStatus, said: &str) -> Result<Event<Never>, Never> {
         let Ok(reading) = reading();
@@ -365,20 +399,22 @@ mod tests {
     }
 
     #[test]
-    fn the_desktops_word_and_the_router_are_the_same_file() {
-        let Ok(desktop) = Arguments::of(&["desktop", PAD]);
-        let Ok(tabs) = Arguments::of(&["tabs", PAD]);
-        let Ok(router) = Arguments::of(&["router", PAD]);
+    fn the_desktops_word_and_the_router_are_the_same_file() -> Result<(), ValidationError> {
+        let desktop = switch(&["desktop"], Has::Yes)?;
+        let tabs = switch(&["tabs"], Has::Yes)?;
+        let router = switch(&["router"], Has::Yes)?;
 
-        assert_eq!(ProfileState::of(&desktop), Ok(ProfileState::Router));
-        assert_eq!(ProfileState::of(&tabs), Ok(ProfileState::Router));
-        assert_eq!(ProfileState::of(&router), Ok(ProfileState::Router));
+        assert_eq!(desktop.profile, ProfileState::Router);
+        assert_eq!(tabs.profile, ProfileState::Router);
+        assert_eq!(router.profile, ProfileState::Router);
+
+        Ok(())
     }
 
     #[test]
-    fn the_buzz_is_off_for_the_desktop_and_on_for_a_game() {
-        let Ok(router) = Arguments::of(&["router", PAD]);
-        let Ok(playing) = Arguments::of(&["game", PAD]);
+    fn the_buzz_is_off_for_the_desktop_and_on_for_a_game() -> Result<(), ValidationError> {
+        let router = switch(&["router"], Has::Yes)?;
+        let playing = switch(&["game"], Has::Yes)?;
         let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
         let Ok(game) = run::<Profile>(&playing, &[Event::Opened]);
         let Ok(first) = said.on(0);
@@ -386,10 +422,12 @@ mod tests {
 
         assert_eq!(first.and_then(|effects| effects.first()), Some(&Effect::Custom(ProfileEffect::Buzzing(Buzz::Off))));
         assert_eq!(began.and_then(|effects| effects.first()), Some(&Effect::Custom(ProfileEffect::Buzzing(Buzz::On))));
+
+        Ok(())
     }
 
     #[test]
-    fn the_wait_for_the_bus_ends_the_moment_it_answers() {
+    fn the_wait_for_the_bus_ends_the_moment_it_answers() -> Result<(), ValidationError> {
         let Ok(refused) = answered_with(ExitStatus::Failure(Some(1)), "");
         let Ok(answered) = answered_with(ExitStatus::Success, "s \"router\"");
         let mut words = vec![Event::Opened, refused.clone()];
@@ -402,16 +440,18 @@ mod tests {
         words.push(Event::Tick(AGAIN, Duration::ZERO));
         words.push(answered);
 
-        let Ok(router) = Arguments::of(&["router", PAD]);
+        let router = switch(&["router"], Has::Yes)?;
         let Ok(said) = run::<Profile>(&router, &words);
         let Ok(effects) = said.effects();
         let Ok(loading) = loading("/etc/inputplumber/profiles/router.yaml");
 
         assert_eq!(effects.last(), Some(&Effect::Run(loading)));
+
+        Ok(())
     }
 
     #[test]
-    fn a_bus_that_never_appears_is_said_out_loud_rather_than_waited_on_for_ever() {
+    fn a_bus_that_never_appears_is_said_out_loud_rather_than_waited_on_for_ever() -> Result<(), ValidationError> {
         let Ok(refused) = answered_with(ExitStatus::Failure(Some(1)), "");
         let mut words = vec![Event::Opened, refused.clone()];
 
@@ -420,7 +460,7 @@ mod tests {
             words.push(refused.clone());
         }
 
-        let Ok(router) = Arguments::of(&["router", PAD]);
+        let router = switch(&["router"], Has::Yes)?;
         let Ok(said) = run::<Profile>(&router, &words);
         let Ok(effects) = said.effects();
 
@@ -430,11 +470,13 @@ mod tests {
                 "InputPlumber never appeared on the bus".to_string()
             )))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn asking_which_profile_is_on_prints_the_name_out_of_what_the_bus_said() {
-        let Ok(pad) = Arguments::of(&[PAD]);
+    fn asking_which_profile_is_on_prints_the_name_out_of_what_the_bus_said() -> Result<(), ValidationError> {
+        let pad = switch(&[], Has::Yes)?;
         let Ok(answered) = answered_with(ExitStatus::Success, "s \"router\"\n");
         let Ok(said) = run::<Profile>(&pad, &[Event::Opened, answered]);
 
@@ -442,20 +484,24 @@ mod tests {
             said.on(1),
             Ok(Some([Effect::Print("router".to_string()), Effect::Stop(Exit::Success)].as_slice()))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn the_machines_own_word_is_not_the_word_the_person_typed() {
-        let Ok(nothing) = Arguments::of(&[PAD]);
-        let Ok(router) = Arguments::of(&["router", PAD]);
+    fn the_machines_own_word_is_not_the_word_the_person_typed() -> Result<(), ValidationError> {
+        let nothing = switch(&[], Has::Yes)?;
+        let router = switch(&["router"], Has::Yes)?;
 
-        assert_eq!(ProfileState::of(&nothing), Ok(ProfileState::Attempt));
-        assert_eq!(ProfileState::of(&router), Ok(ProfileState::Router));
+        assert_eq!(nothing.profile, ProfileState::Attempt);
+        assert_eq!(router.profile, ProfileState::Router);
+
+        Ok(())
     }
 
     #[test]
-    fn a_machine_with_no_pad_says_so_rather_than_waiting_out_the_whole_minute() {
-        let Ok(router) = Arguments::of(&["router"]);
+    fn a_machine_with_no_pad_says_so_rather_than_waiting_out_the_whole_minute() -> Result<(), ValidationError> {
+        let router = switch(&["router"], Has::No)?;
         let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
 
         assert_eq!(
@@ -464,32 +510,27 @@ mod tests {
                 [Effect::Print(NO_PAD.to_string()), Effect::Stop(Exit::Success)].as_slice()
             ))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() {
-        let Ok(router) = Arguments::of(&["router"]);
+    fn a_machine_with_no_pad_asks_the_bus_nothing_and_waits_for_no_round() -> Result<(), ValidationError> {
+        let router = switch(&["router"], Has::No)?;
         let Ok(said) = run::<Profile>(&router, &[Event::Opened]);
         let Ok(effects) = said.effects();
 
         assert_eq!(said.initialized, Vec::new());
         assert!(!effects.iter().any(|effect| matches!(effect, Effect::Run(_))), "{effects:?}");
+
+        Ok(())
     }
 
     #[test]
     fn a_word_this_program_does_not_know_is_refused_with_the_usage() {
-        let Ok(keyboard) = Arguments::of(&["keyboard", PAD]);
-        let Ok(said) = run::<Profile>(&keyboard, &[Event::Opened]);
+        let keyboard = switch(&["keyboard"], Has::Yes);
 
-        assert_eq!(
-            said.on(0),
-            Ok(Some(
-                [Effect::Stop(Exit::Failure(
-                    "keyboard: usage: controller-profile [router|game]".to_string()
-                ))]
-                .as_slice()
-            ))
-        );
+        assert_eq!(keyboard.map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("keyboard".to_string())));
     }
 
     #[test]
@@ -497,14 +538,16 @@ mod tests {
         dylint_lib = "explicit043_no_unmatched_listen",
         allow(explicit043_no_unmatched_listen, reason = "the subscription is named as what the program is expected to ask for, and nothing is subscribed to here")
     )]
-    fn nothing_waits_for_a_bus_it_is_only_asking_about() {
-        let Ok(pad) = Arguments::of(&[PAD]);
-        let Ok(game) = Arguments::of(&["game", PAD]);
+    fn nothing_waits_for_a_bus_it_is_only_asking_about() -> Result<(), ValidationError> {
+        let pad = switch(&[], Has::Yes)?;
+        let game = switch(&["game"], Has::Yes)?;
 
         let Ok(asking) = run::<Profile>(&pad, &[]);
         let Ok(loading) = run::<Profile>(&game, &[]);
 
         assert_eq!(asking.initialized, Vec::new());
         assert_eq!(loading.initialized, vec![Effect::Subscribe(Subscription::Timer(AGAIN))]);
+
+        Ok(())
     }
 }

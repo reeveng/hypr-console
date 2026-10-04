@@ -12,11 +12,12 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_device::deploying::{Alive, Deploy, DeployingEvent, Holder, DeployingEffect};
+use console_core_arguments::read;
+use console_device::deploying::{self, Alive, Deploy, Deployment, DeployingEvent, Holder, DeployingEffect};
 use console_device_name::device;
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Event};
+use console_program_contract::Event;
 use console_program_runtime::Interpreter;
 
 const NAMED: &str = "/proc/sys/kernel/hostname";
@@ -124,13 +125,6 @@ fn read_holder(at: &Path) -> Result<Holder, Never> {
     })
 }
 
-fn host_of(words: &[String]) -> Result<String, Never> {
-    Ok(match words.first() {
-        Some(host) => host.clone(),
-        None => String::new(),
-    })
-}
-
 fn here() -> Result<String, Never> {
     read_trimmed(Path::new(NAMED))
 }
@@ -160,11 +154,17 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mut words = vec![host];
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    words.extend(std::env::args().skip(1));
+    let line = match read(&deploying::COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let given: Vec<&str> = words.iter().map(String::as_str).collect();
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(deployment) = Deployment::of(&host, &line);
 
     match console_repository::root() {
         Ok(root) => match std::env::set_current_dir(&root) {
@@ -182,7 +182,6 @@ fn main() -> ExitCode {
         }
     }
 
-    let Ok(host) = host_of(&words);
     let Ok(asked) = console_awake::taking_on(&host, console_awake::InhibitReason::FromDeploying);
     let _kept_up = match asked {
         console_awake::InhibitResult::Acquired(staying) => Some(staying),
@@ -195,10 +194,9 @@ fn main() -> ExitCode {
 
     let mut locking = Locking { held: None };
 
-    let Ok(arguments) = Arguments::of(&given);
     let Ok(how) = console_program_runtime::run::<Deploy, Locking>(
         "console-deploy",
-        &arguments,
+        &deployment,
         &mut locking,
     );
 

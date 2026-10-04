@@ -26,6 +26,7 @@ name = "console-screenshot"
 path = "src/bin/console-screenshot.rs"
 
 [dependencies]
+console-core-internal-programs.workspace = true
 console-core-file-names.workspace = true
 console-core-file-urls.workspace = true
 console-core-atomic-writes.workspace = true
@@ -33,6 +34,7 @@ console-applications.workspace = true
 console-content-types.workspace = true
 console-core-checksums.workspace = true
 console-concurrency.workspace = true
+console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-places.workspace = true

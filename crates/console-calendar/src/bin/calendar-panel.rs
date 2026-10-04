@@ -3,10 +3,14 @@
 //! bar runs: it takes the screen, asks the host to draw the card on it, and
 //! holds the screen until the card is gone.
 
+use std::process::ExitCode;
+
 use console_panel::card::{Panel, opened};
 
-fn main() {
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked, Panel { who: console_calendar::WHO, door: console_calendar::door, card: console_calendar::card });
+    let Ok(code) = opened(&asked, Panel { who: console_calendar::WHO, command: console_calendar::COMMAND, door: console_calendar::door, card: console_calendar::card });
+
+    code
 }

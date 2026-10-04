@@ -10,6 +10,7 @@
 
 use console_books::appearance::Appearance;
 use console_core_external_programs::Program;
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_core_internal_programs::InternalProgram;
 use console_core_number_conversion::fitted;
@@ -17,12 +18,19 @@ use std::sync::Arc;
 
 pub const WHO: &str = "settings-panel";
 
+pub const COMMAND: Command = Command {
+    name: "settings-panel",
+    about: "the settings, each kind in its own place",
+    flags: &[],
+    operands: Operands::Optional("TAB"),
+};
+
 pub fn door(arguments: &[String]) -> Result<Door, Never> {
     Door::closing_at("settings", arguments.first().map(String::as_str))
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let Ok(card) = Card::supervised::<Settings, _>(Arguments::default(), pages);
+    let Ok(card) = Card::supervised::<Settings, _>((), pages);
 
     card.opening_at(arguments.first().map(String::as_str))
 }
@@ -50,7 +58,7 @@ use crate::light;
 use crate::warm::{self, NightShift};
 use crate::{bluetooth, screen, size, sound, turning, wifi};
 use console_home_screen::shape::{self, Shape};
-use console_program_contract::{Arguments, Effect, Event};
+use console_program_contract::{Effect, Event};
 use crate::choosing::{Closes, Deeper, SettingsEvent, SettingsEffect, Meeting, Destination, Settings, Under, closes, under};
 use console_wallpaper::choose::{Set, Wanted};
 use console_wallpaper::place;
@@ -747,7 +755,7 @@ fn write_down(wanted: &Wanted) -> Result<(), Unchosen> {
 fn ask_for(showing: &dyn Showing, wanted: &Wanted, going_on: &str) -> Result<(), Never> {
     match write_down(wanted) {
         Ok(()) => {
-            let Ok(words) = words(&["console-wallpaper", "--now"]);
+            let Ok(words) = words(&["console-wallpaper", console_wallpaper::keeping::NOW.spelling]);
 
             showing.note(going_on);
             showing.later(words);
@@ -856,7 +864,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
         dropped: waiting,
     };
     let Ok(taking) = Handler::and_stay(move |showing| {
-        let Ok(words) = words(&["wallpaper-render", "--dropped"]);
+        let Ok(words) = words(&["wallpaper-render", console_core_internal_programs::WALLPAPER_DROPPED.spelling]);
 
         showing.note(&match waiting {
             1 => "Adding the picture, about a minute".to_string(),
@@ -1473,7 +1481,7 @@ fn sound_page(title: &str) -> Result<Page, Never> {
         rows
     });
 
-    page.with_subscription(console_program_contract::Topic::Sound, console_events::again::sound)
+    page.with_subscription(console_program_contract::EventGroup::Sound, console_events::again::sound)
 }
 
 fn bluetooth_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {

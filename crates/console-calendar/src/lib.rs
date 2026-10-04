@@ -9,4 +9,4 @@
 pub mod card;
 pub mod month;
 
-pub use card::{WHO, card, door};
+pub use card::{COMMAND, WHO, card, door};

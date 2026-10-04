@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 use console_core_never::Never;
 
-use console_input_controller::profile::ProfileState;
+use console_core_arguments::{Reason, read_with};
+use console_input_controller::profile::{COMMAND, ProfileName, ProfileState};
 use console_input_gamepad::router::{self, PROFILES};
-use console_program_contract::Arguments;
 
 fn root() -> Result<PathBuf, Never> {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -28,11 +28,11 @@ fn root() -> Result<PathBuf, Never> {
 }
 
 fn every_word() -> Result<Vec<(&'static str, Option<String>)>, Never> {
-    Ok(["router", "desktop", "tabs", "game"]
-        .into_iter()
-        .map(|word| {
-            let Ok(arguments) = Arguments::of(&[word]);
-            let Ok(which) = ProfileState::of(&arguments);
+    Ok(ProfileName::VARIANTS
+        .iter()
+        .map(|named| {
+            let Ok(word) = named.word();
+            let Ok(which) = ProfileState::of(Some(*named));
             let Ok(file) = which.file();
 
             (word, file)
@@ -75,11 +75,10 @@ fn the_switcher_knows_the_profile_that_is_made_rather_than_kept() {
 }
 
 #[test]
-fn a_word_no_one_defined_loads_nothing() {
-    let Ok(keyboard) = Arguments::of(&["keyboard"]);
-    let Ok(unknown) = ProfileState::of(&keyboard);
-    let Ok(nothing) = ProfileState::of(&Arguments::default());
+fn a_word_no_one_defined_is_refused_and_no_word_loads_nothing() {
+    let keyboard = read_with::<ProfileName, &str>(&COMMAND, &["keyboard"]);
+    let Ok(nothing) = ProfileState::of(None);
 
-    assert_eq!(unknown.file(), Ok(None));
+    assert_eq!(keyboard.map(drop).map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("keyboard".to_string())));
     assert_eq!(nothing.file(), Ok(None));
 }

@@ -108,8 +108,8 @@ impl Default for Explicit041NoUnsaidPrinting {
     }
 }
 
-// Naming the crate is not speaking it. `Topic` is the event vocabulary and is
-// named by a bar module and by the session watcher, neither of which hands a
+// Naming the crate is not speaking it. `EventGroup` is the event vocabulary and
+// is named by a bar module and by the session watcher, neither of which hands a
 // `Effect` to anyone; what makes a crate one of these programs is that it names
 // the effects, or the trait whose turn returns them.
 fn speaks_the_contract(cx: &LateContext<'_>, named: DefId) -> bool {

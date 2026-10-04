@@ -27,7 +27,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use console_events::wire::{self, Message};
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_waiting::{Ready, Schedule, until};
 use pool::{BEFORE_LONG, Failure, serve_at, socket};
 use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
@@ -90,7 +90,7 @@ fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() -> 
          the processor in {REFUSING:?} of nothing happening"
     );
 
-    let asked = wire::encoded(&Message::Subscribe(Topic::Sound))?;
+    let asked = wire::encoded(&Message::Subscribe(EventGroup::Sound))?;
     let mut asking = queued.try_clone()?;
 
     writeln!(asking, "{asked}")?;
@@ -98,7 +98,7 @@ fn a_door_that_cannot_open_is_not_asked_again_as_fast_as_the_machine_turns() -> 
     let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the program queued at the door was never let in")?;
 
     saying
-        .send(Change { topic: Topic::Sound, text: "let in at last".to_string() })
+        .send(Change { event_group: EventGroup::Sound, text: "let in at last".to_string() })
         .map_err(|_| "the pool stopped listening to its own source")?;
 
     let _ = queued.set_read_timeout(Some(BEFORE_LONG));

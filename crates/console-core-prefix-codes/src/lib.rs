@@ -24,6 +24,13 @@
 //! Deflate takes any lengths that do not ask for more codes than there are
 //! strings of bits; a WebP's code has to be complete, unless it has one
 //! symbol, which is then read in no bits at all.
+//!
+//! Writing is the same two things the other way round, and `writing` says how
+//! a code is chosen when nobody has handed one over.
+
+mod writing;
+
+pub use crate::writing::{BitWriter, Codebook, Field};
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -64,6 +71,7 @@ pub enum CodeError {
     Incomplete,
     Unused,
     Unknown,
+    Uncoded,
 }
 
 impl std::fmt::Display for CodeError {
@@ -73,6 +81,7 @@ impl std::fmt::Display for CodeError {
             CodeError::Incomplete => write!(to, "these lengths leave strings of bits that are no code"),
             CodeError::Unused => write!(to, "no symbol in this code has a length"),
             CodeError::Unknown => write!(to, "these bits are no code"),
+            CodeError::Uncoded => write!(to, "this symbol has no code to be written in"),
         }
     }
 }

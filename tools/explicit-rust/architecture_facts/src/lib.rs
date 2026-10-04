@@ -2,13 +2,14 @@
 //!
 //! `docs/architecture/` is a map of how the running desktop is connected, and
 //! the half of it that is not in `desktop.conf` or a unit file is in the code:
-//! which program a crate runs, which pool topic it subscribes to, whether it
-//! asks the compositor, opens a socket, or keeps a clock of its own. A search
-//! of the text had been answering those, one test at a time -- the pool's own
-//! listener test read the tree for a spelling -- and a search sees a spelling,
-//! not a call. `use console_compositor::socket::Socket as S` and a word in a
-//! string both read wrong to it. The compiler has already resolved every path
-//! to its definition by the time a late pass runs, so this asks the compiler.
+//! which program a crate runs, which pool event group it subscribes to, whether
+//! it asks the compositor, opens a socket, or keeps a clock of its own. A
+//! search of the text had been answering those, one test at a time -- the
+//! pool's own listener test read the tree for a spelling -- and a search sees a
+//! spelling, not a call. `use console_compositor::socket::Socket as S` and a
+//! word in a string both read wrong to it. The compiler has already resolved
+//! every path to its definition by the time a late pass runs, so this asks the
+//! compiler.
 //!
 //! It is a lint because that is the one door into the compiler this tree
 //! already keeps open: the suite's nightly, `clippy_utils`, and `cargo dylint`
@@ -103,7 +104,7 @@ fn classify(krate: &str, path: &str) -> Option<Class> {
         }
         ("console_events", "again::layers") => Some(Class::SubscribesTo("Compositor")),
         ("console_panel", "Page::with_subscription") => Some(Class::Subscribes),
-        ("console_program_contract", "Subscription::Topic") => Some(Class::Subscribes),
+        ("console_program_contract", "Subscription::EventGroup") => Some(Class::Subscribes),
         ("console_program_contract", "Subscription::Timer" | "Timer::new") => Some(Class::Timer("contract")),
         ("console_compositor", "Socket::Events" | "Socket::Requests") => Some(Class::Socket),
         ("console_compositor", _) if ASKING.contains(&last.as_str()) => Some(Class::Asks),
@@ -130,9 +131,9 @@ fn path_of(cx: &LateContext<'_>, id: DefId) -> String {
     with_no_trimmed_paths!(cx.tcx.def_path_str(id))
 }
 
-fn is_topic(cx: &LateContext<'_>, variant: DefId) -> bool {
+fn is_event_group(cx: &LateContext<'_>, variant: DefId) -> bool {
     cx.tcx.crate_name(variant.krate).as_str() == "console_program_contract"
-        && cx.tcx.item_name(cx.tcx.parent(variant)).as_str() == "Topic"
+        && cx.tcx.item_name(cx.tcx.parent(variant)).as_str() == "EventGroup"
 }
 
 // A tuple variant's constructor is a definition of its own under the variant,
@@ -144,29 +145,30 @@ fn variant_of(cx: &LateContext<'_>, res: Res) -> Option<(DefId, CtorKind)> {
     }
 }
 
-fn topic_named(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
+fn event_group_named(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<String> {
     let res = match expr.kind {
         ExprKind::Path(ref qpath) => cx.qpath_res(qpath, expr.hir_id),
         _ => return None,
     };
     let (variant, _) = variant_of(cx, res)?;
 
-    match variant.krate != LOCAL_CRATE && is_topic(cx, variant) {
+    match variant.krate != LOCAL_CRATE && is_event_group(cx, variant) {
         true => Some(cx.tcx.item_name(variant).to_string()),
         false => None,
     }
 }
 
-// The topics a listen names where it names them literally: `&[Topic::Sound]`,
-// `Topic::Path(folder)`. A topic handed in as a variable is `*`, and the
-// reader of the facts widens it to every topic the same crate names.
-fn topics_in<'tcx>(cx: &LateContext<'tcx>, given: &[&'tcx Expr<'tcx>]) -> BTreeSet<String> {
+// The event groups a listen names where it names them literally:
+// `&[EventGroup::Sound]`, `EventGroup::Path(folder)`. An event group handed in
+// as a variable is `*`, and the reader of the facts widens it to every event
+// group the same crate names.
+fn event_groups_in<'tcx>(cx: &LateContext<'tcx>, given: &[&'tcx Expr<'tcx>]) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
 
     for one in given {
         let _ = for_each_expr(cx, *one, |inner| {
-            if let Some(topic) = topic_named(cx, inner) {
-                found.insert(topic);
+            if let Some(event_group) = event_group_named(cx, inner) {
+                found.insert(event_group);
             }
 
             ControlFlow::<()>::Continue(())
@@ -198,11 +200,11 @@ impl ArchitectureFacts {
             Some(Class::Starts) if variant => self.said("starts", last),
             Some(Class::Runs | Class::Starts) => {}
             Some(Class::Subscribes) => {
-                for topic in topics_in(cx, given) {
-                    self.said("subscribes", topic);
+                for event_group in event_groups_in(cx, given) {
+                    self.said("subscribes", event_group);
                 }
             }
-            Some(Class::SubscribesTo(topic)) => self.said("subscribes", topic.to_string()),
+            Some(Class::SubscribesTo(event_group)) => self.said("subscribes", event_group.to_string()),
             Some(Class::Asks) => self.said("asks", "compositor".to_string()),
             Some(Class::Socket) => self.said("socket", last),
             Some(Class::SocketEvents) => self.said("socket", "Events".to_string()),
@@ -269,8 +271,8 @@ impl<'tcx> LateLintPass<'tcx> for ArchitectureFacts {
             ExprKind::Path(ref qpath) => {
                 let res = cx.qpath_res(qpath, expr.hir_id);
 
-                if let Some(topic) = topic_named(cx, expr) {
-                    self.said("names", topic);
+                if let Some(event_group) = event_group_named(cx, expr) {
+                    self.said("names", event_group);
                 }
 
                 if let Some((variant, CtorKind::Const)) = variant_of(cx, res) {
@@ -282,7 +284,7 @@ impl<'tcx> LateLintPass<'tcx> for ArchitectureFacts {
     }
 
     // The pool's sources are the arms of one match, and an arm that can
-    // answer `Subscribed::Yes` is a topic with something behind it.
+    // answer `Subscribed::Yes` is an event group with something behind it.
     fn check_arm(&mut self, cx: &LateContext<'tcx>, arm: &'tcx Arm<'tcx>) {
         if is_left_out(cx) || cx.tcx.crate_name(LOCAL_CRATE).as_str() != "console_events" {
             return;
@@ -299,7 +301,7 @@ impl<'tcx> LateLintPass<'tcx> for ArchitectureFacts {
             return;
         };
 
-        if !is_topic(cx, variant) {
+        if !is_event_group(cx, variant) {
             return;
         }
 

@@ -58,7 +58,7 @@
 //! pass, so a wake that was the compositor's read a pipe no one had written
 //! to and waited there for a byte that was not coming -- a daemon that stops
 //! answering the first time two things happen in the wrong order. It is
-//! `console_waiting::woken` now, where the reason lives beside the `unsafe`
+//! `console_waiting::latch` now, where the reason lives beside the `unsafe`
 //! and the bar is the second caller.
 //!
 //! **The file is written every time what is held changes.** The panel and the
@@ -187,7 +187,7 @@ enum Ended {
 }
 
 fn spawn_listener(hearing: Receiver) -> Result<Queue, Cannot> {
-    let woken = console_waiting::woken::pipe().map_err(Cannot::Pipe)?;
+    let woken = console_waiting::latch::pipe().map_err(Cannot::Pipe)?;
     let (reading, writing) = (woken.waiting, woken.saying);
     let heard = Arc::new(Mutex::new(VecDeque::new()));
     let ended = Arc::new(Mutex::new(Ended::No));
@@ -338,7 +338,7 @@ fn drain_queue(
     saying: &Sender,
     waiting: &mut Vec<Waiting>,
 ) -> Result<(), Never> {
-    let Ok(()) = console_waiting::woken::drain(&queue.woken);
+    let Ok(()) = console_waiting::latch::drain(&queue.woken);
 
     let messages = std::iter::from_fn(|| match queue.heard.lock() {
         Ok(mut held) => held.pop_front(),

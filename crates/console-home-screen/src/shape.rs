@@ -344,14 +344,14 @@ pub struct Plate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Laid {
+pub struct Layout {
     pub plate: Plate,
     pub icon: Plate,
     pub named: Point<i32>,
     pub line: u32,
 }
 
-pub fn laid(room: (i32, i32), shape: Shape, spot: Spot) -> Result<Laid, Never> {
+pub fn layout(room: (i32, i32), shape: Shape, spot: Spot) -> Result<Layout, Never> {
     let drawn = square(room, shape)?;
     let cell = cell(room, shape)?;
     let Ok(column) = i32_of(spot.column.saturating_add(1));
@@ -377,7 +377,7 @@ pub fn laid(room: (i32, i32), shape: Shape, spot: Spot) -> Result<Laid, Never> {
     let icon_left = left.saturating_add(cell.0.saturating_sub(drawn.icon).saturating_div(2));
     let icon_top = top.saturating_add(inside);
 
-    Ok(Laid {
+    Ok(Layout {
         plate: Plate { at, size: console_core_geometry::Size { width: wide, height: deep } },
         icon: Plate {
             at: Point { x: icon_left, y: icon_top },
@@ -579,7 +579,7 @@ mod tests {
                         for row in 0..rows {
                             for column in 0..columns {
                                 let spot = Spot { pane: 0, row, column };
-                                let Ok(laid) = laid(room, shape, spot);
+                                let Ok(laid) = layout(room, shape, spot);
                                 let Ok(wide) = out(laid.plate.size.width);
                                 let Ok(tall) = out(laid.plate.size.height);
 
@@ -598,9 +598,9 @@ mod tests {
     #[test]
     fn the_square_beside_this_one_does_not_touch_it() {
         let shape = Shape::USUAL;
-        let Ok(here) = laid(ROOM, shape, Spot { pane: 0, row: 0, column: 0 });
-        let Ok(beside) = laid(ROOM, shape, Spot { pane: 0, row: 0, column: 1 });
-        let Ok(under) = laid(ROOM, shape, Spot { pane: 0, row: 1, column: 0 });
+        let Ok(here) = layout(ROOM, shape, Spot { pane: 0, row: 0, column: 0 });
+        let Ok(beside) = layout(ROOM, shape, Spot { pane: 0, row: 0, column: 1 });
+        let Ok(under) = layout(ROOM, shape, Spot { pane: 0, row: 1, column: 0 });
         let Ok(wide) = out(here.plate.size.width);
         let Ok(tall) = out(here.plate.size.height);
 
@@ -612,7 +612,7 @@ mod tests {
     fn the_picture_and_the_name_are_inside_the_plate_they_are_drawn_on() {
         for size in EVERY {
             let Ok(shape) = Shape::USUAL.sized(size);
-            let Ok(laid) = laid(ROOM, shape, Spot { pane: 0, row: 1, column: 2 });
+            let Ok(laid) = layout(ROOM, shape, Spot { pane: 0, row: 1, column: 2 });
             let Ok(tall) = out(laid.plate.size.height);
             let Ok(icon) = out(laid.icon.size.height);
             let Ok(line) = out(laid.line);
@@ -630,8 +630,8 @@ mod tests {
     #[test]
     fn the_gap_between_two_squares_is_still_the_grid_and_the_margin_round_it_is_not() {
         let shape = Shape::USUAL;
-        let Ok(here) = laid(ROOM, shape, Spot { pane: 0, row: 0, column: 0 });
-        let Ok(under) = laid(ROOM, shape, Spot { pane: 0, row: 1, column: 0 });
+        let Ok(here) = layout(ROOM, shape, Spot { pane: 0, row: 0, column: 0 });
+        let Ok(under) = layout(ROOM, shape, Spot { pane: 0, row: 1, column: 0 });
         let Ok(tall) = out(here.plate.size.height);
         let bottom = here.plate.at.y.saturating_add(tall);
         let gap = under.plate.at.y.saturating_sub(bottom);
@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn the_pane_dots_are_under_the_bottom_row_and_not_over_it() {
         let shape = Shape::USUAL;
-        let Ok(bottom) = laid(ROOM, shape, Spot { pane: 0, row: shape.rows.saturating_sub(1), column: 0 });
+        let Ok(bottom) = layout(ROOM, shape, Spot { pane: 0, row: shape.rows.saturating_sub(1), column: 0 });
         let Ok(dots) = dotted(ROOM);
         let Ok(tall) = out(bottom.plate.size.height);
 

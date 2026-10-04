@@ -38,4 +38,4 @@ pub mod serving;
 pub mod showing;
 pub mod updating;
 
-pub use card::{WHO, card, door};
+pub use card::{COMMAND, WHO, card, door};

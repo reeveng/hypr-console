@@ -42,7 +42,7 @@ pub enum GamepadError {
     NoPadButton(String),
     NotOneCode(profile::Kind, String),
     NoSuchProfile(String, Vec<String>),
-    NoStick(String),
+    NoThumbstick(String),
     NoTrigger(String),
     Read(std::path::PathBuf, std::io::Error),
     #[cfg(feature = "read")]
@@ -78,7 +78,7 @@ impl fmt::Display for GamepadError {
             GamepadError::NoSuchProfile(name, every) => {
                 write!(to, "no profile called {name:?}; there is {}", every.join(", "))
             }
-            GamepadError::NoStick(which) => write!(to, "no stick called {which:?}"),
+            GamepadError::NoThumbstick(which) => write!(to, "no thumbstick called {which:?}"),
             GamepadError::NoTrigger(which) => write!(to, "no trigger called {which:?}"),
             GamepadError::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())

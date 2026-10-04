@@ -54,7 +54,9 @@
 //! it invents is the one no one can tell from a real one. `console-deploy`
 //! already has an arm for a card it could not raise, which puts the question at
 //! the terminal the deploy was started from, and this is how the card reaches
-//! it.
+//! it. A request for the usage exits `CONFIRM_UNASKED` too, rather than the
+//! zero every other program here answers `--help` with, because a zero from
+//! this one is a yes.
 //!
 //! Two rows rather than the panel's own `sure` surface. `sure` is a question
 //! asked *of* a panel that is already up and stays up when it is declined --
@@ -65,6 +67,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
 use console_core_never::Never;
 use console_core_internal_programs::{CONFIRM_DOES, CONFIRM_UNASKED};
 use console_panel::marks;
@@ -77,8 +80,29 @@ const YES: u8 = 1;
 
 const WIDE: i32 = 0;
 
-fn usage() -> Result<String, Never> {
-    Ok(format!("usage: {CONFIRM_DOES}=WORD console-confirm QUESTION"))
+const QUESTION: [&str; 1] = ["QUESTION"];
+
+const COMMAND: Command = Command {
+    name: "console-confirm",
+    about: "put QUESTION to whoever holds the device, the row that goes ahead named in the environment, and answer with the status",
+    flags: &[],
+    operands: Operands::Named(&QUESTION),
+};
+
+fn question(words: &[String]) -> Result<String, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(QUESTION);
+    let [asks] = operands?;
+
+    match asks.trim().is_empty() {
+        true => {
+            let Ok(refusal) = line.refusal(Reason::MissingOperands(QUESTION.to_vec()));
+
+            Err(refusal)
+        }
+        false => Ok(asks.clone()),
+    }
 }
 
 #[cfg_attr(
@@ -102,36 +126,20 @@ fn word() -> Result<Option<String>, Never> {
 
 fn main() -> ExitCode {
     let words: Vec<String> = std::env::args().skip(1).collect();
-    let held: Vec<&str> = words.iter().map(String::as_str).collect();
 
-    let asks = match held.as_slice() {
-        [asks] => (*asks).to_string(),
-        _not_one_question => {
-            let Ok(usage) = usage();
-
-            eprintln!("{usage}");
+    let asks = match question(&words) {
+        Ok(asks) => asks,
+        Err(refusal) => {
+            let Ok(_usage_or_refusal) = refusal.print();
 
             return ExitCode::from(CONFIRM_UNASKED);
         }
     };
 
-    match asks.trim().is_empty() {
-        true => {
-            let Ok(usage) = usage();
-
-            eprintln!("{usage}");
-
-            return ExitCode::from(CONFIRM_UNASKED);
-        }
-        false => {},
-    }
-
     let does = match word() {
         Ok(Some(does)) => does,
         Ok(None) => {
-            let Ok(usage) = usage();
-
-            eprintln!("{usage}");
+            eprintln!("console-confirm: {CONFIRM_DOES} names no word for the row that goes ahead");
 
             return ExitCode::from(CONFIRM_UNASKED);
         }

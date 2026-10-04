@@ -14,7 +14,7 @@ use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index};
 use console_events::subscription::{Received, connect_at};
 use console_events::wire::{self, Message};
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::threads;
 use console_waiting::{Outcome, Ready, Schedule};
 use pool::{Failure, BEFORE_LONG, serve_at, socket};
@@ -52,7 +52,7 @@ fn how_many(named: &str, usual: u64) -> Result<u64, Never> {
 }
 
 fn subscribed(at: &Path, counted: &Counted) -> Result<(), Never> {
-    let Ok(subscriber) = connect_at(at, &[Topic::Sound]);
+    let Ok(subscriber) = connect_at(at, &[EventGroup::Sound]);
     let Ok(heard) = subscriber.received();
 
     for word in heard {
@@ -71,7 +71,7 @@ fn subscribed(at: &Path, counted: &Counted) -> Result<(), Never> {
 
 fn bytes_only(at: &Path, counted: &Counted) -> Result<(), Failure> {
     let stream = UnixStream::connect(at)?;
-    let asked = wire::encoded(&Message::Subscribe(Topic::Sound))?;
+    let asked = wire::encoded(&Message::Subscribe(EventGroup::Sound))?;
     let mut asking = stream.try_clone()?;
 
     asking.write_all(format!("{asked}\n").as_bytes())?;
@@ -152,7 +152,7 @@ fn how_many_words_a_second() -> Result<(), Failure> {
     for word in 0..words {
         let said = format!("Event 'change' on sink #{word} at 0x7f3a2b4c5d6e volume 0.42");
 
-        saying.send(Change { topic: Topic::Sound, text: said }).map_err(|_| "the pool stopped listening")?;
+        saying.send(Change { event_group: EventGroup::Sound, text: said }).map_err(|_| "the pool stopped listening")?;
     }
 
     let sent = began.elapsed();

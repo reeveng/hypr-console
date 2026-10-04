@@ -39,7 +39,7 @@
 use console_home_screen::shape::{self, Shape, Size};
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue};
-use console_program_contract::{Arguments, Effect, Event};
+use console_program_contract::{Effect, Event};
 
 const THE_FIRST_SIZE: u32 = 0;
 
@@ -121,13 +121,13 @@ pub enum Closes {
 pub struct Settings;
 
 impl Machine for Settings {
-    type Input = Arguments;
+    type Input = ();
     type State = Destination;
     type Request = Event<SettingsEvent>;
     type Effect = Effect<SettingsEffect>;
 
     fn initialize(
-        _arguments: &Arguments,
+        _input: &(),
         _previous: Option<Destination>,
         _effects: &mut Queue<Effect<SettingsEffect>>,
     ) -> Result<Destination, Never> {
@@ -292,7 +292,7 @@ mod tests {
     fn ran(heard: &[SettingsEvent]) -> Result<Ran, Never> {
         let events: Vec<Event<SettingsEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        let Ok(told) = run::<Settings>(&Arguments::default(), &events);
+        let Ok(told) = run::<Settings>(&(), &events);
         let Ok(effects) = told.effects();
 
         Ok((told.state, effects))

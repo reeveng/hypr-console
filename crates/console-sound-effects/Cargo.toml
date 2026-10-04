@@ -16,6 +16,7 @@ path = "src/bin/console-sound-effect.rs"
 [dependencies]
 console-core-external-programs.workspace = true
 console-defaults.workspace = true
+console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-words.workspace = true

@@ -12,6 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use console_core_arguments::CommandLine;
 use console_core_atomic_writes::Stored;
 use console_core_external_programs::{Installed, Program, installed};
 use console_core_never::Never;
@@ -45,7 +46,6 @@ const FIRMWARE: &str = "x86_64-unknown-uefi";
 const WALKS_OUT: &str = "../..";
 
 enum TaskError {
-    Unknown(String),
     Unstarted(String, io::Error),
     Failed(String),
     Unread(String),
@@ -59,7 +59,6 @@ enum TaskError {
 impl fmt::Display for TaskError {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TaskError::Unknown(word) => write!(to, "no task is called {word}; `cargo x help` lists them"),
             TaskError::Unstarted(what, why) => write!(to, "could not start {what}: {why}"),
             TaskError::Failed(what) => write!(to, "{what} did not pass"),
             TaskError::Unread(what) => write!(to, "could not read what {what} answered"),
@@ -73,8 +72,16 @@ impl fmt::Display for TaskError {
 }
 
 fn main() -> ExitCode {
-    let asked: Vec<String> = std::env::args().skip(1).collect();
-    let ran = run(&asked);
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let line = match console_core_arguments::read_with::<Task, String>(&task::COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let ran = run(&line);
 
     match ran {
         Ok(()) => ExitCode::SUCCESS,
@@ -86,13 +93,13 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(asked: &[String]) -> Result<(), TaskError> {
-    let (word, rest) = match asked.split_first() {
-        Some((word, rest)) => (word.as_str(), rest),
-        None => ("help", asked),
+fn run(line: &CommandLine<Task>) -> Result<(), TaskError> {
+    let Ok(named) = line.subcommand();
+    let Ok(rest) = line.operands();
+    let found = match named {
+        Some(task) => task,
+        None => Task::Help,
     };
-    let Ok(named) = Task::from_word(word);
-    let found = named.ok_or_else(|| TaskError::Unknown(word.to_string()))?;
     let root = console_repository::root().map_err(|why| TaskError::NoRoot(why.to_string()))?;
 
     match found {

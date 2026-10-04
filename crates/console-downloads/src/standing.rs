@@ -19,7 +19,7 @@
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Command, Event};
+use console_program_contract::{Effect, Command, Event};
 
 use crate::getting::Have;
 use crate::looking::Found;
@@ -109,13 +109,13 @@ pub enum Closes {
 pub struct Downloads;
 
 impl Machine for Downloads {
-    type Input = Arguments;
+    type Input = ();
     type State = Standing;
     type Request = Event<DownloadsEvent>;
     type Effect = Effect<DownloadsEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Standing>, effects: &mut Effects) -> Result<Standing, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(_input: &(), _previous: Option<Standing>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(opening) = initial();
 
         opening.offered(effects)
     }
@@ -129,7 +129,7 @@ impl Machine for Downloads {
 
 type Effects = Queue<Effect<DownloadsEffect>>;
 
-fn initial(_argv: &Arguments) -> Result<Transition<Standing, Effect<DownloadsEffect>>, Never> {
+fn initial() -> Result<Transition<Standing, Effect<DownloadsEffect>>, Never> {
     let Ok(opening) = Transition::without_effects(Standing::default());
 
     Ok(opening)
@@ -171,7 +171,7 @@ fn turning(state: &Standing, event: &Event<DownloadsEvent>) -> Result<Transition
                 let asked = held.typed.trim().to_string();
                 let Ok(with) = state.with(*tab, Tab { asking: Some(asked.clone()), ..held });
                 let Ok(flag) = kind.flag();
-                let Ok(find) = Command::internal(FIND, &[flag, &asked]);
+                let Ok(find) = Command::internal(FIND, &[flag, "--", &asked]);
 
                 Transition::new(
                     with,
@@ -301,7 +301,7 @@ mod tests {
     fn said(heard: &[DownloadsEvent]) -> Result<Trace<Standing, Event<DownloadsEvent>, Effect<DownloadsEffect>>, Never> {
         let events: Vec<Event<DownloadsEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        run::<Downloads>(&Arguments::default(), &events)
+        run::<Downloads>(&(), &events)
     }
 
     fn typed(tab: u32, word: &str) -> Result<DownloadsEvent, Never> {
@@ -335,7 +335,7 @@ mod tests {
         let Ok(after) = said(&[song, DownloadsEvent::LookFor { tab: AUDIO, kind: Kind::Sound }]);
         let Ok(audio) = after.state.at(AUDIO);
         let Ok(effects) = after.effects();
-        let Ok(find) = Command::internal(FIND, &["--audio", "a song"]);
+        let Ok(find) = Command::internal(FIND, &["--audio", "--", "a song"]);
 
         assert_eq!(audio.asking.as_deref(), Some("a song"));
         assert!(effects.contains(&Effect::Run(find)));

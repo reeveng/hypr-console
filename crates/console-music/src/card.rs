@@ -61,6 +61,7 @@
 
 
 use console_core_localization::positional;
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted};
 use std::path::Path;
@@ -75,7 +76,7 @@ use crate::player::{self, Order, Over, Playing, Sound};
 use crate::update::{Closes, MusicEvent, MusicEffect, Music, Standing, closes};
 use crate::library::folder;
 use console_actor::Actor;
-use console_program_contract::{Arguments, Effect, Topic, Event};
+use console_program_contract::{Effect, EventGroup, Event};
 use console_panel::page::{Aside, Bar, Handler, Active, Level, Page, Picture, ButtonPress, Row, Rows, Showing};
 use console_panel::card::{Card, Door};
 use console_panel::running;
@@ -549,7 +550,7 @@ fn playing_page(held: &Panel) -> Result<Page, Never> {
     let Ok(page) = Page::new("Now Playing", asked);
     let Ok(page) = page.in_the_middle();
 
-    page.with_subscription(Topic::Player, player::worth_moving_the_clock)
+    page.with_subscription(EventGroup::Player, player::worth_moving_the_clock)
 }
 
 fn music_page(held: &Panel) -> Result<Page, Never> {
@@ -593,6 +594,13 @@ pub const APP: &str = "music";
 
 const DOOR: &str = "music";
 
+pub const COMMAND: Command = Command {
+    name: "music-panel",
+    about: "what is playing, and what plays next",
+    flags: &[],
+    operands: Operands::None,
+};
+
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)
 }
@@ -604,7 +612,7 @@ enum Holds {
 }
 
 fn held_as(holds: Holds) -> Result<Card, Never> {
-    Card::supervised::<Music, _>(Arguments::default(), move |held| {
+    Card::supervised::<Music, _>((), move |held| {
         let Ok(playing) = playing_page(held);
 
         Ok(match holds {

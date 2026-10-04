@@ -47,15 +47,17 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::process::ExitCode;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 
 use rustix::event::{PollFd, PollFlags, poll};
 
+use console_core_arguments::{Command, Operands};
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_panel::card::{Card, Finalizer};
+use console_panel::card::{Card, Finalizer, refusal};
 use console_panel::picker;
 use console_panel::handoff::{self, Request, CLOSE, DRAWN, GONE};
 use console_panel::left_open::LeftOpen;
@@ -63,20 +65,28 @@ use console_panel::surface;
 
 pub struct Panel {
     pub who: &'static str,
+    pub command: Command,
     pub card: fn(&[String]) -> Result<Card, Never>,
     pub program: InternalProgram,
 }
 
+pub const COMMAND: Command = Command {
+    name: "console-panels",
+    about: "the program that holds every panel; with nothing after it, the host, and with a panel named, that panel drawn here and then gone",
+    flags: &[],
+    operands: Operands::Verbatim("PANEL"),
+};
+
 pub const PANELS: &[Panel] = &[
-    Panel { who: console_launcher::WHO, card: console_launcher::card, program: InternalProgram::Launcher },
-    Panel { who: console_settings::WHO, card: console_settings::card, program: InternalProgram::SettingsPanel },
-    Panel { who: console_music::WHO, card: console_music::card, program: InternalProgram::MusicPanel },
-    Panel { who: console_notifications::WHO, card: console_notifications::card, program: InternalProgram::NotificationsPanel },
-    Panel { who: console_input_mapping::WHO, card: console_input_mapping::card, program: InternalProgram::MappingPanel },
-    Panel { who: console_calculator::WHO, card: console_calculator::card, program: InternalProgram::Calculator },
-    Panel { who: console_calendar::WHO, card: console_calendar::card, program: InternalProgram::CalendarPanel },
-    Panel { who: console_forecast::WHO, card: console_forecast::card, program: InternalProgram::ForecastPanel },
-    Panel { who: console_notes::WHO, card: console_notes::card, program: InternalProgram::Notes },
+    Panel { who: console_launcher::WHO, command: console_launcher::COMMAND, card: console_launcher::card, program: InternalProgram::Launcher },
+    Panel { who: console_settings::WHO, command: console_settings::COMMAND, card: console_settings::card, program: InternalProgram::SettingsPanel },
+    Panel { who: console_music::WHO, command: console_music::COMMAND, card: console_music::card, program: InternalProgram::MusicPanel },
+    Panel { who: console_notifications::WHO, command: console_notifications::COMMAND, card: console_notifications::card, program: InternalProgram::NotificationsPanel },
+    Panel { who: console_input_mapping::WHO, command: console_input_mapping::COMMAND, card: console_input_mapping::card, program: InternalProgram::MappingPanel },
+    Panel { who: console_calculator::WHO, command: console_calculator::COMMAND, card: console_calculator::card, program: InternalProgram::Calculator },
+    Panel { who: console_calendar::WHO, command: console_calendar::COMMAND, card: console_calendar::card, program: InternalProgram::CalendarPanel },
+    Panel { who: console_forecast::WHO, command: console_forecast::COMMAND, card: console_forecast::card, program: InternalProgram::ForecastPanel },
+    Panel { who: console_notes::WHO, command: console_notes::COMMAND, card: console_notes::card, program: InternalProgram::Notes },
 ];
 
 pub fn one(who: &str) -> Result<Option<&'static Panel>, Never> {
@@ -487,7 +497,7 @@ fn say(writer: &UnixStream, word: &str) -> Result<(), Never> {
     Ok(())
 }
 
-fn drawn_by_hand(who: &str, arguments: &[String]) -> Result<(), Never> {
+fn drawn_by_hand(who: &str, arguments: &[String]) -> Result<ExitCode, Never> {
     let Ok(known) = one(who);
 
     let known = match known {
@@ -495,18 +505,37 @@ fn drawn_by_hand(who: &str, arguments: &[String]) -> Result<(), Never> {
         None => {
             eprintln!("console-panels: nothing here draws {who:?}");
 
-            return Ok(());
+            return Ok(ExitCode::FAILURE);
         }
     };
 
-    let Ok(card) = (known.card)(arguments);
+    let Ok(refusing) = refusal(&known.command, arguments);
 
-    surface::drawn_here(who, card)
+    match refusing {
+        Some(code) => return Ok(code),
+        None => {},
+    }
+
+    let Ok(card) = (known.card)(arguments);
+    let Ok(()) = surface::drawn_here(who, card);
+
+    Ok(ExitCode::SUCCESS)
 }
 
-pub fn asked_for(arguments: &[String]) -> Result<(), Never> {
+pub fn asked_for(arguments: &[String]) -> Result<ExitCode, Never> {
+    let Ok(refusing) = refusal(&COMMAND, arguments);
+
+    match refusing {
+        Some(code) => return Ok(code),
+        None => {},
+    }
+
     match arguments.split_first() {
-        None => serve(),
+        None => {
+            let Ok(()) = serve();
+
+            Ok(ExitCode::SUCCESS)
+        }
         Some((who, rest)) => drawn_by_hand(who, rest),
     }
 }

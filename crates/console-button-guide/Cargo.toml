@@ -14,6 +14,7 @@ name = "console-buttons"
 path = "src/bin/console-buttons.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-compositor.workspace = true
 console-core-external-programs.workspace = true
 console-input-event-devices.workspace = true

@@ -20,7 +20,8 @@
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use crate::GamepadError;
 use crate::devices::Sink;
-use crate::go::{Clock, LegionGo, MIDDLE};
+use crate::go::{LegionGo, MIDDLE};
+use console_waiting::clock::Clock;
 use console_core_geometry::Point;
 use console_core_never::Never;
 
@@ -32,7 +33,7 @@ pub enum Step {
     ButtonPress(Vec<String>),
     Hold(Vec<String>),
     Release(Vec<String>),
-    Stick { which: String, to: Point<f64> },
+    Thumbstick { which: String, to: Point<f64> },
     Center(String),
     Trigger { which: String, amount: f64 },
     Tap { at: Point<i32> },
@@ -61,7 +62,7 @@ fn word(rest: &[&str], at: u32, what: &'static str) -> Result<String, GamepadErr
         .ok_or(GamepadError::NotFound(what))
 }
 
-fn stick_named(said: &str) -> Result<String, Never> {
+fn thumbstick_named(said: &str) -> Result<String, Never> {
     Ok(match said.ends_with("-stick") {
         true => said.to_string(),
         false => format!("{said}-stick"),
@@ -86,21 +87,21 @@ impl Step {
             "press" => Step::ButtonPress(named()),
             "hold" => Step::Hold(named()),
             "release" => Step::Release(named()),
-            "stick" => {
-                let which = word(rest, 0, "stick")?;
+            "thumbstick" => {
+                let which = word(rest, 0, "thumbstick")?;
                 let sideways = word(rest, 1, "sideways")?;
                 let up_or_down = word(rest, 2, "up or down")?;
                 let x = number(&sideways)?;
                 let y = number(&up_or_down)?;
 
-                let Ok(named) = stick_named(&which);
+                let Ok(named) = thumbstick_named(&which);
 
-                Step::Stick { which: named, to: Point { x, y } }
+                Step::Thumbstick { which: named, to: Point { x, y } }
             }
             "center" => {
-                let which = word(rest, 0, "stick")?;
+                let which = word(rest, 0, "thumbstick")?;
 
-                let Ok(named) = stick_named(&which);
+                let Ok(named) = thumbstick_named(&which);
 
                 Step::Center(named)
             }
@@ -185,7 +186,7 @@ impl Step {
                     Ok(())
                 }
             },
-            Step::Stick { which, to } => go.stick(which, *to),
+            Step::Thumbstick { which, to } => go.thumbstick(which, *to),
             Step::Center(which) => go.center(which),
             Step::Trigger { which, amount } => go.trigger(which, *amount),
             Step::Tap { at } => {
@@ -243,7 +244,8 @@ pub const VERBS: &str = "\
   press <button>...         press and let go
   hold <button>...          press and keep pressing
   release [<button>...]     let go, of everything if nothing is named
-  stick left|right <x> <y>  push a stick, each axis from -1 to 1
+  thumbstick left|right <x> <y>
+                            push a thumbstick, each axis from -1 to 1
   center left|right         let it go back
   trigger l2|r2 <amount>    pull a trigger, from 0 to 1
   tap [<x> <y>]             a quick touch on the touchpad
@@ -282,14 +284,14 @@ mod tests {
     }
 
     #[test]
-    fn a_stick_is_the_same_stick_by_either_name() -> Result<(), GamepadError> {
-        let short = step("stick left 1 0")?;
-        let long = step("stick left-stick 1 0")?;
+    fn a_thumbstick_is_the_same_thumbstick_by_either_name() -> Result<(), GamepadError> {
+        let short = step("thumbstick left 1 0")?;
+        let long = step("thumbstick left-stick 1 0")?;
 
         assert_eq!(short, long);
         assert_eq!(
             short,
-            Some(Step::Stick {
+            Some(Step::Thumbstick {
                 which: "left-stick".to_string(),
                 to: Point { x: 1.0, y: 0.0 },
             })
@@ -354,7 +356,7 @@ mod tests {
     #[test]
     fn a_step_missing_what_it_needs_says_what_is_missing() {
         assert!(matches!(
-            Step::read("stick left 1"),
+            Step::read("thumbstick left 1"),
             Err(GamepadError::NotFound("up or down"))
         ));
         assert!(matches!(

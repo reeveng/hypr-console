@@ -80,12 +80,12 @@ use console_panel::card::Card;
 use console_panel::page::{Aside, Bar, Handler, Ends, Active, Page, Picture, ButtonPress, Row, Rows, WakeOutcome, Subject};
 use console_core_state_machine::{Machine, Transition};
 use console_program_contract::{Effect, Event};
-use crate::editing::{self, Edit, Filter};
+use crate::editing::{self, Edit, EditError, Planned};
 use crate::index;
 use crate::kinds::Kind;
 use crate::{playing, saying};
 use crate::reel::Reel;
-use crate::waking::Woken;
+use crate::waking::Wake;
 use crate::watching::{
     Alone, ViewerEffect, Since, Watch as Watched, Watching, alone, awake, stirred,
 };
@@ -569,8 +569,8 @@ fn rows(held: &Shared) -> Result<Vec<Row>, Never> {
     let Ok(awake) = awake(&looking.watching, now);
 
     match awake {
-        Woken::No => return Ok(every),
-        Woken::Yes => {},
+        Wake::No => return Ok(every),
+        Wake::Yes => {},
     }
 
     let Ok(where_in) = where_in(&looking.watching);
@@ -722,6 +722,23 @@ const ZOOM_IN_FIRST: &str = "Zoom in on what to keep, then choose Crop.";
 
 const NOT_SAVED: &str = "The edited picture couldn't be saved.";
 
+const NOT_EDITABLE: &str = "Editing this kind of picture isn't supported yet.";
+
+fn unsaved(why: &EditError) -> Result<String, Never> {
+    Ok(match why {
+        EditError::Unsupported(at) => match at.extension() {
+            Some(ending) => format!("Editing {} pictures isn't supported yet.", ending.to_string_lossy().to_uppercase()),
+            None => NOT_EDITABLE.to_string(),
+        },
+        EditError::Refused(_, format) => {
+            let Ok(says) = format.says();
+
+            format!("Editing this kind of {says} isn't supported yet.")
+        },
+        EditError::Unnamed(_) | EditError::Jpeg(..) | EditError::Png(..) | EditError::Unwritten(_) => NOT_SAVED.to_string(),
+    })
+}
+
 fn edited(held: &Shared, showing: &dyn console_panel::page::Showing, edit: Edit) -> Result<(), Never> {
     let mut looking = match held.lock() {
         Ok(looking) => looking,
@@ -744,22 +761,25 @@ fn edited(held: &Shared, showing: &dyn console_panel::page::Showing, edit: Edit)
         (Edit::Crop, None) | (Edit::RotateLeft | Edit::RotateRight | Edit::Flip, _) => None,
     };
 
-    let Ok(filter) = editing::filter(edit, region);
+    let Ok(planned) = editing::planned(edit, region);
 
-    let filter = match filter {
-        Filter::Is(filter) => filter,
-        Filter::ZoomInFirst => {
+    let change = match planned {
+        Planned::Change(change) => change,
+        Planned::ZoomInFirst => {
             showing.note(ZOOM_IN_FIRST);
 
             return Ok(());
         },
     };
 
-    let into = match editing::saved(&at, &filter) {
+    let into = match editing::saved(&at, change) {
         Ok(into) => into,
         Err(why) => {
             eprintln!("viewer: {why}");
-            showing.note(NOT_SAVED);
+
+            let Ok(told) = unsaved(&why);
+
+            showing.note(&told);
 
             return Ok(());
         },
@@ -1375,5 +1395,16 @@ mod tests {
         assert!(from >= 1.0, "play again started from the beginning: {from}");
 
         Ok(())
+    }
+
+    #[test]
+    fn a_picture_that_cannot_be_edited_says_which_kind_it_is() {
+        let heic = EditError::Unsupported(PathBuf::from("/p/phone.heic"));
+        let cmyk = EditError::Refused(PathBuf::from("/p/print.jpg"), console_pictures::Format::Jpeg);
+        let unnamed = EditError::Unsupported(PathBuf::from("/p/scan"));
+
+        assert_eq!(unsaved(&heic), Ok(String::from("Editing HEIC pictures isn't supported yet.")));
+        assert_eq!(unsaved(&cmyk), Ok(String::from("Editing this kind of JPEG isn't supported yet.")));
+        assert_eq!(unsaved(&unnamed), Ok(String::from(NOT_EDITABLE)));
     }
 }

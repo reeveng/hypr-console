@@ -1,18 +1,19 @@
 //! A folder, and everything that is written, moved or thrown away under it.
 //!
-//! What a `Path` topic is. The machine already says when a file changes --
-//! inotify is the kernel's own answer and rustix carries it -- so a folder is a
-//! source like the sound and the network are, rather than something each of
-//! our programs has to remember to announce. The downloads used to say what
+//! What a `Path` event group is. The machine already says when a file changes
+//! -- inotify is the kernel's own answer and rustix carries it -- so a folder
+//! is a source like the sound and the network are, rather than something each
+//! of our programs has to remember to announce. The downloads used to say what
 //! they had written, which told an open library about a download and about
 //! nothing else: a screenshot, a book unzipped in the files, a song thrown
-//! away, a film the browser saved -- all of them went unheard until the
-//! library was closed and opened again. Asking the kernel hears every one of
-//! them, from every program, including the ones this desktop did not write.
+//! away, a film the browser saved -- all of them went unheard until the library
+//! was closed and opened again. Asking the kernel hears every one of them, from
+//! every program, including the ones this desktop did not write.
 //!
-//! What is said is the path of the thing that changed, whole, on the topic of
-//! the folder that was asked for. Whoever listens decides what it means; most
-//! of them read their folder again, which is what they did when they opened.
+//! What is said is the path of the thing that changed, whole, on the event
+//! group of the folder that was asked for. Whoever listens decides what it
+//! means; most of them read their folder again, which is what they did when
+//! they opened.
 //!
 //! **A folder is watched with every folder under it.** inotify watches one
 //! directory and not what is inside its children, so each one is added as the
@@ -52,7 +53,7 @@ use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_reconnect::{Round, keep};
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 
 pub const MOST: u32 = 4096;
@@ -146,7 +147,7 @@ fn round(folder: &Path, say: &Sender<Change>) -> Result<Round, Never> {
             None => return Ok(Step::Again((reader, watched))),
         };
 
-        let sent = say.send(Change { topic: Topic::Path(folder.to_path_buf()), text: at.display().to_string() });
+        let sent = say.send(Change { event_group: EventGroup::Path(folder.to_path_buf()), text: at.display().to_string() });
 
         match sent {
             Ok(()) => {},

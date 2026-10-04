@@ -36,16 +36,18 @@
 //! half of keeping a habit per board. What a second board is wearing is still
 //! its own, because only one of them can be the one being typed on.
 
-use console_core_walking::Step;
 use console_input_alphabets::wearing;
-use console_input_language::{BACK, SETTLE, along, at, layouts};
+use console_input_language::{COMMAND, Switch, along, at, layouts};
 
 fn main() -> std::process::ExitCode {
-    let words: Vec<String> = std::env::args().collect();
-    let settling = words.iter().any(|word| word == SETTLE);
-    let way = match words.iter().any(|word| word == BACK) {
-        true => Step::Back,
-        false => Step::Forward,
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let switch = match console_core_arguments::read(&COMMAND, &words).and_then(|line| Switch::of(&line)) {
+        Ok(switch) => switch,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return std::process::ExitCode::from(code);
+        }
     };
 
     let keyboards = match console_compositor::ask(console_compositor::Devices) {
@@ -72,9 +74,9 @@ fn main() -> std::process::ExitCode {
     for keyboard in &keyboards {
         let Ok(worn) = wearing::among(&every, &keyboard.name, &walk);
 
-        let Ok(wants) = match settling {
-            true => Ok(worn),
-            false => along(&walk, worn, way),
+        let Ok(wants) = match switch {
+            Switch::Settle => Ok(worn),
+            Switch::Along(way) => along(&walk, worn, way),
         };
 
         let Ok(told) = console_compositor::set_layouts(&keyboard.name, console_compositor::Layouts(&said));

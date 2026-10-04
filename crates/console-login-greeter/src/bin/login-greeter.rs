@@ -26,13 +26,15 @@ use console_input_event_devices::devices::{Devices, Ready};
 use console_input_event_devices::touches::ScreenTouch;
 use console_login_greeter::bar;
 use console_login_greeter::display::{Display, Mapping, Unshown};
-use console_login_greeter::greeting::{GreeterEffect, GreeterEvent, GreeterState, Greeter};
+use console_login_greeter::greeting::{GreeterEffect, GreeterEvent, GreeterState, Greeter, Status};
 use console_login_greeter::picture::{RenderedFrame, Worn, in_the_room, on_the_bar, painted};
 use console_login_greeter::turn::{changed, drawn_at, laid_into, on_the_picture};
 use console_login_pattern::Touch;
 use console_login_window::protocol::{ToGreeter, line_from_greeter, to_greeter};
 use console_core_state_machine::{Machine, Transition};
-use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_core_arguments::{Command, Operands, Presence, read};
+use console_login_window::way_in::FELL;
+use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::clock::{self, Standing};
 use console_status_bar::lock_screen::LockScreenBarEvent;
 use console_status_bar::showing::{self, Rendered};
@@ -85,8 +87,31 @@ impl std::fmt::Display for GreeterError {
     }
 }
 
+const COMMAND: Command = Command {
+    name: "login-greeter",
+    about: "the pattern screen the login window puts up before a desktop",
+    flags: &[FELL],
+    operands: Operands::None,
+};
+
 fn main() -> ExitCode {
-    let Ok(ended) = run();
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(fell) = line.presence(FELL);
+
+    let opening = match fell {
+        Presence::Present => Status::Fell,
+        Presence::Absent => Status::Waiting,
+    };
+    let Ok(ended) = run(&opening);
 
     match ended {
         Ok(()) => ExitCode::SUCCESS,
@@ -106,10 +131,7 @@ fn worn() -> Result<(Wearing, showing::Wearing), WearingError> {
     Ok((ring, bar))
 }
 
-fn run() -> Result<Result<(), GreeterError>, Never> {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let borrowed: Vec<&str> = words.iter().map(String::as_str).collect();
-    let Ok(arguments) = Arguments::of(&borrowed);
+fn run(opening: &Status) -> Result<Result<(), GreeterError>, Never> {
     let (ring, bar) = match worn().map_err(GreeterError::Palette) {
         Ok(wearing) => wearing,
         Err(why) => return Ok(Err(why)),
@@ -123,7 +145,7 @@ fn run() -> Result<Result<(), GreeterError>, Never> {
         Ok(devices) => devices,
         Err(why) => return Ok(Err(GreeterError::Watching(why))),
     };
-    let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&arguments, None);
+    let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(opening, None);
     let Ok(standing) = clock::current();
     let Ok(read_out) = bar::read_all();
     let stdin = io::stdin();

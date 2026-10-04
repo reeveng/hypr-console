@@ -14,6 +14,7 @@ name = "login-greeter"
 path = "src/bin/login-greeter.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-color.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true

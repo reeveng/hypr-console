@@ -39,7 +39,7 @@ use console_core_never::Never;
 use console_actor::Actor;
 use console_panel::page::{Aside, Handler, Page, Picture, Row, Rows, Showing};
 use console_panel::card::Card;
-use console_program_contract::{Arguments, Effect, Event};
+use console_program_contract::{Effect, Event};
 
 type Panel = Actor<Downloads>;
 
@@ -356,7 +356,7 @@ fn page(held: &Panel, tab: u32, kind: Kind) -> Result<Page, Never> {
 pub const WHO: &str = "downloads";
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-    let Ok(card) = Card::supervised::<Downloads, _>(Arguments::default(), pages);
+    let Ok(card) = Card::supervised::<Downloads, _>((), pages);
 
     card.opening_at(arguments.first().map(String::as_str))
 }

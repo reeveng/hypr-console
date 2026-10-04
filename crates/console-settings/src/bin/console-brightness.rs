@@ -43,8 +43,10 @@
 use std::path::Path;
 use std::time::Duration;
 
+use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_external_programs::Program;
 use console_core_iteration::Step;
+use console_core_words::Words;
 use console_core_never::Never;
 use console_notifications::saying::{StatePath, Notification, Content, raise_kept};
 use console_settings::learned::{self, Band, Following, Standing};
@@ -54,14 +56,62 @@ use console_waiting::Schedule;
 
 const UNIT: &str = "console-light.service";
 
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-brightness",
+    about: "screen brightness, in steps, within the range this panel can actually show",
+    flags: &[],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+enum Brightness {
+    #[words(word = "up", about = "one step brighter, and learn it for the light this is")]
+    Up,
+    #[words(word = "down", about = "one step dimmer, and learn it for the light this is")]
+    Down,
+    #[words(word = "get", about = "how bright it is, in points of a hundred")]
+    Get,
+    #[words(word = "dim", about = "go dim, remembering where it was")]
+    Dim,
+    #[words(word = "undim", about = "go back to the level dim remembers, and put the panel back on")]
+    Undim,
+    #[words(word = "follow", about = "wear what it learns for the light there is now")]
+    Follow,
+    #[words(word = "switched-on", about = "nothing said; the exit code is whether to follow the light at all")]
+    SwitchedOn,
+    #[words(word = "follow-or-not", about = "switch following the light on or off")]
+    FollowOrNot,
+}
+
+impl Subcommand for Brightness {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Brightness::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Brightness::about(self)
+    }
+}
+
 const ROUND: Duration = Duration::from_secs(60);
 
 const ASKING: Duration = Duration::from_secs(4);
 
 fn main() -> std::process::ExitCode {
-    let word = match std::env::args().nth(1) {
-        Some(word) => word,
-        None => String::new(),
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let read = read_with::<Brightness, String>(&COMMAND, &words).and_then(|line| line.require_subcommand());
+
+    let asked = match read {
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return std::process::ExitCode::from(code);
+        }
     };
 
     let Ok(found) = screen::here();
@@ -86,65 +136,40 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    match word == "get" {
-        true => {
+    let way = match asked {
+        Brightness::Up => Way::Up,
+        Brightness::Down => Way::Down,
+        Brightness::Get => {
             let Ok(points) = panel.as_points(now);
 
             println!("{points}");
+
             return std::process::ExitCode::SUCCESS;
         }
-        false => {},
-    }
-
-    match word == "switched-on" {
-        true => {
-            let Ok(done) = switched_on();
+        Brightness::Dim => {
+            let Ok(done) = dim(&panel, now);
 
             return done;
         }
-        false => {},
-    }
-
-    match word == "follow-or-not" {
-        true => {
-            let Ok(done) = follow_or_not();
+        Brightness::Undim => {
+            let Ok(done) = undim(&panel, now);
 
             return done;
         }
-        false => {},
-    }
-
-    match word == "follow" {
-        true => {
+        Brightness::Follow => {
             let Ok(done) = follow(&panel);
 
             return done;
         }
-        false => {},
-    }
-
-    match word == "dim" || word == "undim" {
-        true => {
-            let Ok(done) = match word.as_str() {
-                "dim" => dim(&panel, now),
-                _not_dim_so_undim => undim(&panel, now),
-            };
+        Brightness::SwitchedOn => {
+            let Ok(done) = switched_on();
 
             return done;
         }
-        false => {},
-    }
+        Brightness::FollowOrNot => {
+            let Ok(done) = follow_or_not();
 
-    let Ok(named) = Way::parse(&word);
-
-    let way = match named {
-        Some(way) => way,
-        None => {
-            eprintln!(
-                "usage: console-brightness [up|down|get|dim|undim|follow|switched-on|follow-or-not]"
-            );
-
-            return std::process::ExitCode::from(2);
+            return done;
         }
     };
 
@@ -506,5 +531,31 @@ fn undim(panel: &Panel, now: i64) -> Result<std::process::ExitCode, Never> {
             })
         },
         None => Ok(std::process::ExitCode::SUCCESS),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console_core_arguments::{Reason, ValidationError};
+
+    #[test]
+    fn each_thing_it_does_is_its_own_word_and_no_other_spelling_of_it() -> Result<(), ValidationError> {
+        let up = read_with::<Brightness, &str>(&COMMAND, &["up"])?;
+        let asking = read_with::<Brightness, &str>(&COMMAND, &["follow-or-not"])?;
+        let shouted = read_with::<Brightness, &str>(&COMMAND, &["Up"]);
+
+        assert_eq!(up.require_subcommand(), Ok(Brightness::Up));
+        assert_eq!(asking.require_subcommand(), Ok(Brightness::FollowOrNot));
+        assert_eq!(shouted.map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("Up".to_string())));
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_refuses_a_word_after_the_one_it_does_rather_than_ignoring_it() {
+        let line = read_with::<Brightness, &str>(&COMMAND, &["up", "10"]);
+
+        assert_eq!(line.map_err(|refusal| refusal.reason), Err(Reason::ExtraArgument("10".to_string())));
     }
 }

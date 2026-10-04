@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 console-core-iteration = { path = "../console-core-iteration" }
 console-core-never = { path = "../console-core-never" }
+console-core-schedules.workspace = true
 
 rustix.workspace = true
 

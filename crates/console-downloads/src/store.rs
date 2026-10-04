@@ -5,6 +5,7 @@
 //! there. So the slow half is a program with a name rather than a thread inside
 //! a card, and a search survives the tab being walked away from.
 
+use console_core_arguments::{Flag, Takes};
 use console_core_never::Never;
 use console_core_words::Words;
 use std::path::{Path, PathBuf};
@@ -17,11 +18,11 @@ pub const TABS: [&str; 3] = [SOUND_TAB, FILM_TAB, BOOK_TAB];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum Kind {
-    #[words(word = "audio", flag = "--audio")]
+    #[words(word = "audio", flag = "--audio", about = "sound, which this keeps as opus")]
     Sound,
-    #[words(word = "video", flag = "--video")]
+    #[words(word = "video", flag = "--video", about = "a film, which this keeps as mkv")]
     Film,
-    #[words(word = "book", flag = "--book")]
+    #[words(word = "book", flag = "--book", about = "a book")]
     Book,
 }
 
@@ -29,6 +30,18 @@ impl Kind {
     pub const BOTH: [Kind; 2] = [Kind::Sound, Kind::Film];
 
     pub const ALL: [Kind; 3] = [Kind::Sound, Kind::Film, Kind::Book];
+
+    pub const FLAGS: [Flag; 3] = {
+        let (Ok(sound), Ok(film), Ok(book)) = (Kind::Sound.as_flag(), Kind::Film.as_flag(), Kind::Book.as_flag());
+
+        [sound, film, book]
+    };
+
+    pub const fn as_flag(self) -> Result<Flag, Never> {
+        let (Ok(spelling), Ok(about)) = (self.flag(), self.about());
+
+        Ok(Flag { spelling, takes: Takes::None, about })
+    }
 
     pub fn tab(self) -> Result<&'static str, Never> {
         Ok(match self {

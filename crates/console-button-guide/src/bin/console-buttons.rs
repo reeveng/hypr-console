@@ -18,7 +18,8 @@ use console_core_iteration::{Endless, Step, iterate};
 use console_input_event_devices::{EventType, KeyCode};
 use console_input_controller::actions::Table;
 use console_button_guide::guide::{Section, sections};
-use console_button_guide::printed::{COLORED, PLAIN, guide};
+use console_button_guide::printed::{COLORED, COMMAND, IDENTIFY, PLAIN, guide};
+use console_core_arguments::Presence;
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_input_bindings::moved::{Tasks, path_in};
@@ -68,10 +69,18 @@ fn table() -> Result<Table, Never> {
 
 fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
-    let asked_for = |what: &str| asked.iter().any(|word| word == what);
+    let line = match console_core_arguments::read(&COMMAND, &asked) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    match asked_for("--identify") {
-        true => match identify() {
+            return ExitCode::from(code);
+        },
+    };
+    let Ok(identifying) = line.presence(IDENTIFY);
+
+    match identifying {
+        Presence::Present => match identify() {
             Ok(()) => ExitCode::SUCCESS,
             Err(fault) => {
                 eprintln!("console-buttons: {fault}");
@@ -79,7 +88,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             },
         },
-        false => {
+        Presence::Absent => {
             let Ok(read) = read();
             let Ok(ink) = ink();
             let Ok(guide) = guide(&read, ink);
@@ -104,7 +113,7 @@ impl std::fmt::Display for Unidentified {
     }
 }
 
-fn ink() -> Result<console_button_guide::printed::HexColor, Never> {
+fn ink() -> Result<console_button_guide::printed::Ansi, Never> {
     Ok(match std::io::stdout().is_terminal() {
         true => COLORED,
         false => PLAIN,

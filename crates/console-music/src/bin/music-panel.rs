@@ -5,10 +5,14 @@
 //! asks the host to draw the card on it, and holds the screen until the card is
 //! gone.
 
+use std::process::ExitCode;
+
 use console_panel::card::{Panel, opened};
 
-fn main() {
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked, Panel { who: console_music::WHO, door: console_music::door, card: console_music::card });
+    let Ok(code) = opened(&asked, Panel { who: console_music::WHO, command: console_music::COMMAND, door: console_music::door, card: console_music::card });
+
+    code
 }

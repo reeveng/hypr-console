@@ -14,9 +14,10 @@ name = "console-resource-usage"
 path = "src/bin/console-resource-usage.rs"
 
 [dependencies]
+console-core-words.workspace = true
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
-console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-battery.workspace = true
 console-core-number-conversion.workspace = true

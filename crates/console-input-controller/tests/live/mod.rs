@@ -28,7 +28,8 @@ use console_core_never::Never;
 use console_input_event_devices::{Device, EventType, InputEvent};
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{RecordingClock, LegionGo};
+use console_input_gamepad::go::LegionGo;
+use console_waiting::clock::TestClock;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::uinput::Uinput;
 use console_program_lifetime::{BoundToParent, alongside};
@@ -163,7 +164,7 @@ fn a_compositor_that_writes_down(here: &Path) -> Result<Received, Failure> {
 }
 
 pub struct Running {
-    pub go: LegionGo<Uinput, RecordingClock>,
+    pub go: LegionGo<Uinput, TestClock>,
     pub out: Option<Device>,
     said: Arc<Mutex<String>>,
     process: Option<BoundToParent>,
@@ -185,7 +186,7 @@ impl Running {
         let Ok(devices) = Devices::new(world, uinput);
         let Ok(paths) = devices.paths();
         let profiles = every_profile(&root)?;
-        let go = LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)?;
+        let go = LegionGo::new(profiles, devices, TestClock::default(), console_input_gamepad::router::NAME)?;
         let asked = a_compositor_that_writes_down(&here)?;
         let Ok(was) = every_device();
         #[cfg_attr(

@@ -14,6 +14,8 @@ name = "console-desktop"
 path = "src/main.rs"
 
 [dependencies]
+console-core-words.workspace = true
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-directory-listing.workspace = true
 console-compositor.workspace = true

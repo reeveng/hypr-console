@@ -8,4 +8,4 @@
 pub mod card;
 pub mod folder;
 
-pub use card::{WHO, card, door};
+pub use card::{COMMAND, WHO, card, door};

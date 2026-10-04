@@ -17,6 +17,9 @@
 //! running, right up to `systemctl --user show -p NRestarts`, which no one
 //! thinks to ask for because nothing ever suggested it.
 
+use std::process::ExitCode;
+
+use console_core_arguments::{Command, Operands, read};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_notifications::saying::{StatePath, Content, fault, for_the_journal, journal, raise};
@@ -68,19 +71,43 @@ fn described(unit: &str) -> Result<String, Never> {
         .args(["--user", "show", "-p", "Description", "--value", unit])
         .output()
     {
-        Ok(said) => said,
+        Ok(message) => message,
         Err(_would_not_start) => return Ok(String::new()),
     };
 
     Ok(String::from_utf8_lossy(&said.stdout).trim().to_string())
 }
 
-fn main() {
-    let unit = match std::env::args().nth(1) {
-        Some(unit) => unit,
-        None => SOMETHING_OF_THE_DESKTOPS.to_string(),
+const COMMAND: Command = Command {
+    name: "console-report-crash",
+    about: "say that a piece of the desktop dies; every console unit runs this as it stops, with its own name",
+    flags: &[],
+    operands: Operands::Optional("UNIT"),
+};
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
     };
 
+    let Ok(operands) = line.operands();
+    let unit = match operands.first() {
+        Some(unit) => unit.as_str(),
+        None => SOMETHING_OF_THE_DESKTOPS,
+    };
+    let Ok(()) = report(unit);
+
+    ExitCode::SUCCESS
+}
+
+fn report(unit: &str) -> Result<(), Never> {
     #[cfg_attr(
         dylint_lib = "explicit026_env_read_once",
         allow(
@@ -90,15 +117,15 @@ fn main() {
     )]
     let result = match std::env::var("SERVICE_RESULT") {
         Ok(result) => result,
-        Err(_unset) => return,
+        Err(_unset) => return Ok(()),
     };
 
-    let Ok(described) = described(&unit);
-    let Ok(crashed) = crashed(Stopped { unit: &unit, said: &described }, Some(&result));
+    let Ok(described) = described(unit);
+    let Ok(crashed) = crashed(Stopped { unit, said: &described }, Some(&result));
 
     let (kind, summary, body) = match crashed {
         Some((kind, summary, body)) => (kind, summary, body),
-        None => return,
+        None => return Ok(()),
     };
 
     let body = format!("{body} ({result})");
@@ -114,6 +141,8 @@ fn main() {
         }
         None => {}
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

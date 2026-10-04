@@ -18,7 +18,7 @@ use console_input_event_devices::presses::ButtonPress;
 use console_login_greeter::greeting::{Greeting, Status};
 use console_login_pattern::{Clicked, Direction, Pattern, Secret, Touch};
 use console_core_state_machine::{Machine, Queue};
-use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_program_contract::{Effect, Event, Exit};
 
 pub const FEWEST: u32 = 4;
 
@@ -69,12 +69,12 @@ impl Drawing {
 }
 
 impl Machine for LoginPattern {
-    type Input = Arguments;
+    type Input = ();
     type State = Drawing;
     type Request = Event<LoginPatternEvent>;
     type Effect = Effect<LoginPatternEffect>;
 
-    fn initialize(_arguments: &Arguments, _previous: Option<Drawing>, _effects: &mut Queue<Self::Effect>) -> Result<Drawing, Never> {
+    fn initialize(_input: &(), _previous: Option<Drawing>, _effects: &mut Queue<Self::Effect>) -> Result<Drawing, Never> {
         let Ok(pattern) = Pattern::new();
         let greeting = Greeting { pattern, status: Status::Message(DRAW.to_string()) };
 
@@ -284,8 +284,7 @@ mod tests {
         let stroke = [Touch::Down(first), Touch::Moved(second), Touch::Moved(third), Touch::Moved(fourth), Touch::Up];
         let events: Vec<Event<LoginPatternEvent>> =
             stroke.iter().chain(stroke.iter()).map(|touch| Event::Custom(LoginPatternEvent::Touched(*touch))).collect();
-        let Ok(arguments) = Arguments::of(&[]);
-        let Ok(trace) = run::<LoginPattern>(&arguments, &events);
+        let Ok(trace) = run::<LoginPattern>(&(), &events);
         let Ok(effects) = trace.effects();
         let Ok(kept) = secret(vec![0, 4, 2, 7]);
         let kept = kept.ok_or(NOT_A_SECRET)?;
@@ -297,10 +296,9 @@ mod tests {
 
     #[test]
     fn a_tap_away_from_the_dots_leaves_without_keeping() {
-        let Ok(arguments) = Arguments::of(&[]);
         let away = Point { x: 220, y: 180 };
         let tap = [Touch::Down(away), Touch::Up].map(|touch| Event::Custom(LoginPatternEvent::Touched(touch)));
-        let Ok(trace) = run::<LoginPattern>(&arguments, &tap);
+        let Ok(trace) = run::<LoginPattern>(&(), &tap);
         let Ok(effects) = trace.effects();
 
         assert_eq!(effects, vec![Effect::Stop(Exit::Success)]);
@@ -321,9 +319,8 @@ mod tests {
 
     #[test]
     fn b_with_nothing_drawn_leaves_without_keeping() {
-        let Ok(arguments) = Arguments::of(&[]);
         let Ok(back) = presses(&[ButtonPress::Back]);
-        let Ok(trace) = run::<LoginPattern>(&arguments, &back);
+        let Ok(trace) = run::<LoginPattern>(&(), &back);
         let Ok(effects) = trace.effects();
 
         assert_eq!(effects, vec![Effect::Stop(Exit::Success)]);

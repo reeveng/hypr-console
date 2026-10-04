@@ -32,8 +32,9 @@
 //! again.
 //!
 //! [`CONFIRM_DOES`] and [`CONFIRM_UNASKED`] are here for the same reason the
-//! names are, and are the only words of a program's own vocabulary this list
-//! carries. `console-confirm` is started by `console-deploy` from a laptop,
+//! names are, and so is every other word of a program's own vocabulary that a
+//! crate which cannot depend on the program starts it with. `console-confirm`
+//! is started by `console-deploy` from a laptop,
 //! inside someone else's session, over ssh -- so the two ends of that call are
 //! in crates that cannot depend on each other, one of them being a GTK panel
 //! and the other a tool that must not pull a toolkit in. The name of the
@@ -45,7 +46,16 @@
 //! how it had been called -- so a program that never reached a person read, to
 //! the caller, exactly like a person who said no. They are different answers
 //! and the second is not the card's to give.
+//!
+//! [`LAUNCHER_KEEP`] and [`OVERVIEW_SHOW`] are the same shape for the
+//! controller, which starts the menu and the overview on a press and must not
+//! pull either one's drawing in to learn how. Each is a declared flag rather
+//! than a word, so the program reads it off the same constant the controller
+//! starts it with, and its usage draws from it too. [`WALLPAPER_TAKE`] and
+//! [`WALLPAPER_DROPPED`] are the same again for the files and the settings,
+//! which hand `wallpaper-render` a picture and must not pull its rendering in.
 
+use console_core_arguments::{Flag, Takes};
 use console_core_never::Never;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -136,6 +146,30 @@ pub const EXECUTABLE_DIRECTORY: &str = executable_directory!();
 pub const CONFIRM_DOES: &str = "CONSOLE_CONFIRM_DOES";
 
 pub const CONFIRM_UNASKED: u8 = 96;
+
+pub const LAUNCHER_KEEP: Flag = Flag {
+    spelling: "--keep",
+    takes: Takes::None,
+    about: "stay open when asked for again, rather than putting the menu away",
+};
+
+pub const OVERVIEW_SHOW: Flag = Flag {
+    spelling: "--show",
+    takes: Takes::None,
+    about: "open the overview that is already running, rather than becoming it",
+};
+
+pub const WALLPAPER_TAKE: Flag = Flag {
+    spelling: "--take",
+    takes: Takes::None,
+    about: "render the pictures at PATH, whatever and wherever they are",
+};
+
+pub const WALLPAPER_DROPPED: Flag = Flag {
+    spelling: "--dropped",
+    takes: Takes::None,
+    about: "render what is in Pictures/Wallpapers",
+};
 
 impl InternalProgram {
     pub fn at(self) -> Result<PathBuf, Never> {

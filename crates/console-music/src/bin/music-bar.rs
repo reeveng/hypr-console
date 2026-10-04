@@ -14,23 +14,24 @@
 //! this exists: it draws nothing at all while no player is running.
 //!
 //! It asked the player twice every two seconds for as long as the desktop was
-//! up, which is what a bar module does when nothing tells it. `Topic::Player`
-//! tells it: the player says `PropertiesChanged` for the pair this draws from,
-//! the pool holds one monitor over the MPRIS path, and `player` says which of
-//! those lines is a change rather than this program's own asking coming back.
-//! What is left is a net under it rather than a cadence, so a machine where the
-//! player is not running or the pool is down redraws now and then instead of
-//! never.
+//! up, which is what a bar module does when nothing tells it.
+//! `EventGroup::Player` tells it: the player says `PropertiesChanged` for the
+//! pair this draws from, the pool holds one monitor over the MPRIS path, and
+//! `player` says which of those lines is a change rather than this program's
+//! own asking coming back. What is left is a net under it rather than a
+//! cadence, so a machine where the player is not running or the pool is down
+//! redraws now and then instead of never.
 
 use std::io::Write;
 use std::process::ExitCode;
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
+use console_core_arguments::{Command, Operands, ValidationError};
 use console_music::player;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use console_panel::door::{Up, is_open};
 
 const EVERY: Duration = Duration::from_secs(10);
@@ -39,12 +40,30 @@ const PANEL: &str = "music-panel";
 
 const PAUSE: &str = "\u{f03e4}";
 
+const ICON: [&str; 1] = ["ICON"];
+
+const COMMAND: Command = Command {
+    name: "music-bar",
+    about: "the line the bar shows for what is playing, after ICON, said again whenever it changes",
+    flags: &[],
+    operands: Operands::Named(&ICON),
+};
+
+fn icon(words: &[String]) -> Result<String, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, words)?;
+    let [icon] = line.exactly(ICON)?;
+
+    Ok(icon.clone())
+}
+
 fn main() -> ExitCode {
-    let icon = match std::env::args().nth(1) {
-        Some(icon) => icon,
-        None => {
-            eprintln!("usage: music-bar ICON");
-            return ExitCode::FAILURE;
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let icon = match icon(&words) {
+        Ok(icon) => icon,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
         }
     };
 
@@ -92,7 +111,7 @@ fn subscribe() -> Result<std::sync::mpsc::Receiver<()>, Never> {
     let (say, heard) = channel();
 
     let Ok(()) = console_events::again::layers(say.clone());
-    let Ok(()) = console_events::again::about(&Topic::Player, player::worth_asking_after, say);
+    let Ok(()) = console_events::again::about(&EventGroup::Player, player::worth_asking_after, say);
 
     Ok(heard)
 }

@@ -28,6 +28,7 @@
 //! exists. So the list is set from the alphabets every time, and the file
 //! keeps the one layout that is right before anything of ours has run.
 
+use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Reason, Takes, ValidationError};
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_input_alphabets::Alphabet;
@@ -35,9 +36,44 @@ use console_core_walking::{Ring, Step};
 
 pub const NAMED: &str = "language-switch";
 
-pub const SETTLE: &str = "--settle";
+pub const SETTLE: Flag = Flag {
+    spelling: "--settle",
+    takes: Takes::None,
+    about: "put each keyboard back on what it was last switched to",
+};
 
-pub const BACK: &str = "--back";
+pub const BACK: Flag = Flag { spelling: "--back", takes: Takes::None, about: "the alphabet before this one instead of the next" };
+
+pub const COMMAND: Command = Command {
+    name: NAMED,
+    about: "step every keyboard along to the next alphabet",
+    flags: &[BACK, SETTLE],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Switch {
+    Along(Step),
+    Settle,
+}
+
+impl Switch {
+    pub fn of(line: &CommandLine<NoSubcommand>) -> Result<Switch, ValidationError> {
+        let Ok(back) = line.presence(BACK);
+        let Ok(settle) = line.presence(SETTLE);
+
+        match (back, settle) {
+            (Presence::Absent, Presence::Absent) => Ok(Switch::Along(Step::Forward)),
+            (Presence::Present, Presence::Absent) => Ok(Switch::Along(Step::Back)),
+            (Presence::Absent, Presence::Present) => Ok(Switch::Settle),
+            (Presence::Present, Presence::Present) => {
+                let Ok(refusal) = line.refusal(Reason::ExtraArgument(SETTLE.spelling.to_string()));
+
+                Err(refusal)
+            }
+        }
+    }
+}
 
 pub fn layouts(walk: &[&'static Alphabet]) -> Result<String, Never> {
     let said: Vec<&str> = walk.iter().map(|alphabet| alphabet.xkb).collect();
@@ -210,5 +246,20 @@ mod tests {
         assert_eq!(found.key, "latin");
 
         Ok(())
+    }
+
+    #[test]
+    fn nothing_steps_forward_back_steps_back_settle_settles_and_both_are_refused() {
+        let switched = |words: &[&str]| {
+            console_core_arguments::read(&COMMAND, words)
+                .and_then(|line| Switch::of(&line))
+                .map_err(|refusal| refusal.reason)
+        };
+
+        assert_eq!(switched(&[]), Ok(Switch::Along(Step::Forward)));
+        assert_eq!(switched(&[BACK.spelling]), Ok(Switch::Along(Step::Back)));
+        assert_eq!(switched(&[SETTLE.spelling]), Ok(Switch::Settle));
+        assert_eq!(switched(&[BACK.spelling, SETTLE.spelling]), Err(Reason::ExtraArgument(SETTLE.spelling.to_string())));
+        assert_eq!(switched(&["--forward"]), Err(Reason::NoSuchFlag("--forward".to_string())));
     }
 }

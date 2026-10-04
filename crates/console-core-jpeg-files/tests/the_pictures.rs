@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use console_core_geometry::Size;
-use console_core_jpeg_files::{JpegError, Picture, Task, Unsupported, decoded, decoded_spread, measured};
+use console_core_jpeg_files::{JpegError, Picture, Quality, Task, Unsupported, decoded, decoded_spread, encoded, measured};
 
 const WHOLE: Size<u32> = Size { width: 75, height: 53 };
 
@@ -218,4 +218,85 @@ fn the_jobs_of_a_picture_can_be_done_in_any_order() -> Result<(), Box<dyn Error>
     }
 
     Ok(())
+}
+
+fn rgb(picture: &Picture) -> Result<Vec<u8>, Box<dyn Error>> {
+    Ok(picture.rgba.as_chunks::<4>().0.iter().flat_map(|[red, green, blue, _]| [*red, *green, *blue]).collect())
+}
+
+#[test]
+fn a_picture_written_and_read_again_is_as_close_as_its_quality_keeps_it() -> Result<(), Box<dyn Error>> {
+    let picture = decoded(include_bytes!("pictures/subsampled.jpg"), WHOLE)?;
+    let expected = rgb(&picture)?;
+    let mut smaller = 0u32;
+
+    for (percent, within) in [(50, 5.5), (85, 3.5), (95, 2.0)] {
+        let Ok(quality) = Quality::percent(percent);
+        let written = encoded(&picture, quality)?;
+        let again = decoded(&written, WHOLE)?;
+        let long = u32::try_from(written.len())?;
+
+        assert_eq!(again.size, WHOLE);
+        assert!(long > smaller, "{percent} is no larger than the quality under it");
+
+        close(&again, &expected, within)?;
+
+        smaller = long;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn what_is_written_is_jfif_from_its_first_marker_to_its_last() -> Result<(), Box<dyn Error>> {
+    let picture = decoded(include_bytes!("pictures/full.jpg"), WHOLE)?;
+    let Ok(quality) = Quality::percent(85);
+    let written = encoded(&picture, quality)?;
+
+    assert!(written.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00]));
+    assert!(written.ends_with(&[0xFF, 0xD9]));
+
+    Ok(())
+}
+
+#[test]
+fn a_picture_that_is_not_whole_squares_is_filled_out_and_read_back_at_its_own_size() -> Result<(), Box<dyn Error>> {
+    let Ok(quality) = Quality::percent(90);
+
+    let sizes: [Size<u32>; 4] =
+        [Size { width: 1, height: 1 }, Size { width: 8, height: 8 }, Size { width: 17, height: 9 }, Size { width: 33, height: 31 }];
+
+    for size in sizes {
+        let rgba: Vec<u8> = (0..size.height)
+            .flat_map(|y| (0..size.width).map(move |x| (x, y)))
+            .flat_map(|(x, y)| {
+                let [across, ..] = x.wrapping_mul(7).to_le_bytes();
+                let [down, ..] = y.wrapping_mul(5).to_le_bytes();
+
+                [across, down, 128, 255]
+            })
+            .collect();
+        let picture = Picture { size, rgba };
+        let written = encoded(&picture, quality)?;
+        let again = decoded(&written, size)?;
+        let expected = rgb(&picture)?;
+
+        assert_eq!(again.size, size);
+
+        close(&again, &expected, 3.0)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pixels_that_are_not_the_size_they_came_with_or_too_wide_to_say_are_refused() {
+    let Ok(quality) = Quality::percent(85);
+    let short = Picture { size: Size { width: 2, height: 2 }, rgba: vec![0; 15] };
+    let nothing = Picture { size: Size { width: 0, height: 0 }, rgba: Vec::new() };
+    let wide = Picture { size: Size { width: 65_536, height: 1 }, rgba: vec![0; 262_144] };
+
+    assert_eq!(encoded(&short, quality), Err(JpegError::Mismatched));
+    assert_eq!(encoded(&nothing, quality), Err(JpegError::Mismatched));
+    assert_eq!(encoded(&wide, quality), Err(JpegError::TooLarge));
 }

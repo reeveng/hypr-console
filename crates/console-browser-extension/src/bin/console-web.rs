@@ -20,11 +20,31 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use console_browser_extension::{PALETTE, source, stamp};
+use console_core_arguments::{Command, Flag, Operands, Presence, Takes, read};
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 
+const ALWAYS: Flag = Flag { spelling: "--always", takes: Takes::None, about: "pack it whether or not anything has changed" };
+
+const COMMAND: Command = Command {
+    name: "console-web",
+    about: "pack the add-on this desktop puts in its browser into the profile, if anything has changed",
+    flags: &[ALWAYS],
+    operands: Operands::None,
+};
+
 fn main() -> ExitCode {
-    let always = std::env::args().any(|word| word == "--always");
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(always) = line.presence(ALWAYS);
 
     let Ok(said) = console_core_places::home();
 
@@ -62,7 +82,7 @@ fn main() -> ExitCode {
     let Ok(hash) = source::hash(&palette);
     let Ok(held) = note_beside(&stamped);
 
-    let packed_already = !always
+    let packed_already = always == Presence::Absent
         && xpi.is_file()
         && held.as_ref().is_some_and(|held| held.hash == hash);
 

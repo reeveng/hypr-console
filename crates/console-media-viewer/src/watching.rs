@@ -30,12 +30,12 @@ use std::path::PathBuf;
 
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Command, Event};
+use console_program_contract::{Effect, Command, Event};
 
 use crate::kinds::Kind;
 use crate::playing::{self, Along, Captions, Running};
 use crate::reel::{Reel, Shot, Stood};
-use crate::waking::{self, Woken};
+use crate::waking::{self, Wake};
 
 pub const FILES: InternalProgram = InternalProgram::Files;
 
@@ -116,13 +116,13 @@ pub enum WakeOutcome {
 pub struct Watch;
 
 impl Machine for Watch {
-    type Input = Arguments;
+    type Input = ();
     type State = Watching;
     type Request = Event<ViewerEvent>;
     type Effect = Effect<ViewerEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Watching>, effects: &mut Effects) -> Result<Watching, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(_input: &(), _previous: Option<Watching>, effects: &mut Effects) -> Result<Watching, Never> {
+        let Ok(opening) = initial();
 
         opening.offered(effects)
     }
@@ -136,7 +136,7 @@ impl Machine for Watch {
 
 type Effects = Queue<Effect<ViewerEffect>>;
 
-fn initial(_argv: &Arguments) -> Result<Transition<Watching, Effect<ViewerEffect>>, Never> {
+fn initial() -> Result<Transition<Watching, Effect<ViewerEffect>>, Never> {
     let Ok(watching) = Watching::of(Reel::default(), Since::ZERO);
     let Ok(opening) = Transition::without_effects(watching);
 
@@ -278,12 +278,12 @@ pub fn stirred(state: &Watching, now: Since) -> Result<WakeOutcome, Never> {
     let Ok(awake) = waking::awake(now.saturating_sub(state.stirred));
 
     Ok(match awake {
-        Woken::Yes => WakeOutcome::AlreadyAwake,
-        Woken::No => WakeOutcome::Woke,
+        Wake::Yes => WakeOutcome::AlreadyAwake,
+        Wake::No => WakeOutcome::Woke,
     })
 }
 
-pub fn awake(state: &Watching, now: Since) -> Result<Woken, Never> {
+pub fn awake(state: &Watching, now: Since) -> Result<Wake, Never> {
     waking::awake(now.saturating_sub(state.stirred))
 }
 
@@ -442,13 +442,13 @@ mod tests {
         let quiet = waking::QUIET.saturating_add(Since::from_secs(1));
         let watching = sample_watching()?;
 
-        assert_eq!(awake(&watching, quiet), Ok(Woken::No));
+        assert_eq!(awake(&watching, quiet), Ok(Wake::No));
         assert_eq!(stirred(&watching, quiet), Ok(WakeOutcome::Woke));
         assert_eq!(stirred(&watching, Since::from_secs(1)), Ok(WakeOutcome::AlreadyAwake));
 
         let Ok(after) = run_events(&watching, &[ViewerEvent::WakeOutcome(quiet)]);
 
-        assert_eq!(awake(&after.state, quiet), Ok(Woken::Yes));
+        assert_eq!(awake(&after.state, quiet), Ok(Wake::Yes));
 
         Ok(())
     }
@@ -473,7 +473,7 @@ mod tests {
         let watching = sample_watching()?;
         let Ok(after) = run_events(&watching, &[ViewerEvent::Where { at: 100, whole: 600 }]);
 
-        assert_eq!(awake(&after.state, quiet), Ok(Woken::No));
+        assert_eq!(awake(&after.state, quiet), Ok(Wake::No));
 
         Ok(())
     }

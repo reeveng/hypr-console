@@ -35,13 +35,16 @@
 //! no-op, and it watched. The desktop worked; the notification was true about
 //! the status and wrong about the desktop.
 //!
-//! ## The words are read here rather than by a parser crate
+//! ## A word this does not know stops it
 //!
 //! The fork took clap, which is a dependency and a help screen for a program
 //! no one types. It is also what made `--help` harmless there and a swept desktop
 //! here: with clap gone, an argument nothing recognises left no mode word, and no
-//! mode word was `load`. A word this does not know now says which words it knows
-//! and stops, and that is the only thing an unknown word may do.
+//! mode word was `load`. The words are declared now, with `console-core-arguments`
+//! reading them, so a word this does not know draws the usage and stops, and
+//! that is the only thing an unknown word may do. A value is the word after its
+//! flag, `--save-interval 30`, and the fork's `--save-interval=30` is one of the
+//! words it does not know.
 
 use std::env;
 use std::fs::create_dir_all;
@@ -49,8 +52,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
+use console_core_arguments::{Command, CommandLine, Flag, Operands, Presence, Reason, Subcommand, Takes, ValidationError, read_with};
 use console_core_never::Never;
-use console_resume::Unresumed;
+use console_core_words::Words;
+use console_resume::{SAVE_EVERY, Unresumed};
 use console_resume::already::Already;
 use console_resume::session::{Duplicates, Restore, Really, Restoring, Sessions};
 
@@ -62,29 +67,36 @@ const ADJUSTING_FOR: Duration = Duration::from_secs(60);
 
 const WHERE: &str = "CONSOLE_RESUME_PATH";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 enum Mode {
+    #[words(word = "default", about = "put back what was open, once for this compositor, then keep saving")]
     Default,
+    #[words(word = "save", about = "save what is on the screen now, once")]
     Save,
+    #[words(word = "watch", about = "keep saving what is on the screen")]
     Watch,
+    #[words(word = "list", about = "the sessions that are saved")]
     List,
+    #[words(word = "load", about = "close every window and put back the session, now")]
     Load,
+    #[words(word = "clear", about = "throw away every session")]
     Clear,
+    #[words(word = "delete", about = "throw away the session")]
     Delete,
 }
 
-const EVERY: [(&str, Mode); 7] = [
-    ("default", Mode::Default),
-    ("save", Mode::Save),
-    ("watch", Mode::Watch),
-    ("list", Mode::List),
-    ("load", Mode::Load),
-    ("clear", Mode::Clear),
-    ("delete", Mode::Delete),
-];
+impl Subcommand for Mode {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Mode::VARIANTS.iter().copied())
+    }
 
-fn mode(word: &str) -> Result<Option<Mode>, Never> {
-    Ok(EVERY.iter().find(|(spelled, _mode)| *spelled == word).map(|(_spelt, mode)| *mode))
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Mode::about(self)
+    }
 }
 
 struct Arguments {
@@ -96,44 +108,38 @@ struct Arguments {
     restoring: Restoring,
 }
 
-fn seconds(said: Option<&str>, unless: Duration) -> Result<Duration, Never> {
-    Ok(match said.map(str::parse::<u64>) {
-        Some(Ok(seconds)) => Duration::from_secs(seconds),
+const LOAD_TIME: Flag = Flag {
+    spelling: "--load-time",
+    takes: Takes::Value("SECONDS"),
+    about: "how long a program put back is given to open its windows",
+};
+
+const SIMULATE: Flag = Flag { spelling: "--simulate", takes: Takes::None, about: "say what it would do, and do none of it" };
+
+const ADJUST_CLIENTS_ONLY: Flag = Flag {
+    spelling: "--adjust-clients-only",
+    takes: Takes::None,
+    about: "move what is open to where it was, and start nothing",
+};
+
+const COMMAND: Command = Command {
+    name: "console-resume",
+    about: "put back what was open, and keep saving what is on the screen",
+    flags: &[SAVE_EVERY, LOAD_TIME, SIMULATE, ADJUST_CLIENTS_ONLY],
+    operands: Operands::Optional("NAME"),
+};
+
+fn seconds(line: &CommandLine<Mode>, flag: Flag, unless: Duration) -> Result<Duration, ValidationError> {
+    let said = line.parsed::<u64>(flag)?;
+
+    Ok(match said {
+        Some(seconds) => Duration::from_secs(seconds),
         None => unless,
-        Some(Err(_not_a_number)) => unless,
-    })
-}
-
-const FLAGS: [&str; 4] = ["save-interval", "load-time", "simulate", "adjust-clients-only"];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Known {
-    Yes,
-    No,
-}
-
-fn known_flag(word: &str) -> Result<Known, Never> {
-    let said = match word.strip_prefix("--") {
-        Some(said) => said,
-        None => return Ok(Known::Yes),
-    };
-
-    let named = match said.split_once('=') {
-        Some((named, _value)) => named,
-        None => said,
-    };
-
-    Ok(match FLAGS.contains(&named) {
-        true => Known::Yes,
-        false => Known::No,
     })
 }
 
 #[derive(Debug)]
 enum Unstarted {
-    UnknownFlag(String),
-    UnknownMode(String),
-    NeverSaving,
     Homeless,
     Making(PathBuf, std::io::Error),
     NoSession(PathBuf),
@@ -143,15 +149,6 @@ enum Unstarted {
 impl std::fmt::Display for Unstarted {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unstarted::UnknownFlag(word) => {
-                write!(to, "{word:?} is not one of --{}", FLAGS.join(", --"))
-            }
-            Unstarted::UnknownMode(said) => {
-                let every: Vec<&str> = EVERY.iter().map(|(spelled, _mode)| *spelled).collect();
-
-                write!(to, "{said:?} is not one of {}", every.join(", "))
-            }
-            Unstarted::NeverSaving => write!(to, "a save interval of zero is never"),
             Unstarted::Homeless => write!(to, "there is no home to keep a session in"),
             Unstarted::Making(at, fault) => {
                 write!(to, "{}: making it: {fault}", at.display())
@@ -174,65 +171,42 @@ impl From<Unresumed> for Unstarted {
     }
 }
 
-fn parse_arguments(words: &[String]) -> Result<Arguments, Unstarted> {
-    for word in words {
-        let Ok(known) = known_flag(word);
-
-        match known {
-            Known::Yes => {},
-            Known::No => {
-                return Err(Unstarted::UnknownFlag(word.clone()));
-            },
-        }
-    }
-
-    let mut mode_and_name = words.iter().filter(|word| !word.starts_with("--"));
-
-    let flag = |named: &str| {
-        words
-            .iter()
-            .find_map(|word| word.strip_prefix(&format!("--{named}=")))
-            .map(str::to_string)
-    };
-
-    let set = |named: &str| words.iter().any(|word| word == &format!("--{named}"));
-
-    let said = match mode_and_name.next() {
-        Some(said) => said.as_str(),
-        None => "default",
-    };
-
-    let Ok(known) = mode(said);
-
-    let mode = match known {
-        Some(mode) => mode,
-        None => return Err(Unstarted::UnknownMode(said.to_string())),
-    };
-
-    let Ok(save_interval) = seconds(flag("save-interval").as_deref(), SAVE_INTERVAL);
+fn parse_arguments(words: &[String]) -> Result<Arguments, ValidationError> {
+    let line = read_with::<Mode, String>(&COMMAND, words)?;
+    let Ok(said) = line.subcommand();
+    let Ok(named) = line.operands();
+    let save_interval = seconds(&line, SAVE_EVERY, SAVE_INTERVAL)?;
+    let adjusting_for = seconds(&line, LOAD_TIME, ADJUSTING_FOR)?;
+    let Ok(simulate) = line.presence(SIMULATE);
+    let Ok(adjust) = line.presence(ADJUST_CLIENTS_ONLY);
 
     match save_interval.is_zero() {
-        true => return Err(Unstarted::NeverSaving),
+        true => {
+            let Ok(refusal) = line.refusal(Reason::InvalidValue { of: SAVE_EVERY.spelling, value: "0".to_string() });
+
+            return Err(refusal);
+        },
         false => {},
     }
 
-    let Ok(adjusting_for) = seconds(flag("load-time").as_deref(), ADJUSTING_FOR);
-
     Ok(Arguments {
-        mode,
-        name: match mode_and_name.next().cloned() {
-            Some(name) => name,
+        mode: match said {
+            Some(mode) => mode,
+            None => Mode::Default,
+        },
+        name: match named.first() {
+            Some(name) => name.clone(),
             None => UNLESS_NAMED.to_string(),
         },
         save_interval,
         adjusting_for,
-        really: match set("simulate") {
-            true => Really::Simulated,
-            false => Really::Truly,
+        really: match simulate {
+            Presence::Present => Really::Simulated,
+            Presence::Absent => Really::Truly,
         },
-        restoring: match set("adjust-clients-only") {
-            true => Restoring::MovingWhatIsOpen,
-            false => Restoring::StartingItAgain,
+        restoring: match adjust {
+            Presence::Present => Restoring::MovingWhatIsOpen,
+            Presence::Absent => Restoring::StartingItAgain,
         },
     })
 }
@@ -292,10 +266,7 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
     Ok(())
 }
 
-fn run() -> Result<(), Unstarted> {
-    let words: Vec<String> = env::args().skip(1).collect();
-
-    let asked = parse_arguments(&words)?;
+fn run(asked: Arguments) -> Result<(), Unstarted> {
 
     let at = where_sessions_live()?;
 
@@ -346,7 +317,17 @@ fn run() -> Result<(), Unstarted> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let words: Vec<String> = env::args().skip(1).collect();
+    let asked = match parse_arguments(&words) {
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        },
+    };
+
+    match run(asked) {
         Ok(()) => ExitCode::SUCCESS,
         Err(why) => {
             eprintln!("console-resume: {why}");
@@ -365,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn no_words_at_all_is_what_the_unit_starts() -> Result<(), Unstarted> {
+    fn no_words_at_all_is_what_the_unit_starts() -> Result<(), ValidationError> {
         let Ok(none) = words(&[]);
         let asked = parse_arguments(&none)?;
 
@@ -376,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn no_words_is_not_the_mode_that_closes_every_window() -> Result<(), Unstarted> {
+    fn no_words_is_not_the_mode_that_closes_every_window() -> Result<(), ValidationError> {
         let Ok(none) = words(&[]);
         let asked = parse_arguments(&none)?;
 
@@ -387,11 +368,11 @@ mod tests {
 
     #[test]
     fn a_word_this_does_not_know_is_refused_rather_than_read_as_no_word_at_all() {
-        for unknown in ["--help", "--version", "sideways", "--save-duplicate-pids"] {
+        for unknown in ["--help", "--version", "sideways", "--save-duplicate-pids", "--save-interval=30"] {
             let Ok(said) = words(&[unknown]);
 
             assert!(
-                matches!(parse_arguments(&said), Err(Unstarted::UnknownFlag(_) | Unstarted::UnknownMode(_))),
+                matches!(parse_arguments(&said), Err(_refusal)),
                 "{unknown} was read as no word at all, which is the mode that sweeps the desktop"
             );
         }
@@ -401,7 +382,7 @@ mod tests {
     fn a_mode_no_one_here_says_names_the_ones_that_are_said() {
         let Ok(said) = words(&["sideways"]);
         let why = match parse_arguments(&said) {
-            Err(why) => why.to_string(),
+            Err(why) => format!("{why}\n\n{}", why.usage),
             Ok(_no_such_mode) => "sideways was read as a mode".to_string(),
         };
 
@@ -409,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn the_mode_is_a_word_and_the_name_is_the_word_after_it() -> Result<(), Unstarted> {
+    fn the_mode_is_a_word_and_the_name_is_the_word_after_it() -> Result<(), ValidationError> {
         let Ok(said) = words(&["load", "yesterday"]);
         let asked = parse_arguments(&said)?;
 
@@ -420,8 +401,8 @@ mod tests {
     }
 
     #[test]
-    fn a_flag_is_read_wherever_it_stands_among_the_words() -> Result<(), Unstarted> {
-        let Ok(said) = words(&["save", "--load-time=5", "nightly", "--simulate"]);
+    fn a_flag_is_read_wherever_it_stands_among_the_words() -> Result<(), ValidationError> {
+        let Ok(said) = words(&["save", "--load-time", "5", "nightly", "--simulate"]);
         let asked = parse_arguments(&said)?;
 
         assert_eq!(asked.mode, Mode::Save);
@@ -434,8 +415,11 @@ mod tests {
 
     #[test]
     fn saving_every_nought_seconds_is_refused_rather_than_spun_on() {
-        let Ok(said) = words(&["--save-interval=0"]);
+        let Ok(said) = words(&["--save-interval", "0"]);
 
-        assert!(matches!(parse_arguments(&said), Err(Unstarted::NeverSaving)));
+        assert_eq!(
+            parse_arguments(&said).map(|asked| asked.save_interval).map_err(|refusal| refusal.reason),
+            Err(Reason::InvalidValue { of: SAVE_EVERY.spelling, value: "0".to_string() })
+        );
     }
 }

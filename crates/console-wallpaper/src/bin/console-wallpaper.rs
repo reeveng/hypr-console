@@ -41,7 +41,8 @@ use console_core_external_programs::Program;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Transition};
-use console_program_contract::{Arguments, Effect, Topic, Event};
+use console_core_arguments::read;
+use console_program_contract::{Effect, EventGroup, Event};
 use console_program_lifetime::threads;
 use console_wallpaper::choose::{self, Outside, Set, Turn, Wanted};
 use console_wallpaper::keeping::{self, Chosen, Going, WallpaperEvent, WallpaperEffect, Rendered, Sky, Sun};
@@ -60,10 +61,20 @@ enum Woke {
 }
 
 fn main() -> ExitCode {
-    let told: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(arguments) = Arguments::of(&told.iter().map(String::as_str).collect::<Vec<&str>>());
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    match run(&arguments) {
+    let line = match read(&keeping::COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(now) = line.presence(keeping::NOW);
+    let Ok(going) = Going::of(now);
+
+    match run(&going) {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("{fault}");
@@ -93,9 +104,9 @@ impl std::fmt::Display for Untabled {
 
 impl std::error::Error for Untabled {}
 
-fn run(arguments: &Arguments) -> Result<(), Untabled> {
+fn run(going: &Going) -> Result<(), Untabled> {
     let table = read_table()?;
-    let Ok(Transition { state: mut sky, effects: _ }) = Sun::initial_transition(arguments, None);
+    let Ok(Transition { state: mut sky, effects: _ }) = Sun::initial_transition(going, None);
     let Ok(mut kept) = here::CachedLocation::none();
     let mut told = weather::Notified::default();
     let answering = covered::Notified::default();
@@ -381,7 +392,7 @@ fn up(picture: &Path) -> Result<Rendered, Never> {
 }
 
 fn subscribe(say: Sender<Woke>) -> Result<(), Never> {
-    let subscriber = subscription::connect(&[Topic::Compositor])?;
+    let subscriber = subscription::connect(&[EventGroup::Compositor])?;
 
     let Ok(()) = threads::let_go(std::thread::spawn(move || {
         let Ok(received) = subscriber.received();

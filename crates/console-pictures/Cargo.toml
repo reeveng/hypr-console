@@ -19,7 +19,9 @@ console-core-png-files.workspace = true
 console-core-webp-files.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-core-picture-scaling.workspace = true
 console-core-shapes.workspace = true
+console-core-words.workspace = true
 
 [dev-dependencies]
 console-core-atomic-writes.workspace = true

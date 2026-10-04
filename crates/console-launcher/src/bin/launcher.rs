@@ -5,10 +5,14 @@
 //! binds a key to: it takes the screen, asks the host to draw the menu on it,
 //! and holds the screen until the menu is gone.
 
+use std::process::ExitCode;
+
 use console_panel::card::{Panel, opened};
 
-fn main() {
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked, Panel { who: console_launcher::WHO, door: console_launcher::door, card: console_launcher::card });
+    let Ok(code) = opened(&asked, Panel { who: console_launcher::WHO, command: console_launcher::COMMAND, door: console_launcher::door, card: console_launcher::card });
+
+    code
 }

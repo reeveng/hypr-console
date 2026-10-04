@@ -39,7 +39,7 @@ fn the_right_stick_really_turns_a_wheel() -> Result<(), Failure> {
         None => return Ok(()),
     };
 
-    running.go.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+    running.go.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
     let turned = running.total((EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0), 1.0)?;
 
     running.go.center("right-stick")?;

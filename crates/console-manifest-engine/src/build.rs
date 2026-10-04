@@ -11,7 +11,7 @@ use console_core_never::Never;
 use console_core_internal_programs::EXECUTABLE_DIRECTORY;
 use console_core_words::Words;
 
-use crate::settled::Settled;
+use crate::up_to_date::UpToDate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum State {
@@ -26,10 +26,10 @@ pub enum State {
 }
 
 impl State {
-    pub fn settled(self) -> Result<Settled, Never> {
+    pub fn up_to_date(self) -> Result<UpToDate, Never> {
         Ok(match self == State::Ok {
-            true => Settled::Yes,
-            false => Settled::No,
+            true => UpToDate::Yes,
+            false => UpToDate::No,
         })
     }
 }
@@ -90,11 +90,11 @@ mod tests {
 
     #[test]
     fn nothing_built_is_not_the_same_as_nothing_installed() {
-        let Ok(settled) = State::Unbuilt.settled();
+        let Ok(settled) = State::Unbuilt.up_to_date();
         let Ok(name) = State::Unbuilt.name();
 
         assert_ne!(State::Unbuilt, State::Missing);
-        assert_eq!(settled, Settled::No);
+        assert_eq!(settled, UpToDate::No);
         assert_eq!(name, "not built");
     }
 

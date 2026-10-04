@@ -44,7 +44,7 @@ fn two_makers_at_once_keep_each_others_pictures() -> Result<(), Failure> {
     let side = SIDE.0.to_string();
     let started: Vec<_> = [&one, &other]
         .into_iter()
-        .map(|of| Command::new(MAKER).args([pictures::SIDE, &side]).arg(of).env("XDG_CACHE_HOME", &cache).spawn())
+        .map(|of| Command::new(MAKER).args([pictures::SIDE.spelling, &side]).arg(of).env("XDG_CACHE_HOME", &cache).spawn())
         .collect::<Result<_, _>>()?;
 
     for mut maker in started {

@@ -21,7 +21,7 @@ use console_core_internal_programs::InternalProgram;
 use std::path::{Path, PathBuf};
 
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Command, Event};
+use console_program_contract::{Effect, Command, Event};
 
 use console_core_external_programs::Program as ExternalProgram;
 
@@ -89,13 +89,13 @@ pub enum Closes {
 pub struct Music;
 
 impl Machine for Music {
-    type Input = Arguments;
+    type Input = ();
     type State = Standing;
     type Request = Event<MusicEvent>;
     type Effect = Effect<MusicEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Standing>, effects: &mut Effects) -> Result<Standing, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(_input: &(), _previous: Option<Standing>, effects: &mut Effects) -> Result<Standing, Never> {
+        let Ok(opening) = initial();
 
         opening.offered(effects)
     }
@@ -109,7 +109,7 @@ impl Machine for Music {
 
 type Effects = Queue<Effect<MusicEffect>>;
 
-fn initial(_argv: &Arguments) -> Result<Transition<Standing, Effect<MusicEffect>>, Never> {
+fn initial() -> Result<Transition<Standing, Effect<MusicEffect>>, Never> {
     let Ok(opening) = Transition::without_effects(Standing::default());
 
     Ok(opening)
@@ -248,7 +248,7 @@ mod tests {
     fn said(heard: &[MusicEvent]) -> Result<Trace<Standing, Event<MusicEvent>, Effect<MusicEffect>>, Never> {
         let events: Vec<Event<MusicEvent>> = heard.iter().cloned().map(Event::Custom).collect();
 
-        run::<Music>(&Arguments::default(), &events)
+        run::<Music>(&(), &events)
     }
 
     fn answered(heard: &[MusicEvent]) -> Result<Vec<Effect<MusicEffect>>, Never> {

@@ -18,11 +18,12 @@ use std::process::{Command, ExitCode, Stdio};
 use std::time::Instant;
 
 use console_program_lifetime::{BoundToParent, alongside};
-use console_input_dictation::comparing::{Compare, Found, CompareEvent, CompareEffect, Candidate, Timing};
+use console_input_dictation::comparing::{COMMAND, Compare, Comparison, Found, CompareEvent, CompareEffect, Candidate, Task, Timing, Where};
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_atomic_writes::{Stored, read};
 use console_core_never::Never;
-use console_program_contract::{Arguments, Event};
+
+use console_program_contract::Event;
 use console_program_runtime::Interpreter;
 
 const NOTHING_TIMED: u128 = 0;
@@ -209,18 +210,21 @@ fn main() -> ExitCode {
         }
     };
 
-    let Ok(here) = here();
-    let Ok(stamped) = stamped();
-    let mut words = vec![kept.to_string_lossy().to_string(), here, stamped];
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    words.extend(std::env::args().skip(1));
+    let job = match console_core_arguments::read(&COMMAND, &words).and_then(|line| Task::of(&line)) {
+        Ok(job) => job,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let given: Vec<&str> = words.iter().map(String::as_str).collect();
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(host) = here();
+    let Ok(stamp) = stamped();
+    let comparison = Comparison { at: Where { kept, host, stamp }, job };
     let mut machine = Machine { recording: None };
-
-    let Ok(arguments) = Arguments::of(&given);
-    let Ok(code) =
-        console_program_runtime::run::<Compare, Machine>("voice-compare", &arguments, &mut machine);
+    let Ok(code) = console_program_runtime::run::<Compare, Machine>(COMMAND.name, &comparison, &mut machine);
 
     code
 }

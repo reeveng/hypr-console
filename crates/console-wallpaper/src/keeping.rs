@@ -31,12 +31,20 @@ use std::time::Duration;
 
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue};
-use console_program_contract::{Arguments, Effect, Exit, Flag, Event};
+use console_core_arguments::{Command, Flag, Operands, Presence, Takes};
+use console_program_contract::{Effect, Exit, Event};
 
 use crate::covered::Covered;
 use console_weather::conditions::Weather;
 
-pub const NOW: &str = "--now";
+pub const NOW: Flag = Flag { spelling: "--now", takes: Takes::None, about: "put one picture up and stop, rather than keeping it up to date" };
+
+pub const COMMAND: Command = Command {
+    name: "console-wallpaper",
+    about: "the picture behind the desktop, kept up to date with the weather and the time of day",
+    flags: &[NOW],
+    operands: Operands::None,
+};
 
 pub const LOOK_AGAIN: Duration = Duration::from_secs(300);
 
@@ -53,12 +61,10 @@ pub enum Going {
 }
 
 impl Going {
-    pub fn of(arguments: &Arguments) -> Result<Self, Never> {
-        let Ok(given) = arguments.flag(NOW);
-
-        Ok(match given {
-            Flag::Present => Going::Once,
-            Flag::Absent => Going::KeepGoing,
+    pub fn of(now: Presence) -> Result<Self, Never> {
+        Ok(match now {
+            Presence::Present => Going::Once,
+            Presence::Absent => Going::KeepGoing,
         })
     }
 }
@@ -106,15 +112,13 @@ pub enum WallpaperEffect {
 pub struct Sun;
 
 impl Machine for Sun {
-    type Input = Arguments;
+    type Input = Going;
     type State = Sky;
     type Request = Event<WallpaperEvent>;
     type Effect = Effect<WallpaperEffect>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Sky>, _effects: &mut Effects) -> Result<Sky, Never> {
-        let Ok(going) = Going::of(arguments);
-
-        Ok(Sky { showing: None, covered_since: None, weather: None, going })
+    fn initialize(going: &Going, _previous: Option<Sky>, _effects: &mut Effects) -> Result<Sky, Never> {
+        Ok(Sky { showing: None, covered_since: None, weather: None, going: *going })
     }
 
     fn handle(state: Sky, event: Event<WallpaperEvent>, effects: &mut Effects) -> Result<Sky, Never> {
@@ -260,7 +264,7 @@ mod tests {
     }
 
     fn sky() -> Result<Sky, Never> {
-        let Ok(Transition { state, effects: _ }) = Sun::initial_transition(&Arguments::default(), None);
+        let Ok(Transition { state, effects: _ }) = Sun::initial_transition(&Going::KeepGoing, None);
 
         Ok(state)
     }
@@ -412,9 +416,7 @@ mod tests {
 
     #[test]
     fn now_puts_one_up_and_stops() {
-        let Ok(arguments) = Arguments::of(&[NOW]);
-
-        let Ok(Transition { state: once, effects: _ }) = Sun::initial_transition(&arguments, None);
+        let Ok(Transition { state: once, effects: _ }) = Sun::initial_transition(&Going::Once, None);
 
         let Ok(after) = said(&once, vec![Step::Looked(0.0, Covered::No)]);
         let Ok(effects) = after.effects();

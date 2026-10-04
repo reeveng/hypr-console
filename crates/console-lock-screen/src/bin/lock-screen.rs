@@ -36,12 +36,12 @@ use console_draw_painting::{Rendered, painter};
 use console_draw_surface::{Closed, KeyboardEvent, Lock, Surface, SurfaceError, Unlocked};
 use console_lock_screen::{Wanted, respond, desired};
 use console_login_greeter::bar;
-use console_login_greeter::greeting::{GreeterEffect, GreeterEvent, GreeterState, Greeter};
+use console_login_greeter::greeting::{GreeterEffect, GreeterEvent, GreeterState, Greeter, Status};
 use console_login_greeter::picture::{Worn, over_a_session};
 use console_login_greeter::session::{heard, press};
 use console_login_window::stored_pattern::{self, Hash, PatternStoreError};
 use console_core_state_machine::{Machine, Transition};
-use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::clock::{self, Standing};
 use console_status_bar::showing;
 
@@ -139,8 +139,7 @@ fn lock(hash: &Hash) -> Result<(), LockScreenError> {
         Lock::Waiting | Lock::Acquired => {}
     }
 
-    let Ok(arguments) = Arguments::of(&[]);
-    let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&arguments, None);
+    let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&Status::Waiting, None);
     let Ok(standing) = clock::current();
     let Ok(read_out) = bar::read_all();
     let Ok((state, _welcomed)) = answered(Answering { state, welcomed: Welcomed::No }, read_out, hash);

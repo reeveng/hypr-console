@@ -12,11 +12,12 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use console_input_controller::profile::{Buzz, ProfileEffect, PAD, Profile};
+use console_core_arguments::read_with;
+use console_input_controller::profile::{Buzz, COMMAND, ProfileEffect, ProfileName, Profile, Switch};
 use console_input_gamepad::devices::Has;
 use console_input_gamepad::front;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Event};
+use console_program_contract::Event;
 use console_program_runtime::Interpreter;
 
 const HID: &str = "/sys/bus/hid/devices";
@@ -79,26 +80,30 @@ fn listed() -> Result<String, Never> {
     })
 }
 
-fn given() -> Result<Vec<String>, Never> {
-    let mut words: Vec<String> = std::env::args().skip(1).collect();
+fn pad() -> Result<Has, Never> {
     let Ok(listed) = listed();
     let Ok(pad) = front::pad(&listed);
 
-    match pad {
-        Some(Has::No) => {},
-        Some(Has::Yes) | None => words.push(PAD.to_string()),
-    }
-
-    Ok(words)
+    Ok(match pad {
+        Some(Has::No) => Has::No,
+        Some(Has::Yes) | None => Has::Yes,
+    })
 }
 
 fn main() -> ExitCode {
-    let Ok(words) = given();
-    let said: Vec<&str> = words.iter().map(String::as_str).collect();
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(arguments) = Arguments::of(&said);
-    let Ok(code) =
-        console_program_runtime::run::<Profile, Buzzing>("controller-profile", &arguments, &mut Buzzing);
+    let line = match read_with::<ProfileName, String>(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(pad) = pad();
+    let Ok(switch) = Switch::of(&line, pad);
+    let Ok(code) = console_program_runtime::run::<Profile, Buzzing>(COMMAND.name, &switch, &mut Buzzing);
 
     code
 }

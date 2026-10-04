@@ -82,6 +82,15 @@
 //! owner of the one it replaces, because a rename puts a new file under the
 //! old name rather than new bytes into the old file, and a file that was 0600
 //! is not meant to come back 0644 because somebody changed a line in it.
+//!
+//! # A name nobody has yet
+//!
+//! A copy made beside a file -- the picture an edit writes -- is somebody's
+//! new file rather than a new version of one, and a name that turned up
+//! between choosing it and writing it belongs to whoever made it. So the same
+//! four steps can end in a rename that refuses a name already taken, which is
+//! `RENAME_NOREPLACE`, rather than one that replaces it: the check and the
+//! naming are one call, and there is no moment between them to lose.
 
 use console_core_never::Never;
 use std::fmt;
@@ -223,6 +232,28 @@ pub fn whole(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     sync_parent_directory(at)
 }
 
+pub fn whole_without_overwriting(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
+    let Ok(staged) = beside(at);
+
+    match write_and_sync(&staged, bytes) {
+        Ok(()) => {}
+        Err(fault) => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(fault);
+        }
+    }
+
+    match rustix::fs::renameat_with(rustix::fs::CWD, &staged, rustix::fs::CWD, at, rustix::fs::RenameFlags::NOREPLACE) {
+        Ok(()) => {}
+        Err(fault) => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(Unwritten::Moving(at.to_path_buf(), std::io::Error::from(fault)));
+        }
+    }
+
+    sync_parent_directory(at)
+}
+
 pub fn whole_with_folders(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
     match at.parent() {
         Some(parent) => std::fs::create_dir_all(parent).map_err(|fault| Unwritten::Making(parent.to_path_buf(), fault))?,
@@ -322,6 +353,32 @@ mod tests {
         gone(&at)?;
 
         assert!(!at.exists(), "the file is still there");
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_name_somebody_already_has_is_refused_rather_than_written_over() -> Result<(), Box<dyn Error>> {
+        let here = somewhere("without-overwriting")?;
+        let at = here.join("beach edited.png");
+
+        whole_without_overwriting(&at, b"first")?;
+
+        let second = whole_without_overwriting(&at, b"second");
+        let kept = std::fs::read(&at)?;
+        let listing = std::fs::read_dir(&here)?;
+        let left = listing.map(|entry| entry.map(|entry| entry.path())).collect::<Result<Vec<PathBuf>, std::io::Error>>();
+        let left = left?;
+
+        let refused = match &second {
+            Err(Unwritten::Moving(_, fault)) => Some(fault.kind()),
+            Ok(())
+            | Err(Unwritten::Making(..) | Unwritten::Filling(..) | Unwritten::Settling(..) | Unwritten::Keeping(..) | Unwritten::Naming(..)) => None,
+        };
+
+        assert_eq!(refused, Some(std::io::ErrorKind::AlreadyExists), "{second:?}");
+        assert_eq!(kept, b"first");
+        assert_eq!(left, vec![at], "the staged copy was left beside it");
 
         Ok(())
     }

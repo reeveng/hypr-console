@@ -25,7 +25,7 @@ use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_events::subscription::{Received, connect_at};
 use console_events::wire::{self, Message};
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 use pool::{Failure, BEFORE_LONG, change, serve_at, socket};
 
 const WORDS: u32 = 3_000;
@@ -64,7 +64,7 @@ fn to_the_end(heard: &Receiver<Received>) -> Result<Delivered, Never> {
 
 fn deaf(at: &Path) -> Result<UnixStream, Failure> {
     let stream = UnixStream::connect(at)?;
-    let asked = wire::encoded(&Message::Subscribe(Topic::Sound))?;
+    let asked = wire::encoded(&Message::Subscribe(EventGroup::Sound))?;
     let mut asking = stream.try_clone()?;
 
     writeln!(asking, "{asked}")?;
@@ -93,7 +93,7 @@ fn a_program_that_stopped_reading_does_not_stop_the_words_reaching_anyone_else()
     let handed = serve_at(&at)?;
     let mut wedged = deaf(&at)?;
 
-    let Ok(subscriber) = connect_at(&at, &[Topic::Sound]);
+    let Ok(subscriber) = connect_at(&at, &[EventGroup::Sound]);
     let Ok(heard) = subscriber.received();
     let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the source was never opened")?;
 

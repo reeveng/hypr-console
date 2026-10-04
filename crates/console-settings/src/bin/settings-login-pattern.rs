@@ -12,6 +12,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_color::palette::{Wearing, WearingError};
 use console_core_geometry::Size;
 use console_core_iteration::Step;
@@ -22,15 +23,40 @@ use console_login_greeter::picture::render;
 use console_login_greeter::session::{press, touch};
 use console_login_window::stored_pattern::{self, PatternStoreError};
 use console_core_state_machine::{Machine, Transition};
-use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_core_words::Words;
+use console_program_contract::{Effect, Event, Exit};
 use console_settings::login::{Drawing, LoginPattern, LoginPatternEffect, LoginPatternEvent};
 
 const WHO: &str = "settings-login-pattern";
 
-const OFF: &str = "off";
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: WHO,
+    about: "choose the pattern the login window asks for",
+    flags: &[],
+    operands: Operands::None,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+enum Pattern {
+    #[words(word = "off", about = "forget the pattern, so the login window asks for none")]
+    Off,
+}
+
+impl Subcommand for Pattern {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Pattern::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Pattern::about(self)
+    }
+}
 
 enum LoginPatternError {
-    Arguments,
     Homeless,
     Palette(WearingError),
     Surface(SurfaceError),
@@ -40,7 +66,6 @@ enum LoginPatternError {
 impl std::fmt::Display for LoginPatternError {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoginPatternError::Arguments => write!(to, "usage: {WHO} [{OFF}]"),
             LoginPatternError::Homeless => write!(to, "there is no home to keep a pattern in"),
             LoginPatternError::Palette(why) => write!(to, "{why}"),
             LoginPatternError::Surface(why) => write!(to, "no surface to draw on: {why}"),
@@ -56,7 +81,22 @@ enum Flow {
 }
 
 fn main() -> ExitCode {
-    let Ok(ran) = ran();
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let asked = match read_with::<Pattern, String>(&COMMAND, &words) {
+        Ok(line) => {
+            let Ok(asked) = line.subcommand();
+
+            asked
+        }
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+
+    let Ok(ran) = ran(asked);
 
     match ran {
         Ok(()) => ExitCode::SUCCESS,
@@ -68,21 +108,16 @@ fn main() -> ExitCode {
     }
 }
 
-fn ran() -> Result<Result<(), LoginPatternError>, Never> {
-    let words: Vec<String> = std::env::args().skip(1).collect();
+fn ran(asked: Option<Pattern>) -> Result<Result<(), LoginPatternError>, Never> {
     let Ok(home) = console_core_places::home();
     let home = match home {
         Some(home) => home,
         None => return Ok(Err(LoginPatternError::Homeless)),
     };
 
-    Ok(match words.as_slice() {
-        [] => run(&home),
-        [word] => match word.as_str() {
-            OFF => stored_pattern::remove(&home).map_err(LoginPatternError::Store),
-            _ => Err(LoginPatternError::Arguments),
-        },
-        _ => Err(LoginPatternError::Arguments),
+    Ok(match asked {
+        None => run(&home),
+        Some(Pattern::Off) => stored_pattern::remove(&home).map_err(LoginPatternError::Store),
     })
 }
 
@@ -104,8 +139,7 @@ fn run(home: &Path) -> Result<(), LoginPatternError> {
 
     shown.map_err(LoginPatternError::Surface)?;
 
-    let Ok(arguments) = Arguments::of(&[]);
-    let Ok(Transition { state, effects: _ }) = LoginPattern::initial_transition(&arguments, None);
+    let Ok(Transition { state, effects: _ }) = LoginPattern::initial_transition(&(), None);
     let turned = console_core_iteration::iterate((surface, state, Rendered::default()), |(mut surface, mut drawing, mut rendered)| {
         Ok(match turn(&mut surface, &mut drawing, &mut rendered, (&wearing, home)) {
             Ok(Flow::Continue) => Step::Again((surface, drawing, rendered)),
@@ -215,4 +249,23 @@ fn draw(surface: &mut Surface, drawing: &Drawing, wearing: &Wearing, rendered: &
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console_core_arguments::{Reason, ValidationError};
+
+    #[test]
+    fn off_forgets_nothing_chooses_and_it_refuses_anything_else() -> Result<(), ValidationError> {
+        let choosing = read_with::<Pattern, &str>(&COMMAND, &[])?;
+        let off = read_with::<Pattern, &str>(&COMMAND, &["off"])?;
+        let twice = read_with::<Pattern, &str>(&COMMAND, &["off", "off"]);
+
+        assert_eq!(choosing.subcommand(), Ok(None));
+        assert_eq!(off.subcommand(), Ok(Some(Pattern::Off)));
+        assert_eq!(twice.map_err(|refusal| refusal.reason), Err(Reason::ExtraArgument("off".to_string())));
+
+        Ok(())
+    }
 }

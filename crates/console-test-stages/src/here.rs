@@ -12,7 +12,7 @@ use console_core_geometry::Point;
 use console_input_event_devices::EventType;
 use console_input_controller::effect::{Effect, Output};
 use console_input_controller::actions::Table;
-use console_input_controller::mode::{Focused, Woken, Mode};
+use console_input_controller::mode::{Focused, WakeState, Mode};
 
 pub use console_input_controller::mode::InputHandling;
 use console_input_controller::clock::Instant;
@@ -20,7 +20,8 @@ use console_input_controller::reading::{POLL, Wake};
 use console_input_controller::turning::Turning;
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::Devices;
-use console_input_gamepad::go::{RecordingClock, LegionGo};
+use console_input_gamepad::go::LegionGo;
+use console_waiting::clock::TestClock;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::world::World;
 use console_core_never::Never;
@@ -35,7 +36,7 @@ pub const TURNS: u32 = 3;
 const STARTED: f64 = 1000.0;
 
 pub struct Here {
-    pub go: LegionGo<World, RecordingClock>,
+    pub go: LegionGo<World, TestClock>,
     turning: Turning,
     now: Instant,
     pub commands: Vec<Vec<String>>,
@@ -43,7 +44,7 @@ pub struct Here {
     pub told: Vec<console_onscreen::PadInput>,
     pub using: Option<console_input_bindings::bound::Input>,
     layers: Option<Vec<console_compositor::Layer>>,
-    awake: Woken,
+    awake: WakeState,
 }
 
 impl Here {
@@ -55,7 +56,7 @@ impl Here {
         let Ok(root) = crate::root();
         let profiles = every_profile(&root)?;
         let go =
-            LegionGo::new(profiles, devices, RecordingClock::default(), console_input_gamepad::router::NAME)?;
+            LegionGo::new(profiles, devices, TestClock::default(), console_input_gamepad::router::NAME)?;
         Ok(Here {
             go,
             turning: Turning::default(),
@@ -65,7 +66,7 @@ impl Here {
             told: Vec::new(),
             using: None,
             layers: None,
-            awake: Woken::No,
+            awake: WakeState::No,
         })
     }
 
@@ -84,8 +85,8 @@ impl Here {
         }
     }
 
-    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), Error> {
-        self.go.stick(which, to).map_err(Error::Pressing)
+    pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> Result<(), Error> {
+        self.go.thumbstick(which, to).map_err(Error::Pressing)
     }
 
     pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), Error> {
@@ -136,7 +137,7 @@ impl Here {
         self.in_front(seen)
     }
 
-    pub fn awake(&self) -> Result<Woken, Never> {
+    pub fn awake(&self) -> Result<WakeState, Never> {
         Ok(self.awake)
     }
 
@@ -179,7 +180,7 @@ impl Here {
                     Effect::Tell(said) => {
                         self.told.push(said);
                         self.awake = match said {
-                            console_onscreen::PadInput::Back => Woken::No,
+                            console_onscreen::PadInput::Back => WakeState::No,
                             console_onscreen::PadInput::Up
                             | console_onscreen::PadInput::Down
                             | console_onscreen::PadInput::Left
@@ -188,7 +189,7 @@ impl Here {
                             | console_onscreen::PadInput::More
                             | console_onscreen::PadInput::Again
                             | console_onscreen::PadInput::Payload
-                            | console_onscreen::PadInput::Off => Woken::Yes,
+                            | console_onscreen::PadInput::Off => WakeState::Yes,
                         };
                         let Ok(()) = self.reckons();
                     }
@@ -312,7 +313,7 @@ mod tests {
     #[test]
     fn a_stick_held_over_turns_of_the_loop_turns_the_wheel() -> Result<(), Box<dyn Error>> {
         let mut here = Here::new()?;
-        here.stick("right-stick", Point { x: 0.0, y: -1.0 })?;
+        here.thumbstick("right-stick", Point { x: 0.0, y: -1.0 })?;
         let Ok(()) = here.settle(12);
         let Ok(turned) = wrote(&here, EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0);
 

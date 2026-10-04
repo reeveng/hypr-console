@@ -129,16 +129,16 @@ pub fn send_to_home(said: PadInput) -> Result<(), Error> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Woken {
+pub enum WakeState {
     Yes,
     No,
 }
 
-impl Woken {
+impl WakeState {
     pub fn detect() -> Result<Self, Never> {
         Ok(match note(AWAKE).is_ok_and(|note| note.exists()) {
-            true => Woken::Yes,
-            false => Woken::No,
+            true => WakeState::Yes,
+            false => WakeState::No,
         })
     }
 }
@@ -181,12 +181,12 @@ fn write_note(named: &str, said: Note) -> Result<(), Error> {
     }
 }
 
-pub fn set_awake(awake: Woken) -> Result<(), Error> {
+pub fn set_awake(awake: WakeState) -> Result<(), Error> {
     write_note(
         AWAKE,
         match awake {
-            Woken::Yes => Note::Message("awake\n"),
-            Woken::No => Note::Closed,
+            WakeState::Yes => Note::Message("awake\n"),
+            WakeState::No => Note::Closed,
         },
     )
 }

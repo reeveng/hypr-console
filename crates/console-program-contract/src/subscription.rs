@@ -12,11 +12,11 @@ use std::time::Duration;
 
 use console_core_never::Never;
 
-use crate::event::Topic;
+use crate::event::EventGroup;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Subscription {
-    Topic(Topic),
+    EventGroup(EventGroup),
     Timer(Timer),
 }
 

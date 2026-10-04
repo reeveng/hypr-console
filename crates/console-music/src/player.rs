@@ -24,8 +24,8 @@
 //!
 //! **What the bar is woken by is a signal and not its own asking.** The player
 //! says `PropertiesChanged` for the pair anything acts on -- what is playing,
-//! and whether it is -- and `Topic::Player` is a bus monitor over the MPRIS
-//! path, which hears that signal and hears every `Get` this file makes to
+//! and whether it is -- and `EventGroup::Player` is a bus monitor over the
+//! MPRIS path, which hears that signal and hears every `Get` this file makes to
 //! answer it. A watch that took the monitor's lines whole would ask because it
 //! had asked, which is the fault the bar's sound reading was, so what is worth
 //! asking after is said here where what the reading comes from is known.

@@ -41,6 +41,7 @@ use console_input_event_devices::{
     Unmade, VirtualDevice,
 };
 
+use console_core_arguments::{Command, Flag, Operands, Reason, Takes, ValidationError, run_main};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
@@ -52,7 +53,20 @@ const NOTICED: std::time::Duration = std::time::Duration::from_millis(1200);
 
 const BETWEEN: std::time::Duration = std::time::Duration::from_millis(30);
 
-const SWIPE: &str = "--swipe";
+const SWIPE: Flag = Flag {
+    spelling: "--swipe",
+    takes: Takes::None,
+    about: "draw one finger from the first place to the second rather than tapping each",
+};
+
+const COMMAND: Command = Command {
+    name: "console-tap",
+    about: "put a finger down on the screen at each place on the picture",
+    flags: &[SWIPE],
+    operands: Operands::Any("ACROSS DOWN"),
+};
+
+const PLACE: [&str; 2] = ["ACROSS", "DOWN"];
 
 const STEPS: i64 = 12;
 
@@ -65,21 +79,14 @@ enum Sweeping {
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("console-tap: {fault}");
+    let said: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = run_main(&COMMAND, &said, asked, |(sweeping, places)| run(sweeping, &places));
 
-            ExitCode::FAILURE
-        }
-    }
+    code
 }
 
 #[derive(Debug)]
 enum Untouched {
-    NotTwoWords,
-    NotASwipe,
-    NotAPlace(String),
     Unasked(console_compositor::HyprctlError),
     NoScreen,
     OffScreen(Point<u32>, Size<u32>),
@@ -90,9 +97,6 @@ enum Untouched {
 impl std::fmt::Display for Untouched {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Untouched::NotTwoWords => write!(to, "say where: console-tap ACROSS DOWN [ACROSS DOWN ...], or console-tap --swipe ACROSS DOWN ACROSS DOWN"),
-            Untouched::NotASwipe => write!(to, "a swipe goes from one place to one other: console-tap --swipe ACROSS DOWN ACROSS DOWN"),
-            Untouched::NotAPlace(said) => write!(to, "{said} is not a place on the screen"),
             Untouched::Unasked(fault) => write!(to, "the compositor was not asked where the screen is: {fault}"),
             Untouched::NoScreen => write!(to, "the compositor answered with no screen to touch"),
             Untouched::OffScreen(at, room) => write!(
@@ -114,18 +118,43 @@ impl From<console_compositor::HyprctlError> for Untouched {
     }
 }
 
-fn run() -> Result<(), Untouched> {
-    let said: Vec<String> = std::env::args().skip(1).collect();
-    let (sweeping, places) = match said.split_first() {
-        Some((first, rest)) => match first.as_str() {
-            SWIPE => (Sweeping::Yes, rest),
-            _a_place => (Sweeping::No, said.as_slice()),
-        },
-        None => (Sweeping::No, said.as_slice()),
-    };
+fn asked(said: &[String]) -> Result<(Sweeping, Vec<Point<u32>>), ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, said)?;
+    let Ok(words) = line.operands();
+    let Ok(swiping) = line.presence(SWIPE);
+    let numbers: Result<Vec<u32>, Reason> = words
+        .iter()
+        .zip(PLACE.into_iter().cycle())
+        .map(|(word, of)| word.parse::<u32>().map_err(|_not_a_number| Reason::InvalidValue { of, value: word.clone() }))
+        .collect();
+    let decided = numbers.and_then(|numbers| {
+        let (pairs, left_over) = numbers.as_chunks::<2>();
+        let places: Vec<Point<u32>> = pairs.iter().map(|[across, down]| Point { x: *across, y: *down }).collect();
+        let sweeping = match swiping {
+            console_core_arguments::Presence::Present => Sweeping::Yes,
+            console_core_arguments::Presence::Absent => Sweeping::No,
+        };
+
+        match (sweeping, places.as_slice(), left_over) {
+            (Sweeping::Yes | Sweeping::No, _pairs, [_across]) => Err(Reason::MissingOperands(PLACE.iter().skip(1).copied().collect())),
+            (Sweeping::Yes, [] | [_], []) | (Sweeping::No, [], []) => Err(Reason::MissingOperands(PLACE.to_vec())),
+            (Sweeping::Yes, [_from, _to, extra, ..], []) => Err(Reason::ExtraArgument(format!("{} {}", extra.x, extra.y))),
+            (Sweeping::Yes, [_, _], []) | (Sweeping::No, [_, ..], []) => Ok((sweeping, places)),
+            (Sweeping::Yes | Sweeping::No, _pairs, [_, _, ..]) => Ok((sweeping, places)),
+        }
+    });
+
+    decided.map_err(|reason| {
+        let Ok(refusal) = line.refusal(reason);
+
+        refusal
+    })
+}
+
+fn run(sweeping: Sweeping, places: &[Point<u32>]) -> Result<(), Untouched> {
     let shown = here()?;
     let screen = shown.ok_or(Untouched::NoScreen)?;
-    let spots = parse_points(places, &screen)?;
+    let spots = on_the_panel(places, &screen)?;
     let mut finger = Touch::new(screen.mode)?;
 
     #[cfg_attr(
@@ -140,7 +169,7 @@ fn run() -> Result<(), Untouched> {
     match sweeping {
         Sweeping::Yes => match spots.as_slice() {
             [from, to] => finger.swept(*from, *to)?,
-            _not_two_places => return Err(Untouched::NotASwipe),
+            [] | [_] | [_, _, _, ..] => {}
         },
         Sweeping::No => {
             for spot in spots {
@@ -170,22 +199,11 @@ fn run() -> Result<(), Untouched> {
     Ok(())
 }
 
-fn parse_points(said: &[String], screen: &console_screen::Screen) -> Result<Vec<Point<u32>>, Untouched> {
-    let (pairs, left_over) = said.as_chunks::<2>();
-
-    match (said.is_empty(), left_over.is_empty()) {
-        (false, true) => {}
-        (true, _) | (false, false) => return Err(Untouched::NotTwoWords),
-    }
-
+fn on_the_panel(places: &[Point<u32>], screen: &console_screen::Screen) -> Result<Vec<Point<u32>>, Untouched> {
     let Ok(room) = screen.logical();
     let mut spots: Vec<Point<u32>> = Vec::new();
 
-    for pair in pairs {
-        let [across, down] = pair;
-        let across = number(across)?;
-        let down = number(down)?;
-        let at = Point { x: across, y: down };
+    for at in places.iter().copied() {
         let off_screen = at.x > room.width || at.y > room.height;
 
         match off_screen {
@@ -199,11 +217,6 @@ fn parse_points(said: &[String], screen: &console_screen::Screen) -> Result<Vec<
     }
 
     Ok(spots)
-}
-
-fn number(said: &str) -> Result<u32, Untouched> {
-    said.parse()
-        .map_err(|_| Untouched::NotAPlace(said.to_string()))
 }
 
 const HELD: i32 = 1;

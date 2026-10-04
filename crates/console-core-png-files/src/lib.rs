@@ -23,20 +23,32 @@
 //! length against what is there, and the memory a picture would take is
 //! counted before it is taken. A file cut short is refused rather than drawn
 //! in part.
+//!
+//! [`encoded`] is the other way: RGBA written as a PNG at eight bits a channel,
+//! with only the channels the picture uses, each row filtered whichever way
+//! leaves it smallest and the whole deflated by `console-core-zip-files`. It
+//! is what a thumbnail and an edited photograph are saved as, where ffmpeg and
+//! the image crate wrote them before.
 
 mod chunks;
 mod filters;
 mod pixels;
 
+use console_core_checksums::adler32;
 use console_core_geometry::Size;
 use console_core_zip_files::ZipError;
+use console_core_zip_files::deflate::deflate;
 use console_core_zip_files::inflate::inflate;
 
-use crate::chunks::Header;
+use crate::chunks::{Header, Lacing};
 
 const MOST_BYTES: u64 = 1 << 30;
 
 const RGBA: u64 = 4;
+
+const ZLIB_HEADER: [u8; 2] = [0x78, 0x9C];
+
+const EIGHT_BITS: u32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PngError {
@@ -44,6 +56,8 @@ pub enum PngError {
     Truncated,
     Corrupt,
     TooLarge,
+    Mismatched,
+    Deflate(ZipError),
 }
 
 impl std::fmt::Display for PngError {
@@ -53,6 +67,8 @@ impl std::fmt::Display for PngError {
             PngError::Truncated => write!(to, "the file ends before the picture in it does"),
             PngError::Corrupt => write!(to, "the picture in here is damaged"),
             PngError::TooLarge => write!(to, "this picture would take more memory than any picture"),
+            PngError::Mismatched => write!(to, "the pixels handed over are not the picture their size says"),
+            PngError::Deflate(why) => write!(to, "the pixels could not be deflated: {why}"),
         }
     }
 }
@@ -81,6 +97,45 @@ pub fn decoded(bytes: &[u8]) -> Result<Picture, PngError> {
     let rgba = pixels::painted(&read, unpacked)?;
 
     Ok(Picture { size: read.header.size, rgba })
+}
+
+pub fn encoded(picture: &Picture) -> Result<Vec<u8>, PngError> {
+    let Picture { size, rgba } = picture;
+    let area = u64::from(size.width).saturating_mul(u64::from(size.height));
+
+    match (area > 0, u64::try_from(rgba.len()) == Ok(area.saturating_mul(RGBA))) {
+        (true, true) => {},
+        (false, _) | (true, false) => return Err(PngError::Mismatched),
+    }
+
+    let Ok(kept) = pixels::fewest(rgba);
+    let Ok(color) = kept.color();
+    let header = Header { size: *size, depth: EIGHT_BITS, color, lacing: Lacing::Straight };
+    let filtered = filters::filtered_length(&header)?;
+
+    affordable(&header, filtered)?;
+
+    let Ok(raw) = pixels::unpainted(rgba, kept);
+    let Ok(filtered) = filters::filtered(&raw, &header);
+    let packed = packed(&filtered)?;
+
+    chunks::written(&header, &packed)
+}
+
+fn packed(filtered: &[u8]) -> Result<Vec<u8>, PngError> {
+    let deflated = match deflate(filtered) {
+        Ok(deflated) => deflated,
+        Err(why) => return Err(PngError::Deflate(why)),
+    };
+
+    let Ok(sum) = adler32::of(filtered);
+    let mut packed = Vec::with_capacity(deflated.len().saturating_add(6));
+
+    packed.extend_from_slice(&ZLIB_HEADER);
+    packed.extend_from_slice(&deflated);
+    packed.extend_from_slice(&sum.to_be_bytes());
+
+    Ok(packed)
 }
 
 fn affordable(header: &Header, filtered: u64) -> Result<(), PngError> {

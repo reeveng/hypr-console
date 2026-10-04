@@ -13,6 +13,7 @@
 //! about the old name, and some of those want rewriting rather than renaming.
 //! `crates/console-rename/src/lib.rs` argues for the rest.
 
+use console_core_arguments::{Command, Operands, Reason, ValidationError};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_rename::{Moved, Renaming, installed, renamed_path, stub, through, written_at};
@@ -21,27 +22,40 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-fn main() -> ExitCode {
-    let mut asked = std::env::args().skip(1);
+const NAMES: [&str; 2] = ["OLD", "NEW"];
 
-    let old = match asked.next() {
-        Some(old) => old,
-        None => String::new(),
-    };
+const COMMAND: Command = Command {
+    name: "console-rename",
+    about: "change the name OLD to NEW everywhere this tree writes it",
+    flags: &[],
+    operands: Operands::Named(&NAMES),
+};
 
-    let new = match asked.next() {
-        Some(new) => new,
-        None => String::new(),
-    };
+fn names(said: &[String]) -> Result<(String, String), ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, said)?;
+    let [old, new] = line.exactly(NAMES)?;
+    let blank = NAMES.iter().zip([old, new]).find(|(_, name)| name.trim().is_empty());
 
-    match old.is_empty() || new.is_empty() {
-        true => {
-            eprintln!("console-rename: two names, the one it is and the one it should be");
+    match blank {
+        None => Ok((old.clone(), new.clone())),
+        Some((of, name)) => {
+            let Ok(refusal) = line.refusal(Reason::InvalidValue { of, value: name.clone() });
 
-            return ExitCode::FAILURE;
+            Err(refusal)
         },
-        false => {},
     }
+}
+
+fn main() -> ExitCode {
+    let said: Vec<String> = std::env::args().skip(1).collect();
+    let (old, new) = match names(&said) {
+        Ok(names) => names,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        },
+    };
 
     let root = match console_repository::root() {
         Ok(root) => root,

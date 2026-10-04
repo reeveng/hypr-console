@@ -21,7 +21,7 @@ pub mod update;
 pub mod rows;
 pub mod table;
 
-pub use card::{WHO, card, door};
+pub use card::{COMMAND, WHO, card, door};
 
 #[derive(Debug)]
 pub enum Unmapped {

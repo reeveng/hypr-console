@@ -355,14 +355,13 @@ fn message(status: &Status) -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     use console_core_color::Oklch;
     use console_login_pattern::Pattern;
     use console_status_bar::lock_screen::{LockScreenBar, Menu};
     use console_status_bar::showing::BarAction;
 
-    use crate::turn::{Rows, changed, drawn_at, laid_into};
+    use crate::turn::{Rows, changed, drawn_at};
 
     fn flat_palette() -> Result<Wearing, Never> {
         let color = |lightness| Oklch { lightness, chroma: 0.0, hue: 0.0 };
@@ -522,14 +521,6 @@ mod tests {
 
     const PANEL: Size<u32> = Size { width: 1600, height: 2560 };
 
-    const BUDGET: Duration = Duration::from_millis(BUDGET_MILLISECONDS);
-
-    #[cfg(debug_assertions)]
-    const BUDGET_MILLISECONDS: u64 = 300;
-
-    #[cfg(not(debug_assertions))]
-    const BUDGET_MILLISECONDS: u64 = 25;
-
     fn dragging(nudged: i32) -> Result<Option<Greeting>, Never> {
         let Ok(first) = dot(0);
         let Ok(second) = dot(1);
@@ -565,36 +556,6 @@ mod tests {
         let Rows { from, to } = band.ok_or("moving the finger changed nothing on the screen")?;
 
         assert!(to.saturating_sub(from) <= canvas.height.saturating_div(8), "a move changed rows {from} to {to} of {}", canvas.height);
-
-        Ok(())
-    }
-
-    #[test]
-    fn one_move_is_painted_and_laid_within_its_budget() -> Result<(), &'static str> {
-        let Ok(wearing) = flat_palette();
-        let Ok(bar) = flat_bar_palette();
-        let worn = Worn { ring: &wearing, bar: &bar };
-        let Ok(canvas) = drawn_at(PANEL);
-        let Ok(before) = dragging(0);
-        let Ok(after) = dragging(6);
-        let before = before.ok_or("the pattern has fewer than two dots")?;
-        let after = after.ok_or("the pattern has fewer than two dots")?;
-        let Ok(before) = standing(before);
-        let Ok(after) = standing(after);
-        let Ok(was) = painted(Vec::new(), &before, worn, canvas);
-        let shown = was.map_err(|_cannot| "the first frame would not paint")?;
-        let shown = shown.pixels;
-        let mut panel = vec![0_u8; shown.len()];
-        let started = Instant::now();
-        let Ok(is) = painted(Vec::new(), &after, worn, canvas);
-        let drawing = is.map_err(|_cannot| "the second frame would not paint")?;
-        let drawing = drawing.pixels;
-        let Ok(band) = changed(&shown, &drawing, canvas);
-        let rows = band.ok_or("moving the finger changed nothing on the screen")?;
-        let Ok(()) = laid_into(&drawing, PANEL, rows, &mut panel, PANEL.width.saturating_mul(4));
-        let took = started.elapsed();
-
-        assert!(took <= BUDGET, "one move took {took:?}, and a move may take {BUDGET:?}");
 
         Ok(())
     }

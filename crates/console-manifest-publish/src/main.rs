@@ -21,6 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use console_core_arguments::{Command, Operands, ValidationError};
 use console_core_directory_listing::{Descend, Unlisted};
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -30,18 +31,14 @@ use console_manifest_publish::tree;
 use console_repository::tracked::{Untracked, tracked};
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(code) => code,
-        Err(fault) => {
-            eprintln!("{fault}");
-            ExitCode::FAILURE
-        }
-    }
+    let said: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, copy, run);
+
+    code
 }
 
 #[derive(Debug)]
 enum Unpublished {
-    NotOnePath,
     Rootless(console_repository::NotFound),
     Read(PathBuf, std::io::Error),
     Uncleared(PathBuf, std::io::Error),
@@ -55,10 +52,6 @@ enum Unpublished {
 impl std::fmt::Display for Unpublished {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unpublished::NotOnePath => write!(
-                to,
-                "console-manifest-publish takes one path to build the copy at"
-            ),
             Unpublished::Rootless(fault) => write!(to, "{fault}"),
             Unpublished::Read(at, fault) => {
                 write!(to, "{} could not be read: {fault}", at.display())
@@ -89,14 +82,23 @@ impl From<console_repository::NotFound> for Unpublished {
     }
 }
 
-fn run() -> Result<ExitCode, Unpublished> {
-    let where_ = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
-        [path] => match path.starts_with('-') {
-            true => return Err(Unpublished::NotOnePath),
-            false => PathBuf::from(path),
-        },
-        _ => return Err(Unpublished::NotOnePath),
-    };
+const COPY: [&str; 1] = ["COPY"];
+
+const COMMAND: Command = Command {
+    name: "console-manifest-publish",
+    about: "build the public copy of this tree at COPY, with no one's name in it",
+    flags: &[],
+    operands: Operands::Named(&COPY),
+};
+
+fn copy(said: &[String]) -> Result<PathBuf, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, said)?;
+    let [at] = line.exactly(COPY)?;
+
+    Ok(PathBuf::from(at))
+}
+
+fn run(where_: PathBuf) -> Result<ExitCode, Unpublished> {
     let repository = console_repository::root()?;
 
     publish(&repository, &where_)?;

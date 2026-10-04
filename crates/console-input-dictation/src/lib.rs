@@ -19,10 +19,26 @@ pub mod languages;
 
 use std::path::{Path, PathBuf};
 
+use console_core_arguments::{Command, Flag, Operands, Takes};
 use console_core_external_programs::Program;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
+
+pub const FETCH: Flag = Flag {
+    spelling: "--fetch",
+    takes: Takes::None,
+    about: "download the language and build the hearing, and listen to nothing",
+};
+
+pub const BUILD: Flag = Flag { spelling: "--build", takes: Takes::None, about: "build the hearing, and listen to nothing" };
+
+pub const COMMAND: Command = Command {
+    name: "console-dictate",
+    about: "start listening, or write down what was heard when it already is",
+    flags: &[FETCH, BUILD],
+    operands: Operands::None,
+};
 
 pub const MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 

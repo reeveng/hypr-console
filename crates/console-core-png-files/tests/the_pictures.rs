@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use console_core_geometry::Size;
-use console_core_png_files::{PngError, decoded, measured};
+use console_core_png_files::{PngError, Picture, decoded, encoded, measured};
 
 const PICTURE: Size<u32> = Size { width: 23, height: 17 };
 
@@ -104,4 +104,49 @@ fn a_chunk_whose_bytes_changed_is_damage() -> Result<(), Box<dyn Error>> {
     assert_eq!(decoded(&changed).map(|picture| picture.size), Err(PngError::Corrupt));
 
     Ok(())
+}
+
+#[test]
+fn every_kind_of_picture_written_and_read_again_is_the_picture_it_was() -> Result<(), Box<dyn Error>> {
+    for (name, png, _) in EVERY_KIND {
+        let picture = decoded(png)?;
+        let written = encoded(&picture)?;
+        let again = decoded(&written)?;
+
+        assert!(again == picture, "{name} came back different");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_picture_is_written_with_only_the_channels_it_uses() -> Result<(), Box<dyn Error>> {
+    let size = Size { width: 2, height: 1 };
+    let pictures = [
+        ([[9, 9, 9, 255], [200, 200, 200, 255]], 0),
+        ([[9, 9, 9, 255], [200, 200, 200, 17]], 4),
+        ([[9, 10, 9, 255], [200, 200, 200, 255]], 2),
+        ([[9, 10, 9, 255], [200, 200, 200, 17]], 6),
+    ];
+
+    for (pixels, color_type) in pictures {
+        let picture = Picture { size, rgba: pixels.as_flattened().to_vec() };
+        let written = encoded(&picture)?;
+        let again = decoded(&written)?;
+        let header = written.get(16..29).and_then(<[u8]>::first_chunk::<13>);
+
+        assert_eq!(header.map(|[.., depth, color, _, _, _]| (*depth, *color)), Some((8, color_type)), "{pixels:?}");
+        assert!(again == picture, "{pixels:?} came back different");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pixels_that_are_not_the_size_they_came_with_are_refused() {
+    let short = Picture { size: Size { width: 2, height: 2 }, rgba: vec![0; 15] };
+    let nothing = Picture { size: Size { width: 0, height: 0 }, rgba: Vec::new() };
+
+    assert_eq!(encoded(&short), Err(PngError::Mismatched));
+    assert_eq!(encoded(&nothing), Err(PngError::Mismatched));
 }

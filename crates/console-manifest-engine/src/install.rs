@@ -15,7 +15,7 @@ use console_core_never::Never;
 use console_core_words::Words;
 
 use crate::manifest::Written;
-use crate::settled::Settled;
+use crate::up_to_date::UpToDate;
 
 
 pub use console_manifest_migrations::USER;
@@ -70,10 +70,10 @@ pub enum State {
 }
 
 impl State {
-    pub fn settled(self) -> Result<Settled, Never> {
+    pub fn up_to_date(self) -> Result<UpToDate, Never> {
         Ok(match self {
-            State::Ok | State::WrittenOnce => Settled::Yes,
-            State::Differs | State::Missing | State::Unreadable | State::Unsourced => Settled::No,
+            State::Ok | State::WrittenOnce => UpToDate::Yes,
+            State::Differs | State::Missing | State::Unreadable | State::Unsourced => UpToDate::No,
         })
     }
 }
@@ -247,10 +247,10 @@ mod tests {
 
     #[test]
     fn a_file_no_one_compares_is_a_file_nothing_has_to_be_done_about() {
-        let Ok(settled) = State::WrittenOnce.settled();
+        let Ok(settled) = State::WrittenOnce.up_to_date();
         let Ok(name) = State::WrittenOnce.name();
 
-        assert_eq!(settled, Settled::Yes);
+        assert_eq!(settled, UpToDate::Yes);
         assert_eq!(name, "written once");
     }
 

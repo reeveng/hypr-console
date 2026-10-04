@@ -67,7 +67,7 @@ pub fn keyboard(onto: &Surface, look: &Look) -> Result<(), Never> {
         };
 
         let Ok(rounding) = fitted(configuration.rounding);
-        let Ok(()) = one(onto, key, placed, &HexColor {
+        let Ok(()) = one(onto, key, placed, &DrawingContext {
             scheme,
             showing,
             held,
@@ -87,7 +87,7 @@ enum Showing {
     Plain,
 }
 
-struct HexColor<'a> {
+struct DrawingContext<'a> {
     scheme: &'a Scheme,
     showing: Showing,
     held: u8,
@@ -96,8 +96,8 @@ struct HexColor<'a> {
     rounding: i32,
 }
 
-fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &HexColor) -> Result<(), Never> {
-    let HexColor { scheme, showing, held, language, font, rounding } = *ink;
+fn one(onto: &Surface, key: &Key, placed: &Placed, ink: &DrawingContext) -> Result<(), Never> {
+    let DrawingContext { scheme, showing, held, language, font, rounding } = *ink;
     let at = Rectangle { x: placed.x, y: placed.y, width: placed.width, height: placed.height };
     let face = match showing {
         Showing::Pressed => scheme.high,

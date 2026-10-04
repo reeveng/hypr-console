@@ -22,6 +22,7 @@ name = "controller-profile"
 path = "src/bin/controller-profile.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-words.workspace = true
 console-program-lifetime.workspace = true
 console-compositor.workspace = true

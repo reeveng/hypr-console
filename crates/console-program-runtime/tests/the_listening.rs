@@ -1,16 +1,16 @@
 //! A program woken by something only its interpreter can reach.
 //!
-//! Recovery waits on the pad and on nothing else: no timer and no topic. To
-//! the loop that is a program with nothing left to wait for, and before
+//! Recovery waits on the pad and on nothing else: no timer and no event group.
+//! To the loop that is a program with nothing left to wait for, and before
 //! `Interpreter::listen` it was told `Stopping` on its first turn -- which is
-//! why recovery wrote the loop again. What is asked here is that a program
-//! with no timer and no topic hears what its interpreter was handed, in order,
+//! why recovery wrote the loop again. What is asked here is that a program with
+//! no timer and no event group hears what its interpreter was handed, in order,
 //! and stops when the interpreter says the thing it was waiting on has gone.
 
 use std::sync::{Arc, Mutex};
 
 use console_core_state_machine::{Machine, Never, Queue};
-use console_program_contract::{Arguments, Effect, Exit, Event};
+use console_program_contract::{Effect, Exit, Event};
 use console_program_runtime::{Delivery, Interpreter, Subscribed, Tell, run};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,12 +22,12 @@ enum Logged {
 }
 
 impl Machine for Pad {
-    type Input = Arguments;
+    type Input = ();
     type State = Pad;
     type Request = Event<u32>;
     type Effect = Effect<Logged>;
 
-    fn initialize(_arguments: &Arguments, _previous: Option<Pad>, _effects: &mut Queue<Effect<Logged>>) -> Result<Pad, Never> {
+    fn initialize(_input: &(), _previous: Option<Pad>, _effects: &mut Queue<Effect<Logged>>) -> Result<Pad, Never> {
         Ok(Pad)
     }
 
@@ -81,11 +81,10 @@ impl Interpreter for Pressing {
 }
 
 #[test]
-fn a_program_with_no_timer_and_no_topic_hears_its_interpreter_until_it_says_stop() {
+fn a_program_with_no_timer_and_no_event_group_hears_its_interpreter_until_it_says_stop() {
     let kept = Arc::new(Mutex::new(Vec::new()));
-    let Ok(arguments) = Arguments::of(&[]);
     let mut pressing = Pressing(Arc::clone(&kept));
-    let Ok(_code) = run::<Pad, Pressing>("pad", &arguments, &mut pressing);
+    let Ok(_code) = run::<Pad, Pressing>("pad", &(), &mut pressing);
 
     let held = match kept.lock() {
         Ok(held) => held,

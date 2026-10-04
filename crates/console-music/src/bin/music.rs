@@ -5,25 +5,22 @@
 //! drawn by this process as a window on a workspace of its own; the song on now
 //! is also the panel the bar opens, which is `music-panel`.
 
-use console_core_never::Never;
-use console_panel::picker::{self, Alone};
-use console_panel::surface;
+use std::process::ExitCode;
 
-fn main() {
+use console_core_arguments::{Command, Operands};
+use console_panel::card::{App, open_app};
+
+const COMMAND: Command = Command {
+    name: console_music::APP,
+    about: "the music, as an app",
+    flags: &[],
+    operands: Operands::None,
+};
+
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked);
-}
+    let Ok(code) = open_app(&asked, App { who: console_music::APP, command: COMMAND, card: console_music::library });
 
-fn opened(asked: &[String]) -> Result<(), Never> {
-    let Ok(alone) = picker::alone_as(console_music::APP, asked);
-
-    match alone {
-        Alone::No => Ok(()),
-        Alone::Yes => {
-            let Ok(card) = console_music::library(asked);
-
-            surface::app(console_music::APP, card)
-        },
-    }
+    code
 }

@@ -13,7 +13,7 @@ use console_core_never::Never;
 use console_core_places::Base;
 
 use crate::install::{USER, User, self};
-use crate::laying::{self, Back, Laid};
+use crate::laying::{self, Back, Install};
 use crate::modes;
 use crate::unapplied::Unapplied;
 
@@ -407,7 +407,7 @@ pub fn swap_file(live: &str) -> Result<Back, Unapplied> {
     Ok(back)
 }
 
-pub fn put_back(laid: &Laid) -> Result<(), Unapplied> {
+pub fn put_back(laid: &Install) -> Result<(), Unapplied> {
     let Ok(whoever) = whoever();
     let Ok(on) = install::on_machine(&laid.at, User(whoever));
     let to = Path::new(&on);
@@ -559,7 +559,7 @@ impl laying::Lays for Here {
         swap_file(live)
     }
 
-    fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied> {
+    fn put_back(&mut self, laid: &Install) -> Result<(), Unapplied> {
         put_back(laid)
     }
 
@@ -581,7 +581,7 @@ impl laying::Lays for Here {
         }
     }
 
-    fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied> {
+    fn note(&mut self, laid: &[Install]) -> Result<(), Unapplied> {
         wrote_plan(Path::new(PLAN), laid)
     }
 
@@ -592,7 +592,7 @@ impl laying::Lays for Here {
 
 pub const PLAN: &str = "/var/lib/console/laying";
 
-fn line_of(laid: &Laid) -> Result<String, Never> {
+fn line_of(laid: &Install) -> Result<String, Never> {
     let back = match laid.back {
         Back::Retained => "kept",
         Back::Closed => "gone",
@@ -602,7 +602,7 @@ fn line_of(laid: &Laid) -> Result<String, Never> {
 ", laid.at))
 }
 
-fn wrote_plan(at: &Path, laid: &[Laid]) -> Result<(), Unapplied> {
+fn wrote_plan(at: &Path, laid: &[Install]) -> Result<(), Unapplied> {
     match at.parent() {
         Some(holding) => std::fs::create_dir_all(holding)
             .map_err(|fault| Unapplied::Directory(at.to_path_buf(), fault))?,

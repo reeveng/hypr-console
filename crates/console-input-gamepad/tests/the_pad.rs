@@ -14,12 +14,13 @@ use console_input_event_devices::{EventType, KeyCode};
 use console_input_gamepad::GamepadError;
 use console_input_gamepad::capture::load_capture;
 use console_input_gamepad::devices::{Devices, Has};
-use console_input_gamepad::go::{RecordingClock, LegionGo};
+use console_input_gamepad::go::LegionGo;
+use console_waiting::clock::TestClock;
 use console_input_gamepad::profile::Profile;
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::world::{World, Written};
 
-type Pad = LegionGo<World, RecordingClock>;
+type Pad = LegionGo<World, TestClock>;
 
 fn under(profiles: BTreeMap<String, Profile>, profile: &str) -> Result<Pad, GamepadError> {
     let seen = load_capture()?;
@@ -27,7 +28,7 @@ fn under(profiles: BTreeMap<String, Profile>, profile: &str) -> Result<Pad, Game
     let Ok(world) = World::of(seen);
     let Ok(devices) = Devices::new(descriptors, world);
 
-    LegionGo::new(profiles, devices, RecordingClock::default(), profile)
+    LegionGo::new(profiles, devices, TestClock::default(), profile)
 }
 
 fn go(profile: &str) -> Result<Pad, Box<dyn Error>> {
@@ -164,7 +165,7 @@ fn holding_a_trigger_pulls_it_all_the_way() -> Result<(), Box<dyn Error>> {
 fn a_stick_is_one_frame_of_two_numbers() -> Result<(), Box<dyn Error>> {
     let mut pad = go("game")?;
 
-    pad.stick("left-stick", Point { x: 1.0, y: -1.0 })?;
+    pad.thumbstick("left-stick", Point { x: 1.0, y: -1.0 })?;
 
     let axis = pad.devices.axis("pad", 0)?;
     let Ok(span) = axis.span();
@@ -188,7 +189,7 @@ fn a_stick_only_moves_where_the_profile_publishes_a_pad() -> Result<(), GamepadE
 
     assert_eq!(profile.publishes("xbox-elite"), Ok(Has::No));
 
-    pad.stick("left-stick", Point { x: 1.0, y: 0.0 })?;
+    pad.thumbstick("left-stick", Point { x: 1.0, y: 0.0 })?;
 
     assert_eq!(pad.devices.sink.of_kind("pad", EventType::ABSOLUTE, None), Ok(Vec::new()));
 

@@ -10,6 +10,7 @@ name = "console-architecture"
 path = "src/main.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
 console-core-ini-files.workspace = true

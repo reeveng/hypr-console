@@ -24,25 +24,48 @@
 
 use std::path::Path;
 
-use console_default_applications::engines;
+use console_core_arguments::{Command, Operands, Reason, ValidationError};
+use console_default_applications::engines::{self, Engine};
 use console_default_applications::policies::{self, CHROMIUM, FIREFOX, LIBREWOLF, Where};
 use console_core_atomic_writes::Stored;
 use console_core_external_programs::{Installed, installed};
 use console_core_never::Never;
 
-fn main() -> std::process::ExitCode {
+const COMMAND: Command = Command {
+    name: "console-engine",
+    about: "tell every browser here which engine to ask, the one already chosen when none is named",
+    flags: &[],
+    operands: Operands::Optional("ENGINE"),
+};
+
+fn told(words: &[String]) -> Result<&'static Engine, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, words)?;
+    let Ok(named) = line.operands();
     let Ok(chosen) = engines::current();
-    let key = match std::env::args().nth(1) {
-        Some(key) => key,
+    let key = match named.first() {
+        Some(key) => key.clone(),
         None => chosen,
     };
     let Ok(known) = engines::one(&key);
 
-    let engine = match known {
-        Some(engine) => engine,
+    match known {
+        Some(engine) => Ok(engine),
         None => {
-            eprintln!("{key}: not an engine this machine knows");
-            return std::process::ExitCode::from(1);
+            let Ok(refusal) = line.refusal(Reason::InvalidValue { of: "ENGINE", value: key });
+
+            Err(refusal)
+        }
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let engine = match told(&words) {
+        Ok(engine) => engine,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return std::process::ExitCode::from(code);
         }
     };
 

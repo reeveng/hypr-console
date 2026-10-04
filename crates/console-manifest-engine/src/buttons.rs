@@ -20,7 +20,7 @@ use console_input_gamepad::vocabulary::button_name;
 use console_core_never::Never;
 
 use crate::machine;
-use crate::settled::Settled;
+use crate::up_to_date::UpToDate;
 
 #[cfg_attr(
     dylint_lib = "explicit048_no_unreal_state",
@@ -38,10 +38,10 @@ pub struct Standing {
 }
 
 impl Standing {
-    pub fn settled(&self) -> Result<Settled, Never> {
+    pub fn up_to_date(&self) -> Result<UpToDate, Never> {
         Ok(match self.missing.is_empty() {
-            true => Settled::Yes,
-            false => Settled::No,
+            true => UpToDate::Yes,
+            false => UpToDate::No,
         })
     }
 

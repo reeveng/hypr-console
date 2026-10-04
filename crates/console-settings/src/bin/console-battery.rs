@@ -18,6 +18,7 @@
 use std::process::{Command, ExitCode};
 
 use console_battery::{Cable, Charge, Step, charge};
+use console_core_arguments::{Operands, read_with};
 use console_core_never::Never;
 use console_waiting::{Schedule, until_some};
 use console_notifications::saying::{StatePath, Content, journal, raise, raise_kept};
@@ -26,17 +27,23 @@ use console_settings::stopping::{GRACE, LOOKING, Stop, card, for_the_journal, sa
 const NOTHING_SAID: i32 = 0;
 
 
-const USAGE: &str = "usage: console-battery [low|lower|protect]";
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-battery",
+    about: "what happens when the battery gets low",
+    flags: &[],
+    operands: Operands::None,
+};
 
 fn main() -> ExitCode {
-    let Ok(named) = std::env::args().nth(1).as_deref().map(Step::from_word).transpose();
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let asked = read_with::<Step, String>(&COMMAND, &words).and_then(|line| line.require_subcommand());
 
-    let step = match named.flatten() {
-        Some(step) => step,
-        None => {
-            eprintln!("{USAGE}");
+    let step = match asked {
+        Ok(step) => step,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-            return ExitCode::from(2);
+            return ExitCode::from(code);
         }
     };
 

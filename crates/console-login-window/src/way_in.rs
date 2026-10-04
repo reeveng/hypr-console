@@ -10,6 +10,7 @@
 //! into -- that is a session switch, Game Mode and back, and the person who
 //! pressed it is the one holding the machine.
 
+use console_core_arguments::{Flag, Takes};
 use console_core_never::Never;
 
 use crate::stored_pattern::{Hash, StoredPattern};
@@ -19,6 +20,8 @@ pub enum Autologin {
     Yes,
     No,
 }
+
+pub const FELL: Flag = Flag { spelling: "--fell", takes: Takes::None, about: "the desktop before this fell, and the greeter says so" };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {

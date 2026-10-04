@@ -16,9 +16,9 @@
 //!
 //! Two things it does that no program can do for itself:
 //!
-//! - It **replays the last word on a topic** to whoever has just subscribed,
-//!   so a panel opening knows the volume before anything changes it. That is
-//!   most of what `console_panel::before` is working around today.
+//! - It **replays the last word on an event group** to whoever has just
+//!   subscribed, so a panel opening knows the volume before anything changes
+//!   it. That is most of what `console_panel::before` is working around today.
 //! - It **drops a subscriber that has gone**, because a write to a socket
 //!   no one is holding fails, and that is the moment the subscription ends.
 //!   Nothing has to remember anything.
@@ -30,9 +30,9 @@
 //!
 //! **What is not in it.** It does not parse what a source says. A pool that
 //! understood every source it relays is a pool that has to be changed whenever
-//! a source says something new, and the program that asked to hear a topic is
-//! the one that knows what its words mean. So a line arrives as a line, and
-//! `pool` is arithmetic over who wants what.
+//! a source says something new, and the program that asked to hear an event
+//! group is the one that knows what its words mean. So a line arrives as a
+//! line, and `pool` is arithmetic over who wants what.
 
 pub mod again;
 pub mod bus;

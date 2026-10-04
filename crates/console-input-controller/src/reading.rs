@@ -20,7 +20,7 @@ use crate::effect::Effect;
 use crate::actions::{Task, ButtonPress, RepeatMode, Table};
 use crate::touch::Axis;
 use crate::mode::{InputHandling, Mode};
-use crate::scroll::{Stick, Wheel, pushed};
+use crate::scroll::{Thumbstick, Wheel, pushed};
 use crate::touch::Touch;
 
 pub const CARRY_HELD: f64 = 0.5;
@@ -93,7 +93,7 @@ impl From {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ranges {
-    pub stick: Range,
+    pub thumbstick: Range,
     pub trigger: (i32, i32),
 }
 
@@ -163,7 +163,7 @@ impl Pulled {
 
 impl Default for Ranges {
     fn default() -> Self {
-        Ranges { stick: Range { low: -1, high: 1 }, trigger: (0, 1) }
+        Ranges { thumbstick: Range { low: -1, high: 1 }, trigger: (0, 1) }
     }
 }
 
@@ -188,7 +188,7 @@ pub struct Controller {
     pressed_buttons: Vec<&'static str>,
     stepping: Option<Stepping>,
     hat: (i32, i32),
-    stick: (f64, f64),
+    thumbstick: (f64, f64),
 }
 
 impl Controller {
@@ -212,7 +212,7 @@ impl Controller {
     }
 
     pub fn pad_went(&mut self) -> Result<Vec<Effect>, Never> {
-        self.stick = (0.0, 0.0);
+        self.thumbstick = (0.0, 0.0);
         self.hat = (0, 0);
         self.pulled = Pulled::default();
         self.pressed_buttons.clear();
@@ -331,7 +331,7 @@ impl Controller {
             None => {},
         }
 
-        let Ok(pushed) = pushed(Stick { value, range: self.ranges.stick });
+        let Ok(pushed) = pushed(Thumbstick { value, range: self.ranges.thumbstick });
 
         Ok(match pushed.abs() > 0.0 {
             true => Meant::Some,
@@ -368,11 +368,11 @@ impl Controller {
             Hat::NotAnAxis => {},
         }
 
-        let Ok(pushed) = pushed(Stick { value, range: self.ranges.stick });
+        let Ok(pushed) = pushed(Thumbstick { value, range: self.ranges.thumbstick });
 
         match (code == AbsoluteAxisCode::ABS_RX.0, code == AbsoluteAxisCode::ABS_RY.0) {
-            (true, _) => self.stick.0 = pushed,
-            (false, true) => self.stick.1 = pushed,
+            (true, _) => self.thumbstick.0 = pushed,
+            (false, true) => self.thumbstick.1 = pushed,
             (false, false) => {},
         }
 
@@ -560,7 +560,7 @@ impl Controller {
 
     pub fn tick(&mut self, seconds: f64) -> Result<Vec<Effect>, Never> {
         let Ok(mut done) = self.tick_repeat(seconds);
-        let by = Point { x: self.stick.0, y: self.stick.1 };
+        let by = Point { x: self.thumbstick.0, y: self.thumbstick.1 };
         let Ok(notches) = self.wheel.scroll(by, seconds);
 
         match notches.is_empty() {
@@ -604,7 +604,7 @@ impl Controller {
             None => Wake::OnInput,
         };
 
-        let stick = match self.stick.0.abs() > 0.0 || self.stick.1.abs() > 0.0 {
+        let stick = match self.thumbstick.0.abs() > 0.0 || self.thumbstick.1.abs() > 0.0 {
             true => Wake::Within(POLL),
             false => Wake::OnInput,
         };
@@ -643,7 +643,7 @@ mod tests {
     use console_core_number_conversion::{fitted, toward_zero_u32};
     use console_input_event_devices::RelativeAxisCode;
 
-    const RANGES: Ranges = Ranges { stick: Range { low: -32767, high: 32767 }, trigger: (0, 1023) };
+    const RANGES: Ranges = Ranges { thumbstick: Range { low: -32767, high: 32767 }, trigger: (0, 1023) };
     const THEN: f64 = 1000.0;
 
     fn fresh() -> Result<Controller, Never> {
@@ -693,7 +693,7 @@ mod tests {
     }
 
     fn launcher() -> Result<Effect, Never> {
-        Effect::run(&["launcher", "--keep"])
+        Effect::run(&["launcher", console_core_internal_programs::LAUNCHER_KEEP.spelling])
     }
 
     #[test]

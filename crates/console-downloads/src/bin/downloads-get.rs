@@ -27,13 +27,14 @@
 //! from the kernel, the same way they hear a file anybody else put there.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 use std::time::SystemTime;
 
 use console_downloads::getting;
 use console_downloads::getting::Fetch;
 use console_downloads::looking;
 use console_downloads::store::Kind;
+use console_core_arguments::{Operands, Reason, ValidationError, read};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_panel::running::{Notification, say};
@@ -42,30 +43,62 @@ const KIND: &str = "download";
 
 const NOTHING: &str = "couldn't be downloaded";
 
-fn main() {
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "downloads-get",
+    about: "fetch one thing of one kind from URL, under TITLE if there is one, and say so when it arrives",
+    flags: &Kind::FLAGS,
+    operands: Operands::Verbatim("URL TITLE"),
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Request {
+    kind: Kind,
+    url: String,
+    title: Option<String>,
+}
+
+fn request(words: &[String]) -> Result<Request, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let choice = line.one_of(&Kind::FLAGS);
+    let flag = choice?;
+    let Ok(operands) = line.operands();
+
+    let (url, title) = match operands {
+        [url] => (url, None),
+        [url, title] => (url, Some(title.clone())),
+        [] => {
+            let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["URL"]));
+
+            return Err(refusal);
+        }
+        [_url, _title, extra, ..] => {
+            let Ok(refusal) = line.refusal(Reason::ExtraArgument(extra.clone()));
+
+            return Err(refusal);
+        }
+    };
+
+    match Kind::from_flag(flag.spelling) {
+        Ok(Some(kind)) => Ok(Request { kind, url: url.clone(), title }),
+        Ok(None) => {
+            let Ok(refusal) = line.refusal(Reason::MissingFlag(Kind::FLAGS.iter().map(|flag| flag.spelling).collect()));
+
+            Err(refusal)
+        }
+    }
+}
+
+fn main() -> ExitCode {
     let words: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, request, fetch);
 
-    let kind = match words.first().and_then(|word| {
-        let Ok(kind) = Kind::read(word);
+    code
+}
 
-        kind
-    }) {
-        Some(kind) => kind,
-        None => {
-            eprintln!("which kind: --audio, --video or --book");
-            return;
-        }
-    };
-
-    let url = match words.get(1) {
-        Some(url) => url,
-        None => {
-            eprintln!("which link");
-            return;
-        }
-    };
-
-    let called = words.get(2).cloned();
+fn fetch(request: Request) -> Result<(), Never> {
+    let Request { kind, url, title: called } = request;
+    let url = &url;
     let Ok(into) = getting::into(kind);
 
     match std::fs::create_dir_all(&into) {
@@ -75,7 +108,7 @@ fn main() {
             let Ok(named) = sentence(&called, NOTHING);
 
             let Ok(()) = say(KIND, Notification { summary: &named, body: &why });
-            return;
+            return Ok(());
         }
     }
 
@@ -89,7 +122,7 @@ fn main() {
             };
 
             let Ok(()) = notify_arrived(&named, &into, ALREADY);
-            return;
+            return Ok(());
         }
         (Kind::Book, _) | (Kind::Sound | Kind::Film, None) => {},
     }
@@ -107,7 +140,7 @@ fn main() {
         Some((program, rest)) => (program, rest),
         None => {
             let Ok(()) = say(KIND, Notification { summary: &nothing, body: missing });
-            return;
+            return Ok(());
         }
     };
 
@@ -115,7 +148,7 @@ fn main() {
         Ok(done) => done,
         Err(_would_not_start) => {
             let Ok(()) = say(KIND, Notification { summary: &nothing, body: missing });
-            return;
+            return Ok(());
         }
     };
 
@@ -143,6 +176,8 @@ fn main() {
             let Ok(()) = say(KIND, Notification { summary: &nothing, body: &why });
         }
     }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,5 +353,21 @@ mod tests {
     fn what_is_said_about_a_fault_names_the_thing_it_is_about() {
         assert_eq!(sentence(&Some("Africa".to_string()), NOTHING), Ok("Africa couldn't be downloaded".to_string()));
         assert_eq!(sentence(&None, NOTHING), Ok("It couldn't be downloaded".to_string()));
+    }
+
+    fn words(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
+    }
+
+    #[test]
+    fn a_title_goes_on_as_it_is_and_the_kind_is_one_flag() {
+        let Ok(book) = words(&["--book", "https://www.gutenberg.org/ebooks/84", "--Frankenstein--"]);
+        let Ok(two_kinds) = words(&["--book", "--audio", "https://youtu.be/FTQbiNvZqaY"]);
+
+        assert_eq!(
+            request(&book),
+            Ok(Request { kind: Kind::Book, url: "https://www.gutenberg.org/ebooks/84".to_string(), title: Some("--Frankenstein--".to_string()) })
+        );
+        assert_eq!(request(&two_kinds).map_err(|refusal| refusal.reason), Err(Reason::ExtraArgument("--book".to_string())));
     }
 }

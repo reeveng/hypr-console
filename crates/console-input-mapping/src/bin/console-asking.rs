@@ -43,6 +43,7 @@ use std::time::{Duration, Instant};
 
 use console_input_event_devices::{AbsoluteAxisCode, KeyCode};
 
+use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
 use console_core_color::palette::Wearing;
 use console_core_geometry::{Point, Size};
 use console_core_number_conversion::fitted;
@@ -409,20 +410,46 @@ fn known(binding: &Binding) -> Result<Known, Never> {
     })
 }
 
-fn main() -> ExitCode {
-    let mut asked = std::env::args().skip(1);
+const JOB: &str = "JOB";
 
-    let slug = match asked.next() {
-        Some(slug) => slug,
+const INPUT: &str = "INPUT";
+
+const NAMED: [&str; 2] = [JOB, INPUT];
+
+const COMMAND: Command = Command {
+    name: "console-asking",
+    about: "the card that asks which button does JOB, pressed on INPUT, which is pad or keyboard",
+    flags: &[],
+    operands: Operands::Named(&NAMED),
+};
+
+fn request(words: &[String]) -> Result<(String, Input), ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(NAMED);
+    let [slug, input] = operands?;
+    let Ok(on) = Input::from_word(input);
+
+    match on {
+        Some(on) => Ok((slug.clone(), on)),
         None => {
-            eprintln!("usage: console-asking JOB [pad|keyboard]");
-            return ExitCode::from(2);
-        }
-    };
+            let Ok(refusal) = line.refusal(Reason::InvalidValue { of: INPUT, value: input.clone() });
 
-    let on = match asked.next().as_deref() {
-        Some("keyboard") => Input::Keyboard,
-        Some(_) | None => Input::Pad,
+            Err(refusal)
+        }
+    }
+}
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let (slug, on) = match request(&words) {
+        Ok(request) => request,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
     };
 
     let Ok(table) = table::table();

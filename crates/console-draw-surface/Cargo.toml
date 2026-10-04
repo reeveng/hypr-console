@@ -14,6 +14,7 @@ name = "surface-spike"
 path = "src/bin/surface-spike.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-geometry.workspace = true
 console-screen.workspace = true
 console-core-never.workspace = true

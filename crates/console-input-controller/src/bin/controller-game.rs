@@ -19,13 +19,13 @@ use console_input_controller::reading::From;
 use console_input_controller::returning::{ReturningEvent, Return};
 use console_input_controller::turning::HUNT_SECONDS;
 use console_core_never::Never;
-use console_program_contract::{Arguments, Timer, Elapsed, Event};
+use console_program_contract::{Timer, Elapsed, Event};
 use console_program_runtime::Interpreter;
 
 fn main() -> ExitCode {
     let Ok(code) = console_program_runtime::run::<Return, Pad>(
         "controller-game",
-        &Arguments::default(),
+        &(),
         &mut Pad::default(),
     );
 

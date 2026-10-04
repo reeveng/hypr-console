@@ -13,4 +13,4 @@ pub mod player;
 pub mod update;
 pub mod tags;
 
-pub use card::{APP, WHO, card, door, library};
+pub use card::{COMMAND, APP, WHO, card, door, library};

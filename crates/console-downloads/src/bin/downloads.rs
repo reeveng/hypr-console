@@ -7,25 +7,22 @@
 //! still there with its search and what it found when a panel opened over it
 //! goes.
 
-use console_core_never::Never;
-use console_panel::picker::{self, Alone};
-use console_panel::surface;
+use std::process::ExitCode;
 
-fn main() {
+use console_core_arguments::{Command, Operands};
+use console_panel::card::{App, open_app};
+
+const COMMAND: Command = Command {
+    name: console_downloads::WHO,
+    about: "the downloads, as an app",
+    flags: &[],
+    operands: Operands::Optional("TAB"),
+};
+
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked);
-}
+    let Ok(code) = open_app(&asked, App { who: console_downloads::WHO, command: COMMAND, card: console_downloads::card });
 
-fn opened(asked: &[String]) -> Result<(), Never> {
-    let Ok(alone) = picker::alone_as(console_downloads::WHO, asked);
-
-    match alone {
-        Alone::No => Ok(()),
-        Alone::Yes => {
-            let Ok(card) = console_downloads::card(asked);
-
-            surface::app(console_downloads::WHO, card)
-        },
-    }
+    code
 }

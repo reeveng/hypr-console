@@ -26,7 +26,7 @@ use console_core_never::Never;
 
 pub mod homeward;
 
-pub use homeward::{Woken, Hand, PadInput, set_hand, homeward, send_to_home, set_awake};
+pub use homeward::{WakeState, Hand, PadInput, set_hand, homeward, send_to_home, set_awake};
 
 #[derive(Debug)]
 pub enum Error {

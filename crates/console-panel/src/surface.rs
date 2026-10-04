@@ -37,14 +37,13 @@
 //! `frames` that the wait already watches -- shutting tells it, a thread holds
 //! the subscription's receiver and tells it when a word is worth reading the
 //! tab again for, and a reading tells it when it lands -- so an open panel
-//! nobody touches is a process asleep in `poll`. Which topic is wanted and
-//! which words are worth a reading stay with the loop, because they are the
+//! nobody touches is a process asleep in `poll`. Which event group is wanted
+//! and which words are worth a reading stay with the loop, because they are the
 //! tab in front's and the loop is what knows which tab that is. The one wait
-//! left with a number in it is `FIRST_LOOK`: a tab with nothing on it yet
-//! holds its first frame back a moment for its rows, because a card drawn
-//! empty and then filled is a flash somebody sees. It waits on the same
-//! socket, so a card shut during that moment is gone at once rather than at
-//! the end of it.
+//! left with a number in it is `FIRST_LOOK`: a tab with nothing on it yet holds
+//! its first frame back a moment for its rows, because a card drawn empty and
+//! then filled is a flash somebody sees. It waits on the same socket, so a card
+//! shut during that moment is gone at once rather than at the end of it.
 //!
 //! **The shape list is closed.** `Panel`, `Text`, and `Picture` from
 //! `console-core-shapes`. Drawing is a match, and 016 makes a shape added later
@@ -3596,21 +3595,21 @@ fn listened(
     let wanted = page.and_then(|page| page.listens.clone());
     let Ok(mut listening) = lock(listening);
 
-    match wanted.as_ref().map(|one| &one.topic) == listening.as_ref().map(|one| &one.topic) {
+    match wanted.as_ref().map(|one| &one.event_group) == listening.as_ref().map(|one| &one.event_group) {
         true => return Ok(()),
         false => {},
     }
 
     match listening.take() {
         Some(was) => {
-            let Ok(()) = subscriptions.unsubscribe(&was.topic);
+            let Ok(()) = subscriptions.unsubscribe(&was.event_group);
         }
         None => {},
     }
 
     match wanted.as_ref() {
         Some(now) => {
-            let Ok(()) = subscriptions.subscribe(&now.topic);
+            let Ok(()) = subscriptions.subscribe(&now.event_group);
         }
         None => {},
     }
@@ -3643,7 +3642,7 @@ fn forwarded(received: mpsc::Receiver<Received>, listening: Weak<Mutex<Option<Su
 fn worth(event: &Received, listening: Option<&Subscription>) -> Result<Worth, Never> {
     Ok(match (event, listening) {
         (Received::Connected, Some(_)) => Worth::Querying,
-        (Received::Event(change), Some(one)) => match change.topic == one.topic {
+        (Received::Event(change), Some(one)) => match change.event_group == one.event_group {
             true => {
                 let Ok(worth) = (one.worth)(&change.text);
 
@@ -3675,7 +3674,7 @@ fn reading(page: &Page, here: u32) -> Result<Reading, Never> {
 
 struct Looked {
     heard: Result<Vec<Row>, mpsc::TryRecvError>,
-    woken: Option<crate::frames::Woken>,
+    woken: Option<crate::frames::WakeState>,
 }
 
 #[derive(Clone, Copy)]
@@ -3691,7 +3690,7 @@ fn first_look(reading: &Reading, rows: &[Row], look: FirstLook<'_>) -> Result<Lo
     }
 
     let Ok(deadline) = crate::frames::deadline(look.until);
-    let looked = console_core_iteration::iterate(crate::frames::Woken::default(), |woken| {
+    let looked = console_core_iteration::iterate(crate::frames::WakeState::default(), |woken| {
         let Ok(heard) = crate::frames::wake_state();
         let Ok(woken) = woken.and(heard);
 
@@ -6292,7 +6291,7 @@ mod tests {
         Ok((at, into))
     }
 
-    fn woke_within(within: rustix::event::Timespec) -> Result<crate::frames::Woken, Failure> {
+    fn woke_within(within: rustix::event::Timespec) -> Result<crate::frames::WakeState, Failure> {
         let Ok(waking) = crate::frames::waking();
         let waking = waking.ok_or("a socket the loop is woken on")?;
         let mut watch = [rustix::event::PollFd::new(&waking, rustix::event::PollFlags::IN)];
@@ -6323,9 +6322,9 @@ mod tests {
     ) -> Result<crate::frames::FrameReceived, Failure> {
         let Ok(subscriber) = console_events::subscription::connect_at(at, &[]);
         let Ok(front) = super::InFront::on(subscriber);
-        let topic = console_program_contract::Topic::Path(into.to_path_buf());
+        let event_group = console_program_contract::EventGroup::Path(into.to_path_buf());
         let Ok(looking) = page("Sound", &["Speakers"]);
-        let Ok(looking) = looking.with_subscription(topic, worth);
+        let Ok(looking) = looking.with_subscription(event_group, worth);
         let Ok(_before) = crate::frames::wake_state();
 
         let Ok(()) = super::listened(&front.subscriptions, &front.now, Some(&looking));
@@ -6360,14 +6359,14 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_in_front_is_read_again_when_the_pool_says_its_topic_changed() -> Result<(), Failure> {
+    fn a_tab_in_front_is_read_again_when_the_pool_says_its_event_group_changed() -> Result<(), Failure> {
         let _turn = crate::frames::ONE_TEST_AT_A_TIME.lock();
         let (at, into) = a_pool_watching("listening")?;
         let told = told_after_writing(&at, &into, console_events::again::always)?;
         let _ = std::fs::remove_dir_all(&into);
         let _ = std::fs::remove_file(&at);
 
-        assert_eq!(told, crate::frames::FrameReceived::Yes, "the pool said the topic changed and the loop was never woken to read the tab again");
+        assert_eq!(told, crate::frames::FrameReceived::Yes, "the pool said the event group changed and the loop was never woken to read the tab again");
 
         Ok(())
     }

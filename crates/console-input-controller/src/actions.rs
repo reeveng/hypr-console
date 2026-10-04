@@ -85,7 +85,7 @@
 use console_input_event_devices::{KeyCode, RelativeAxisCode};
 
 use console_core_never::Never;
-use console_core_internal_programs::InternalProgram;
+use console_core_internal_programs::{InternalProgram, LAUNCHER_KEEP, OVERVIEW_SHOW};
 use console_onscreen::PadInput;
 use console_input_bindings::bound::{Binding, Fits, Input};
 use console_input_bindings::moved::Tasks;
@@ -155,9 +155,9 @@ pub enum ButtonPress {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Applicability {
-    InFront,
-    Elsewhere,
+pub enum Availability {
+    Available,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,7 +173,7 @@ pub enum LockBehavior {
 }
 
 impl Context {
-    pub fn applicability(self, mode: Mode) -> Result<Applicability, Never> {
+    pub fn availability(self, mode: Mode) -> Result<Availability, Never> {
         let fit = match self {
             Context::Anywhere => true,
             Context::OnTheDesktop => matches!(mode, Mode::Desktop | Mode::App | Mode::HomeScreen | Mode::Standing),
@@ -183,8 +183,8 @@ impl Context {
         };
 
         Ok(match fit {
-            true => Applicability::InFront,
-            false => Applicability::Elsewhere,
+            true => Availability::Available,
+            false => Availability::Unavailable,
         })
     }
 
@@ -197,13 +197,13 @@ impl Context {
         })
     }
 
-    fn beats(self, other: Self) -> Result<Applicability, Never> {
+    fn beats(self, other: Self) -> Result<Availability, Never> {
         let Ok(mine) = self.rank();
         let Ok(theirs) = other.rank();
 
         Ok(match mine > theirs {
-            true => Applicability::InFront,
-            false => Applicability::Elsewhere,
+            true => Availability::Available,
+            false => Availability::Unavailable,
         })
     }
 }
@@ -878,7 +878,7 @@ impl Action {
             | Action::Tab(_) => Ok(None),
             Action::Tell(said) => Ok(Some(Effect::Tell(said))),
             Action::ScrollDown => scrolled(),
-            Action::Menu => run_by_name(InternalProgram::Launcher, &["--keep"]),
+            Action::Menu => run_by_name(InternalProgram::Launcher, &[LAUNCHER_KEEP.spelling]),
             Action::Dictate => run_by_name(InternalProgram::Dictate, &[]),
             Action::PutAway => run_by_name(InternalProgram::PutAway, &[]),
             Action::Screenshot => run_by_path(InternalProgram::Screenshot, &[]),
@@ -892,11 +892,11 @@ impl Action {
             Action::Wake => run_by_path(InternalProgram::Brightness, &["undim"]),
             Action::GameMode => run_by_name(InternalProgram::SessionGame, &[]),
             Action::Browser => run_by_path(InternalProgram::Browser, &[]),
-            Action::Overview => run_by_name(InternalProgram::Overview, &["--show"]),
+            Action::Overview => run_by_name(InternalProgram::Overview, &[OVERVIEW_SHOW.spelling]),
             Action::ButtonGuide => run_by_path(InternalProgram::MappingPanel, &[]),
             Action::Keyboard => run_by_name(InternalProgram::KeyboardToggle, &[]),
             Action::Language(-1) => {
-                started(&[console_input_language::NAMED, console_input_language::BACK])
+                started(&[console_input_language::NAMED, console_input_language::BACK.spelling])
             }
             Action::Language(_) => started(&[console_input_language::NAMED]),
             Action::Terminal => terminal(),
@@ -1073,11 +1073,11 @@ impl Table {
         let Ok(every) = self.every();
 
         for (job, bound) in every {
-            let Ok(applicability) = job.context.applicability(mode);
+            let Ok(applicability) = job.context.availability(mode);
 
             match applicability {
-                Applicability::Elsewhere => continue,
-                Applicability::InFront => {},
+                Availability::Unavailable => continue,
+                Availability::Available => {},
             }
 
             let Ok(deepest) = deepest(bound, on, held, pressed);
@@ -1095,8 +1095,8 @@ impl Table {
                             let Ok(beats) = already.context.beats(job.context);
 
                             match beats {
-                                Applicability::InFront => Some((already, was)),
-                                Applicability::Elsewhere => Some((job, depth)),
+                                Availability::Available => Some((already, was)),
+                                Availability::Unavailable => Some((job, depth)),
                             }
                         }
                         false => Some((job, depth)),
@@ -1201,7 +1201,7 @@ mod tests {
 
             let Ok(every) = every();
 
-            for job in every.filter(|job| job.context.applicability(mode) == Ok(Applicability::InFront)) {
+            for job in every.filter(|job| job.context.availability(mode) == Ok(Availability::Available)) {
                 let Ok(rank) = job.context.rank();
 
                 for (on, held, pressed) in job.bound {
@@ -1437,7 +1437,7 @@ mod tests {
 
     #[test]
     fn something_that_starts_a_program_happens_once() {
-        let Ok(started) = Effect::run(&["launcher", "--keep"]);
+        let Ok(started) = Effect::run(&["launcher", LAUNCHER_KEEP.spelling]);
 
         assert_eq!(Action::Menu.does(ButtonPress::Down), Ok(Some(started)));
         assert_eq!(Action::Menu.does(ButtonPress::Up), Ok(None));
@@ -1455,7 +1455,7 @@ mod tests {
     #[test]
     fn l2_with_view_shows_every_desktop_and_view_alone_is_still_the_browser() {
         let Ok(table) = Table::ours();
-        let Ok(shown) = Effect::run(&["console-overview", "--show"]);
+        let Ok(shown) = Effect::run(&["console-overview", OVERVIEW_SHOW.spelling]);
 
         assert_eq!(what(&table, "view", &["l2"], Mode::Desktop), Ok(Some(Action::Overview)));
         assert_eq!(what(&table, "view", &[], Mode::Desktop), Ok(Some(Action::Browser)));

@@ -42,6 +42,7 @@
 //! the next thing that wakes it rather than at once.
 
 
+use console_core_arguments::{Flag, Operands, Presence, Takes};
 use console_core_geometry::{Point, Size};
 use console_core_iteration::Step;
 use console_core_never::Never;
@@ -67,6 +68,21 @@ use console_response_times::{Wait, Waiting};
 
 const NOWHERE: (i32, i32) = (0, 0);
 
+const LIST_LAYERS: Flag = Flag { spelling: "--list-layers", takes: Takes::None, about: "the layers this keyboard can show, one to a line" };
+
+const LANDSCAPE_LAYERS: Flag = Flag {
+    spelling: "--landscape-layers",
+    takes: Takes::Value("LAYERS"),
+    about: "the layers to walk while the screen is wider than it is tall, separated by commas",
+};
+
+const ON_THE_SCREEN: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-keyboard",
+    about: "the keyboard on the screen, started away and shown by keyboard-toggle",
+    flags: &[LIST_LAYERS, LANDSCAPE_LAYERS],
+    operands: Operands::None,
+};
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shape {
@@ -83,18 +99,19 @@ fn landscape(room: Size<u32>) -> Result<Shape, Never> {
 
 fn main() -> ExitCode {
     let Ok(mut waiting) = Waiting::on(Wait { who: "keyboard", what: "starting" });
-    let arguments: Vec<String> = std::env::args().collect();
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let line = match console_core_arguments::read(&ON_THE_SCREEN, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    match arguments.iter().any(|word| word == "--help" || word == "-h") {
-        true => {
-            println!("usage: console-keyboard [--hidden] [-H height] [-l layers] [--fn font]");
-            return ExitCode::SUCCESS;
+            return ExitCode::from(code);
         }
-        false => {},
-    }
+    };
+    let Ok(listing) = line.presence(LIST_LAYERS);
 
-    match arguments.iter().any(|word| word == "--list-layers") {
-        true => {
+    match listing {
+        Presence::Present => {
             for which in LayoutKind::ALL {
                 let Ok(of) = of(which);
 
@@ -103,10 +120,12 @@ fn main() -> ExitCode {
 
             return ExitCode::SUCCESS;
         }
-        false => {},
+        Presence::Absent => {},
     }
 
-    let Ok(flags) = dressed(&arguments);
+    let Ok(landscape) = line.value(LANDSCAPE_LAYERS);
+    let passed: Vec<String> = landscape.into_iter().flat_map(|layers| [LANDSCAPE_LAYERS.spelling.to_string(), layers.to_string()]).collect();
+    let Ok(flags) = dressed(&passed);
 
     let Ok(()) = waiting.mark("palette");
 
@@ -129,7 +148,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn dressed(arguments: &[String]) -> Result<Vec<String>, Never> {
+fn dressed(passed: &[String]) -> Result<Vec<String>, Never> {
     let Ok(me) = me();
     let Ok(at) = beside(&me);
 
@@ -154,12 +173,7 @@ fn dressed(arguments: &[String]) -> Result<Vec<String>, Never> {
         }
     }
 
-    let flags = match arguments.split_first() {
-        Some((_, flags)) => flags,
-        None => &[],
-    };
-
-    console_input_keyboard::palette::arguments(&palette, flags)
+    console_input_keyboard::palette::arguments(&palette, passed)
 }
 
 fn me() -> Result<std::path::PathBuf, Never> {

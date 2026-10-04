@@ -7,27 +7,54 @@
 //! the Sound tab is asked here as it is everywhere else, so a machine with
 //! sound effects off stays quiet whoever asked.
 
+use std::process::ExitCode;
+
+use console_core_arguments::{Command, Flag, Operands, Presence, Takes, read};
 use console_sound_effects::catalogue::{Sound, EVERY};
 use console_sound_effects::{Degree, SoundEffects};
 
-fn main() -> std::process::ExitCode {
-    let asked = std::env::args().nth(1);
+const LIST: Flag = Flag { spelling: "--list", takes: Takes::None, about: "the word for every sound there is, one to a line" };
 
-    let word = match asked.as_deref() {
-        Some("--list") => {
+const COMMAND: Command = Command {
+    name: "console-sound-effect",
+    about: "play SOUND from the catalogue, unless sound effects are off on the Sound tab",
+    flags: &[LIST],
+    operands: Operands::Optional("SOUND"),
+};
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+
+    let Ok(listing) = line.presence(LIST);
+
+    match listing {
+        Presence::Present => {
             for sound in EVERY {
                 let Ok(word) = sound.word();
 
                 println!("{word}");
             }
 
-            return std::process::ExitCode::SUCCESS;
+            return ExitCode::SUCCESS;
         }
-        Some(word) => word,
-        None => {
-            eprintln!("usage: console-sound-effect <sound> | --list");
+        Presence::Absent => {},
+    }
 
-            return std::process::ExitCode::from(2);
+    let word = match line.exactly(["SOUND"]) {
+        Ok([word]) => word,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
         }
     };
 
@@ -38,7 +65,7 @@ fn main() -> std::process::ExitCode {
         None => {
             eprintln!("console-sound-effect: no sound called {word}; --list says which there are");
 
-            return std::process::ExitCode::from(2);
+            return ExitCode::from(2);
         }
     };
 
@@ -49,18 +76,18 @@ fn main() -> std::process::ExitCode {
         SoundEffects::Off => {
             eprintln!("console-sound-effect: sound effects are off on the Sound tab");
 
-            return std::process::ExitCode::SUCCESS;
+            return ExitCode::SUCCESS;
         }
     }
 
     let Ok(cue) = sound.cue();
 
     match console_sound_effects::play(&cue, Degree(0)) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("console-sound-effect: {fault}");
 
-            std::process::ExitCode::FAILURE
+            ExitCode::FAILURE
         }
     }
 }

@@ -43,16 +43,16 @@ use std::os::fd::OwnedFd;
 use console_core_never::Never;
 
 #[derive(Debug)]
-pub struct Woken {
+pub struct Latch {
     pub waiting: OwnedFd,
     pub saying: File,
 }
 
-pub fn pipe() -> Result<Woken, io::Error> {
+pub fn pipe() -> Result<Latch, io::Error> {
     let (waiting, saying) = pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK)?;
     let saying = File::from(saying);
 
-    Ok(Woken { waiting, saying })
+    Ok(Latch { waiting, saying })
 }
 
 pub fn drain(waiting: &OwnedFd) -> Result<(), Never> {

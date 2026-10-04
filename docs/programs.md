@@ -73,12 +73,15 @@ other program depends on: a name that has to be learned before it can be read.
 It began as a trait of its own, `Program`, with an `init`, an `update` and an
 `Update` it handed back. It is now `console_core_state_machine::Machine`, the
 one every machine on the desktop is written to, and `docs/state-machines.md`
-argues for that shape. A program is the machine whose input is its
-`Arguments`, whose requests are `Event`s and whose effects are `Effect`s:
+argues for that shape. A program is the machine whose input is what it was
+started to do, which `main` reads off the command line against the `Command`
+it declares, or `()` when it does one thing; whose requests are `Event`s and
+whose effects are `Effect`s. The machine never sees a flag: a test hands it
+the value, and the declaration is the only place a spelling is written:
 
 ```rust
 pub trait Machine {
-    /// What it was started with. A program's is its `Arguments`.
+    /// What it was started to do, read off its command line by `main`.
     type Input;
 
     /// What it holds. Replaced only by `handle`, never reached into from outside.
@@ -208,10 +211,10 @@ over a socket in the runtime directory, and `console-core-reconnect` is what
 reconnects to it.
 
 Two things it does that no program can do for itself. It **replays the last word
-on a topic to whoever has just subscribed**, so a panel opening knows the volume
-before anything changes it — which is most of what `meanwhile` is working around
-today. And it **drops a subscriber that has gone**, which is the orphan problem
-solved by construction rather than by everyone remembering to tidy up.
+on an event group to whoever has just subscribed**, so a panel opening knows the
+volume before anything changes it — which is most of what `meanwhile` is working
+around today. And it **drops a subscriber that has gone**, which is the orphan
+problem solved by construction rather than by everyone remembering to tidy up.
 
 It restarts like everything else here, and a program with no pool is a program
 whose readings are as old as the pool's absence and no older: getting in again
@@ -223,9 +226,9 @@ firmware need not announce, and a Wi-Fi signal `nmcli monitor` never mentions.
 
 `console-events`, and `console-events` is the program. Two sources — the
 compositor and the sound — and every program that watched either of them asks
-the pool. The other topics answer nothing and say so on the journal, which is
-what the one-at-a-time rule should look like: a topic that is quiet rather than
-a pool that is broken.
+the pool. The other event groups answer nothing and say so on the journal, which
+is what the one-at-a-time rule should look like: an event group that is quiet
+rather than a pool that is broken.
 
 The sound came second because it is the one with sixty-five processes behind it
 in the measurements, and it was watched before it was believed — under the
@@ -287,33 +290,36 @@ could not be asked at all.
 
 ### What the runtime does with the ask
 
-`Subscription::Topic(Topic::Sound)` is *tell me when this changes*, and for as long as
-the runtime answered it with a line on the journal both halves of this were
-green and the desktop still polled. The program said what it wanted, the pool
-could have told it, and nothing carried the question from one to the other.
+`Subscription::EventGroup(EventGroup::Sound)` is *tell me when this changes*,
+and for as long as the runtime answered it with a line on the journal both
+halves of this were green and the desktop still polled. The program said what it
+wanted, the pool could have told it, and nothing carried the question from one
+to the other.
 
-It does now. `console-program-runtime` holds one `Listening`, `Effect::Subscribe`
-adds a topic to it and `Effect::Unsubscribe` takes one away, and a `Changed` from the
-pool reaches the program as `Event::Changed` the way a timer falling due reaches
-it as `Event::Tick`. The decision that made this safe was already made above:
-the timer stays as what a program falls back to when the pool is down, so a
-program with no pool is slower and never wrong.
+It does now. `console-program-runtime` holds one `Listening`,
+`Effect::Subscribe` adds an event group to it and `Effect::Unsubscribe` takes
+one away, and a `Changed` from the pool reaches the program as `Event::Changed`
+the way a timer falling due reaches it as `Event::Tick`. The decision that made
+this safe was already made above: the timer stays as what a program falls back
+to when the pool is down, so a program with no pool is slower and never wrong.
 
 **It is one wait now rather than a sleep.** The loop blocks on the pool's
 channel until the next timer falls due, which is the same wait for both reasons
 a program can be woken, and it is why nothing in that crate declares a sleep any
 more — `due()` was the one wait in the runtime EXPLICIT021 made say so, and it
-is gone. A program that wants no topic at all still waits there: the channel is
-open and quiet, and a `recv_timeout` that times out is the timer falling due.
+is gone. A program that wants no event group at all still waits there: the
+channel is open and quiet, and a `recv_timeout` that times out is the timer
+falling due.
 
 **Unsubscribing works, and a panel coming back is the reason it had to.** A
-`Subscriber` holds what is wanted rather than taking it once, so `subscribe`
-and `unsubscribe` write a line of each name down the connection that is already
-open, and a reconnection asks for whatever is wanted at the moment it gets in. What makes
-that worth having is the replay: a program that asks again is told the last word
-on the topic straight away rather than waiting for the next change, so hanging up
-costs a panel nothing when it comes back. That is `the_stopped_listening`, pressed
-through a real socket, because it is the half `pool`'s arithmetic cannot answer.
+`Subscriber` holds what is wanted rather than taking it once, so `subscribe` and
+`unsubscribe` write a line of each name down the connection that is already
+open, and a reconnection asks for whatever is wanted at the moment it gets in.
+What makes that worth having is the replay: a program that asks again is told
+the last word on the event group straight away rather than waiting for the next
+change, so hanging up costs a panel nothing when it comes back. That is
+`the_stopped_listening`, pressed through a real socket, because it is the half
+`pool`'s arithmetic cannot answer.
 
 The seam itself is pressed too. `console-program-runtime`'s `the_words` runs a
 real pool on a real socket and a real program on the real loop, and the only
@@ -337,12 +343,13 @@ The arms are a match staying exhaustive over a shared set. What is owed is a
 `Listening` held by the panel with its words pumped onto the main context — and
 it waits on a card that would ask, which waits on a source.
 
-**A topic with no source is what everything else waits behind.** One source at a
-time is the rule and it is the right rule. `Sound` is there now; `Player` is not,
-so the music bar and the music card — the two with the most to gain — still have
-nothing to ask for. Each new source is a program of someone else's watched
-until it is known what it does when it is restarted underneath, which is the
-work, and it is why the number of sources goes up slowly and on purpose.
+**An event group with no source is what everything else waits behind.** One
+source at a time is the rule and it is the right rule. `Sound` is there now;
+`Player` is not, so the music bar and the music card — the two with the most to
+gain — still have nothing to ask for. Each new source is a program of someone
+else's watched until it is known what it does when it is restarted underneath,
+which is the work, and it is why the number of sources goes up slowly and on
+purpose.
 
 The volume rocker is the one to stop expecting anything from. `console-volume`
 presses `pactl` and reads the level back in the same run; it holds no state
@@ -360,11 +367,12 @@ panel already holds that answer, because that state is what it draws itself
 from. The subscription should follow it.
 
 What makes hanging up safe is already built: `listens` replays the last word on
-a topic to whoever has just subscribed. Without that, a panel coming back would
-be a panel drawn from whatever it remembered before it left, and stopped listening would
-be trading a warm battery for a wrong screen. With it, a panel that comes back
-asks and is told what is true now — so the expensive thing to be is *visible*,
-which is the only sensible answer for a machine someone is holding.
+an event group to whoever has just subscribed. Without that, a panel coming back
+would be a panel drawn from whatever it remembered before it left, and stopped
+listening would be trading a warm battery for a wrong screen. With it, a panel
+that comes back asks and is told what is true now — so the expensive thing to be
+is *visible*, which is the only sensible answer for a machine someone is
+holding.
 
 ## Threads, honestly
 

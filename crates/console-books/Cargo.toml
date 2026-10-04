@@ -26,6 +26,7 @@ console-core-words.workspace = true
 console-defaults.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
+console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-events.workspace = true

@@ -19,11 +19,19 @@
 //! of it for a program with a thread to spare: hand it a round and it is made
 //! again forever. A program already inside a loop of someone else's -- a
 //! panel's, which is glib's -- cannot be handed a thread and has to do its own
-//! awaiting, so [`Between`] is the same decision without the thread: how long
-//! before the next try, given how long the last one stood. `keep` is written on
-//! it, which is what stops the two from drifting.
+//! awaiting, so [`schedule`] is the same decision without the thread: its
+//! driver says how long before the next try, given how long the last one
+//! stood. `keep` steps that same driver, which is what stops the two from
+//! drifting.
+//!
+//! The decision itself is a `console_core_schedules::Schedule`: a second,
+//! twice as long after every try that falls straight over, never longer than a
+//! minute, and a second again once a try has stood. It used to be written out
+//! here as two functions and a struct that said it twice; it is now said once,
+//! in the words every other wait in the tree is said in.
 
 use console_core_never::Never;
+use console_core_schedules::{Decision, Elapsed, Schedule};
 use std::time::{Duration, Instant};
 
 pub const FIRST: Duration = Duration::from_secs(1);
@@ -32,42 +40,16 @@ pub const LONGEST: Duration = Duration::from_secs(60);
 
 pub const STOOD: Duration = Duration::from_secs(5);
 
-pub fn after(waited: Duration, stood: Duration) -> Result<Duration, Never> {
-    Ok(match stood >= STOOD {
-        true => FIRST,
-        false => waited,
-    })
-}
-
-pub fn longer(waited: Duration) -> Result<Duration, Never> {
-    Ok((waited * 2).min(LONGEST))
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Round {
     Another,
     Finished,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Between {
-    waited: Duration,
-}
+pub fn schedule() -> Result<Schedule, Never> {
+    let Ok(growing) = Schedule::exponential(FIRST, LONGEST);
 
-impl Between {
-    pub fn tries() -> Result<Self, Never> {
-        Ok(Self { waited: FIRST })
-    }
-
-    pub fn after(&mut self, stood: Duration) -> Result<Duration, Never> {
-        let Ok(again) = after(self.waited, stood);
-
-        let Ok(longer) = longer(again);
-
-        self.waited = longer;
-
-        Ok(again)
-    }
+    growing.reset_after(STOOD)
 }
 
 pub fn keep(once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
@@ -79,7 +61,9 @@ pub fn keep(once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
         )
     )]
     let _ = std::thread::spawn(move || {
-        let Ok(mut between) = Between::tries();
+        let Ok(schedule) = schedule();
+        let Ok(mut driver) = schedule.driver();
+        let Ok(started) = now();
         let Ok(mut began) = now();
         let rounds = std::iter::repeat_with(once).map_while(|round| match round {
             Round::Another => Some(()),
@@ -87,7 +71,12 @@ pub fn keep(once: impl FnMut() -> Round + Send + 'static) -> Result<(), Never> {
         });
 
         for () in rounds {
-            let Ok(again) = between.after(began.elapsed());
+            let Ok(decided) = driver.next(Elapsed { total: started.elapsed(), this_try: began.elapsed() });
+
+            let again = match decided {
+                Decision::Continue(again) => again,
+                Decision::Finished => break,
+            };
 
             #[cfg_attr(
                 dylint_lib = "explicit021_no_sleeping",
@@ -124,79 +113,56 @@ mod tests {
     use std::sync::mpsc::RecvTimeoutError;
     use std::error::Error;
 
+    const FELL_OVER: Elapsed = Elapsed { total: Duration::ZERO, this_try: Duration::ZERO };
+
     #[test]
     fn the_first_wait_is_short_enough_to_be_a_blink() {
+        let Ok(schedule) = schedule();
+        let Ok(mut driver) = schedule.driver();
+        let Ok(first) = driver.next(FELL_OVER);
+
         assert!(FIRST <= Duration::from_secs(1));
+        assert_eq!(first, Decision::Continue(FIRST));
+    }
+
+    #[test]
+    fn a_far_end_that_never_answers_is_left_alone_for_longer_and_never_longer_than_the_longest() {
+        let Ok(schedule) = schedule();
+        let Ok(mut driver) = schedule.driver();
+        let mut waits: Vec<Decision> = Vec::new();
+
+        for _ in 0..10 {
+            let Ok(decided) = driver.next(FELL_OVER);
+
+            waits.push(decided);
+        }
+
+        assert_eq!(waits.last(), Some(&Decision::Continue(LONGEST)));
+        assert!(waits.iter().all(|wait| *wait != Decision::Finished), "a subscription is made again forever");
     }
 
     #[test]
     fn a_subscription_that_stood_starts_the_waiting_over() {
-        let Ok(stood) = after(Duration::from_secs(32), STOOD);
-        let Ok(longest) = after(LONGEST, Duration::from_secs(600));
-
-        assert_eq!(stood, FIRST);
-        assert_eq!(longest, FIRST);
-    }
-
-    #[test]
-    fn a_far_end_that_never_answers_is_left_alone_for_longer() {
-        let mut waited = FIRST;
-
-        for _ in 0..10 {
-            let Ok(kept) = after(waited, Duration::from_millis(0));
-            let Ok(longer) = longer(kept);
-
-            waited = longer;
-        }
-
-        assert_eq!(waited, LONGEST);
-    }
-
-    #[test]
-    fn the_waiting_never_grows_past_the_longest() {
-        let Ok(at_the_longest) = longer(LONGEST);
-        let Ok(nearly) = longer(Duration::from_secs(59));
-
-        assert_eq!(at_the_longest, LONGEST);
-        assert!(nearly <= LONGEST);
-    }
-
-    #[test]
-    fn a_try_that_failed_at_once_keeps_the_wait_it_had() {
-        let waited = Duration::from_secs(8);
-        let Ok(kept) = after(waited, Duration::from_millis(1));
-
-        assert_eq!(kept, waited);
-    }
-
-    #[test]
-    fn the_waiting_a_caller_does_itself_is_the_waiting_the_thread_does() {
-        let Ok(mut between) = Between::tries();
-        let mut waited = FIRST;
-
-        for _ in 0..10 {
-            let Ok(theirs) = after(waited, Duration::from_millis(0));
-            let Ok(longer) = longer(theirs);
-
-            waited = longer;
-
-            let Ok(ours) = between.after(Duration::from_millis(0));
-
-            assert_eq!(ours, theirs);
-        }
-    }
-
-    #[test]
-    fn a_caller_whose_last_try_stood_waits_from_the_start_again() {
-        let Ok(mut between) = Between::tries();
+        let Ok(schedule) = schedule();
+        let Ok(mut driver) = schedule.driver();
 
         for _ in 0..5 {
-            let Ok(_growing) = between.after(Duration::from_millis(0));
+            let Ok(_growing) = driver.next(FELL_OVER);
         }
 
-        let Ok(after_it_stood) = between.after(STOOD);
+        let Ok(after_it_stood) = driver.next(Elapsed { total: Duration::ZERO, this_try: STOOD });
 
-        assert_eq!(after_it_stood, FIRST);
+        assert_eq!(after_it_stood, Decision::Continue(FIRST));
+    }
+
+    #[test]
+    fn a_try_that_failed_at_once_keeps_the_wait_growing() {
+        let Ok(schedule) = schedule();
+        let Ok(mut driver) = schedule.driver();
+        let Ok(_first) = driver.next(FELL_OVER);
+        let Ok(nearly) = driver.next(Elapsed { total: Duration::ZERO, this_try: Duration::from_millis(4_999) });
+
+        assert_eq!(nearly, Decision::Continue(FIRST.saturating_mul(2)));
     }
 
     #[test]

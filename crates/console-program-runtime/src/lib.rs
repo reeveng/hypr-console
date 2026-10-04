@@ -21,36 +21,37 @@
 //! due**, because a daemon decides on the wake-up: anything that arrived
 //! while it was asleep has to be in the state by the time it is asked.
 //!
-//! **What a program subscribed to is asked of the pool.** `Subscription::Topic`
-//! is a topic, `console-events` is the one subscription to it on the machine,
-//! and this is where the two meet: the loop holds one [`Subscriber`],
-//! `Effect::Subscribe` adds a topic to it and `Effect::Unsubscribe` takes one
-//! away, and what the pool says arrives as [`Event::Changed`] the way a timer
-//! falling due arrives as [`Event::Tick`]. A program with no pool hears nothing
-//! and keeps whatever `Subscription::Timer` it also asked for, which is the
-//! fallback the whole design leans on: slower, and never wrong.
+//! **What a program subscribed to is asked of the pool.**
+//! `Subscription::EventGroup` is an event group, `console-events` is the one
+//! subscription to it on the machine, and this is where the two meet: the loop
+//! holds one [`Subscriber`], `Effect::Subscribe` adds an event group to it and
+//! `Effect::Unsubscribe` takes one away, and what the pool says arrives as
+//! [`Event::Changed`] the way a timer falling due arrives as [`Event::Tick`]. A
+//! program with no pool hears nothing and keeps whatever `Subscription::Timer`
+//! it also asked for, which is the fallback the whole design leans on: slower,
+//! and never wrong.
 //!
 //! **So there is one wait rather than a sleep.** The loop blocks on the pool's
 //! channel until the next timer falls due, which is the same wait for both
 //! reasons a program can be woken and is why nothing in this crate has to
-//! declare a sleep any more. A program subscribed to no topic still waits here:
-//! the channel is open and quiet, and a `recv_timeout` on it that times out is
-//! the timer falling due. Getting into the pool is an event of its own there
-//! and the loop does nothing with it, because what a program subscribed to
-//! after a gap is the replay that is already following it.
+//! declare a sleep any more. A program subscribed to no event group still waits
+//! here: the channel is open and quiet, and a `recv_timeout` on it that times
+//! out is the timer falling due. Getting into the pool is an event of its own
+//! there and the loop does nothing with it, because what a program subscribed
+//! to after a gap is the replay that is already following it.
 //!
-//! **A program can be woken by what only its interpreter can reach.** A
-//! device node, a socket someone else opened -- the runtime has no way to wait
-//! on either, and recovery and the wallpaper each wrote the whole loop again
+//! **A program can be woken by what only its interpreter can reach.** A device
+//! node, a socket someone else opened -- the runtime has no way to wait on
+//! either, and recovery and the wallpaper each wrote the whole loop again
 //! rather than go without. [`Interpreter::listen`] is handed a [`Tell`] once,
 //! before the first turn, and whatever it sends arrives as [`Event::Custom`]
 //! through the same wait the pool's changes come through: the pool is carried
-//! onto that one channel by a thread of its own, so there is still one wait
-//! and not a poll across two. An interpreter that listens keeps the program
-//! alive with no timer and no topic, and [`Tell::end`] is how the thread it
+//! onto that one channel by a thread of its own, so there is still one wait and
+//! not a poll across two. An interpreter that listens keeps the program alive
+//! with no timer and no event group, and [`Tell::end`] is how the thread it
 //! started says the thing it was waiting on has gone -- a program waiting on a
-//! pad that can no longer be read is finished, and saying so is the only way
-//! it stops rather than waiting on a channel that will never speak again.
+//! pad that can no longer be read is finished, and saying so is the only way it
+//! stops rather than waiting on a channel that will never speak again.
 //!
 //! **A timer that cannot fall due is not a timer.** `Instant::checked_add`
 //! refuses when the answer would be hundreds of years out, so nothing on a
@@ -82,7 +83,7 @@ use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Transition};
 use console_program_contract::{
-    Answer, Arguments, Change, Choice, Effect, Exit, Executable, Prompt, Timer, Command,
+    Answer, Change, Choice, Effect, Exit, Executable, Prompt, Timer, Command,
     Notification, Elapsed, Subscription, ExitStatus, Event, FileWrite,
 };
 
@@ -167,14 +168,14 @@ struct Waits<'a, E> {
     listening: Subscribed,
 }
 
-pub fn run<M, C>(called: &str, arguments: &Arguments, interpreter: &mut C) -> Result<ExitCode, Never>
+pub fn run<M, C>(called: &str, input: &M::Input, interpreter: &mut C) -> Result<ExitCode, Never>
 where
-    M: Machine<Input = Arguments, Request = Event<C::Event>, Effect = Effect<C::Effect>>,
+    M: Machine<Request = Event<C::Event>, Effect = Effect<C::Effect>>,
     C: Interpreter<Event: Send + 'static>,
 {
-    let Ok(Transition { state, effects: initialized }) = M::initial_transition(arguments, None);
+    let Ok(Transition { state, effects: initialized }) = M::initial_transition(input, None);
     let Ok(subscriber) = subscription::connect(&[]);
-    let Ok((topics, pool)) = subscriber.split();
+    let Ok((event_groups, pool)) = subscriber.split();
     let (telling, arrived) = channel::<Arrived<C::Event>>();
     let carrying = telling.clone();
 
@@ -188,7 +189,7 @@ where
     }));
 
     let Ok(listening) = interpreter.listen(Tell(telling));
-    let waits = Waits { arrived: &arrived, subscriptions: &topics, listening };
+    let waits = Waits { arrived: &arrived, subscriptions: &event_groups, listening };
 
     #[cfg_attr(
         dylint_lib = "explicit039_no_reading_the_clock",
@@ -199,7 +200,7 @@ where
     )]
     let began = Instant::now();
     let mut turning = Turning { held: state, timers: Vec::new(), queue: VecDeque::new(), running: Vec::new(), interpreter };
-    let asked = Context { called, topics: &topics, waits: &waits, began };
+    let asked = Context { called, event_groups: &event_groups, waits: &waits, began };
     let Ok(ending) = carried_out(&initialized, &mut turning, &asked);
 
     match ending {
@@ -229,7 +230,7 @@ struct Turning<'i, S, E, C> {
 
 struct Context<'a, E> {
     called: &'a str,
-    topics: &'a Subscriptions,
+    event_groups: &'a Subscriptions,
     waits: &'a Waits<'a, E>,
     began: Instant,
 }
@@ -340,10 +341,10 @@ fn carried_out<S, C: Interpreter>(
                         reason = "a timer asked for part way through a life falls due from when it was asked, and the loop is the only thing that knows when that was"
                     )
                 )]
-                let Ok(()) = subscribe(called, &mut turning.timers, asked.topics, want, Instant::now());
+                let Ok(()) = subscribe(called, &mut turning.timers, asked.event_groups, want, Instant::now());
             }
             Effect::Unsubscribe(want) => {
-                let Ok(()) = unsubscribe(&mut turning.timers, asked.topics, want);
+                let Ok(()) = unsubscribe(&mut turning.timers, asked.event_groups, want);
             }
             Effect::Write(write) => {
                 let Ok(()) = wrote(called, write);
@@ -489,8 +490,8 @@ fn subscribe(
                 ),
             }
         }
-        Subscription::Topic(topic) => {
-            let Ok(()) = subscriptions.subscribe(topic);
+        Subscription::EventGroup(event_group) => {
+            let Ok(()) = subscriptions.subscribe(event_group);
         }
     }
 
@@ -500,8 +501,8 @@ fn subscribe(
 fn unsubscribe(timers: &mut Vec<Waiting>, subscriptions: &Subscriptions, want: &Subscription) -> Result<(), Never> {
     match want {
         Subscription::Timer(timer) => timers.retain(|waiting| waiting.timer != *timer),
-        Subscription::Topic(topic) => {
-            let Ok(()) = subscriptions.unsubscribe(topic);
+        Subscription::EventGroup(event_group) => {
+            let Ok(()) = subscriptions.unsubscribe(event_group);
         }
     }
 

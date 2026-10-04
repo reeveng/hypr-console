@@ -1,14 +1,14 @@
 //! What wakes a reading up.
 //!
-//! Each of these has something that says when it changed, and every one of
-//! them is asked through `console-events` rather than opened here: the sound is
-//! told by pipewire, the network by NetworkManager, Bluetooth by bluetoothd on
-//! the system bus, the battery by the kernel when a supply changed, and every
-//! one of them by the compositor when a panel opens over it. The battery was
-//! the last to open its own `udevadm monitor`, on the argument that no other
+//! Each of these has something that says when it changed, and every one of them
+//! is asked through `console-events` rather than opened here: the sound is told
+//! by pipewire, the network by NetworkManager, Bluetooth by bluetoothd on the
+//! system bus, the battery by the kernel when a supply changed, and every one
+//! of them by the compositor when a panel opens over it. The battery was the
+//! last to open its own `udevadm monitor`, on the argument that no other
 //! program would ask about this machine's supplies; the pool holds a source
-//! only while somebody listens, so a topic with one listener costs what the
-//! bar's own process cost, and the bar stops being the one program with a
+//! only while somebody listens, so an event group with one listener costs what
+//! the bar's own process cost, and the bar stops being the one program with a
 //! subscription nobody else can see.
 //!
 //! **A reading its source tells about is never read on a clock.** Bluetooth
@@ -63,7 +63,7 @@ use std::time::Duration;
 use console_compositor::events::CompositorEvent;
 use console_events::again::{self, Worth, Worthwhile, about, always, layers};
 use console_core_never::Never;
-use console_program_contract::Topic;
+use console_program_contract::EventGroup;
 
 use crate::reading::StatusItem;
 
@@ -77,19 +77,19 @@ pub fn tick(item: StatusItem) -> Result<Option<Duration>, Never> {
     })
 }
 
-fn change_source(item: StatusItem) -> Result<(Topic, Worthwhile), Never> {
+fn change_source(item: StatusItem) -> Result<(EventGroup, Worthwhile), Never> {
     Ok(match item {
-        StatusItem::Battery => (Topic::Battery, always),
-        StatusItem::Bluetooth => (Topic::Bluetooth, again::bluetooth),
-        StatusItem::Network => (Topic::Network, always),
-        StatusItem::Sound => (Topic::Sound, again::sound),
+        StatusItem::Battery => (EventGroup::Battery, always),
+        StatusItem::Bluetooth => (EventGroup::Bluetooth, again::bluetooth),
+        StatusItem::Network => (EventGroup::Network, always),
+        StatusItem::Sound => (EventGroup::Sound, again::sound),
     })
 }
 
 pub fn subscribe(item: StatusItem, say: Sender<()>) -> Result<(), Never> {
-    let Ok((topic, worth)) = change_source(item);
+    let Ok((event_group, worth)) = change_source(item);
 
-    about(&topic, worth, say)
+    about(&event_group, worth, say)
 }
 
 pub fn watch(item: StatusItem) -> Result<Receiver<()>, Never> {
@@ -101,7 +101,7 @@ pub fn watch(item: StatusItem) -> Result<Receiver<()>, Never> {
 }
 
 pub fn telling_notifications(say: Sender<()>) -> Result<(), Never> {
-    about(&Topic::Notifications, again::notifications, say)
+    about(&EventGroup::Notifications, again::notifications, say)
 }
 
 pub fn watching_notifications() -> Result<Receiver<()>, Never> {
@@ -134,7 +134,7 @@ pub fn surface_worth_asking_after(line: &str) -> Result<Worth, Never> {
 }
 
 pub fn telling_surfaces(say: Sender<()>) -> Result<(), Never> {
-    about(&Topic::Compositor, surface_worth_asking_after, say)
+    about(&EventGroup::Compositor, surface_worth_asking_after, say)
 }
 
 #[cfg(test)]
@@ -146,16 +146,16 @@ mod tests {
 
     #[test]
     fn every_reading_is_told_by_the_pool_rather_than_by_a_program_of_its_own() {
-        let told: Vec<Topic> = EVERY
+        let told: Vec<EventGroup> = EVERY
             .iter()
             .map(|item| {
-                let Ok((topic, _worth)) = change_source(*item);
+                let Ok((event_group, _worth)) = change_source(*item);
 
-                topic
+                event_group
             })
             .collect();
 
-        assert_eq!(told, [Topic::Battery, Topic::Bluetooth, Topic::Network, Topic::Sound]);
+        assert_eq!(told, [EventGroup::Battery, EventGroup::Bluetooth, EventGroup::Network, EventGroup::Sound]);
     }
 
     #[test]

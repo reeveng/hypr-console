@@ -18,6 +18,7 @@ name = "console-browser"
 path = "src/bin/console-browser.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-external-programs.workspace = true
 console-core-places.workspace = true
 console-core-atomic-writes.workspace = true

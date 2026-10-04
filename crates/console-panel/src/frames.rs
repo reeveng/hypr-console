@@ -79,7 +79,7 @@ pub enum Notice {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Woken {
+pub struct WakeState {
     pub frame: FrameReceived,
     pub card: FrameReceived,
     pub rows: FrameReceived,
@@ -101,13 +101,13 @@ impl FrameReceived {
     }
 }
 
-impl Woken {
-    pub fn and(self, later: Woken) -> Result<Woken, Never> {
+impl WakeState {
+    pub fn and(self, later: WakeState) -> Result<WakeState, Never> {
         let Ok(frame) = self.frame.or(later.frame);
         let Ok(card) = self.card.or(later.card);
         let Ok(rows) = self.rows.or(later.rows);
 
-        Ok(Woken { frame, card, rows })
+        Ok(WakeState { frame, card, rows })
     }
 }
 
@@ -233,12 +233,12 @@ pub fn listened(deadline: Option<&OwnedFd>) -> Result<Listened, Never> {
     })
 }
 
-pub fn wake_state() -> Result<Woken, Never> {
+pub fn wake_state() -> Result<WakeState, Never> {
     let Ok(wake) = wake();
 
     let told = match wake {
         Some((told, _)) => told,
-        None => return Ok(Woken::default()),
+        None => return Ok(WakeState::default()),
     };
 
     let read = std::iter::from_fn(|| {
@@ -252,10 +252,10 @@ pub fn wake_state() -> Result<Woken, Never> {
         }
     });
 
-    Ok(read.flatten().fold(Woken::default(), |heard, byte| match byte {
-        b'f' => Woken { frame: FrameReceived::Yes, ..heard },
-        b'c' => Woken { card: FrameReceived::Yes, ..heard },
-        b'r' => Woken { rows: FrameReceived::Yes, ..heard },
+    Ok(read.flatten().fold(WakeState::default(), |heard, byte| match byte {
+        b'f' => WakeState { frame: FrameReceived::Yes, ..heard },
+        b'c' => WakeState { card: FrameReceived::Yes, ..heard },
+        b'r' => WakeState { rows: FrameReceived::Yes, ..heard },
         _somebody_else => heard,
     }))
 }

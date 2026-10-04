@@ -5,9 +5,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use console_compositor::{ActiveWorkspace, Clients, DispatchResult, Monitors, Request};
+use console_core_arguments::{Operands, Presence, read};
 use console_core_color::palette::Wearing;
 use console_core_fonts::TextStyle;
 use console_core_geometry::{Point, Size};
+use console_core_internal_programs::OVERVIEW_SHOW;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_shapes::Pixels;
@@ -58,7 +60,12 @@ enum Next {
 
 const SHOW: &str = "show";
 
-const ASKED_TO_SHOW: &str = "--show";
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-overview",
+    about: "every workspace and its windows at once, waiting at the screen's edge until it is opened",
+    flags: &[OVERVIEW_SHOW],
+    operands: Operands::None,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Command {
@@ -67,15 +74,25 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    let showing_only = std::env::args().skip(1).any(|word| word == ASKED_TO_SHOW);
+    let words: Vec<String> = std::env::args().skip(1).collect();
 
-    match showing_only {
-        true => {
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        }
+    };
+    let Ok(showing) = line.presence(OVERVIEW_SHOW);
+
+    match showing {
+        Presence::Present => {
             let Ok(shown) = show();
 
             return shown;
         }
-        false => {},
+        Presence::Absent => {},
     }
 
     let wearing = match Wearing::worn() {

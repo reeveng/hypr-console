@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use console_core_external_programs::Program;
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_panel::card::{Card, Door};
 use console_panel::marks;
@@ -47,6 +48,13 @@ const TODAY: &str = "+%Y %m %d";
 const NO_DAY: &str = "Date Unavailable";
 
 type Shared = Arc<AtomicI32>;
+
+pub const COMMAND: Command = Command {
+    name: "calendar-panel",
+    about: "the calendar",
+    flags: &[],
+    operands: Operands::None,
+};
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)

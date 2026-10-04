@@ -471,7 +471,7 @@ pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Rendered, 
     let Ok(ends) = fitted::<u32, i32>(wide.saturating_sub(right));
 
     for (slots, across) in [(&bar.left, 0), (&bar.middle, center), (&bar.right, ends)] {
-        let Ok(()) = laid(slots, Point { x: across, y: 0 }, fitting, wearing, &mut shapes, &mut touching);
+        let Ok(()) = layout(slots, Point { x: across, y: 0 }, fitting, wearing, &mut shapes, &mut touching);
     }
 
     match bar.filling {
@@ -517,12 +517,12 @@ pub fn beneath(row: &[Measured], wearing: &Wearing, room: Size<u32>) -> Result<R
         edge: Edge::None,
     }));
 
-    let Ok(()) = laid(row, under, fitting, wearing, &mut shapes, &mut touching);
+    let Ok(()) = layout(row, under, fitting, wearing, &mut shapes, &mut touching);
 
     Ok(Rendered { shapes, room: Size { width: wide, height: fitting.deep }, touching })
 }
 
-fn laid(
+fn layout(
     slots: &[Measured],
     from: Point<i32>,
     fitting: Fitting,

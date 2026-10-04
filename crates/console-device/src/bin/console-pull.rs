@@ -9,9 +9,8 @@
 use std::process::ExitCode;
 
 use console_device_name as naming;
-use console_program_contract::Arguments;
 use console_program_runtime::Pure;
-use console_device::pulling::Pull;
+use console_device::pulling::{Named, Pull};
 
 fn main() -> ExitCode {
     let host = match naming::device() {
@@ -23,13 +22,8 @@ fn main() -> ExitCode {
         }
     };
 
-    let arguments: Vec<&str> = match host.is_empty() {
-        true => Vec::new(),
-        false => vec![host.as_str()],
-    };
-
-    let Ok(arguments) = Arguments::of(&arguments);
-    let Ok(code) = console_program_runtime::run::<Pull, Pure>("console-pull", &arguments, &mut Pure);
+    let Ok(named) = Named::of(Some(&host));
+    let Ok(code) = console_program_runtime::run::<Pull, Pure>("console-pull", &named, &mut Pure);
 
     code
 }

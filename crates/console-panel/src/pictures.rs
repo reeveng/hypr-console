@@ -64,6 +64,7 @@
 //! written by an older version of this is slower and never wrong.
 
 
+use console_core_arguments::{Flag, Takes};
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -106,7 +107,7 @@ pub struct Picture {
     pub pixels: Vec<u8>,
 }
 
-pub const SIDE: &str = "--side";
+pub const SIDE: Flag = Flag { spelling: "--side", takes: Takes::Value("PIXELS"), about: "the side the caller draws at, the rows' if none is said" };
 
 pub fn store() -> Result<Option<PathBuf>, Never> {
     let ours = Base::Cache.ours()?;
@@ -436,7 +437,7 @@ pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
 
     let Ok(mut drawing) = InternalProgram::PanelPictures.command();
     drawing
-        .args([SIDE, &side.0.to_string()])
+        .args([SIDE.spelling, &side.0.to_string()])
         .args(wanted)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

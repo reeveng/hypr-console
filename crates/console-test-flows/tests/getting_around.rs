@@ -25,7 +25,7 @@
 use std::error::Error;
 
 use console_core_never::Never;
-use console_input_controller::actions::{Task, Applicability, Table, Action, Context, job};
+use console_input_controller::actions::{Task, Availability, Table, Action, Context, job};
 use console_input_controller::mode::Mode;
 use console_test_flows::screens;
 use console_button_guide::guide::{DOABLE, MENUS, Line, Section, opens_on, button_label, sections};
@@ -96,9 +96,9 @@ fn bare(table: &Table, mode: Mode) -> Result<Vec<(&'static Task, String)>, Never
 
     Ok(every
         .filter(|(job, _)| {
-            let Ok(applicability) = job.context.applicability(mode);
+            let Ok(applicability) = job.context.availability(mode);
 
-            applicability == Applicability::InFront
+            applicability == Availability::Available
         })
         .flat_map(|(job, bound)| {
             bound

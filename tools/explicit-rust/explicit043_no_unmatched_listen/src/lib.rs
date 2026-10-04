@@ -1,18 +1,18 @@
-//! EXPLICIT043: a topic listened to is a topic the program stops listening to.
+//! EXPLICIT043: a program that listens to an event group stops listening to it.
 //!
 //! This is the one thing in the contract's list of effects that is half of a
 //! pair. `Ask` is over when the answer comes back, `Start` is answered by
 //! `console-program-lifetime` saying how long the child lives, `Write` ends
-//! with the file on the disk. `Subscribe` is none of those: it adds a topic to a
-//! connection and then nothing happens, for as long as the program runs. What
-//! it costs is not the subscription, it is every event on that topic
-//! afterwards -- woken, decoded, walked past, and thrown away, by a program
-//! that stopped caring about it three screens ago.
+//! with the file on the disk. `Subscribe` is none of those: it adds an event
+//! group to a connection and then nothing happens, for as long as the program
+//! runs. What it costs is not the subscription, it is every event in that event
+//! group afterwards -- woken, decoded, walked past, and thrown away, by a
+//! program that stopped caring about it three screens ago.
 //!
 //! `console-events` is built for the pair and says so: the pool has `subscribe`
 //! and `unsubscribe`, the wire has both words, and a connection dropped takes its
-//! topics with it. What has no name is the shape in between -- a topic added
-//! part way through a program's life, by a program that goes on living. That
+//! event groups with it. What has no name is the shape in between -- an event
+//! group that a program adds part way through its life and goes on living. That
 //! is `Subscriber::subscribe`, and the only thing that ever takes one back is
 //! `Subscriber::unsubscribe`.
 //!
@@ -28,7 +28,8 @@
 //! That is a weaker question than the one a type would ask, and it is the
 //! honest one to ask here. A linear type could hold the pair properly: a
 //! subscription that must be given back, a `Subscriber` that will not drop with
-//! topics on it. Rust can express that and this tree has the place for it --
+//! event groups on it. Rust can express that and this tree has the place for
+//! it --
 //! it is `console-program-lifetime`'s trick, where the two ways a child can
 //! end are the two variants and there is no third. What stops it being written
 //! today is that `Effect` is a value handed across a loop that does not own the
@@ -55,13 +56,13 @@ use rustc_lint::{LateContext, LateLintPass};
 use rustc_span::Span;
 
 dylint_linting::impl_late_lint! {
-    /// EXPLICIT043: `Effect::Subscribe` adds a topic and nothing takes it away.
-    /// A crate that never says `Effect::Unsubscribe` has decided that everything it
-    /// listens to it listens to for as long as it runs, and has written that
-    /// nowhere.
+    /// EXPLICIT043: `Effect::Subscribe` adds an event group and nothing takes
+    /// it away. A crate that never says `Effect::Unsubscribe` has decided that
+    /// everything it listens to it listens to for as long as it runs, and has
+    /// written that nowhere.
     pub EXPLICIT043_NO_UNMATCHED_LISTEN,
     Deny,
-    "a topic listened to in a crate that never stops_listening one",
+    "a crate that listens to an event group and never stops listening to one",
     Explicit043NoUnmatchedListen::new()
 }
 
@@ -184,13 +185,13 @@ impl<'tcx> LateLintPass<'tcx> for Explicit043NoUnmatchedListen {
                 EXPLICIT043_NO_UNMATCHED_LISTEN,
                 *node,
                 *at,
-                format!("`{listens}` is said in this crate and `{stops_listening}` is not: the topic is listened to for as long as the program runs"),
+                format!("this crate says `{listens}` and never `{stops_listening}`: the program listens to the event group for as long as it runs"),
                 |said| {
                     said.help(
-                        "say where it stops. Every event on a topic no one is reading any more is still a \
+                        "say where it stops. Every event in an event group no one is reading any more is still a \
                          wake, a decode and a walk past, and the cost of it is nowhere near the line that \
                          caused it. If the answer really is for the life of the program -- a program that \
-                         is about the topic and ends when it stops caring -- allow this rule at the listen \
+                         is about the event group and ends when it stops caring -- allow this rule at the listen \
                          and let the reason say so",
                     );
                 },

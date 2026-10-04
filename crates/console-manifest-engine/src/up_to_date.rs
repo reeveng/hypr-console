@@ -5,7 +5,7 @@
 //! is the same question in all three, and the report reads it the same way.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Settled {
+pub enum UpToDate {
     Yes,
     No,
 }

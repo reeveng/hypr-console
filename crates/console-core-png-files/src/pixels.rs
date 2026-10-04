@@ -10,6 +10,11 @@
 //! Eight bits a channel with no colour keyed out is nearly every PNG there is,
 //! so a row of it is set down a pixel at a time without each pixel being
 //! asked again what kind it is.
+//!
+//! Writing goes the other way and keeps no more channels than the picture
+//! uses: no alpha when every pixel is opaque, and one channel for grey when
+//! every pixel's red, green and blue are the same. A screenshot of a page is
+//! often both, and is a third of the bytes before anything is deflated.
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -23,6 +28,49 @@ const RGBA: u64 = 4;
 const OPAQUE: u8 = u8::MAX;
 
 const CLEAR: u8 = 0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kept {
+    Grey,
+    GreyAlpha,
+    Rgb,
+    Rgba,
+}
+
+impl Kept {
+    pub(crate) fn color(self) -> Result<Color, Never> {
+        Ok(match self {
+            Kept::Grey => Color::Grey,
+            Kept::GreyAlpha => Color::GreyAlpha,
+            Kept::Rgb => Color::Rgb,
+            Kept::Rgba => Color::Rgba,
+        })
+    }
+}
+
+pub(crate) fn fewest(rgba: &[u8]) -> Result<Kept, Never> {
+    let (pixels, _) = rgba.as_chunks::<4>();
+    let grey = pixels.iter().all(|[red, green, blue, _]| red == green && green == blue);
+    let opaque = pixels.iter().all(|[.., alpha]| *alpha == OPAQUE);
+
+    Ok(match (grey, opaque) {
+        (true, true) => Kept::Grey,
+        (true, false) => Kept::GreyAlpha,
+        (false, true) => Kept::Rgb,
+        (false, false) => Kept::Rgba,
+    })
+}
+
+pub(crate) fn unpainted(rgba: &[u8], kept: Kept) -> Result<Vec<u8>, Never> {
+    let (pixels, _) = rgba.as_chunks::<4>();
+
+    Ok(match kept {
+        Kept::Grey => pixels.iter().map(|[grey, ..]| *grey).collect(),
+        Kept::GreyAlpha => pixels.iter().flat_map(|[grey, _, _, alpha]| [*grey, *alpha]).collect(),
+        Kept::Rgb => pixels.iter().flat_map(|[red, green, blue, _]| [*red, *green, *blue]).collect(),
+        Kept::Rgba => rgba.to_vec(),
+    })
+}
 
 pub(crate) fn painted(read: &Read, unpacked: Vec<u8>) -> Result<Vec<u8>, PngError> {
     let size = read.header.size;

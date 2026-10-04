@@ -19,16 +19,17 @@
 //! indistinguishable from a press that never landed -- so what bluez said is
 //! carried out to where someone can read it.
 
+use console_core_arguments::{Operands, ValidationError, read_with};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_notifications::saying::{Notification, Content, raise};
-use console_settings::introducing::{self, Reply, Command, INTRODUCE, Went};
+use console_settings::introducing::{self, Bluetooth, Reply, Went};
 
 fn bluetoothctl(arguments: &[String]) -> Result<String, Never> {
     let mut asking = Program::Bluetoothctl.command()?;
 
     let said = match asking.args(arguments).output() {
-        Ok(said) => said,
+        Ok(message) => message,
         Err(_would_not_start) => return Ok(String::new()),
     };
 
@@ -82,22 +83,40 @@ fn introduce(address: &str) -> Result<Went, Never> {
     Ok(joined)
 }
 
-fn said_how() -> Result<std::process::ExitCode, Never> {
-    eprintln!("usage: console-bluetooth {INTRODUCE} ADDRESS");
+const ADDRESS: [&str; 1] = ["ADDRESS"];
 
-    Ok(std::process::ExitCode::from(2))
+const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
+    name: "console-bluetooth",
+    about: "introduce a device to this machine",
+    flags: &[],
+    operands: Operands::Named(&ADDRESS),
+};
+
+fn address(words: &[String]) -> Result<String, ValidationError> {
+    let read = read_with::<Bluetooth, String>(&COMMAND, words);
+    let line = read?;
+    let required = line.require_subcommand();
+    let introducing = required?;
+
+    match introducing {
+        Bluetooth::Introduce => {
+            let operands = line.exactly(ADDRESS);
+            let [address] = operands?;
+
+            Ok(address.clone())
+        }
+    }
 }
 
 fn main() -> std::process::ExitCode {
     let words: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(asked) = introducing::parse_command(&words);
 
-    let address = match asked {
-        Command::Introduce(address) => address,
-        Command::None => {
-            let Ok(how) = said_how();
+    let address = match address(&words) {
+        Ok(address) => address,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-            return how;
+            return std::process::ExitCode::from(code);
         }
     };
 
@@ -106,5 +125,30 @@ fn main() -> std::process::ExitCode {
     match went {
         Went::Well => std::process::ExitCode::SUCCESS,
         Went::Not => std::process::ExitCode::from(1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use console_core_arguments::Reason;
+
+    fn words(said: &[&str]) -> Result<Vec<String>, Never> {
+        Ok(said.iter().map(|word| (*word).to_string()).collect())
+    }
+
+    #[test]
+    fn nothing_but_the_word_and_one_address_is_a_press_this_understands() {
+        let Ok(pressed) = words(&["introduce", "AA:BB:CC:DD:EE:FF"]);
+        let Ok(bare) = words(&["introduce"]);
+        let Ok(forget) = words(&["forget", "AA:BB:CC:DD:EE:FF"]);
+        let Ok(two) = words(&["introduce", "AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"]);
+        let Ok(nothing) = words(&[]);
+
+        assert_eq!(address(&pressed), Ok("AA:BB:CC:DD:EE:FF".to_string()));
+        assert_eq!(address(&bare).map_err(|refusal| refusal.reason), Err(Reason::MissingOperands(vec!["ADDRESS"])));
+        assert_eq!(address(&forget).map_err(|refusal| refusal.reason), Err(Reason::NoSuchSubcommand("forget".to_string())));
+        assert_eq!(address(&two).map_err(|refusal| refusal.reason), Err(Reason::ExtraArgument("11:22:33:44:55:66".to_string())));
+        assert_eq!(address(&nothing).map_err(|refusal| refusal.reason), Err(Reason::MissingSubcommand));
     }
 }

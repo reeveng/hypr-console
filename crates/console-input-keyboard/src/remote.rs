@@ -33,7 +33,7 @@ use std::path::PathBuf;
 use console_core_never::Never;
 use console_core_words::Words;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect, Event, Exit};
+use console_program_contract::{Effect, Event, Exit};
 use console_program_runtime::Interpreter;
 
 use crate::palette::NAME;
@@ -138,12 +138,12 @@ pub struct Toggle;
 pub struct Show;
 
 impl Machine for Toggle {
-    type Input = Arguments;
+    type Input = ();
     type State = Request;
     type Request = Event<Answer>;
     type Effect = Effect<Command>;
 
-    fn initialize(_arguments: &Arguments, _previous: Option<Request>, _effects: &mut Effects) -> Result<Request, Never> {
+    fn initialize(_input: &(), _previous: Option<Request>, _effects: &mut Effects) -> Result<Request, Never> {
         Ok(Request::Pending(Command::Toggle))
     }
 
@@ -155,12 +155,12 @@ impl Machine for Toggle {
 }
 
 impl Machine for Show {
-    type Input = Arguments;
+    type Input = ();
     type State = Request;
     type Request = Event<Answer>;
     type Effect = Effect<Command>;
 
-    fn initialize(_arguments: &Arguments, _previous: Option<Request>, _effects: &mut Effects) -> Result<Request, Never> {
+    fn initialize(_input: &(), _previous: Option<Request>, _effects: &mut Effects) -> Result<Request, Never> {
         Ok(Request::Pending(Command::Show))
     }
 
@@ -201,7 +201,6 @@ fn step(state: &Request, event: &Event<Answer>) -> Result<Transition<Request, Ef
 mod tests {
     use std::path::Path;
 
-    use console_program_contract::Arguments;
     use console_core_state_machine::run;
 
     use super::*;
@@ -210,7 +209,7 @@ mod tests {
 
     #[test]
     fn the_button_asks_the_keyboard_to_change_its_mind_and_says_no_more() {
-        let Ok(trace) = run::<Toggle>(&Arguments::default(), &[Event::Opened, Event::Custom(Answer::Received)]);
+        let Ok(trace) = run::<Toggle>(&(), &[Event::Opened, Event::Custom(Answer::Received)]);
 
         assert_eq!(trace.on(0), Ok(Some([Effect::Custom(Command::Toggle)].as_slice())));
         assert_eq!(trace.on(1), Ok(Some([Effect::Stop(Exit::Success)].as_slice())));
@@ -218,7 +217,7 @@ mod tests {
 
     #[test]
     fn asking_on_someones_behalf_only_ever_shows() {
-        let Ok(trace) = run::<Show>(&Arguments::default(), &[Event::Opened]);
+        let Ok(trace) = run::<Show>(&(), &[Event::Opened]);
 
         assert_eq!(trace.on(0), Ok(Some([Effect::Custom(Command::Show)].as_slice())));
     }
@@ -227,7 +226,7 @@ mod tests {
     fn a_keyboard_that_is_not_running_is_said_out_loud_rather_than_shrugged_at() {
         let at = Path::new("/run/user/1000/console/console-keyboard-wayland-1.sock").to_path_buf();
         let unheard = Answer::Failed { at: at.clone(), why: ErrorKind::ConnectionRefused };
-        let Ok(trace) = run::<Toggle>(&Arguments::default(), &[Event::Opened, Event::Custom(unheard)]);
+        let Ok(trace) = run::<Toggle>(&(), &[Event::Opened, Event::Custom(unheard)]);
 
         assert_eq!(
             trace.on(1),

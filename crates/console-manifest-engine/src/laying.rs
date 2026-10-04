@@ -54,12 +54,12 @@ pub enum Back {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Laid {
+pub struct Install {
     pub at: String,
     pub back: Back,
 }
 
-pub fn undoing(laid: &[Laid]) -> Result<Vec<&Laid>, Never> {
+pub fn undoing(laid: &[Install]) -> Result<Vec<&Install>, Never> {
     Ok(laid.iter().rev().collect())
 }
 
@@ -68,7 +68,7 @@ pub trait Lays {
 
     fn swap(&mut self, live: &str) -> Result<Back, Unapplied>;
 
-    fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied>;
+    fn put_back(&mut self, laid: &Install) -> Result<(), Unapplied>;
 
     fn drop_staged(&mut self, live: &str);
 
@@ -76,7 +76,7 @@ pub trait Lays {
 
     fn presence(&self, live: &str) -> Back;
 
-    fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied>;
+    fn note(&mut self, laid: &[Install]) -> Result<(), Unapplied>;
 
     fn forget_note(&mut self);
 }
@@ -96,7 +96,7 @@ pub enum Put {
 #[derive(Debug, Default)]
 pub struct Deploy {
     staged: Vec<String>,
-    laid: Vec<Laid>,
+    laid: Vec<Install>,
 }
 
 impl Deploy {
@@ -107,16 +107,16 @@ impl Deploy {
     }
 
     pub fn swap(&mut self, lays: &mut impl Lays) -> Result<Vec<Undone>, Unapplied> {
-        let plan: Vec<Laid> = self
+        let plan: Vec<Install> = self
             .staged
             .iter()
-            .map(|live| Laid { at: live.clone(), back: lays.presence(live) })
+            .map(|live| Install { at: live.clone(), back: lays.presence(live) })
             .collect();
         lays.note(&plan)?;
 
         for live in std::mem::take(&mut self.staged) {
             match lays.swap(&live) {
-                Ok(back) => self.laid.push(Laid { at: live, back }),
+                Ok(back) => self.laid.push(Install { at: live, back }),
                 Err(fault) => {
                     let Ok(()) = self.abandon(lays);
                     let Ok(put_back) = self.undo(lays);
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn undoing_a_file_that_replaced_nothing_removes_it() {
-        let laid = Laid { at: "/usr/local/bin/new-thing".to_string(), back: Back::Closed };
+        let laid = Install { at: "/usr/local/bin/new-thing".to_string(), back: Back::Closed };
 
         assert_eq!(undoing(std::slice::from_ref(&laid)), Ok(vec![&laid]));
         assert_eq!(laid.back, Back::Closed);
@@ -268,7 +268,7 @@ mod tests {
         on: std::collections::BTreeMap<String, String>,
         waiting: std::collections::BTreeMap<String, String>,
         aside: std::collections::BTreeMap<String, String>,
-        noted: Vec<Laid>,
+        noted: Vec<Install>,
         wont_note: bool,
         wont_stage: Vec<String>,
         wont_swap: Vec<String>,
@@ -349,7 +349,7 @@ mod tests {
             Ok(back)
         }
 
-        fn put_back(&mut self, laid: &Laid) -> Result<(), Unapplied> {
+        fn put_back(&mut self, laid: &Install) -> Result<(), Unapplied> {
             self.asked.push(format!("put back {}", laid.at));
 
             match self.wont_put_back.iter().any(|which| which == &laid.at) {
@@ -390,7 +390,7 @@ mod tests {
             }
         }
 
-        fn note(&mut self, laid: &[Laid]) -> Result<(), Unapplied> {
+        fn note(&mut self, laid: &[Install]) -> Result<(), Unapplied> {
             self.asked.push(format!("note {}", laid.len()));
 
             match self.wont_note {
@@ -566,8 +566,8 @@ mod tests {
         assert_eq!(
             paper.noted,
             [
-                Laid { at: "/bin/one".to_string(), back: Back::Retained },
-                Laid { at: "/bin/two".to_string(), back: Back::Closed },
+                Install { at: "/bin/one".to_string(), back: Back::Retained },
+                Install { at: "/bin/two".to_string(), back: Back::Closed },
             ]
         );
 
@@ -619,8 +619,8 @@ mod tests {
     #[test]
     fn an_apply_is_undone_in_the_order_it_was_done_in_reversed() {
         let laid = [
-            Laid { at: "/usr/local/bin/one".to_string(), back: Back::Retained },
-            Laid { at: "/usr/local/bin/two".to_string(), back: Back::Closed },
+            Install { at: "/usr/local/bin/one".to_string(), back: Back::Retained },
+            Install { at: "/usr/local/bin/two".to_string(), back: Back::Closed },
         ];
         let Ok(undoing) = undoing(&laid);
         let order: Vec<&str> = undoing.iter().map(|one| one.at.as_str()).collect();

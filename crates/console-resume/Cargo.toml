@@ -15,6 +15,8 @@ name = "console-resume"
 path = "src/main.rs"
 
 [dependencies]
+console-core-words.workspace = true
+console-core-arguments.workspace = true
 console-core-external-programs.workspace = true
 console-core-iteration.workspace = true
 console-compositor.workspace = true

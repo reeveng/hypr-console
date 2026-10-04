@@ -12,12 +12,12 @@ use std::process::ExitCode;
 
 use console_architecture::facts::LIBRARY;
 use console_architecture::{Architecture, FACTS, MAP};
+use console_core_arguments::{Command, Operands, ValidationError, run_main};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 
 #[derive(Debug)]
 enum MapError {
-    Arguments(Vec<String>),
     Rootless(console_repository::NotFound),
     Cargo(std::io::Error),
     Metadata(serde_json::Error),
@@ -31,7 +31,6 @@ enum MapError {
 impl std::fmt::Display for MapError {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MapError::Arguments(said) => write!(to, "console-architecture takes the directory the facts are in, not {said:?}"),
             MapError::Rootless(fault) => write!(to, "{fault}"),
             MapError::Cargo(fault) => write!(to, "cargo metadata: {fault}"),
             MapError::Metadata(fault) => write!(to, "cargo metadata said something that is not JSON: {fault}"),
@@ -145,22 +144,25 @@ fn draw_map(into: &Path) -> Result<(), MapError> {
     console_core_atomic_writes::whole(&root.join(MAP), map.as_bytes()).map_err(MapError::Writing)
 }
 
-fn run() -> Result<(), MapError> {
-    let said: Vec<String> = std::env::args().skip(1).collect();
+const FACTS_AT: [&str; 1] = ["FACTS"];
 
-    match said.as_slice() {
-        [into] => draw_map(Path::new(into)),
-        [] | [_, _, ..] => Err(MapError::Arguments(said)),
-    }
+const COMMAND: Command = Command {
+    name: "console-architecture",
+    about: "keep what the compiler saw in FACTS, and draw the map of it",
+    flags: &[],
+    operands: Operands::Named(&FACTS_AT),
+};
+
+fn facts(said: &[String]) -> Result<PathBuf, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, said)?;
+    let [into] = line.exactly(FACTS_AT)?;
+
+    Ok(PathBuf::from(into))
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("console-architecture: {fault}");
+    let said: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = run_main(&COMMAND, &said, facts, |into| draw_map(&into));
 
-            ExitCode::FAILURE
-        }
-    }
+    code
 }

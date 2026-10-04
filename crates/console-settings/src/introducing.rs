@@ -26,10 +26,10 @@
 //! it does the same when it worked. What it says is the only answer it gives,
 //! so what it says is what is read.
 
+use console_core_arguments::Subcommand;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-
-pub const INTRODUCE: &str = "introduce";
+use console_core_words::Words;
 
 pub const PATIENCE: &str = "20";
 
@@ -39,27 +39,24 @@ pub enum Went {
     Not,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    Introduce(String),
-    None,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+pub enum Bluetooth {
+    #[words(word = "introduce", about = "pair with the device at ADDRESS, trust it and connect it")]
+    Introduce,
 }
 
-pub fn parse_command(words: &[String]) -> Result<Command, Never> {
-    let doing = match words.first() {
-        Some(doing) => doing,
-        None => return Ok(Command::None),
-    };
+impl Subcommand for Bluetooth {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Bluetooth::VARIANTS.iter().copied())
+    }
 
-    let address = match words.get(1) {
-        Some(address) => address,
-        None => return Ok(Command::None),
-    };
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
 
-    Ok(match doing == INTRODUCE {
-        true => Command::Introduce(address.clone()),
-        false => Command::None,
-    })
+    fn about(self) -> Result<&'static str, Never> {
+        Bluetooth::about(self)
+    }
 }
 
 pub fn pairing(address: &str) -> Result<Vec<String>, Never> {
@@ -151,22 +148,6 @@ mod tests {
         assert_eq!(joined("Failed to connect: org.bluez.Error.AlreadyConnected"), Ok(Went::Well));
     }
 
-    fn parse_command_of(words: &[&str]) -> Result<Command, Never> {
-        let words: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
-
-        parse_command(&words)
-    }
-
-    #[test]
-    fn nothing_but_the_word_and_an_address_is_a_press_this_understands() {
-        assert_eq!(
-            parse_command_of(&[INTRODUCE, "AA:BB:CC:DD:EE:FF"]),
-            Ok(Command::Introduce("AA:BB:CC:DD:EE:FF".to_string()))
-        );
-        assert_eq!(parse_command_of(&[INTRODUCE]), Ok(Command::None));
-        assert_eq!(parse_command_of(&["forget", "AA:BB:CC:DD:EE:FF"]), Ok(Command::None));
-        assert_eq!(parse_command_of(&[]), Ok(Command::None));
-    }
 
     #[test]
     fn what_is_said_afterwards_is_the_last_thing_bluez_said() {

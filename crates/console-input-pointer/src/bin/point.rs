@@ -40,7 +40,7 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_waiting::{Schedule, until_some};
 use console_input_pointer::{
-    PointerAction, Measured, Unsaid, Where, approach, parse_request, from_the_corner, on_the_screen,
+    COMMAND, PointerAction, Measured, Request, Unsaid, Where, approach, request, from_the_corner, on_the_screen,
 };
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
@@ -66,7 +66,17 @@ const HELD: Duration = Duration::from_millis(400);
 const APPEARING: Duration = Duration::from_secs(10);
 
 fn main() -> ExitCode {
-    match run() {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+    let asked = match console_core_arguments::read(&COMMAND, &words).and_then(|line| request(&line)) {
+        Ok(asked) => asked,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
+        },
+    };
+
+    match run(asked) {
         Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             eprintln!("console-point: {fault}");
@@ -146,9 +156,7 @@ impl From<console_onscreen::Error> for Unpointed {
     }
 }
 
-fn run() -> Result<(), Unpointed> {
-    let words: Vec<String> = std::env::args().skip(1).collect();
-    let asked = parse_request(&words)?;
+fn run(asked: Request) -> Result<(), Unpointed> {
     let at = to_screen_point(asked.at, &asked.measured)?;
 
     let pointer = Pointer::new()?;

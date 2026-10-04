@@ -99,7 +99,7 @@ pub const FOR: Duration = Duration::from_millis(750);
         reason = "`until` is when a hurry ends and `said` is whether the one complaint about a processor that will not take a word has been printed; a machine that cannot be hurried is still one this has already complained about, so the two are answers to different questions"
     )
 )]
-pub struct Backoff {
+pub struct HighPowerMode {
     cpus: PathBuf,
     note: PathBuf,
     until: Option<Instant>,
@@ -107,9 +107,9 @@ pub struct Backoff {
     said: bool,
 }
 
-impl Default for Backoff {
+impl Default for HighPowerMode {
     fn default() -> Self {
-        let Ok(hurrying) = Backoff::of(Path::new(CPUS));
+        let Ok(hurrying) = HighPowerMode::of(Path::new(CPUS));
 
         hurrying
     }
@@ -121,17 +121,17 @@ pub enum Boost {
     Off,
 }
 
-impl Backoff {
+impl HighPowerMode {
     pub fn of(cpus: &Path) -> Result<Self, Never> {
         let Ok(note) = note();
-        let Ok(mut hurrying) = Backoff::new(cpus, &note);
+        let Ok(mut hurrying) = HighPowerMode::new(cpus, &note);
         let Ok(_left) = hurrying.put_back_what_was_left();
 
         Ok(hurrying)
     }
 
     pub fn new(cpus: &Path, note: &Path) -> Result<Self, Never> {
-        Ok(Backoff {
+        Ok(HighPowerMode {
             cpus: cpus.to_path_buf(),
             note: note.to_path_buf(),
             until: None,
@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn a_press_hurries_the_processors_and_the_moment_after_lets_them_be() -> Result<(), Box<dyn Error>> {
         let at = processors("press", 4)?;
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let now = Instant::now();
 
         let Ok(()) = hurrying.boost(now);
@@ -517,7 +517,7 @@ mod tests {
     #[test]
     fn asking_again_moves_the_end_rather_than_starting_a_second_one() -> Result<(), Box<dyn Error>> {
         let at = processors("again", 2)?;
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let now = Instant::now();
 
         let Ok(()) = hurrying.boost(now);
@@ -547,7 +547,7 @@ mod tests {
         let hint = at.join("cpu0").join(HINT);
         console_core_atomic_writes::whole(&hint, b"performance\n")?;
 
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let now = Instant::now();
         let Ok(()) = hurrying.boost(now);
         let Ok(()) = hurrying.settle(now + FOR);
@@ -564,7 +564,7 @@ mod tests {
         let hint = at.join("cpu0").join(HINT);
         console_core_atomic_writes::whole(&hint, format!("{HURRY}\n").as_bytes())?;
 
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(()) = hurrying.boost(Instant::now());
         let Ok(on) = hurrying.on();
 
@@ -580,7 +580,7 @@ mod tests {
     fn processors_that_cannot_be_hurried_are_not_an_error() -> Result<(), Box<dyn Error>> {
         let here = console_core_temporary_directories::fresh("haste-none")?;
         let at = here.join("nowhere");
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let now = Instant::now();
         let Ok(()) = hurrying.boost(now);
         let Ok(on) = hurrying.on();
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn a_run_that_stops_mid_hurry_leaves_its_words_written_down() -> Result<(), Box<dyn Error>> {
         let at = processors("stopped", 3)?;
-        let Ok(mut dying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(()) = dying.boost(Instant::now());
         drop(dying);
 
@@ -615,11 +615,11 @@ mod tests {
     #[test]
     fn the_next_daemon_puts_back_what_a_stopped_one_left() -> Result<(), Box<dyn Error>> {
         let at = processors("nextone", 3)?;
-        let Ok(mut dying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(()) = dying.boost(Instant::now());
         drop(dying);
 
-        let Ok(mut coming_up) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut coming_up) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(left) = coming_up.put_back_what_was_left();
 
         assert_eq!(left, Left::Restore);
@@ -638,11 +638,11 @@ mod tests {
     #[test]
     fn a_stopped_run_does_not_leave_the_processors_hurried_for_ever() -> Result<(), Box<dyn Error>> {
         let at = processors("forever", 2)?;
-        let Ok(mut dying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut dying) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(()) = dying.boost(Instant::now());
         drop(dying);
 
-        let Ok(mut after) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut after) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(_left) = after.put_back_what_was_left();
         let now = Instant::now();
         let Ok(()) = after.boost(now);
@@ -666,7 +666,7 @@ mod tests {
             console_core_atomic_writes::whole(&hint, format!("{HURRY}\n").as_bytes())?;
         }
 
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let Ok(()) = hurrying.boost(Instant::now());
 
         let Ok(on) = hurrying.on();
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn settling_takes_the_note_away() -> Result<(), Box<dyn Error>> {
         let at = processors("settled", 2)?;
-        let Ok(mut hurrying) = Backoff::new(&at, &at.join(NOTE));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &at.join(NOTE));
         let now = Instant::now();
 
         let Ok(()) = hurrying.boost(now);
@@ -698,7 +698,7 @@ mod tests {
         let blocked = at.join("in-the-way");
         console_core_atomic_writes::whole(&blocked, b"not a directory")?;
 
-        let Ok(mut hurrying) = Backoff::new(&at, &blocked.join("hurried"));
+        let Ok(mut hurrying) = HighPowerMode::new(&at, &blocked.join("hurried"));
         let Ok(()) = hurrying.boost(Instant::now());
 
         let Ok(on) = hurrying.on();

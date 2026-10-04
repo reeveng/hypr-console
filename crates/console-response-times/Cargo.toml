@@ -14,8 +14,8 @@ name = "console-response-times"
 path = "src/bin/console-response-times.rs"
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-external-programs.workspace = true
-console-core-iteration.workspace = true
 console-core-words.workspace = true
 console-defaults.workspace = true
 console-core-never.workspace = true

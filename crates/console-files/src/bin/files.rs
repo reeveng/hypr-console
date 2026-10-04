@@ -8,25 +8,22 @@
 //! second time with nothing new, its window is brought forward and nothing
 //! starts; asked for a folder, the one up stands down for it.
 
-use console_core_never::Never;
-use console_panel::picker::{self, Alone};
-use console_panel::surface;
+use std::process::ExitCode;
 
-fn main() {
+use console_core_arguments::{Command, Operands};
+use console_panel::card::{App, open_app};
+
+const COMMAND: Command = Command {
+    name: console_files::WHO,
+    about: "the files, as an app",
+    flags: &[],
+    operands: Operands::Optional("FOLDER"),
+};
+
+fn main() -> ExitCode {
     let asked: Vec<String> = std::env::args().skip(1).collect();
 
-    let Ok(()) = opened(&asked);
-}
+    let Ok(code) = open_app(&asked, App { who: console_files::WHO, command: COMMAND, card: console_files::card });
 
-fn opened(asked: &[String]) -> Result<(), Never> {
-    let Ok(alone) = picker::alone_as(console_files::WHO, asked);
-
-    match alone {
-        Alone::No => Ok(()),
-        Alone::Yes => {
-            let Ok(card) = console_files::card(asked);
-
-            surface::app(console_files::WHO, card)
-        },
-    }
+    code
 }

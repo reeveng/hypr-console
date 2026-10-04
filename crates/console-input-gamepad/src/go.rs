@@ -22,11 +22,12 @@
 //! read directly. It is left alone here too.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use console_core_number_conversion::duration_from_seconds;
 
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_input_event_devices::{EventType, KeyCode};
+use console_waiting::clock::Clock;
 
 use crate::GamepadError;
 use crate::devices::{Devices, Has, Report, Sink};
@@ -45,36 +46,6 @@ fn role_of(target_device: &str) -> Result<Option<&'static str>, Never> {
         "xbox-elite" => Some("pad"),
         _ => None,
     })
-}
-
-pub trait Clock {
-    fn wait(&mut self, seconds: f64);
-}
-
-pub struct Passing;
-
-impl Clock for Passing {
-    fn wait(&mut self, seconds: f64) {
-        #[cfg_attr(
-            dylint_lib = "explicit021_no_sleeping",
-            allow(
-                explicit021_no_sleeping,
-                reason = "the emulator is playing back a capture, and how long the person held the button is part of what is being played; `RecordingClock` is the same trait without a clock, which is what the tests press"
-            )
-        )]
-        std::thread::sleep(Duration::from_secs_f64(seconds.max(0.0)));
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct RecordingClock {
-    pub waited: Vec<f64>,
-}
-
-impl Clock for RecordingClock {
-    fn wait(&mut self, seconds: f64) {
-        self.waited.push(seconds);
-    }
 }
 
 pub struct LegionGo<S: Sink, C: Clock> {
@@ -146,7 +117,9 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
 
     pub fn press(&mut self, spoken: &str) -> Result<(), GamepadError> {
         self.button_down(spoken)?;
-        self.clock.wait(PRESS_SECONDS);
+
+        let Ok(()) = self.wait(PRESS_SECONDS);
+
         self.up(spoken)
     }
 
@@ -284,12 +257,12 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
         Ok(())
     }
 
-    pub fn stick(&mut self, which: &str, to: Point<f64>) -> Result<(), GamepadError> {
+    pub fn thumbstick(&mut self, which: &str, to: Point<f64>) -> Result<(), GamepadError> {
         let Ok(name) = vocabulary::axis_named(which);
 
         let Ok(found) = vocabulary::axis_codes(name);
 
-        let codes = found.ok_or_else(|| GamepadError::NoStick(which.to_string()))?;
+        let codes = found.ok_or_else(|| GamepadError::NoThumbstick(which.to_string()))?;
 
         let Ok(profile) = self.profile();
 
@@ -312,7 +285,7 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     }
 
     pub fn center(&mut self, which: &str) -> Result<(), GamepadError> {
-        self.stick(which, Point { x: 0.0, y: 0.0 })
+        self.thumbstick(which, Point { x: 0.0, y: 0.0 })
     }
 
     pub fn trigger(&mut self, which: &str, amount: f64) -> Result<(), GamepadError> {
@@ -389,7 +362,9 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
             })?;
 
             match seconds > 0.0 {
-                true => self.clock.wait(seconds / f64::from(steps)),
+                true => {
+                    let Ok(()) = self.wait(seconds / f64::from(steps));
+                },
                 false => {},
             }
         }
@@ -416,9 +391,9 @@ impl<S: Sink, C: Clock> LegionGo<S, C> {
     }
 
     pub fn wait(&mut self, seconds: f64) -> Result<(), Never> {
-        self.clock.wait(seconds);
+        let Ok(gap) = duration_from_seconds(seconds);
 
-        Ok(())
+        self.clock.pause(gap)
     }
 
     pub fn close(&mut self) -> Result<(), Never> {

@@ -1,10 +1,10 @@
 //! The pool, pressed through a real socket rather than read about.
 //!
 //! `pool`'s own tests ask the arithmetic. What they cannot ask is whether a
-//! program that connects, asks for a topic and waits actually hears anything,
-//! because that is two threads, a socket and a wire between them -- which is
-//! exactly where the twenty-five orphaned subscriptions lived. So the source
-//! here is one a test can hand words to, and everything else is the real
+//! program that connects, asks for an event group and waits actually hears
+//! anything, because that is two threads, a socket and a wire between them --
+//! which is exactly where the twenty-five orphaned subscriptions lived. So the
+//! source here is one a test can hand words to, and everything else is the real
 //! thing: the real serving loop, the real wire, the real client.
 
 mod pool;
@@ -17,7 +17,7 @@ use console_events::serving;
 use console_events::sources;
 use console_events::subscription::{Received, connect_at};
 use console_events::wire::{self, Message};
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::threads;
 use console_waiting::{Outcome, Ready, Schedule, until_handed};
 use pool::{Failure, BEFORE_LONG, before_long, change, serve_at, socket, up};
@@ -27,7 +27,7 @@ fn a_program_hears_what_the_machine_said_and_whoever_comes_late_hears_it_first()
     let at = socket("test")?;
     let handed = serve_at(&at)?;
 
-    let Ok(early) = connect_at(&at, &[Topic::Sound]);
+    let Ok(early) = connect_at(&at, &[EventGroup::Sound]);
     let Ok(early) = early.received();
     let saying = handed.recv_timeout(BEFORE_LONG).map_err(|_| "the source was never opened")?;
     let Ok(said) = change("sink 1 at 40%");
@@ -37,10 +37,10 @@ fn a_program_hears_what_the_machine_said_and_whoever_comes_late_hears_it_first()
     assert_eq!(
         before_long(early),
         Ok(Some(said.clone())),
-        "a program that asked for a topic was told nothing when the machine said something"
+        "a program that asked for an event group was told nothing when the machine said something"
     );
 
-    let Ok(late) = connect_at(&at, &[Topic::Sound]);
+    let Ok(late) = connect_at(&at, &[EventGroup::Sound]);
     let Ok(late) = late.received();
 
     assert_eq!(
@@ -79,8 +79,8 @@ fn what_lands_anywhere_under_a_watched_folder_is_heard_and_a_program_cannot_spea
 
     up(&at)?;
 
-    let watched = Topic::Path(books.clone());
-    let Ok(listening) = connect_at(&at, &[watched.clone(), Topic::Units]);
+    let watched = EventGroup::Path(books.clone());
+    let Ok(listening) = connect_at(&at, &[watched.clone(), EventGroup::Units]);
     let Ok(heard) = listening.received();
 
     let got_in = std::iter::repeat_with(|| heard.recv_timeout(BEFORE_LONG)).find_map(|received| match received {
@@ -95,7 +95,7 @@ fn what_lands_anywhere_under_a_watched_folder_is_heard_and_a_program_cannot_spea
     }
 
     let mut telling = UnixStream::connect(&at)?;
-    let lying = Change { topic: Topic::Units, text: "everything stopped".to_string() };
+    let lying = Change { event_group: EventGroup::Units, text: "everything stopped".to_string() };
     let Ok(spelled) = wire::encoded(&Message::Publish(lying));
 
     telling.write_all(format!("{spelled}\n").as_bytes())?;
@@ -110,7 +110,7 @@ fn what_lands_anywhere_under_a_watched_folder_is_heard_and_a_program_cannot_spea
         }
 
         Ok(match heard.recv_timeout(Duration::from_millis(200)) {
-            Ok(Received::Event(change)) => match change.topic == watched {
+            Ok(Received::Event(change)) => match change.event_group == watched {
                 true => Ready::Yes,
                 false => {
                     *spoken_for = Some(change);
@@ -153,7 +153,7 @@ fn what_lands_anywhere_under_a_watched_folder_is_heard_and_a_program_cannot_spea
 
     assert_eq!(
         before_long(heard),
-        Ok(Some(Change { topic: watched.clone(), text: book.display().to_string() })),
+        Ok(Some(Change { event_group: watched.clone(), text: book.display().to_string() })),
         "a book written into a folder made after the watch began went unheard"
     );
 
@@ -161,7 +161,7 @@ fn what_lands_anywhere_under_a_watched_folder_is_heard_and_a_program_cannot_spea
 
     assert_eq!(
         before_long(heard),
-        Ok(Some(Change { topic: watched, text: book.display().to_string() })),
+        Ok(Some(Change { event_group: watched, text: book.display().to_string() })),
         "a book thrown away went unheard"
     );
 

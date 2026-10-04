@@ -3,30 +3,42 @@
 //!
 //! The file a person opened is never written. Every edit is a new picture
 //! named after the old one -- `beach edited.jpg`, then `beach edited 2.jpg` --
-//! and ffmpeg is told `-n`, so a name that turned up between choosing it and
-//! writing it is refused rather than replaced. Editing an edit starts from the
-//! name it was edited from, so a third turn of the beach is `beach edited 3`
-//! rather than `beach edited edited edited`.
+//! and the copy is given its name only if nobody has it yet, so a name that
+//! turned up between choosing it and writing it is refused rather than
+//! replaced. Editing an edit starts from the name it was edited from, so a
+//! third turn of the beach is `beach edited 3` rather than
+//! `beach edited edited edited`.
 //!
 //! There is no crop box. What is kept is what is on the screen: the zoom and
 //! the pan already say which part of the picture someone is looking at, and on
 //! a machine with sticks and a thumb that is a better way to choose a
-//! rectangle than four corners dragged one at a time. [`kept`] is that
+//! rectangle than four corners dragged one at a time. [`crop_region`] is that
 //! region in the picture's own pixels, worked out by the same
 //! `console_panel::zoom` arithmetic the surface drew it with.
 //!
-//! The copy is written in the format it came in where ffmpeg can write that
-//! format, and as a PNG where it cannot -- a HEIC off a phone, a camera's raw,
-//! or a GIF, whose animation one frame of cannot keep anyway.
+//! **No second program.** The edit used to be an ffmpeg filter, which read
+//! every format ffmpeg reads and wrote most of them back. Everything it was
+//! handed in practice is a photograph or a screenshot, and this tree reads
+//! both and writes both, so the picture is read by `console_pictures`, turned
+//! here as rows of pixels, and written by the JPEG and PNG encoders. A JPEG
+//! comes back a JPEG and anything else a PNG -- a GIF, whose animation one
+//! frame of cannot keep anyway, and a WebP, which nothing here writes. A file
+//! none of the decoders read -- a HEIC off a phone, a camera's raw -- is not
+//! edited, and the viewer says so by name rather than starting ffmpeg for it;
+//! a format worth editing is a decoder and an encoder added when somebody
+//! meets it.
 
 use std::path::{Path, PathBuf};
 
-use console_core_external_programs::Program;
+use console_core_atomic_writes::Unwritten;
 use console_core_geometry::{Point, Size};
+use console_core_jpeg_files::{JpegError, Quality};
 use console_core_never::Never;
-use console_core_number_conversion::whole_u32;
+use console_core_number_conversion::{index, whole_u32};
+use console_core_png_files::PngError;
 use console_core_words::Words;
 use console_panel::zoom::{Framed, Zoomed};
+use console_pictures::{Bitmap, Format, FullSize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Edit {
@@ -48,9 +60,17 @@ pub struct Region {
     pub size: Size<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Filter {
-    Is(String),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    RotateLeft,
+    RotateRight,
+    Flip,
+    Crop(Region),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Planned {
+    Change(Change),
     ZoomInFirst,
 }
 
@@ -75,33 +95,82 @@ pub fn crop_region(framed: &Framed, of: Size<u32>) -> Result<Option<Region>, Nev
     Ok(Some(Region { from: Point { x: across, y: down }, size: Size { width: wide, height: tall } }))
 }
 
-pub fn filter(edit: Edit, region: Option<Region>) -> Result<Filter, Never> {
+pub fn planned(edit: Edit, region: Option<Region>) -> Result<Planned, Never> {
     Ok(match (edit, region) {
-        (Edit::RotateLeft, _) => Filter::Is("transpose=cclock".to_string()),
-        (Edit::RotateRight, _) => Filter::Is("transpose=clock".to_string()),
-        (Edit::Flip, _) => Filter::Is("hflip".to_string()),
-        (Edit::Crop, Some(Region { from, size })) => {
-            Filter::Is(format!("crop={}:{}:{}:{}", size.width, size.height, from.x, from.y))
-        },
-        (Edit::Crop, None) => Filter::ZoomInFirst,
+        (Edit::RotateLeft, _) => Planned::Change(Change::RotateLeft),
+        (Edit::RotateRight, _) => Planned::Change(Change::RotateRight),
+        (Edit::Flip, _) => Planned::Change(Change::Flip),
+        (Edit::Crop, Some(region)) => Planned::Change(Change::Crop(region)),
+        (Edit::Crop, None) => Planned::ZoomInFirst,
     })
 }
 
-const WRITTEN_AS_IT_CAME: [&str; 7] = ["jpg", "jpeg", "png", "webp", "bmp", "tif", "tiff"];
+pub fn changed(bitmap: &Bitmap, change: Change) -> Result<Bitmap, Never> {
+    let Size { width, height } = bitmap.size;
+    let Ok(across) = index(width);
+    let rows: Vec<&[[u8; 4]]> = bitmap.rgba.as_chunks::<4>().0.chunks_exact(across.max(1)).collect();
+    let rows = rows.as_slice();
+    let turned = Size { width: height, height: width };
 
-const WRITTEN_OTHERWISE: &str = "png";
+    let (size, pixels): (Size<u32>, Vec<[u8; 4]>) = match change {
+        Change::RotateRight => {
+            (turned, (0..across).flat_map(|column| rows.iter().rev().filter_map(move |row| row.get(column)).copied()).collect())
+        },
+        Change::RotateLeft => {
+            (turned, (0..across).rev().flat_map(|column| rows.iter().filter_map(move |row| row.get(column)).copied()).collect())
+        },
+        Change::Flip => (bitmap.size, rows.iter().flat_map(|row| row.iter().rev().copied()).collect()),
+        Change::Crop(Region { from, size }) => {
+            let left = from.x.min(width);
+            let top = from.y.min(height);
+            let kept = Size { width: size.width.min(width.saturating_sub(left)), height: size.height.min(height.saturating_sub(top)) };
+            let Ok(left) = index(left);
+            let Ok(top) = index(top);
+            let Ok(wide) = index(kept.width);
+            let Ok(tall) = index(kept.height);
+
+            (kept, rows.iter().skip(top).take(tall).flat_map(|row| row.iter().skip(left).take(wide).copied()).collect())
+        },
+    };
+
+    Ok(Bitmap { size, rgba: pixels.into_flattened() })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Written {
+    Jpeg,
+    Png,
+}
+
+fn written(format: Format) -> Result<Written, Never> {
+    Ok(match format {
+        Format::Jpeg => Written::Jpeg,
+        Format::Png | Format::Gif | Format::Webp => Written::Png,
+    })
+}
+
+const QUALITY: u8 = 95;
+
+const JPEG_ENDINGS: [&str; 2] = ["jpg", "jpeg"];
+
+const PNG_ENDINGS: [&str; 1] = ["png"];
 
 const EDITED: &str = " edited";
 
-fn ending(at: &Path) -> Result<String, Never> {
+fn ending(at: &Path, written: Written) -> Result<String, Never> {
     let came = at.extension().map(|came| came.to_string_lossy().to_string());
 
+    let (kept, otherwise): (&[&str], &str) = match written {
+        Written::Jpeg => (&JPEG_ENDINGS, "jpg"),
+        Written::Png => (&PNG_ENDINGS, "png"),
+    };
+
     Ok(match came {
-        Some(came) => match WRITTEN_AS_IT_CAME.contains(&came.to_lowercase().as_str()) {
+        Some(came) => match kept.contains(&came.to_lowercase().as_str()) {
             true => came,
-            false => WRITTEN_OTHERWISE.to_string(),
+            false => otherwise.to_string(),
         },
-        None => WRITTEN_OTHERWISE.to_string(),
+        None => otherwise.to_string(),
     })
 }
 
@@ -121,13 +190,13 @@ fn edited_from(stem: &str) -> Result<&str, Never> {
     })
 }
 
-pub fn beside(at: &Path, taken: impl Fn(&Path) -> bool) -> Result<Option<PathBuf>, Never> {
+fn beside(at: &Path, written: Written, taken: impl Fn(&Path) -> bool) -> Result<Option<PathBuf>, Never> {
     let stem = match at.file_stem() {
         Some(stem) => stem.to_string_lossy().to_string(),
         None => return Ok(None),
     };
     let Ok(from) = edited_from(&stem);
-    let Ok(ending) = ending(at);
+    let Ok(ending) = ending(at, written);
 
     Ok((1..=u32::MAX)
         .map(|count| {
@@ -143,56 +212,72 @@ pub fn beside(at: &Path, taken: impl Fn(&Path) -> bool) -> Result<Option<PathBuf
 
 #[derive(Debug)]
 pub enum EditError {
+    Unsupported(PathBuf),
+    Refused(PathBuf, Format),
     Unnamed(PathBuf),
-    Query(std::io::Error),
-    Rejected(PathBuf, String),
+    Jpeg(PathBuf, JpegError),
+    Png(PathBuf, PngError),
+    Unwritten(Unwritten),
 }
 
 impl std::fmt::Display for EditError {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            EditError::Unsupported(at) => write!(to, "{}: no decoder here reads this", at.display()),
+            EditError::Refused(at, format) => {
+                let Ok(says) = format.says();
+
+                write!(to, "{}: the {says} decoder here will not read this one", at.display())
+            },
             EditError::Unnamed(at) => write!(to, "{}: no name is left beside it", at.display()),
-            EditError::Query(fault) => write!(to, "ffmpeg: {fault}"),
-            EditError::Rejected(into, said) => write!(to, "{}: ffmpeg wrote nothing: {said}", into.display()),
+            EditError::Jpeg(into, fault) => write!(to, "{}: writing the JPEG: {fault}", into.display()),
+            EditError::Png(into, fault) => write!(to, "{}: writing the PNG: {fault}", into.display()),
+            EditError::Unwritten(fault) => write!(to, "{fault}"),
         }
     }
 }
 
 impl std::error::Error for EditError {}
 
-fn compressed(into: &Path) -> Result<&'static [&'static str], Never> {
-    let ending = into.extension().map(|ending| ending.to_string_lossy().to_lowercase());
+fn encoded(bitmap: Bitmap, written: (Written, &Path)) -> Result<Vec<u8>, EditError> {
+    let Bitmap { size, rgba } = bitmap;
+    let (written, into) = written;
 
-    Ok(match ending.as_deref() {
-        Some("jpg" | "jpeg") => &["-q:v", "2"],
-        Some(_) | None => &[],
-    })
+    match written {
+        Written::Jpeg => {
+            let Ok(quality) = Quality::percent(QUALITY);
+
+            console_core_jpeg_files::encoded(&console_core_jpeg_files::Picture { size, rgba }, quality)
+                .map_err(|fault| EditError::Jpeg(into.to_path_buf(), fault))
+        },
+        Written::Png => console_core_png_files::encoded(&console_core_png_files::Picture { size, rgba })
+            .map_err(|fault| EditError::Png(into.to_path_buf(), fault)),
+    }
 }
 
-pub fn saved(at: &Path, filter: &str) -> Result<PathBuf, EditError> {
-    let Ok(named) = beside(at, Path::exists);
+pub fn saved(at: &Path, change: Change) -> Result<PathBuf, EditError> {
+    let Ok(read) = console_pictures::full_size(at);
+
+    let (format, bitmap) = match read {
+        FullSize::Decoded(format, bitmap) => (format, bitmap),
+        FullSize::Refused(format) => return Err(EditError::Refused(at.to_path_buf(), format)),
+        FullSize::Unrecognized => return Err(EditError::Unsupported(at.to_path_buf())),
+    };
+
+    let Ok(written) = written(format);
+    let Ok(named) = beside(at, written, Path::exists);
 
     let into = match named {
         Some(into) => into,
         None => return Err(EditError::Unnamed(at.to_path_buf())),
     };
 
-    let Ok(mut asking) = Program::Ffmpeg.command();
-    let Ok(quality) = compressed(&into);
+    let Ok(changed) = changed(&bitmap, change);
+    let bytes = encoded(changed, (written, &into))?;
 
-    let said = asking
-        .args(["-v", "error", "-n", "-i"])
-        .arg(at)
-        .args(["-vf", filter, "-frames:v", "1", "-update", "1"])
-        .args(quality)
-        .arg(&into)
-        .output()
-        .map_err(EditError::Query)?;
+    console_core_atomic_writes::whole_without_overwriting(&into, &bytes).map_err(EditError::Unwritten)?;
 
-    match said.status.success() {
-        true => Ok(into),
-        false => Err(EditError::Rejected(into, String::from_utf8_lossy(&said.stderr).trim().to_string())),
-    }
+    Ok(into)
 }
 
 #[cfg(test)]
@@ -202,17 +287,17 @@ mod tests {
     use super::*;
     use console_panel::zoom::Zoom;
 
-    fn free_name(at: &str, taken: &[&str]) -> Result<Option<String>, Never> {
-        let Ok(named) = beside(Path::new(at), |asked| taken.iter().any(|taken| Path::new(taken) == asked));
+    fn free_name(at: &str, written: Written, taken: &[&str]) -> Result<Option<String>, Never> {
+        let Ok(named) = beside(Path::new(at), written, |asked| taken.iter().any(|taken| Path::new(taken) == asked));
 
         Ok(named.map(|named| named.to_string_lossy().into_owned()))
     }
 
     #[test]
     fn an_edit_is_named_after_the_picture_and_never_takes_a_name_that_is_there() {
-        assert_eq!(free_name("/p/beach.jpg", &[]), Ok(Some(String::from("/p/beach edited.jpg"))));
+        assert_eq!(free_name("/p/beach.jpg", Written::Jpeg, &[]), Ok(Some(String::from("/p/beach edited.jpg"))));
         assert_eq!(
-            free_name("/p/beach.jpg", &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
+            free_name("/p/beach.jpg", Written::Jpeg, &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
             Ok(Some(String::from("/p/beach edited 3.jpg")))
         );
     }
@@ -220,21 +305,22 @@ mod tests {
     #[test]
     fn an_edit_of_an_edit_counts_on_from_the_picture_it_came_from() {
         assert_eq!(
-            free_name("/p/beach edited.jpg", &["/p/beach edited.jpg"]),
+            free_name("/p/beach edited.jpg", Written::Jpeg, &["/p/beach edited.jpg"]),
             Ok(Some(String::from("/p/beach edited 2.jpg")))
         );
         assert_eq!(
-            free_name("/p/beach edited 2.jpg", &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
+            free_name("/p/beach edited 2.jpg", Written::Jpeg, &["/p/beach edited.jpg", "/p/beach edited 2.jpg"]),
             Ok(Some(String::from("/p/beach edited 3.jpg")))
         );
-        assert_eq!(free_name("/p/room 2.jpg", &[]), Ok(Some(String::from("/p/room 2 edited.jpg"))));
+        assert_eq!(free_name("/p/room 2.jpg", Written::Jpeg, &[]), Ok(Some(String::from("/p/room 2 edited.jpg"))));
     }
 
     #[test]
-    fn a_format_ffmpeg_cannot_write_comes_back_as_a_png() {
-        assert_eq!(free_name("/p/phone.HEIC", &[]), Ok(Some(String::from("/p/phone edited.png"))));
-        assert_eq!(free_name("/p/wave.gif", &[]), Ok(Some(String::from("/p/wave edited.png"))));
-        assert_eq!(free_name("/p/shot.PNG", &[]), Ok(Some(String::from("/p/shot edited.PNG"))));
+    fn a_copy_keeps_the_ending_it_came_with_when_it_is_written_in_the_same_format() {
+        assert_eq!(free_name("/p/photo.JPEG", Written::Jpeg, &[]), Ok(Some(String::from("/p/photo edited.JPEG"))));
+        assert_eq!(free_name("/p/shot.PNG", Written::Png, &[]), Ok(Some(String::from("/p/shot edited.PNG"))));
+        assert_eq!(free_name("/p/wave.gif", Written::Png, &[]), Ok(Some(String::from("/p/wave edited.png"))));
+        assert_eq!(free_name("/p/web.webp", Written::Png, &[]), Ok(Some(String::from("/p/web edited.png"))));
     }
 
     fn framed(zoom: Zoom) -> Result<Framed, Never> {
@@ -246,7 +332,7 @@ mod tests {
         let Ok(whole) = framed(Zoom::default());
 
         assert_eq!(crop_region(&whole, Size { width: 4000, height: 3000 }), Ok(None));
-        assert_eq!(filter(Edit::Crop, None), Ok(Filter::ZoomInFirst));
+        assert_eq!(planned(Edit::Crop, None), Ok(Planned::ZoomInFirst));
     }
 
     #[test]
@@ -275,41 +361,122 @@ mod tests {
         Ok(())
     }
 
-    fn make_picture(at: &Path, said: &str) -> Result<(), Box<dyn Error>> {
-        let Ok(mut asking) = Program::Ffmpeg.command();
-        let done = asking.args(["-v", "error", "-y", "-f", "lavfi", "-i", said, "-frames:v", "1"]).arg(at).status()?;
+    const A: [u8; 4] = [1, 1, 1, 255];
+    const B: [u8; 4] = [2, 2, 2, 255];
+    const C: [u8; 4] = [3, 3, 3, 255];
+    const D: [u8; 4] = [4, 4, 4, 255];
+    const E: [u8; 4] = [5, 5, 5, 255];
+    const F: [u8; 4] = [6, 6, 6, 255];
 
-        match done.success() {
-            true => Ok(()),
-            false => Err(Box::from("ffmpeg made no picture to edit")),
-        }
+    fn three_by_two() -> Result<Bitmap, Never> {
+        Ok(Bitmap { size: Size { width: 3, height: 2 }, rgba: [A, B, C, D, E, F].concat() })
+    }
+
+    fn reads(size: (u32, u32), pixels: &[[u8; 4]]) -> Result<Bitmap, Never> {
+        Ok(Bitmap { size: Size { width: size.0, height: size.1 }, rgba: pixels.concat() })
+    }
+
+    #[test]
+    fn a_turn_to_the_right_puts_the_left_edge_along_the_top() {
+        let Ok(picture) = three_by_two();
+
+        assert_eq!(changed(&picture, Change::RotateRight), reads((2, 3), &[D, A, E, B, F, C]));
+    }
+
+    #[test]
+    fn a_turn_to_the_left_puts_the_right_edge_along_the_top() {
+        let Ok(picture) = three_by_two();
+
+        assert_eq!(changed(&picture, Change::RotateLeft), reads((2, 3), &[C, F, B, E, A, D]));
+    }
+
+    #[test]
+    fn a_flip_swaps_left_and_right_and_leaves_top_and_bottom() {
+        let Ok(picture) = three_by_two();
+
+        assert_eq!(changed(&picture, Change::Flip), reads((3, 2), &[C, B, A, F, E, D]));
+    }
+
+    #[test]
+    fn a_crop_keeps_the_region_and_nothing_past_the_edge() {
+        let Ok(picture) = three_by_two();
+        let corner = Region { from: Point { x: 1, y: 1 }, size: Size { width: 9, height: 9 } };
+
+        assert_eq!(changed(&picture, Change::Crop(corner)), reads((2, 1), &[E, F]));
+    }
+
+    fn red(size: Size<u32>) -> Result<Vec<u8>, Never> {
+        let Ok(area) = index(u64::from(size.width).saturating_mul(u64::from(size.height)));
+
+        Ok([255, 0, 0, 255].repeat(area))
     }
 
     #[test]
     fn an_edit_is_a_new_file_and_the_picture_it_came_from_is_untouched() -> Result<(), Box<dyn Error>> {
         let folder = console_core_temporary_directories::fresh("viewer-editing")?;
         let at = folder.join("wide.png");
+        let size = Size { width: 40, height: 20 };
+        let Ok(rgba) = red(size);
+        let png = console_core_png_files::encoded(&console_core_png_files::Picture { size, rgba })?;
 
-        make_picture(&at, "color=c=red:s=40x20")?;
+        console_core_atomic_writes::whole(&at, &png)?;
 
         let before = std::fs::read(&at)?;
-        let Ok(turn) = filter(Edit::RotateRight, None);
-
-        let turned = match turn {
-            Filter::Is(turned) => turned,
-            Filter::ZoomInFirst => return Err(Box::from("a turn is a filter")),
-        };
-        let once = saved(&at, &turned)?;
-        let twice = saved(&at, &turned)?;
+        let once = saved(&at, Change::RotateRight)?;
+        let twice = saved(&at, Change::RotateRight)?;
         let after = std::fs::read(&at)?;
-        let shape = console_pictures::measure(&once)?;
+        let written = std::fs::read(&once)?;
+        let turned = console_core_png_files::measured(&written)?;
 
         let _ = std::fs::remove_dir_all(&folder);
 
         assert_eq!(before, after, "the picture that was edited was written over");
         assert_eq!(once, folder.join("wide edited.png"));
         assert_eq!(twice, folder.join("wide edited 2.png"));
-        assert_eq!(shape, Some(Size { width: 20, height: 40 }), "the turn was not written, or is not a picture");
+        assert_eq!(turned, Size { width: 20, height: 40 }, "the turn was not written");
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_jpeg_comes_back_a_jpeg() -> Result<(), Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh("viewer-editing-jpeg")?;
+        let at = folder.join("beach.jpg");
+        let size = Size { width: 32, height: 16 };
+        let Ok(rgba) = red(size);
+        let Ok(quality) = Quality::percent(90);
+        let jpeg = console_core_jpeg_files::encoded(&console_core_jpeg_files::Picture { size, rgba }, quality)?;
+
+        console_core_atomic_writes::whole(&at, &jpeg)?;
+
+        let into = saved(&at, Change::RotateLeft)?;
+        let written = std::fs::read(&into)?;
+        let turned = console_core_jpeg_files::measured(&written)?;
+
+        let _ = std::fs::remove_dir_all(&folder);
+
+        assert_eq!(into, folder.join("beach edited.jpg"));
+        assert_eq!(turned, Size { width: 16, height: 32 });
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_format_nothing_here_reads_is_refused_and_nothing_is_written() -> Result<(), Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh("viewer-editing-heic")?;
+        let at = folder.join("phone.HEIC");
+
+        console_core_atomic_writes::whole(&at, b"\0\0\0\x18ftypheic\0\0\0\0mif1heic")?;
+
+        let refused = saved(&at, Change::Flip);
+        let listing = std::fs::read_dir(&folder)?;
+        let left = listing.map(|entry| entry.map(|entry| entry.path())).collect::<Result<Vec<PathBuf>, std::io::Error>>();
+        let left = left?;
+
+        let _ = std::fs::remove_dir_all(&folder);
+
+        assert!(matches!(refused, Err(EditError::Unsupported(_))), "{refused:?}");
+        assert_eq!(left, vec![at], "something was written beside it");
 
         Ok(())
     }

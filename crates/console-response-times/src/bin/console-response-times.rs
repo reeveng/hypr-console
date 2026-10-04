@@ -22,12 +22,25 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::ExitCode;
 
-use console_core_iteration::{Endless, Step};
+use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Reason, Takes, ValidationError};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_response_times::{line, summary, where_};
 
-const USAGE: &str = "usage: console-response-times [--last N] [--all] [--raw] [--file PATH]";
+const LAST: Flag = Flag { spelling: "--last", takes: Takes::Value("N"), about: "the last N waits rather than the last few thousand" };
+
+const ALL: Flag = Flag { spelling: "--all", takes: Takes::None, about: "every wait the store holds" };
+
+const RAW: Flag = Flag { spelling: "--raw", takes: Takes::None, about: "the lines themselves, for something else to read" };
+
+const FILE: Flag = Flag { spelling: "--file", takes: Takes::Value("PATH"), about: "read the waits somewhere other than the store" };
+
+const COMMAND: Command = Command {
+    name: "console-response-times",
+    about: "what the machine has been like to wait for",
+    flags: &[LAST, ALL, RAW, FILE],
+    operands: Operands::None,
+};
 
 const WINDOW: u32 = 20_000;
 
@@ -38,29 +51,28 @@ fn main() -> ExitCode {
     }
 
     let asked: Vec<String> = std::env::args().skip(1).collect();
-    let Ok(at) = where_();
-    let reading = Reading { words: asked.iter(), window: Some(WINDOW), raw: Raw::No, at };
-    let read = console_core_iteration::iterate(reading, |mut reading| {
-        Ok(match reading.words.next() {
-            None => Step::Halt(Ok(reading)),
-            Some(word) => match heard(&mut reading, word) {
-                Ok(()) => Step::Again(reading),
-                Err(refused) => Step::Halt(Err(refused)),
-            },
-        })
-    });
+    let line = match console_core_arguments::read(&COMMAND, &asked) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
 
-    let Reading { window, raw, at, .. } = match read {
-        Ok(Ok(reading)) => reading,
-        Ok(Err(Rejected::Last(fault))) => {
-            eprintln!("console-response-times: --last: {fault}");
-            eprintln!("{USAGE}");
-            return ExitCode::FAILURE;
+            return ExitCode::from(code);
         }
-        Ok(Err(Rejected::Usage)) | Err(Endless) => {
-            eprintln!("{USAGE}");
-            return ExitCode::FAILURE;
+    };
+    let window = match window(&line) {
+        Ok(window) => window,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
         }
+    };
+    let Ok(raw) = line.presence(RAW);
+    let Ok(file) = line.value(FILE);
+    let Ok(store) = where_();
+    let at = match file {
+        Some(file) => Some(std::path::PathBuf::from(file)),
+        None => store,
     };
 
     let at = match at {
@@ -83,14 +95,14 @@ fn main() -> ExitCode {
     let Ok((kept, whole)) = read_lines(store, window);
 
     match raw {
-        Raw::Yes => {
+        Presence::Present => {
             for said in &kept {
                 println!("{said}");
             }
 
             return ExitCode::SUCCESS;
         }
-        Raw::No => {}
+        Presence::Absent => {}
     }
 
     let entries: Vec<line::Entry> = kept
@@ -128,41 +140,20 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Raw {
-    Yes,
-    No,
-}
+fn window(line: &CommandLine<NoSubcommand>) -> Result<Option<u32>, ValidationError> {
+    let last = line.parsed::<u32>(LAST)?;
+    let Ok(all) = line.presence(ALL);
 
-enum Rejected {
-    Last(std::num::ParseIntError),
-    Usage,
-}
+    match (last, all) {
+        (Some(many), Presence::Absent) => Ok(Some(many)),
+        (None, Presence::Absent) => Ok(Some(WINDOW)),
+        (None, Presence::Present) => Ok(None),
+        (Some(_many), Presence::Present) => {
+            let Ok(refusal) = line.refusal(Reason::ExtraArgument(ALL.spelling.to_string()));
 
-struct Reading<'a> {
-    words: std::slice::Iter<'a, String>,
-    window: Option<u32>,
-    raw: Raw,
-    at: Option<std::path::PathBuf>,
-}
-
-fn heard(reading: &mut Reading<'_>, word: &str) -> Result<(), Rejected> {
-    match word {
-        "--last" => match reading.words.next().map(|many| many.parse::<u32>()) {
-            Some(Ok(many)) => reading.window = Some(many),
-            Some(Err(fault)) => return Err(Rejected::Last(fault)),
-            None => return Err(Rejected::Usage),
-        },
-        "--all" => reading.window = None,
-        "--file" => match reading.words.next() {
-            Some(path) => reading.at = Some(std::path::PathBuf::from(path)),
-            None => return Err(Rejected::Usage),
-        },
-        "--raw" => reading.raw = Raw::Yes,
-        _ => return Err(Rejected::Usage),
+            Err(refusal)
+        }
     }
-
-    Ok(())
 }
 
 fn read_lines(store: File, window: Option<u32>) -> Result<(VecDeque<String>, u64), Never> {

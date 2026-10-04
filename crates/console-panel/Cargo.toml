@@ -31,6 +31,7 @@ path = "tests/the_stand_in_stops.rs"
 harness = false
 
 [dependencies]
+console-core-arguments.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-color.workspace = true
 console-concurrency.workspace = true

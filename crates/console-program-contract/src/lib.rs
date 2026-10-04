@@ -2,10 +2,13 @@
 //! effects it can ask for.
 //!
 //! `docs/programs.md` is the argument and this is the contract it arrives at.
-//! A program here is a `console_core_state_machine::Machine` whose input is its
-//! [`Arguments`], whose requests are [`Event`]s and whose effects are
-//! [`Effect`]s: it holds a state, is told one event at a time, and answers with
-//! the state it holds now and what it wants done. It never does any of it.
+//! A program here is a `console_core_state_machine::Machine` whose input is
+//! what it was started to do -- a host, a profile, whether to go once --
+//! which its `main` reads off the command line against what it declares,
+//! and `()` for a program started to do the one thing it does; whose
+//! requests are [`Event`]s and whose effects are [`Effect`]s:
+//! it holds a state, is told one event at a time, and answers with the state
+//! it holds now and what it wants done. It never does any of it.
 //! Something else -- the loop in the program's own `main`, which is the only
 //! part of it that touches a machine -- carries the effects out.
 //!
@@ -66,12 +69,10 @@
 //! it out, which is the honest cost: the program that asked for it is the one
 //! that knows what it means.
 
-pub mod arguments;
 pub mod effect;
 pub mod subscription;
 pub mod event;
 
-pub use arguments::{Arguments, Flag};
 pub use effect::{Effect, Exit, Executable, Prompt, Command, Notification, FileWrite};
 pub use subscription::{Subscription, Timer};
-pub use event::{Answer, Change, Choice, Elapsed, Topic, ExitStatus, Event};
+pub use event::{Answer, Change, Choice, Elapsed, EventGroup, ExitStatus, Event};

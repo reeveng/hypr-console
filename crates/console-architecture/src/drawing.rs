@@ -1,10 +1,10 @@
 //! The map, written as Graphviz.
 //!
-//! One node per unit, per crate that does something the map draws, per
-//! program run, per pool topic, and one each for the compositor and a unix
+//! One node per unit, per crate that does something the map draws, per program
+//! run, per pool event group, and one each for the compositor and a unix
 //! socket; one edge per thing done. What a crate links is not drawn: every
-//! crate links most of the core, and the edges would be the whole picture.
-//! The live check reads links, because a process is everything it linked.
+//! crate links most of the core, and the edges would be the whole picture. The
+//! live check reads links, because a process is everything it linked.
 //!
 //! Sorted everywhere, so the file changes when the desktop does and at no
 //! other time.
@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use console_core_never::Never;
 
 use crate::Architecture;
-use crate::facts::{self, ANY_TOPIC, Fact, Kind};
+use crate::facts::{self, ANY_EVENT_GROUP, Fact, Kind};
 use crate::units::{Started, Unit};
 
 const HEAD: &str = "\
@@ -174,10 +174,10 @@ fn unit(drawing: &mut Drawing, unit: &Unit, architecture: &Architecture) -> Resu
     Ok(())
 }
 
-fn topic(drawing: &mut Drawing, named: &str) -> Result<String, Never> {
-    let id = format!("topic:{named}");
-    let label = match named == ANY_TOPIC {
-        true => "a topic it was handed",
+fn event_group(drawing: &mut Drawing, named: &str) -> Result<String, Never> {
+    let id = format!("event-group:{named}");
+    let label = match named == ANY_EVENT_GROUP {
+        true => "any event group its caller names",
         false => named,
     };
     let Ok(()) = drawing.node(Node { id: id.clone(), attributes: format!("label={label:?}, shape=note") });
@@ -209,7 +209,7 @@ fn fact(drawing: &mut Drawing, fact: &Fact) -> Result<(), Never> {
             (to, "starts")
         }
         Kind::Sources => {
-            let Ok(to) = topic(drawing, what);
+            let Ok(to) = event_group(drawing, what);
 
             (to, "sources")
         }
@@ -254,11 +254,11 @@ fn packages(drawing: &mut Drawing, architecture: &Architecture) -> Result<(), Ne
         let Ok(()) = fact(drawing, one);
     }
 
-    for (target, topics) in &subscribed {
+    for (target, event_groups) in &subscribed {
         let Ok(from) = crate_id(&target.package);
 
-        for named in topics {
-            let Ok(to) = topic(drawing, named);
+        for named in event_groups {
+            let Ok(to) = event_group(drawing, named);
             let Ok(()) = drawing.edge(Ends { from: &from, to: &to }, "subscribes");
         }
     }

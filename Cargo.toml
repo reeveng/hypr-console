@@ -23,6 +23,7 @@ console-notes = { path = "crates/console-notes" }
 console-core-gif-files = { path = "crates/console-core-gif-files" }
 console-core-jpeg-files = { path = "crates/console-core-jpeg-files" }
 console-core-png-files = { path = "crates/console-core-png-files" }
+console-core-picture-scaling = { path = "crates/console-core-picture-scaling" }
 console-core-prefix-codes = { path = "crates/console-core-prefix-codes" }
 console-core-webp-files = { path = "crates/console-core-webp-files" }
 console-core-color = { path = "crates/console-core-color" }
@@ -74,6 +75,7 @@ console-core-checksums = { path = "crates/console-core-checksums" }
 console-core-temporary-directories = { path = "crates/console-core-temporary-directories" }
 console-core-walking = { path = "crates/console-core-walking" }
 console-core-directory-listing = { path = "crates/console-core-directory-listing" }
+console-core-arguments = { path = "crates/console-core-arguments" }
 console-core-iteration = { path = "crates/console-core-iteration" }
 console-core-file-names = { path = "crates/console-core-file-names" }
 console-core-file-urls = { path = "crates/console-core-file-urls" }
@@ -94,6 +96,7 @@ console-core-places = { path = "crates/console-core-places" }
 console-program-contract = { path = "crates/console-program-contract" }
 console-program-runtime = { path = "crates/console-program-runtime" }
 console-core-reconnect = { path = "crates/console-core-reconnect" }
+console-core-schedules = { path = "crates/console-core-schedules" }
 console-core-state-machine = { path = "crates/console-core-state-machine" }
 console-actor = { path = "crates/console-actor" }
 console-rename = { path = "crates/console-rename" }

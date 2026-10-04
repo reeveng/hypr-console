@@ -24,18 +24,41 @@
 //! keys the transport already offers, so turning either of them off is someone
 //! saying what they want rather than the machine having never decided.
 
-use console_music::player;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
-fn main() {
-    let song = match std::env::args().nth(1).map(PathBuf::from) {
-        Some(song) => song,
-        None => {
-            let Ok(_) = player::onward_only();
+use console_core_arguments::{Command, Operands, read};
+use console_music::player;
 
-            return;
+const COMMAND: Command = Command {
+    name: "music-onward",
+    about: "leave the player going: the library, in any order, round for ever, starting from SONG if there is one",
+    flags: &[],
+    operands: Operands::Optional("SONG"),
+};
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let line = match read(&COMMAND, &words) {
+        Ok(line) => line,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
         }
     };
 
-    let Ok(()) = player::onward(&song);
+    let Ok(operands) = line.operands();
+
+    match operands.first().map(PathBuf::from) {
+        Some(song) => {
+            let Ok(()) = player::onward(&song);
+        }
+        None => {
+            let Ok(_) = player::onward_only();
+        }
+    }
+
+    ExitCode::SUCCESS
 }

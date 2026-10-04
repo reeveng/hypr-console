@@ -36,6 +36,7 @@
 //! it, and `bar-say battery` is the one thing on the machine reading the
 //! battery at all.
 
+use console_core_arguments::Subcommand;
 use console_core_never::Never;
 use console_core_words::Words;
 
@@ -44,12 +45,26 @@ const NOTHING_SAID: &str = "";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Words)]
 pub enum Step {
-    #[words(word = "low", key = "battery-low", says = "Low Battery Alert")]
+    #[words(word = "low", key = "battery-low", says = "Low Battery Alert", about = "say it is getting low")]
     Low,
-    #[words(word = "lower", key = "battery-lower", says = "Very Low Battery Alert")]
+    #[words(word = "lower", key = "battery-lower", says = "Very Low Battery Alert", about = "say it is getting really low")]
     Lower,
-    #[words(word = "protect", key = "battery-protect", says = "Shut Down Before Empty")]
+    #[words(word = "protect", key = "battery-protect", says = "Shut Down Before Empty", about = "say the machine is stopping, wait, and stop it")]
     Protect,
+}
+
+impl Subcommand for Step {
+    fn variants() -> Result<impl Iterator<Item = Self>, Never> {
+        Ok(Step::VARIANTS.iter().copied())
+    }
+
+    fn spelling(self) -> Result<&'static str, Never> {
+        self.word()
+    }
+
+    fn about(self) -> Result<&'static str, Never> {
+        Step::about(self)
+    }
 }
 
 pub const EVERY: [Step; 3] = [Step::Low, Step::Lower, Step::Protect];

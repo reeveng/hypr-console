@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_places::Base;
@@ -99,6 +100,13 @@ enum Light {
     Day,
     Night,
 }
+
+pub const COMMAND: Command = Command {
+    name: "forecast-panel",
+    about: "the weather where this machine is",
+    flags: &[],
+    operands: Operands::Optional("TAB"),
+};
 
 pub fn door(_argv: &[String]) -> Result<Door, Never> {
     Door::closing(DOOR)

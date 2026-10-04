@@ -55,6 +55,8 @@ use console_default_applications::engines;
 use console_core_external_programs::Program;
 use console_home_screen::{HomeScreen, Spot};
 use console_home_screen::shape::Shape;
+use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Takes, read};
+use console_core_internal_programs::LAUNCHER_KEEP;
 use console_core_never::Never;
 use console_actor::Actor;
 use console_core_state_machine::{Machine, Queue};
@@ -79,7 +81,13 @@ pub const WHO: &str = "launcher";
 
 const DOOR: &str = "menu";
 
-const KEEP: &str = "--keep";
+pub const PLACE: Flag = Flag {
+    spelling: "--place",
+    takes: Takes::Value("SQUARE"),
+    about: "put what is chosen on this square of the home screen, written pane.row.column",
+};
+
+pub const COMMAND: Command = Command { name: WHO, about: "the menu", flags: &[LAUNCHER_KEEP, PLACE], operands: Operands::None };
 
 type Shared = Arc<Cache>;
 
@@ -90,12 +98,29 @@ struct Cache {
 }
 
 pub fn door(arguments: &[String]) -> Result<Door, Never> {
-    let again = match arguments.iter().any(|word| word == KEEP) {
-        true => Again::Keeps,
-        false => Again::Closes,
+    let Ok(read) = command_line(arguments);
+    let kept = match read {
+        Some(line) => line.presence(LAUNCHER_KEEP),
+        None => Ok(Presence::Absent),
+    };
+
+    let again = match kept {
+        Ok(Presence::Present) => Again::Keeps,
+        Ok(Presence::Absent) => Again::Closes,
     };
 
     Door::new(DOOR, again)
+}
+
+fn command_line(arguments: &[String]) -> Result<Option<CommandLine<NoSubcommand>>, Never> {
+    Ok(match read(&COMMAND, arguments) {
+        Ok(line) => Some(line),
+        Err(refusal) => {
+            eprintln!("{refusal}, so this is the menu as it usually opens");
+
+            None
+        }
+    })
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
@@ -439,9 +464,15 @@ fn pages(typed: &Typed, kept: &Shared, going: For) -> Result<Vec<Page>, Never> {
 
 
 fn asked_for(asked: &[String]) -> Result<For, Never> {
-    let said = match asked.iter().skip_while(|word| *word != "--place").nth(1) {
-        Some(said) => said.as_str(),
-        None => return Ok(For::Opening),
+    let Ok(read) = command_line(asked);
+    let placing = match &read {
+        Some(line) => line.value(PLACE),
+        None => Ok(None),
+    };
+
+    let said = match placing {
+        Ok(Some(said)) => said,
+        Ok(None) => return Ok(For::Opening),
     };
 
     let read = Spot::read(said)?;

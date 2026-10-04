@@ -25,8 +25,10 @@
 //! when that closes; a word said while this card was still up would be a
 //! square picked up and then dropped by the card going away.
 
+use std::process::ExitCode;
 use std::sync::{Arc, OnceLock};
 
+use console_core_arguments::{Command, Operands, Reason, ValidationError, read};
 use console_core_never::Never;
 use console_onscreen::PadInput;
 use console_panel::page::{Aside, Handler, Page, Row, Rows};
@@ -57,20 +59,47 @@ fn rows(chosen: &Arc<OnceLock<PadInput>>) -> Result<Vec<Row>, Never> {
     Ok(vec![moves, off])
 }
 
-fn main() {
-    let name = match std::env::args().nth(1).filter(|name| !name.is_empty()) {
-        Some(name) => name,
-        None => {
-            eprintln!("home-square: nothing was named, so there is no square this is about");
+const NAME: [&str; 1] = ["NAME"];
 
-            return;
+const COMMAND: Command = Command {
+    name: "home-square",
+    about: "what else can be done with the square of the home screen called NAME",
+    flags: &[],
+    operands: Operands::Named(&NAME),
+};
+
+fn name(words: &[String]) -> Result<String, ValidationError> {
+    let read = read(&COMMAND, words);
+    let line = read?;
+    let operands = line.exactly(NAME);
+    let [name] = operands?;
+
+    match name.is_empty() {
+        true => {
+            let Ok(refusal) = line.refusal(Reason::MissingOperands(NAME.to_vec()));
+
+            Err(refusal)
+        }
+        false => Ok(name.clone()),
+    }
+}
+
+fn main() -> ExitCode {
+    let words: Vec<String> = std::env::args().skip(1).collect();
+
+    let name = match name(&words) {
+        Ok(name) => name,
+        Err(refusal) => {
+            let Ok(code) = refusal.print();
+
+            return ExitCode::from(code);
         }
     };
 
-    let Ok(alone) = picker::alone("home-square", picker::Again::Closes);
+    let Ok(alone) = picker::alone(COMMAND.name, picker::Again::Closes);
 
     match alone {
-        picker::Alone::No => return,
+        picker::Alone::No => return ExitCode::SUCCESS,
         picker::Alone::Yes => {},
     }
 
@@ -90,15 +119,17 @@ fn main() {
 
     let said = match chosen.get() {
         Some(said) => said,
-        None => return,
+        None => return ExitCode::SUCCESS,
     };
 
     match console_onscreen::send_to_home(*said) {
-        Ok(()) => {},
+        Ok(()) => ExitCode::SUCCESS,
         Err(fault) => {
             let Ok(word) = said.word();
 
             eprintln!("home-square: the home screen was not told {word}: {fault}");
+
+            ExitCode::FAILURE
         }
     }
 }

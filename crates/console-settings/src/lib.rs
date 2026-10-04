@@ -20,6 +20,7 @@ pub mod learned;
 pub mod level;
 pub mod light;
 pub mod login;
+pub mod machine;
 pub mod rocker;
 pub mod rows;
 pub mod screen;
@@ -37,4 +38,4 @@ pub mod warm;
 pub mod wifi;
 pub mod words;
 
-pub use card::{WHO, card, door};
+pub use card::{COMMAND, WHO, card, door};

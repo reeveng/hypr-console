@@ -31,7 +31,7 @@ use console_input_event_devices::{EventType, KeyCode};
 use console_core_never::Never;
 use console_core_internal_programs::InternalProgram;
 use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Arguments, Effect as Wanted, Timer, Command, Elapsed, Subscription, Event};
+use console_program_contract::{Effect as Wanted, Timer, Command, Elapsed, Subscription, Event};
 
 use crate::effect::Effect;
 
@@ -115,13 +115,13 @@ pub struct Coming {
 pub struct Return;
 
 impl Machine for Return {
-    type Input = Arguments;
+    type Input = ();
     type State = Coming;
     type Request = Event<ReturningEvent>;
     type Effect = Wanted<Never>;
 
-    fn initialize(arguments: &Arguments, _previous: Option<Coming>, effects: &mut Effects) -> Result<Coming, Never> {
-        let Ok(opening) = initial(arguments);
+    fn initialize(_input: &(), _previous: Option<Coming>, effects: &mut Effects) -> Result<Coming, Never> {
+        let Ok(opening) = initial();
 
         opening.offered(effects)
     }
@@ -135,7 +135,7 @@ impl Machine for Return {
 
 type Effects = Queue<Wanted<Never>>;
 
-fn initial(_argv: &Arguments) -> Result<Transition<Coming, Wanted<Never>>, Never> {
+fn initial() -> Result<Transition<Coming, Wanted<Never>>, Never> {
     #[cfg_attr(
         dylint_lib = "explicit043_no_unmatched_listen",
         allow(
@@ -302,7 +302,7 @@ mod tests {
     const WOKE_AN_HOUR_ON: Event<ReturningEvent> = Event::Tick(LOOK, Duration::from_secs(3600));
     const WOKE_A_LOOK_AFTER_THAT: Event<ReturningEvent> = Event::Tick(LOOK, Duration::from_millis(3_600_016));
 
-    fn woken((from, to): (Elapsed, Elapsed)) -> Result<Vec<Event<ReturningEvent>>, Never> {
+    fn ticks((from, to): (Elapsed, Elapsed)) -> Result<Vec<Event<ReturningEvent>>, Never> {
         Ok(std::iter::successors(Some(from), |at| Some(at.saturating_add(LOOK.interval)))
             .take_while(|at| *at <= to)
             .map(|at| Event::Tick(LOOK, at))
@@ -319,23 +319,23 @@ mod tests {
     fn half_a_second_of_holding_it_is_not_the_door_and_a_second_is() {
         let mut words = vec![Event::Opened, PRESSED];
 
-        let Ok(first) = woken((BEGAN, BEGAN.saturating_add(Duration::from_millis(500))));
+        let Ok(first) = ticks((BEGAN, BEGAN.saturating_add(Duration::from_millis(500))));
 
         words.extend(first);
 
-        let Ok(half) = run::<Return>(&Arguments::default(), &words);
+        let Ok(half) = run::<Return>(&(), &words);
         let Ok(effects) = half.effects();
 
         assert!(effects.is_empty(), "half a second of holding it left for the desktop");
 
-        let Ok(rest) = woken((
+        let Ok(rest) = ticks((
             BEGAN.saturating_add(Duration::from_millis(500)),
             BEGAN.saturating_add(Duration::from_millis(1_100)),
         ));
 
         words.extend(rest);
 
-        let Ok(whole) = run::<Return>(&Arguments::default(), &words);
+        let Ok(whole) = run::<Return>(&(), &words);
 
         assert_eq!(whole.effects(), started());
     }
@@ -344,11 +344,11 @@ mod tests {
     fn the_door_is_opened_once_however_long_it_is_kept_down() {
         let mut words = vec![Event::Opened, PRESSED];
 
-        let Ok(held) = woken((BEGAN, BEGAN.saturating_add(Duration::from_secs(10))));
+        let Ok(held) = ticks((BEGAN, BEGAN.saturating_add(Duration::from_secs(10))));
 
         words.extend(held);
 
-        let Ok(said) = run::<Return>(&Arguments::default(), &words);
+        let Ok(said) = run::<Return>(&(), &words);
 
         assert_eq!(said.effects(), started());
     }
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn steams_chord_never_reaches_the_door() {
         let Ok(said) = run::<Return>(
-            &Arguments::default(),
+            &(),
             &[
                 PRESSED,
                 Event::Custom(ReturningEvent::Saw {
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn a_pad_that_went_away_mid_hold_is_a_hold_that_never_happened() {
         let Ok(said) = run::<Return>(
-            &Arguments::default(),
+            &(),
             &[
                 PRESSED,
                 Event::Custom(ReturningEvent::Closed),
@@ -394,7 +394,7 @@ mod tests {
         allow(explicit043_no_unmatched_listen, reason = "the subscription is named as what the program is expected to ask for, and nothing is subscribed to here")
     )]
     fn it_asks_to_be_woken_and_wants_nothing_else_said_to_it() {
-        let Ok(said) = run::<Return>(&Arguments::default(), &[]);
+        let Ok(said) = run::<Return>(&(), &[]);
 
         assert_eq!(said.initialized, vec![Wanted::Subscribe(Subscription::Timer(LOOK))]);
     }
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn a_hold_that_spans_a_sleep_is_a_thumb_and_not_a_press() {
         let Ok(said) = run::<Return>(
-            &Arguments::default(),
+            &(),
             &[
                 WOKE_AS_PRESSED,
                 PRESSED,

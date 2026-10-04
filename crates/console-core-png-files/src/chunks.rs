@@ -7,12 +7,16 @@
 //! or the one grey or colour that is not there; and the data, which may be cut
 //! into any number of chunks and is the one deflate stream when they are put
 //! back together. Every other chunk is checked and passed over.
+//!
+//! A PNG this writes is the three chunks a PNG cannot be without: the header,
+//! the data in one chunk, and the end. Nothing about colour is said, so a
+//! reader draws the bytes as they are, which is how they were read here too.
 
 use console_core_checksums::crc32;
 use console_core_geometry::Size;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_core_number_conversion::index;
+use console_core_number_conversion::{fitted, index};
 
 use crate::PngError;
 
@@ -23,6 +27,14 @@ const LARGEST_SIDE: u32 = 1 << 31;
 const FIRST: u32 = 8;
 
 const AROUND: u32 = 12;
+
+const LONGEST_CHUNK: u32 = (1 << 31) - 1;
+
+const DEFLATED: u8 = 0;
+
+const ADAPTIVE: u8 = 0;
+
+const STRAIGHT: u8 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Color {
@@ -223,6 +235,61 @@ fn header_in(data: &[u8]) -> Result<Header, PngError> {
     }
 
     Ok(Header { size: Size { width: wide, height: tall }, depth: u32::from(depth), color, lacing })
+}
+
+pub(crate) fn written(header: &Header, packed: &[u8]) -> Result<Vec<u8>, PngError> {
+    let Ok(color) = color_type(header.color);
+    let Ok(depth) = fitted::<u32, u8>(header.depth);
+    let mut described = Vec::with_capacity(13);
+
+    described.extend_from_slice(&header.size.width.to_be_bytes());
+    described.extend_from_slice(&header.size.height.to_be_bytes());
+    described.extend_from_slice(&[depth, color, DEFLATED, ADAPTIVE, STRAIGHT]);
+
+    let mut bytes = SIGNATURE.to_vec();
+
+    put(&mut bytes, (*b"IHDR", &described))?;
+    put(&mut bytes, (*b"IDAT", packed))?;
+    put(&mut bytes, (*b"IEND", &[]))?;
+
+    Ok(bytes)
+}
+
+fn color_type(color: Color) -> Result<u8, Never> {
+    Ok(match color {
+        Color::Grey => 0,
+        Color::Rgb => 2,
+        Color::Indexed => 3,
+        Color::GreyAlpha => 4,
+        Color::Rgba => 6,
+    })
+}
+
+fn put(bytes: &mut Vec<u8>, chunk: ([u8; 4], &[u8])) -> Result<(), PngError> {
+    let (kind, data) = chunk;
+
+    let long = match u32::try_from(data.len()) {
+        Ok(long) => long,
+        Err(_past_four_gigabytes) => return Err(PngError::TooLarge),
+    };
+
+    match long <= LONGEST_CHUNK {
+        true => {},
+        false => return Err(PngError::TooLarge),
+    }
+
+    let mut covered = Vec::with_capacity(data.len().saturating_add(4));
+
+    covered.extend_from_slice(&kind);
+    covered.extend_from_slice(data);
+
+    let Ok(sum) = crc32::of(&covered);
+
+    bytes.extend_from_slice(&long.to_be_bytes());
+    bytes.extend_from_slice(&covered);
+    bytes.extend_from_slice(&sum.to_be_bytes());
+
+    Ok(())
 }
 
 fn palette(header: &Header, chunks: (&[u8], Option<&[u8]>)) -> Result<Vec<[u8; 4]>, PngError> {

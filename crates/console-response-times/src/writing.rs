@@ -55,7 +55,7 @@ const QUEUE: u32 = 4096;
 
 enum Message {
     Line(String),
-    Settled(SyncSender<()>),
+    Flush(SyncSender<()>),
 }
 
 pub fn line(said: &str) -> Result<(), Never> {
@@ -94,7 +94,7 @@ pub fn flush() -> Result<(), Never> {
 
     let (told, back) = sync_channel(0);
 
-    match say.send(Message::Settled(told)) {
+    match say.send(Message::Flush(told)) {
         Ok(()) => {
             let _ = back.recv();
         }
@@ -165,7 +165,7 @@ fn keep(heard: &Receiver<Message>, at: &Path, asked: fn() -> Result<Measuring, N
                     Measuring::Off => store = None,
                 }
             }
-            Message::Settled(told) => {
+            Message::Flush(told) => {
                 let _ = told.send(());
             }
         }
@@ -356,7 +356,7 @@ mod tests {
         let (told, back) = sync_channel(0);
 
         say.send(Message::Line("one\n".to_string())).map_err(|_| "the queue had no room in it")?;
-        say.send(Message::Settled(told)).map_err(|_| "the queue had no room in it")?;
+        say.send(Message::Flush(told)).map_err(|_| "the queue had no room in it")?;
         back.recv().map_err(|_| "the thread never said it had caught up")?;
 
         let written = std::fs::read_to_string(&at)?;
@@ -381,7 +381,7 @@ mod tests {
         let (told, back) = sync_channel(0);
 
         say.send(Message::Line("one\n".to_string())).map_err(|_| "the queue had no room in it")?;
-        say.send(Message::Settled(told)).map_err(|_| "the queue had no room in it")?;
+        say.send(Message::Flush(told)).map_err(|_| "the queue had no room in it")?;
         back.recv().map_err(|_| "the thread never said it had caught up")?;
 
         assert!(!at.exists(), "a line was written with measuring off");

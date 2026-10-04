@@ -38,8 +38,8 @@
 
 use std::fmt;
 
+use console_core_arguments::{Command, CommandLine, Flag, NoSubcommand, Operands, Reason, Takes, ValidationError};
 use console_core_geometry::{Point, Size};
-use console_core_iteration::Step;
 use console_core_never::Never;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,34 +69,45 @@ pub enum Where {
     OffIt,
 }
 
-pub const SAID: &str = "say where: console-point [--in NAMESPACE] ACROSS DOWN [--click] [--scroll NOTCHES] [--drag ACROSS DOWN ...]";
+pub const IN: Flag = Flag {
+    spelling: "--in",
+    takes: Takes::Value("NAMESPACE"),
+    about: "measure the place from the corner of that surface rather than the screen's",
+};
+
+pub const CLICK: Flag = Flag { spelling: "--click", takes: Takes::None, about: "click once the pointer is there" };
+
+pub const SCROLL: Flag = Flag {
+    spelling: "--scroll",
+    takes: Takes::Value("NOTCHES"),
+    about: "turn the wheel that many notches once the pointer is there",
+};
+
+pub const DRAG: Flag = Flag {
+    spelling: "--drag",
+    takes: Takes::None,
+    about: "hold the button down from the place through every place after it",
+};
+
+pub const COMMAND: Command = Command {
+    name: "console-point",
+    about: "put the pointer at a place on the picture, and click, scroll or drag there",
+    flags: &[IN, CLICK, SCROLL, DRAG],
+    operands: Operands::Any("ACROSS DOWN"),
+};
+
+const PLACE: [&str; 2] = ["ACROSS", "DOWN"];
 
 const NUDGE: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unsaid {
-    NoNamespace,
-    NoNotches,
-    NotNotches(String),
-    Unknown(String),
-    NotAPlace(String),
-    NotTwoPlaces,
     OffTheScreen(i64),
 }
 
 impl fmt::Display for Unsaid {
     fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Unsaid::NoNamespace => write!(to, "--in wants the namespace of a surface"),
-            Unsaid::NoNotches => write!(to, "--scroll wants a number of notches"),
-            Unsaid::NotNotches(said) => write!(to, "{said} is not a number of notches"),
-            Unsaid::Unknown(said) => {
-                write!(to, "{said} is not something console-point knows. {SAID}")
-            }
-            Unsaid::NotAPlace(said) => {
-                write!(to, "{said} is not a place on the screen. {SAID}")
-            }
-            Unsaid::NotTwoPlaces => write!(to, "{SAID}"),
             Unsaid::OffTheScreen(edge) => {
                 write!(to, "a corner at {edge} is off the screen this points at")
             }
@@ -106,87 +117,94 @@ impl fmt::Display for Unsaid {
 
 impl std::error::Error for Unsaid {}
 
-pub fn parse_request(words: &[String]) -> Result<Request, Unsaid> {
-    let parsing = Parsing { words: words.iter(), places: Vec::new(), does: PointerAction::None, measured: Measured::FromTheScreen };
-    let parsed = console_core_iteration::iterate(parsing, |mut parsing| {
-        Ok(match parsing.words.next() {
-            None => Step::Halt(Ok(parsing)),
-            Some(word) => match heard(&mut parsing, word) {
-                Ok(()) => Step::Again(parsing),
-                Err(fault) => Step::Halt(Err(fault)),
-            },
+pub fn request(line: &CommandLine<NoSubcommand>) -> Result<Request, ValidationError> {
+    let Ok(said) = places(line);
+    let Places { at, rest } = said.map_err(|reason| {
+        let Ok(refusal) = line.refusal(reason);
+
+        refusal
+    })?;
+    let chosen = chosen(line)?;
+    let notches = line.parsed::<i32>(SCROLL)?;
+    let Ok(decided) = action(line, chosen, notches, rest);
+    let does = decided.map_err(|reason| {
+        let Ok(refusal) = line.refusal(reason);
+
+        refusal
+    })?;
+    let Ok(measured) = measured(line);
+
+    Ok(Request { at, measured, does })
+}
+
+struct Places {
+    at: Point<u32>,
+    rest: Vec<Point<u32>>,
+}
+
+fn places(line: &CommandLine<NoSubcommand>) -> Result<Result<Places, Reason>, Never> {
+    let Ok(words) = line.operands();
+    let numbers: Result<Vec<u32>, Reason> = words
+        .iter()
+        .zip(PLACE.into_iter().cycle())
+        .map(|(word, of)| {
+            word.parse::<u32>().map_err(|_not_a_number| Reason::InvalidValue { of, value: word.clone() })
         })
+        .collect();
+    let paired: Result<Vec<Point<u32>>, Reason> = numbers.and_then(|numbers| {
+        numbers
+            .chunks(2)
+            .map(|pair| match pair {
+                [across, down] => Ok(Point { x: *across, y: *down }),
+                _half => Err(Reason::MissingOperands(PLACE.iter().skip(1).copied().collect())),
+            })
+            .collect()
     });
-    let Parsing { places, does, measured, .. } = match parsed {
-        Ok(parsing) => parsing?,
-        Err(_endless) => return Err(Unsaid::NotTwoPlaces),
+
+    Ok(paired.and_then(|pairs| match pairs.split_first() {
+        Some((at, rest)) => Ok(Places { at: *at, rest: rest.to_vec() }),
+        None => Err(Reason::MissingOperands(PLACE.to_vec())),
+    }))
+}
+
+fn chosen(line: &CommandLine<NoSubcommand>) -> Result<Option<Flag>, ValidationError> {
+    match line.one_of(&[CLICK, SCROLL, DRAG]) {
+        Ok(flag) => Ok(Some(flag)),
+        Err(ValidationError { reason: Reason::MissingFlag(_), .. }) => Ok(None),
+        Err(refusal) => Err(refusal),
+    }
+}
+
+fn action(
+    line: &CommandLine<NoSubcommand>,
+    chosen: Option<Flag>,
+    notches: Option<i32>,
+    rest: Vec<Point<u32>>,
+) -> Result<Result<PointerAction, Reason>, Never> {
+    let Ok(words) = line.operands();
+    let extra = match words.get(PLACE.len()) {
+        Some(word) => word.clone(),
+        None => PLACE.join(" "),
     };
 
-    let mut pairs = places.chunks(2).map(|pair| match pair {
-        [across, down] => Ok(Point { x: *across, y: *down }),
-        _ => Err(Unsaid::NotTwoPlaces),
-    });
-    let first = pairs.next().ok_or(Unsaid::NotTwoPlaces)?;
-    let at = first?;
-    let collected: Result<Vec<Point<u32>>, Unsaid> = pairs.collect();
-    let rest = collected?;
-
-    match (does, rest.is_empty()) {
-        (PointerAction::Drag(_), false) => Ok(Request { at, measured, does: PointerAction::Drag(rest) }),
-        (does @ (PointerAction::None | PointerAction::Click | PointerAction::Scroll(_)), true) => {
-            Ok(Request { at, measured, does })
-        }
-        (PointerAction::Drag(_), true)
-        | (PointerAction::None | PointerAction::Click | PointerAction::Scroll(_), false) => {
-            Err(Unsaid::NotTwoPlaces)
-        }
-    }
+    Ok(match (chosen, notches, rest.is_empty()) {
+        (Some(DRAG), _no_notches, false) => Ok(PointerAction::Drag(rest)),
+        (Some(DRAG), _no_notches, true) => Err(Reason::MissingOperands(PLACE.to_vec())),
+        (None, _no_notches, true) => Ok(PointerAction::None),
+        (Some(_click_or_scroll), Some(notches), true) => Ok(PointerAction::Scroll(notches)),
+        (Some(_click), None, true) => Ok(PointerAction::Click),
+        (Some(_click_or_scroll), _notches, false) => Err(Reason::ExtraArgument(extra)),
+        (None, _notches, false) => Err(Reason::ExtraArgument(extra)),
+    })
 }
 
-struct Parsing<'a> {
-    words: std::slice::Iter<'a, String>,
-    places: Vec<u32>,
-    does: PointerAction,
-    measured: Measured,
-}
+fn measured(line: &CommandLine<NoSubcommand>) -> Result<Measured, Never> {
+    let Ok(namespace) = line.value(IN);
 
-fn heard(parsing: &mut Parsing<'_>, word: &str) -> Result<(), Unsaid> {
-    match word {
-        "--click" => parsing.does = PointerAction::Click,
-        "--drag" => parsing.does = PointerAction::Drag(Vec::new()),
-        "--in" => {
-            let said = match parsing.words.next() {
-                Some(said) => said,
-                None => return Err(Unsaid::NoNamespace),
-            };
-
-            parsing.measured = Measured::FromTheCorner(said.clone());
-        },
-        "--scroll" => {
-            let said = match parsing.words.next() {
-                Some(said) => said,
-                None => return Err(Unsaid::NoNotches),
-            };
-
-            let notches = said
-                .parse::<i32>()
-                .map_err(|_| Unsaid::NotNotches(said.clone()))?;
-
-            parsing.does = PointerAction::Scroll(notches);
-        },
-        said => match said.starts_with("--") {
-            true => return Err(Unsaid::Unknown(said.to_string())),
-            false => {
-                let place = said
-                    .parse::<u32>()
-                    .map_err(|_| Unsaid::NotAPlace(said.to_string()))?;
-
-                parsing.places.push(place);
-            }
-        },
-    }
-
-    Ok(())
+    Ok(match namespace {
+        Some(namespace) => Measured::FromTheCorner(namespace.to_string()),
+        None => Measured::FromTheScreen,
+    })
 }
 
 pub fn from_the_corner(at: Point<u32>, corner: Point<i64>) -> Result<Point<u32>, Unsaid> {
@@ -221,10 +239,10 @@ pub fn approach(at: Point<u32>, room: Size<u32>) -> Result<Point<u32>, Never> {
 mod tests {
     use super::*;
 
-    fn parse(said: &str) -> Result<Request, Unsaid> {
-        let words: Vec<String> = said.split_whitespace().map(str::to_string).collect();
+    fn parse(said: &str) -> Result<Request, Reason> {
+        let words: Vec<&str> = said.split_whitespace().collect();
 
-        parse_request(&words)
+        console_core_arguments::read(&COMMAND, &words).and_then(|line| request(&line)).map_err(|refusal| refusal.reason)
     }
 
     #[test]
@@ -269,8 +287,8 @@ mod tests {
                 does: PointerAction::Drag(vec![Point { x: 30, y: 40 }, Point { x: 50, y: 60 }])
             })
         );
-        assert_eq!(parse("10 20 --drag"), Err(Unsaid::NotTwoPlaces), "a drag that goes nowhere");
-        assert_eq!(parse("10 20 --drag 30"), Err(Unsaid::NotTwoPlaces), "half a place to drag to");
+        assert_eq!(parse("10 20 --drag"), Err(Reason::MissingOperands(vec!["ACROSS", "DOWN"])), "a drag that goes nowhere");
+        assert_eq!(parse("10 20 --drag 30"), Err(Reason::MissingOperands(vec!["DOWN"])), "half a place to drag to");
     }
 
     #[test]
@@ -295,8 +313,8 @@ mod tests {
                 does: PointerAction::Click
             })
         );
-        assert_eq!(parse("--in 10 20"), Err(Unsaid::NotTwoPlaces), "the name ate a number");
-        assert_eq!(parse("10 20 --in"), Err(Unsaid::NoNamespace), "--in with nothing to name");
+        assert_eq!(parse("--in 10 20"), Err(Reason::MissingOperands(vec!["DOWN"])), "the name ate a number");
+        assert_eq!(parse("10 20 --in"), Err(Reason::MissingValue("--in")), "--in with nothing to name");
     }
 
     #[test]
@@ -322,12 +340,16 @@ mod tests {
 
     #[test]
     fn anything_that_is_not_a_place_is_said_rather_than_guessed() {
-        assert_eq!(parse("322"), Err(Unsaid::NotTwoPlaces), "one number is not a place");
-        assert_eq!(parse("322 212 100"), Err(Unsaid::NotTwoPlaces), "three is not a place either");
-        assert_eq!(parse(""), Err(Unsaid::NotTwoPlaces), "nowhere is not a place");
-        assert_eq!(parse("left 212"), Err(Unsaid::NotAPlace("left".to_string())), "a word is not a number");
-        assert_eq!(parse("10 20 --nudge"), Err(Unsaid::Unknown("--nudge".to_string())), "an option nothing knows");
-        assert_eq!(parse("10 20 --scroll"), Err(Unsaid::NoNotches), "--scroll with no notches");
+        assert_eq!(parse("322"), Err(Reason::MissingOperands(vec!["DOWN"])), "one number is not a place");
+        assert_eq!(parse("322 212 100"), Err(Reason::MissingOperands(vec!["DOWN"])), "three is not a place either");
+        assert_eq!(parse(""), Err(Reason::MissingOperands(vec!["ACROSS", "DOWN"])), "nowhere is not a place");
+        assert_eq!(parse("left 212"), Err(Reason::InvalidValue { of: "ACROSS", value: "left".to_string() }), "a word is not a number");
+        assert_eq!(parse("10 down"), Err(Reason::InvalidValue { of: "DOWN", value: "down".to_string() }), "nor is one in the second place");
+        assert_eq!(parse("10 20 30 40"), Err(Reason::ExtraArgument("30".to_string())), "two places with nothing to drag");
+        assert_eq!(parse("10 20 --nudge"), Err(Reason::NoSuchFlag("--nudge".to_string())), "an option nothing knows");
+        assert_eq!(parse("10 20 --scroll"), Err(Reason::MissingValue("--scroll")), "--scroll with no notches");
+        assert_eq!(parse("10 20 --scroll many"), Err(Reason::InvalidValue { of: "--scroll", value: "many".to_string() }), "notches are a number");
+        assert_eq!(parse("10 20 --click --scroll 3"), Err(Reason::ExtraArgument("--scroll".to_string())), "one thing to do there, not two");
     }
 
     #[test]

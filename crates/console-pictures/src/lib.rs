@@ -50,6 +50,13 @@
 //! lossless, and each is drawn down from there. The first twelve bytes of a
 //! file say which of them it is.
 //!
+//! **A picture somebody edits is read at its own size, here or not at all.**
+//! [`full_size`] is the same four decoders with nothing behind them: the
+//! viewer turns, flips and crops the pixels and writes the copy itself, so a
+//! file only ffmpeg reads is one it says it cannot edit yet rather than one it
+//! hands to a second program. Which of the four the file was comes back with
+//! the pixels, because the copy is written in the format it came in.
+//!
 //! A photograph drawn into a room a screen wide is drawn on every core, a JPEG
 //! and a lossy WebP alike: its bits are read on one, and what comes after the
 //! reading of each round of rows -- the blocks, a WebP's loop filter, the
@@ -82,8 +89,6 @@
 //! that is not the length this crate worked out, because both of those are the
 //! machine rather than the file.
 
-mod resample;
-
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -96,9 +101,9 @@ use console_core_jpeg_files::{JpegError, Task};
 use console_core_webp_files::WebpError;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
+use console_core_picture_scaling::{Scaling, Source, scaled};
 use console_core_shapes::Pixels;
-
-use crate::resample::{Shrinking, Source, resampled};
+use console_core_words::Words;
 
 pub const SVG: &str = "svg";
 
@@ -135,11 +140,15 @@ enum Shape {
     Squared(Size<u32>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Format {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+pub enum Format {
+    #[words(says = "JPEG")]
     Jpeg,
+    #[words(says = "PNG")]
     Png,
+    #[words(says = "GIF")]
     Gif,
+    #[words(says = "WebP")]
     Webp,
 }
 
@@ -155,9 +164,17 @@ struct Opened {
     bytes: Vec<u8>,
 }
 
-struct Bitmap {
-    size: Size<u32>,
-    rgba: Vec<u8>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bitmap {
+    pub size: Size<u32>,
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FullSize {
+    Decoded(Format, Bitmap),
+    Refused(Format),
+    Unrecognized,
 }
 
 fn opened(at: &Path) -> Result<Option<Opened>, Never> {
@@ -299,9 +316,17 @@ fn whole_shrunk(opened: (Whole, &[u8]), wanted: (Size<u32>, Shape, Size<u32>)) -
     };
 
     let Ok(region) = region(picture.size, shape);
-    let Ok(rgba) = resampled(Source { rgba: &picture.rgba, wide: picture.size.width, region }, made);
+    let Ok(rgba) = scaled(Source { rgba: &picture.rgba, width: picture.size.width, region }, made);
 
     Ok(Some(rgba))
+}
+
+struct Bands(Scaling);
+
+impl console_core_webp_files::Receiver for Bands {
+    fn received(&mut self, rgba: &[u8]) -> Result<(), Never> {
+        self.0.received(rgba)
+    }
 }
 
 fn webp_shrunk(bytes: &[u8], wanted: (Size<u32>, Shape, Size<u32>)) -> Result<Option<Vec<u8>>, Never> {
@@ -314,15 +339,16 @@ fn webp_shrunk(bytes: &[u8], wanted: (Size<u32>, Shape, Size<u32>)) -> Result<Op
 
     let Ok(region) = region(had, shape);
     let kept = Rectangle { origin: Point { x: 0, y: 0 }, size: region.size };
-    let Ok(mut shrinking) = Shrinking::new(region.size.width, kept, made);
+    let Ok(scaling) = Scaling::new(region.size.width, kept, made);
+    let mut bands = Bands(scaling);
 
     let decoded = match covering.width.max(covering.height) >= SPREAD_FROM {
         true => {
             let Ok(cores) = Cores::counted();
 
-            console_core_webp_files::decoded_in_bands(bytes, &|tasks| webp_on_every_core(cores, tasks), (region, &mut shrinking))
+            console_core_webp_files::decoded_in_bands(bytes, &|tasks| webp_on_every_core(cores, tasks), (region, &mut bands))
         },
-        false => console_core_webp_files::decoded_in_bands(bytes, &|tasks| tasks.iter().try_for_each(console_core_webp_files::Task::done), (region, &mut shrinking)),
+        false => console_core_webp_files::decoded_in_bands(bytes, &|tasks| tasks.iter().try_for_each(console_core_webp_files::Task::done), (region, &mut bands)),
     };
 
     match decoded {
@@ -333,7 +359,7 @@ fn webp_shrunk(bytes: &[u8], wanted: (Size<u32>, Shape, Size<u32>)) -> Result<Op
         Err(_unread) => return Ok(None),
     }
 
-    let Ok(rgba) = shrinking.finished();
+    let Ok(rgba) = bands.0.finished();
 
     Ok(Some(rgba))
 }
@@ -683,6 +709,46 @@ pub fn square(at: &Path, size: Size<u32>) -> Result<Option<Pixels>, PictureError
     to_pixels(at, size, bytes)
 }
 
+pub fn full_size(at: &Path) -> Result<FullSize, Never> {
+    let Ok(opened) = opened(at);
+
+    let opened = match opened {
+        Some(opened) => opened,
+        None => return Ok(FullSize::Unrecognized),
+    };
+
+    let Ok(measured) = measured(&opened);
+    let format = opened.format;
+
+    let upright = match measured {
+        Some(upright) => upright,
+        None => return Ok(FullSize::Refused(format)),
+    };
+
+    let bytes = opened.bytes.as_slice();
+
+    let drawn = match format {
+        Format::Jpeg => drawn((Whole::Jpeg, bytes), upright),
+        Format::Png => drawn((Whole::Png, bytes), upright),
+        Format::Gif => drawn((Whole::Gif, bytes), upright),
+        Format::Webp => webp_whole(bytes),
+    };
+
+    Ok(match drawn {
+        Ok(Some(bitmap)) => FullSize::Decoded(format, bitmap),
+        Ok(None) => FullSize::Refused(format),
+    })
+}
+
+fn webp_whole(bytes: &[u8]) -> Result<Option<Bitmap>, Never> {
+    let Ok(cores) = Cores::counted();
+
+    Ok(match console_core_webp_files::decoded_spread(bytes, &|tasks| webp_on_every_core(cores, tasks)) {
+        Ok(picture) => Some(Bitmap { size: picture.size, rgba: picture.rgba }),
+        Err(_unread) => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1021,7 +1087,7 @@ mod tests {
         let held = read.ok_or("no lossy WebP spread over the cores")?;
         let drawn = include_bytes!("../../console-core-webp-files/tests/pictures/lossy-tall.rgba");
         let whole = Rectangle { origin: Point { x: 0, y: 0 }, size: Size { width: 48, height: 400 } };
-        let Ok(expected) = resampled(Source { rgba: drawn, wide: 48, region: whole }, Size { width: held.width, height: held.height });
+        let Ok(expected) = scaled(Source { rgba: drawn, width: 48, region: whole }, Size { width: held.width, height: held.height });
 
         assert_eq!((held.width, held.height), (61, SPREAD_FROM));
         assert!(held.bytes.as_slice() == expected.as_slice(), "not what libwebp draws");
@@ -1043,7 +1109,7 @@ mod tests {
         let held = read.ok_or("no lossy WebP squared")?;
         let drawn = include_bytes!("../../console-core-webp-files/tests/pictures/lossy-tall.rgba");
         let middle = Rectangle { origin: Point { x: 0, y: 176 }, size: Size { width: 48, height: 48 } };
-        let Ok(expected) = resampled(Source { rgba: drawn, wide: 48, region: middle }, Size { width: 32, height: 32 });
+        let Ok(expected) = scaled(Source { rgba: drawn, width: 48, region: middle }, Size { width: 32, height: 32 });
 
         assert_eq!((held.width, held.height), (32, 32));
         assert!(held.bytes.as_slice() == expected.as_slice(), "not the middle of what libwebp draws");

@@ -20,6 +20,7 @@ mod spend;
 mod terminal;
 
 use console_core_color::Short;
+use console_core_arguments::{Command, Flag, Operands, Presence, Takes, ValidationError};
 use console_core_never::Never;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -36,7 +37,6 @@ enum Effect {
 
 #[derive(Debug)]
 enum Unspent {
-    Arguments(Vec<String>),
     Rootless(console_repository::NotFound),
     Undeclared(std::io::Error),
     Unparsed(toml::de::Error),
@@ -51,10 +51,6 @@ enum Unspent {
 impl std::fmt::Display for Unspent {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Unspent::Arguments(other) => write!(
-                to,
-                "console-palette takes --check and nothing else, not {other:?}"
-            ),
             Unspent::Rootless(fault) => write!(to, "{fault}"),
             Unspent::Undeclared(fault) => {
                 write!(to, "theme/palette.toml could not be read: {fault}")
@@ -95,28 +91,32 @@ impl From<Short> for Unspent {
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(code) => code,
-        Err(fault) => {
-            eprintln!("{fault}");
-            ExitCode::FAILURE
-        }
-    }
+    let said: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = console_core_arguments::run_main(&COMMAND, &said, effect, run);
+
+    code
 }
 
-fn run() -> Result<ExitCode, Unspent> {
-    let doing = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
-        [] => Effect::Write,
-        [flag] => match flag.as_str() {
-            "--check" => Effect::Check,
-            "--help" | "-h" => {
-                println!("{}", HELP);
-                return Ok(ExitCode::SUCCESS);
-            }
-            _ => return Err(Unspent::Arguments(vec![flag.clone()])),
-        },
-        other => return Err(Unspent::Arguments(other.to_vec())),
-    };
+const CHECK: Flag = Flag { spelling: "--check", takes: Takes::None, about: "say what it would change, and change nothing" };
+
+const COMMAND: Command = Command {
+    name: "console-palette",
+    about: "write the palette out of theme/palette.toml into every file that spends it",
+    flags: &[CHECK],
+    operands: Operands::None,
+};
+
+fn effect(said: &[String]) -> Result<Effect, ValidationError> {
+    let line = console_core_arguments::read(&COMMAND, said)?;
+    let Ok(checking) = line.presence(CHECK);
+
+    Ok(match checking {
+        Presence::Present => Effect::Check,
+        Presence::Absent => Effect::Write,
+    })
+}
+
+fn run(doing: Effect) -> Result<ExitCode, Unspent> {
 
     let root = console_repository::root()?;
     let declared = std::fs::read_to_string(root.join("theme/palette.toml"))
@@ -189,10 +189,6 @@ fn run() -> Result<ExitCode, Unspent> {
 
     Ok(ExitCode::SUCCESS)
 }
-
-const HELP: &str = "\
-console-palette          write the palette out of theme/palette.toml
-console-palette --check  say what it would change, change nothing";
 
 fn desired_contents(written: &Written) -> Result<String, Unspent> {
     match written.how {

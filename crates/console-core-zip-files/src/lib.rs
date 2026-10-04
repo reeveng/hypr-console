@@ -10,7 +10,7 @@
 //! So the format is read here, and only as far as a reader needs. The central
 //! directory at the end says what is in the file and where; a local header in
 //! front of each thing says how far past it the bytes begin; and the bytes are
-//! stored or deflated, which [`inflate`] undoes. What the format also allows --
+//! stored or deflated, which [`inflate`] undoes and [`deflate`] does. What the format also allows --
 //! the other methods, a password, the sixty-four bit sizes of an archive past
 //! four gigabytes -- is refused by name rather than read wrong, because a book
 //! has never been written that way and a fault that says what it met is one a
@@ -26,6 +26,7 @@
 //! Nothing here opens a file. It is handed the bytes and answers about them,
 //! which is what lets a test hold a whole archive in a constant.
 
+pub mod deflate;
 pub mod inflate;
 
 use console_core_never::Never;
@@ -54,6 +55,7 @@ pub enum ZipError {
     UnsupportedMethod(u16),
     Encrypted,
     TooLarge,
+    Uncoded,
 }
 
 impl std::fmt::Display for ZipError {
@@ -66,6 +68,7 @@ impl std::fmt::Display for ZipError {
             ZipError::UnsupportedMethod(method) => write!(to, "this is packed a way nothing here reads ({method})"),
             ZipError::Encrypted => write!(to, "this is locked with a password"),
             ZipError::TooLarge => write!(to, "this is larger than four gigabytes"),
+            ZipError::Uncoded => write!(to, "a symbol came up that the code being written has no code for"),
         }
     }
 }

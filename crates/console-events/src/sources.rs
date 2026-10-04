@@ -1,12 +1,12 @@
 //! Where the words come from, one subscription each.
 //!
-//! The one that is left out is left out for a reason rather than for want of
-//! an afternoon. A source is held on the first `listen`
-//! for its topic and never before, so a topic no one is listening to costs
-//! nothing at all: what decides whether one belongs here is whether the thing
-//! that says a change has happened already exists as a program, not whether
-//! anyone is asking yet. What a topic with no source does is say so on the
-//! journal and hand out nothing, which is a topic that is quiet rather than a
+//! The one that is left out is left out for a reason rather than for want of an
+//! afternoon. A source is held on the first `listen` for its event group and
+//! never before, so an event group no one is listening to costs nothing at all:
+//! what decides whether one belongs here is whether the thing that says a
+//! change has happened already exists as a program, not whether anyone is
+//! asking yet. What an event group with no source does is say so on the journal
+//! and hand out nothing, which is an event group that is quiet rather than a
 //! pool that is broken.
 //!
 //! **`Units` has no source because nothing on this machine emits one.** systemd
@@ -14,21 +14,23 @@
 //! holding a `Subscribe` open, and a monitor sees what is sent rather than
 //! asking for it -- so a `busctl monitor` here would sit watching a bus that
 //! stays silent and report a machine where no unit ever changes, which is worse
-//! than a topic that says it is quiet. What it wants is a connection that
-//! subscribes and stays, and that is a program rather than a line in this file.
+//! than an event group that says it is quiet. What it wants is a connection
+//! that subscribes and stays, and that is a program rather than a line in this
+//! file.
 //!
-//! **`Path` is a folder, and the kernel is its source.** Every other topic
-//! here is one watcher for the whole machine; a path is a watcher per path, and
-//! that fits the same shape because a `Topic::Path` names its folder: two
-//! folders are two topics, held once each like any other. `watching` is the
-//! watcher. A path that is not absolute is not a folder anyone can mean, and
-//! is refused rather than read against wherever the pool was started.
+//! **`Path` is a folder, and the kernel is its source.** Every other event
+//! group here is one watcher for the whole machine; a path is a watcher per
+//! path, and that fits the same shape because an `EventGroup::Path` names its
+//! folder: two folders are two event groups, held once each like any other.
+//! `watching` is the watcher. A path that is not absolute is not a folder
+//! anyone can mean, and is refused rather than read against wherever the pool
+//! was started.
 //!
-//! Nothing a program says is passed on. There was one topic a program could
-//! publish on, a download finishing, and it was a program speaking for the
-//! machine about one kind of change; the folder the download landed in says the
-//! same thing now, for every kind of change and every program, and a pool that
-//! took words from programs was a pool that had to decide which of them to
+//! Nothing a program says is passed on. There was one event group a program
+//! could publish on, a download finishing, and it was a program speaking for
+//! the machine about one kind of change; the folder the download landed in says
+//! the same thing now, for every kind of change and every program, and a pool
+//! that took words from programs was a pool that had to decide which of them to
 //! believe.
 //!
 //! **What the bus watches is narrowed where it is asked rather than where it is
@@ -57,8 +59,8 @@
 //! `nmcli monitor` is `Network`, and it says a device connected and never how
 //! strong anything is. What the bus says that it does not is every access
 //! point's strength and the moment a scan finished, which is when a list of
-//! what is in range is new rather than remembered. It is a topic of its own
-//! because the bar wakes on every line of `Network`, and a street full of
+//! what is in range is new rather than remembered. It is an event group of its
+//! own because the bar wakes on every line of `Network`, and a street full of
 //! access points being seen again is not a line it should wake for.
 //!
 //! **The battery is the kernel's `power_supply` uevents, which is a netlink
@@ -101,7 +103,7 @@ use std::sync::mpsc::Sender;
 use console_program_lifetime::alongside;
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_core_reconnect::{Round, keep};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,11 +130,11 @@ pub const DEVICE: &str = "org.bluez.Device1";
 
 pub fn handed_to(
     waiting: Option<&Sender<Sender<Change>>>,
-    wanted: &Topic,
-    topic: &Topic,
+    wanted: &EventGroup,
+    event_group: &EventGroup,
     say: Sender<Change>,
 ) -> Result<Subscribed, Never> {
-    Ok(match (topic == wanted, waiting) {
+    Ok(match (event_group == wanted, waiting) {
         (true, Some(waiting)) => match waiting.send(say) {
             Ok(()) => Subscribed::Yes,
             Err(_nobody_waiting_any_more) => Subscribed::No,
@@ -141,62 +143,62 @@ pub fn handed_to(
     })
 }
 
-pub fn hold(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
-    Ok(match topic {
-        Topic::Compositor => {
+pub fn hold(event_group: &EventGroup, say: Sender<Change>) -> Result<Subscribed, Never> {
+    Ok(match event_group {
+        EventGroup::Compositor => {
             let Ok(()) = compositor(say);
 
             Subscribed::Yes
         }
-        Topic::Sound => {
+        EventGroup::Sound => {
             let Ok(arguments) = to_strings(&["subscribe"]);
-            let Ok(()) = theirs(Topic::Sound, Program::Pactl, arguments, say);
+            let Ok(()) = theirs(EventGroup::Sound, Program::Pactl, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Network => {
+        EventGroup::Network => {
             let Ok(arguments) = to_strings(&["monitor"]);
-            let Ok(()) = theirs(Topic::Network, Program::Nmcli, arguments, say);
+            let Ok(()) = theirs(EventGroup::Network, Program::Nmcli, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Wifi => {
+        EventGroup::Wifi => {
             let Ok(gdbus) = Program::Gdbus.name();
             let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", NETWORK_MANAGER]);
-            let Ok(()) = theirs(Topic::Wifi, Program::Stdbuf, arguments, say);
+            let Ok(()) = theirs(EventGroup::Wifi, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Bluetooth => {
+        EventGroup::Bluetooth => {
             let Ok(gdbus) = Program::Gdbus.name();
             let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", BLUEZ]);
-            let Ok(()) = theirs(Topic::Bluetooth, Program::Stdbuf, arguments, say);
+            let Ok(()) = theirs(EventGroup::Bluetooth, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Battery => {
+        EventGroup::Battery => {
             let Ok(arguments) = to_strings(&["monitor", "--udev", "--subsystem-match=power_supply"]);
-            let Ok(()) = theirs(Topic::Battery, Program::Udevadm, arguments, say);
+            let Ok(()) = theirs(EventGroup::Battery, Program::Udevadm, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Notifications => {
+        EventGroup::Notifications => {
             let Ok(arguments) = monitoring(&[
                 format!("--match=interface={NOTIFICATIONS}"),
                 format!("--match=interface={APPLICATION}"),
             ]);
-            let Ok(()) = theirs(Topic::Notifications, Program::Stdbuf, arguments, say);
+            let Ok(()) = theirs(EventGroup::Notifications, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Player => {
+        EventGroup::Player => {
             let Ok(arguments) = monitoring(&[format!("--match=path={PLAYERS}")]);
-            let Ok(()) = theirs(Topic::Player, Program::Stdbuf, arguments, say);
+            let Ok(()) = theirs(EventGroup::Player, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
-        Topic::Units => Subscribed::No,
-        Topic::Path(folder) => match folder.is_absolute() {
+        EventGroup::Units => Subscribed::No,
+        EventGroup::Path(folder) => match folder.is_absolute() {
             true => {
                 let Ok(()) = crate::watching::watch(folder.clone(), say);
 
@@ -261,7 +263,7 @@ fn compositor(say: Sender<Change>) -> Result<(), Never> {
         said = false;
 
         for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            let sent = say.send(Change { topic: Topic::Compositor, text: line });
+            let sent = say.send(Change { event_group: EventGroup::Compositor, text: line });
 
             match sent {
                 Ok(()) => {},
@@ -276,7 +278,7 @@ fn compositor(say: Sender<Change>) -> Result<(), Never> {
 }
 
 fn theirs(
-    about: Topic,
+    about: EventGroup,
     program: Program,
     arguments: Vec<String>,
     say: Sender<Change>,
@@ -297,7 +299,7 @@ fn theirs(
         };
 
         for line in BufReader::new(reading).lines().map_while(Result::ok) {
-            let sent = say.send(Change { topic: about.clone(), text: line });
+            let sent = say.send(Change { event_group: about.clone(), text: line });
 
             match sent {
                 Ok(()) => {},

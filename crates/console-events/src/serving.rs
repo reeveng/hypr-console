@@ -2,7 +2,7 @@
 //! do when a source says something.  Split from the program so that it can be
 //! started on a socket of a test's own, with sources of a test's own. What that
 //! buys is the one thing the unit tests in `pool` cannot ask: that a program
-//! which asks for a topic over a real socket is told the last word on it
+//! which asks for an event group over a real socket is told the last word on it
 //! *before* anything changes, which is the whole reason the pool remembers
 //! anything.  Where the words come from is handed in, the same way
 //! `console_input_controller::turning` is handed a machine. There is no other
@@ -12,16 +12,16 @@
 //! ## One thread, asleep in `poll`
 //!
 //! This used to be a thread per program to read it, a thread per program to
-//! write to it, a thread per topic to carry a source's words across, and one
-//! for the door: two threads a subscriber, most of them asleep in a blocking
-//! call, and every word crossing a channel twice before it reached a socket.
-//! The pool was always decided on one thread. Now it is heard and told on that
-//! thread as well, which waits in one `poll` over the door, every connection,
-//! and a pipe that a source's word wakes it through.
+//! write to it, a thread per event group to carry a source's words across, and
+//! one for the door: two threads a subscriber, most of them asleep in a
+//! blocking call, and every word crossing a channel twice before it reached a
+//! socket. The pool was always decided on one thread. Now it is heard and told
+//! on that thread as well, which waits in one `poll` over the door, every
+//! connection, and a pipe that a source's word wakes it through.
 //!
-//! What sources say still arrives on a channel, because a source is a thread
-//! of its own that this does not own and `Holding` hands it a `Sender`. One
-//! thread carries every topic's words across and writes a byte down the pipe,
+//! What sources say still arrives on a channel, because a source is a thread of
+//! its own that this does not own and `Holding` hands it a `Sender`. One thread
+//! carries every event group's words across and writes a byte down the pipe,
 //! which is the one place a channel meets `poll`.
 //!
 //! ## One program that stops reading is not everyone's silence
@@ -50,7 +50,7 @@
 //! picture that is wrong and has no way to find out -- dropping a line is
 //! silent and permanent. Being let go is the recoverable one, and every piece
 //! of that is already here: `console-core-reconnect` brings the program back,
-//! `Client` asks for its topics again, the pool replays the last word on
+//! `Client` asks for its event groups again, the pool replays the last word on
 //! each, and `Heard::GotIn` tells it there was a gap. It comes back knowing
 //! what is true instead of carrying on with what it missed.
 //!
@@ -92,9 +92,9 @@ use std::time::Duration;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
-use console_program_contract::{Change, Topic};
+use console_program_contract::{Change, EventGroup};
 use console_program_lifetime::threads;
-use console_waiting::woken::{self, Woken};
+use console_waiting::latch::{self, Latch};
 use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
 
 use crate::Unserved;
@@ -116,7 +116,7 @@ struct Client {
     outbox: Vec<u8>,
 }
 
-pub type Holding = fn(&Topic, Sender<Change>) -> Result<Subscribed, Never>;
+pub type Holding = fn(&EventGroup, Sender<Change>) -> Result<Subscribed, Never>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Door {
@@ -144,7 +144,7 @@ fn refused(fault: &std::io::Error) -> Result<Rejected, Never> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Watched {
-    Woken,
+    Latch,
     Door,
     Client(Who),
 }
@@ -152,7 +152,7 @@ enum Watched {
 struct Serving {
     pool: Pool,
     clients: BTreeMap<Who, Client>,
-    held: Vec<Topic>,
+    held: Vec<EventGroup>,
     sources: Sender<Change>,
     holding: Holding,
     carried: u64,
@@ -160,8 +160,8 @@ struct Serving {
 
 pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
     let listening = bound(socket)?;
-    let waking = woken::pipe().map_err(Unserved::Waking)?;
-    let Woken { waiting, saying } = waking;
+    let waking = latch::pipe().map_err(Unserved::Waking)?;
+    let Latch { waiting, saying } = waking;
     let (sources, arriving) = channel::<Change>();
     let (carrying, published) = channel::<Change>();
 
@@ -194,8 +194,8 @@ pub fn serve(socket: &Path, holding: Holding) -> Result<(), Unserved> {
 
         for (watched, flags) in ready {
             match watched {
-                Watched::Woken => {
-                    let Ok(()) = woken::drain(&waiting);
+                Watched::Latch => {
+                    let Ok(()) = latch::drain(&waiting);
                     let Ok(()) = publish_pending(&mut serving, &published);
                 }
                 Watched::Door => {
@@ -252,7 +252,7 @@ fn ready(
     door: Door,
 ) -> Result<Vec<(Watched, PollFlags)>, Unserved> {
     let mut watch = vec![PollFd::new(waiting, PollFlags::IN)];
-    let mut which = vec![Watched::Woken];
+    let mut which = vec![Watched::Latch];
 
     match door {
         Door::Open | Door::Retrying => {
@@ -429,9 +429,9 @@ fn let_go(serving: &mut Serving, who: Who) -> Result<(), Never> {
 
 fn received(serving: &mut Serving, who: Who, message: Message) -> Result<(), Never> {
     match message {
-        Message::Subscribe(topic) => {
-            let Ok(replay) = serving.pool.subscribe(who, topic.clone());
-            let Ok(()) = hold(serving, &topic);
+        Message::Subscribe(event_group) => {
+            let Ok(replay) = serving.pool.subscribe(who, event_group.clone());
+            let Ok(()) = hold(serving, &event_group);
 
             match replay {
                 Some(change) => {
@@ -441,8 +441,8 @@ fn received(serving: &mut Serving, who: Who, message: Message) -> Result<(), Nev
                 None => {},
             }
         }
-        Message::Unsubscribe(topic) => {
-            let Ok(()) = serving.pool.unsubscribe(who, &topic);
+        Message::Unsubscribe(event_group) => {
+            let Ok(()) = serving.pool.unsubscribe(who, &event_group);
         }
         Message::Publish(_) => eprintln!("console-events: {who} tried to tell the pool something"),
     }
@@ -450,18 +450,18 @@ fn received(serving: &mut Serving, who: Who, message: Message) -> Result<(), Nev
     Ok(())
 }
 
-fn hold(serving: &mut Serving, topic: &Topic) -> Result<(), Never> {
-    match serving.held.contains(topic) {
+fn hold(serving: &mut Serving, event_group: &EventGroup) -> Result<(), Never> {
+    match serving.held.contains(event_group) {
         true => return Ok(()),
         false => {},
     }
 
-    let Ok(held_now) = (serving.holding)(topic, serving.sources.clone());
+    let Ok(held_now) = (serving.holding)(event_group, serving.sources.clone());
 
     match held_now {
-        Subscribed::Yes => serving.held.push(topic.clone()),
+        Subscribed::Yes => serving.held.push(event_group.clone()),
         Subscribed::No => {
-            let Ok(token) = wire::token(topic);
+            let Ok(token) = wire::token(event_group);
 
             eprintln!(
                 "console-events: nothing here watches {token}, so anyone listening to it will \

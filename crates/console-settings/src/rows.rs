@@ -36,6 +36,7 @@ use crate::languages::{Locale, Made, Names, Language, generation_state};
 use crate::size::{EVERY, Size};
 use crate::turning::{self, Turn};
 use crate::learned::Following;
+use crate::machine::MachineSetting;
 use crate::warm::NightShift;
 use console_sound_effects::SoundEffects;
 use crate::{bluetooth, sound, wifi};
@@ -673,7 +674,9 @@ pub fn meeting_rows(met: &bluetooth::Met, back: Chosen) -> Result<Vec<Row>, Neve
 }
 
 fn introducing_words(address: &str) -> Result<Vec<String>, Never> {
-    Ok(vec![INTRODUCES.to_string(), introducing::INTRODUCE.to_string(), address.to_string()])
+    let Ok(introduce) = introducing::Bluetooth::Introduce.word();
+
+    Ok(vec![INTRODUCES.to_string(), introduce.to_string(), address.to_string()])
 }
 
 fn forget_row(device: &bluetooth::Device, back: Chosen) -> Result<Row, Never> {
@@ -1110,10 +1113,11 @@ pub fn place_rows(
             }
         };
 
+        let Ok(language) = MachineSetting::Language.word();
         let Ok(arguments) = Program::Sudo.arguments(&[
             "-n",
             "console-machine",
-            "language",
+            language,
             &locale.name,
             &locale.charset,
         ]);
@@ -1153,7 +1157,7 @@ pub fn alphabet_rows(chosen: &[&'static Alphabet], back: Chosen) -> Result<Vec<R
                     showing.later(words.clone());
                     showing.later(vec![
                         console_input_language::NAMED.to_string(),
-                        console_input_language::SETTLE.to_string(),
+                        console_input_language::SETTLE.spelling.to_string(),
                     ]);
                     showing.refresh();
                 });
@@ -1219,7 +1223,8 @@ pub fn zone_rows(
             true => NOW,
             false => "",
         };
-        let Ok(arguments) = Program::Sudo.arguments(&["-n", "console-machine", "hour", &place.zone]);
+        let Ok(hour) = MachineSetting::Hour.word();
+        let Ok(arguments) = Program::Sudo.arguments(&["-n", "console-machine", hour, &place.zone]);
         let Ok(chooses) = running(arguments, None, Arc::clone(&back));
         let Ok(row) = Row::new(&place.says, Aside(mark), chooses);
 
@@ -1265,8 +1270,9 @@ pub fn called_row(name: &str) -> Result<Row, Never> {
 
                 match allowed {
                     Allowed::Yes => {
+                        let Ok(name) = MachineSetting::Name.word();
                         let Ok(arguments) =
-                            Program::Sudo.arguments(&["-n", "console-machine", "name", word]);
+                            Program::Sudo.arguments(&["-n", "console-machine", name, word]);
 
                         showing.later(arguments);
                     }

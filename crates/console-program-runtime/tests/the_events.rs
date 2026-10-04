@@ -20,7 +20,7 @@ use console_core_never::Never;
 use console_events::serving;
 use console_events::sources::Subscribed;
 use console_core_state_machine::{Machine, Queue};
-use console_program_contract::{Arguments, Effect, Exit, Timer, Topic, Subscription, Event};
+use console_program_contract::{Effect, Exit, Timer, EventGroup, Subscription, Event};
 use console_program_contract::event::Change;
 use console_program_lifetime::threads::let_go;
 use console_program_runtime::{Interpreter, run};
@@ -39,8 +39,8 @@ const GIVING_UP: Timer = Timer { name: "giving up", interval: Duration::from_sec
 )]
 static SAYING: std::sync::OnceLock<Sender<Sender<Change>>> = std::sync::OnceLock::new();
 
-fn source(topic: &Topic, say: Sender<Change>) -> Result<Subscribed, Never> {
-    console_events::sources::handed_to(SAYING.get(), &Topic::Sound, topic, say)
+fn source(event_group: &EventGroup, say: Sender<Change>) -> Result<Subscribed, Never> {
+    console_events::sources::handed_to(SAYING.get(), &EventGroup::Sound, event_group, say)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,21 +54,21 @@ enum TestEffect {
 }
 
 impl Machine for Rocker {
-    type Input = Arguments;
+    type Input = ();
     type State = Rocker;
     type Request = Event<Never>;
     type Effect = Effect<TestEffect>;
 
-    fn initialize(_arguments: &Arguments, _previous: Option<Rocker>, effects: &mut Queue<Effect<TestEffect>>) -> Result<Rocker, Never> {
+    fn initialize(_input: &(), _previous: Option<Rocker>, effects: &mut Queue<Effect<TestEffect>>) -> Result<Rocker, Never> {
         #[cfg_attr(
             dylint_lib = "explicit043_no_unmatched_listen",
             allow(
                 explicit043_no_unmatched_listen,
-                reason = "this program exists to hear one change on the topic, and hearing it or giving up stops it, so it listens exactly as long as it runs"
+                reason = "this program exists to hear one change on the event group, and hearing it or giving up stops it, so it listens exactly as long as it runs"
             )
         )]
         let Ok(()) = effects.offer_all([
-            Effect::Subscribe(Subscription::Topic(Topic::Sound)),
+            Effect::Subscribe(Subscription::EventGroup(EventGroup::Sound)),
             Effect::Subscribe(Subscription::Timer(GIVING_UP)),
         ]);
 
@@ -161,18 +161,17 @@ fn a_program_that_asked_to_be_told_hears_the_pool_rather_than_a_line_on_the_jour
     let (done, ended) = channel();
 
     let running = std::thread::spawn(move || {
-        let Ok(arguments) = Arguments::of(&[]);
         let mut carrying = Keeping(keeping);
-        let _ = run::<Rocker, Keeping>("rocker", &arguments, &mut carrying);
+        let _ = run::<Rocker, Keeping>("rocker", &(), &mut carrying);
         let _ = done.send(());
     });
 
     let saying = handed
         .recv_timeout(BEFORE_LONG)
-        .map_err(|why| format!("the runtime never asked the pool for the topic the program said it wanted: {why}"))?;
+        .map_err(|why| format!("the runtime never asked the pool for the event group the program said it wanted: {why}"))?;
 
     saying
-        .send(Change { topic: Topic::Sound, text: "sink 1 at 40%".to_string() })
+        .send(Change { event_group: EventGroup::Sound, text: "sink 1 at 40%".to_string() })
         .map_err(|why| format!("the pool stopped listening to its own source: {why}"))?;
 
     ended

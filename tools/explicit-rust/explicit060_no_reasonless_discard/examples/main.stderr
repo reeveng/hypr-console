@@ -1,0 +1,11 @@
+warning: a fault or a value the type says not to drop, discarded with nothing said
+  --> $DIR/main.rs:5:5
+   |
+LL |     let _ = held;
+   |     ^^^^^^^^^^^^^
+   |
+   = help: meet it with a `match` naming both arms, hand it upward with `?`, or keep the `let _ =` and allow this rule here with the reason saying which harm was decided against and why it cannot happen here
+   = note: `#[warn(explicit060_no_reasonless_discard)]` on by default
+
+warning: 1 warning emitted
+

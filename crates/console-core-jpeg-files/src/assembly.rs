@@ -14,7 +14,11 @@
 //! size and is used as it is.
 //!
 //! Three components are RGB rather than YCbCr when an Adobe segment says so
-//! or the components are named R, G and B; one component is grey.
+//! or the components are named R, G and B; one component is grey. Four are
+//! ink, and Photoshop, which is what writes four, writes each as how much of
+//! the paper is left showing rather than how much ink is on it -- as YCbCr
+//! first when its Adobe segment says so -- so the paper left showing under the
+//! black is the color, and that is how ffmpeg drew them here before.
 //!
 //! A row is colored once every row of every plane it reads from is drawn, so a
 //! picture read in one scan is colored a round at a time, a round behind: the
@@ -65,6 +69,8 @@ pub(crate) enum Colors {
     Grey,
     YCbCr,
     Rgb,
+    Cmyk,
+    Ycck,
 }
 
 pub(crate) struct Painting {
@@ -130,6 +136,8 @@ pub(crate) fn colors(frame: &Frame, adobe: Option<u8>) -> Result<Colors, JpegErr
             (b'R', b'G', b'B') => Colors::Rgb,
             (_, _, _) => Colors::YCbCr,
         }),
+        ([_, _, _, _], Some(2)) => Ok(Colors::Ycck),
+        ([_, _, _, _], None | Some(0 | 1 | 3..)) => Ok(Colors::Cmyk),
         (_, None | Some(_)) => Err(JpegError::Corrupt),
     }
 }
@@ -470,7 +478,24 @@ fn row(pixels: &mut [u8], colors: Colors, rows: &[Cow<'_, [u8]>]) -> Result<(), 
             }),
         ),
         (Colors::Rgb, [red, green, blue]) => written(pixels, red.iter().zip(green.iter().zip(blue.iter())).map(|(red, (green, blue))| [*red, *green, *blue])),
-        (Colors::Grey | Colors::YCbCr | Colors::Rgb, _) => Err(JpegError::Corrupt),
+        (Colors::Cmyk, [cyan, magenta, yellow, black]) => written(
+            pixels,
+            cyan.iter().zip(magenta.iter()).zip(yellow.iter().zip(black.iter())).map(|((cyan, magenta), (yellow, black))| {
+                let Ok(rgb) = under_black([*cyan, *magenta, *yellow], *black);
+
+                rgb
+            }),
+        ),
+        (Colors::Ycck, [luma, blue, red, black]) => written(
+            pixels,
+            luma.iter().zip(blue.iter()).zip(red.iter().zip(black.iter())).map(|((luma, blue), (red, black))| {
+                let Ok(inked) = converted([*luma, *blue, *red]);
+                let Ok(rgb) = under_black(inked.map(|level| u8::MAX.saturating_sub(level)), *black);
+
+                rgb
+            }),
+        ),
+        (Colors::Grey | Colors::YCbCr | Colors::Rgb | Colors::Cmyk | Colors::Ycck, _) => Err(JpegError::Corrupt),
     }
 }
 
@@ -480,6 +505,15 @@ fn written(pixels: &mut [u8], colors: impl Iterator<Item = [u8; 3]>) -> Result<(
     }
 
     Ok(())
+}
+
+fn under_black(showing: [u8; 3], black: u8) -> Result<[u8; 3], Never> {
+    Ok(showing.map(|level| {
+        let mixed = u32::from(level).saturating_mul(u32::from(black)).saturating_mul(257).wrapping_shr(16);
+        let Ok(mixed) = fitted::<u32, u8>(mixed);
+
+        mixed
+    }))
 }
 
 fn converted(sample: [u8; 3]) -> Result<[u8; 3], Never> {

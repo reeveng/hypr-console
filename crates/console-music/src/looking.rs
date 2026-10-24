@@ -27,7 +27,7 @@ use console_core_never::Never;
 use serde_json::{Value, json};
 
 use crate::library::Thing;
-use crate::tags::Tags;
+use console_music_player::tags::Tags;
 
 const ENOUGH: u32 = 4000;
 const FAR: u32 = 400;
@@ -307,7 +307,7 @@ pub fn ranked<'a>(songs: &'a [Song], word: &str) -> Result<Vec<&'a Song>, Never>
 
 #[cfg(test)]
 mod tests {
-    use crate::tags::Tagged;
+    use console_music_player::tags::Tagged;
     use super::*;
 
     fn tree(at: &Path) -> Result<Vec<Thing>, Never> {

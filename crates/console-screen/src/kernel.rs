@@ -57,11 +57,10 @@ impl Panel {
 
     pub fn width(&self) -> Result<u32, Never> {
         let Ok(mounted) = self.mounted();
+        let Ok(transform) = mounted.transform();
+        let Ok(picture) = transform.picture_size(self.mode);
 
-        Ok(match mounted {
-            Mounted::Sideways => self.mode.height,
-            Mounted::Upright => self.mode.width,
-        })
+        Ok(picture.width)
     }
 
     pub fn scale(&self, canvas: Canvas) -> Result<f64, Never> {
@@ -72,10 +71,11 @@ impl Panel {
 
     pub fn block(&self, canvas: Canvas) -> Result<String, Never> {
         let Ok(mounted) = self.mounted();
-        let Ok(transform) = mounted.transform();
+        let Ok(turned) = mounted.transform();
+        let Ok(transform) = turned.number();
         let Ok(across) = self.width();
         let Ok(scale) = self.scale(canvas);
-        let Ok(how) = mounted.how_it_is_mounted();
+        let Ok(how) = how_it_is_mounted(mounted);
 
         let named = &self.named;
         let (wide, tall) = (self.mode.width, self.mode.height);
@@ -108,6 +108,13 @@ hl.config({{ input = {{ touchdevice = {{ output = \"{named}\", transform = {tran
 "
         ))
     }
+}
+
+fn how_it_is_mounted(mounted: Mounted) -> Result<&'static str, Never> {
+    Ok(match mounted {
+        Mounted::Sideways => "taller than it is wide, so it is turned a quarter",
+        Mounted::Upright => "wider than it is tall, so it is not turned",
+    })
 }
 
 pub fn at(home: &Path) -> Result<PathBuf, Never> {

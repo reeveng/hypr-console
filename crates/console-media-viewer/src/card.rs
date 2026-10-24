@@ -730,7 +730,7 @@ fn unsaved(why: &EditError) -> Result<String, Never> {
             Some(ending) => format!("Editing {} pictures isn't supported yet.", ending.to_string_lossy().to_uppercase()),
             None => NOT_EDITABLE.to_string(),
         },
-        EditError::Refused(_, format) => {
+        EditError::Rejected(_, format) => {
             let Ok(says) = format.says();
 
             format!("Editing this kind of {says} isn't supported yet.")
@@ -1332,16 +1332,11 @@ mod tests {
 
     fn a_folder_with_a_film() -> Result<PathBuf, Box<dyn Error>> {
         let folder = console_core_temporary_directories::fresh("viewer-card")?;
-        let Ok(mut making) = console_core_external_programs::Program::Ffmpeg.command();
-        let made = making
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x48:r=25:d=4"])
-            .arg(folder.join("silent.mkv"))
-            .status()?;
+        let silent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../console-films/tests/films/red-then-blue.av1.mkv");
 
-        match made.success() {
-            true => Ok(folder),
-            false => Err(Box::from("ffmpeg made no film to play")),
-        }
+        std::fs::copy(silent, folder.join("silent.mkv"))?;
+
+        Ok(folder)
     }
 
     #[test]
@@ -1354,7 +1349,7 @@ mod tests {
         let Ok(()) = looking.in_step();
 
         assert!(looking.film.is_none(), "a film opens stopped");
-        assert_eq!(looking.watching.along.whole, 4, "the length of the film is known before it plays");
+        assert_eq!(looking.watching.along.whole, 2, "the length of the film is known before it plays");
 
         let _ = looking.handle_event(ViewerEvent::Running(Since::ZERO));
         let Ok(()) = looking.in_step();
@@ -1400,7 +1395,7 @@ mod tests {
     #[test]
     fn a_picture_that_cannot_be_edited_says_which_kind_it_is() {
         let heic = EditError::Unsupported(PathBuf::from("/p/phone.heic"));
-        let cmyk = EditError::Refused(PathBuf::from("/p/print.jpg"), console_pictures::Format::Jpeg);
+        let cmyk = EditError::Rejected(PathBuf::from("/p/print.jpg"), console_pictures::Format::Jpeg);
         let unnamed = EditError::Unsupported(PathBuf::from("/p/scan"));
 
         assert_eq!(unsaved(&heic), Ok(String::from("Editing HEIC pictures isn't supported yet.")));

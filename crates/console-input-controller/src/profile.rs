@@ -253,7 +253,7 @@ fn decide(state: &Attempt, event: &Event<console_core_never::Never>) -> Result<T
 
         (_, _, Event::Tick(_, _)) => tried(state),
 
-        (_, _, Event::Changed(_) | Event::Chosen(_) | Event::Stopping | Event::Custom(_)) => {
+        (_, _, Event::Modified(_) | Event::Chosen(_) | Event::Stopping | Event::Custom(_)) => {
             Transition::without_effects(state.clone())
         }
     };

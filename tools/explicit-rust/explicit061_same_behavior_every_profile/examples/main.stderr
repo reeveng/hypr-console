@@ -1,0 +1,19 @@
+warning: this check exists only in a build that says `debug_assertions`
+  --> $DIR/main.rs:3:5
+   |
+LL |     debug_assert!(held > 0);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a check compiled out on the device is a difference between the program that was tested and the program that flies. Assert always -- the `checked_*` forms cost the same everywhere and answer with a value -- or, where a check really is too dear, allow this rule here and let the reason say what is being paid for and by whom
+   = note: `#[warn(explicit061_same_behavior_every_profile)]` on by default
+
+warning: this code exists only in a build that says `debug_assertions`
+  --> $DIR/main.rs:8:1
+   |
+LL | #[cfg(debug_assertions)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a check compiled out on the device is a difference between the program that was tested and the program that flies. Assert always -- the `checked_*` forms cost the same everywhere and answer with a value -- or, where a check really is too dear, allow this rule here and let the reason say what is being paid for and by whom
+
+warning: 2 warnings emitted
+

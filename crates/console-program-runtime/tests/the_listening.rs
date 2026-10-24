@@ -40,7 +40,7 @@ impl Machine for Pad {
             }
             Event::Opened
             | Event::Tick(_, _)
-            | Event::Changed(_)
+            | Event::Modified(_)
             | Event::Replied(_)
             | Event::Chosen(_)
             | Event::Stopping => Ok(state),

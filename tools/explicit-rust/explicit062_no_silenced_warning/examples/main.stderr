@@ -1,0 +1,19 @@
+warning: this `allow` turns a warning off for a whole region rather than answering it
+  --> $DIR/main.rs:1:1
+   |
+LL | #[allow(dead_code)]
+   | ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: fix the warning, or write `expect` where the `allow` is, with the same reason: the compiler takes an `expect` away again when the warning stops, and an `allow` stays a door every later fault walks through
+   = note: `#[warn(explicit062_no_silenced_warning)]` on by default
+
+warning: this `allow` turns a warning off for a whole region rather than answering it
+  --> $DIR/main.rs:10:1
+   |
+LL | #[allow(dead_code, reason = "the panel beside it is the one drawn")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: fix the warning, or write `expect` where the `allow` is, with the same reason: the compiler takes an `expect` away again when the warning stops, and an `allow` stays a door every later fault walks through
+
+warning: 2 warnings emitted
+

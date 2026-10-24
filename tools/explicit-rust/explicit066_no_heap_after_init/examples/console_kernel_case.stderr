@@ -1,0 +1,59 @@
+warning: `Box::new` claims a piece of the heap nobody budgeted
+  --> $DIR/console_kernel_case.rs:3:5
+   |
+LL |     Box::new(1)
+   |     ^^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+   = note: `#[warn(explicit066_no_heap_after_init)]` on by default
+
+warning: `Vec::new` opens a length the machine will decide
+  --> $DIR/console_kernel_case.rs:8:5
+   |
+LL |     Vec::new()
+   |     ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `format!` spends a scratch heap on a sentence
+  --> $DIR/console_kernel_case.rs:13:5
+   |
+LL |     format!("{} lines", 1)
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_case.rs:18:5
+   |
+LL |     vec![1, 2]
+   |     ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `vec!` spends the heap on a list whose size could have been written
+  --> $DIR/console_kernel_case.rs:23:5
+   |
+LL |     vec![0; 4]
+   |     ^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: this spends the heap on a copy of what was already held
+  --> $DIR/console_kernel_case.rs:28:5
+   |
+LL |     String::from("line")
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: `to_string` spends the heap on a copy of what was already held
+  --> $DIR/console_kernel_case.rs:33:5
+   |
+LL |     "line".to_string()
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: allocate in init and hand out fixed-capacity borrows, so a buffer's size is a decision made before the machine booted. Where a flight crate genuinely must grow one, allow this rule here and let the reason say what budgets it
+
+warning: 7 warnings emitted
+

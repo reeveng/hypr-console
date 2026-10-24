@@ -78,6 +78,7 @@ use console_core_external_programs::Program;
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
+use console_core_screen_orientation::Transform;
 use console_core_words::Words;
 
 pub mod events;
@@ -885,16 +886,15 @@ impl Monitor {
             None => return Ok(None),
         };
 
-        let (wide, tall) = match self.transform {
-            Some(transform) => match transform & 1 == 1 {
-                true => (tall, wide),
-                false => (wide, tall),
-            },
-            None => (wide, tall),
+        let turned = match self.transform.map(Transform::of) {
+            Some(Ok(transform)) => transform,
+            Some(Err(_flipped_which_this_desktop_draws_none_of)) => return Ok(None),
+            None => Transform::Normal,
         };
+        let Ok(picture) = turned.picture_size(Size { width: wide, height: tall });
 
-        let Ok(wide) = wide.float();
-        let Ok(tall) = tall.float();
+        let Ok(wide) = picture.width.float();
+        let Ok(tall) = picture.height.float();
 
         let Ok(across) = toward_zero_u32(wide / scale.max(f64::EPSILON));
         let Ok(down) = toward_zero_u32(tall / scale.max(f64::EPSILON));
@@ -1206,6 +1206,33 @@ mod tests {
         let Ok(logical) = upright.logical();
 
         assert_eq!(logical, Some(Size { width: 1280, height: 800 }));
+
+        Ok(())
+    }
+
+    #[test]
+    fn every_quarter_a_screen_can_stand_at_is_as_wide_as_it_looks() -> Result<(), Box<dyn Error>> {
+        let value = read_value(
+            r#"[{"name":"A","width":1600,"height":2560,"scale":2.5,"transform":2},
+                {"name":"B","width":1600,"height":2560,"scale":2.5,"transform":3},
+                {"name":"C","width":1600,"height":2560,"scale":2.5,"transform":5}]"#,
+        )?;
+
+        let Ok(monitors) = monitors(&value);
+        let logical: Vec<Option<Size<u32>>> = monitors
+            .iter()
+            .map(|monitor| {
+                let Ok(logical) = monitor.logical();
+
+                logical
+            })
+            .collect();
+
+        assert_eq!(
+            logical,
+            vec![Some(Size { width: 640, height: 1024 }), Some(Size { width: 1024, height: 640 }), None],
+            "upside down keeps its sides, the other quarter swaps them, and a flipped screen is not guessed at"
+        );
 
         Ok(())
     }

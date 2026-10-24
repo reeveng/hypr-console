@@ -1,0 +1,67 @@
+warning: `std::iter::repeat` walks with no end in it: `repeat` hands the same thing over forever; nobody wrote where it stops
+  --> $DIR/main.rs:5:15
+   |
+LL |     let one = std::iter::repeat(held);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+   = note: `#[warn(explicit055_no_unbounded_loop)]` on by default
+
+warning: `std::iter::Iterator::cycle` walks with no end in it: `cycle` starts the walk again when it ends; the end it offers is not one
+  --> $DIR/main.rs:12:17
+   |
+LL |     let cycle = held.iter().cycle();
+   |                 ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: `std::iter::from_fn` walks with no end in it: `from_fn` runs until the closure says no, and the closure is not here
+  --> $DIR/main.rs:19:16
+   |
+LL |     let made = std::iter::from_fn(|| Some(1u8));
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: `std::iter::successors` walks with no end in it: `successors` runs until the step says no, and the step is not here
+  --> $DIR/main.rs:26:5
+   |
+LL |     std::iter::successors(Some(from), |n| n.checked_sub(1)).take(3).last()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: `std::sync::mpsc::Receiver::<T>::iter` walks with no end in it: a channel hands events over until the other end dies, which is the machine's lifetime and not a bound this code holds
+  --> $DIR/main.rs:33:18
+   |
+LL |     for event in events.iter() {
+   |                  ^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: a `for` over a receiver walks with no end in it: a channel hands events over until the other end dies, which is the machine's lifetime and not a bound this code holds
+  --> $DIR/main.rs:44:18
+   |
+LL |     for event in events {
+   |                  ^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: `into_iter` over a receiver walks with no end in it: a channel hands events over until the other end dies, which is the machine's lifetime and not a bound this code holds
+  --> $DIR/main.rs:53:5
+   |
+LL |     events.into_iter().take(2).sum()
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: `std::iter::repeat_with` walks with no end in it: `repeat_with` asks the closure forever; nobody wrote where it stops
+  --> $DIR/main.rs:58:5
+   |
+LL |     std::iter::repeat_with(|| 1u8).take(3).last()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: bound it where it is walked -- `take(N)`, a fuel counter, a `const` limit -- or walk it at the one site that owns the source, carrying an allow whose reason says where the end is named
+
+warning: 8 warnings emitted
+

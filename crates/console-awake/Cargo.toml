@@ -16,5 +16,8 @@ console-core-words.workspace = true
 console-program-lifetime.workspace = true
 console-session.workspace = true
 
+[dev-dependencies]
+console-waiting.workspace = true
+
 [lints]
 workspace = true

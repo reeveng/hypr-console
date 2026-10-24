@@ -288,7 +288,7 @@ fn at(
             let Ok(asked) = parse_tree(&answer.output);
             let going = Going { tree: asked, ..going.clone() };
 
-            let Ok(runs) = theirs(&going, "systemctl --user list-unit-files --no-legend");
+            let Ok(runs) = once(&going, "systemctl --user list-unit-files --no-legend");
             let Ok(said) = where_(going.tree);
             Transition::new(
                 Migrating::At(Step::Listing, going.clone()),
@@ -378,7 +378,7 @@ fn at(
 
         (Step::Committed, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
-                let Ok(runs) = theirs(going, &format!("pgrep -u {} -x librewolf", going.whom));
+                let Ok(runs) = once(going, &format!("pgrep -u {} -x librewolf", going.whom));
 
                 Transition::new(
                     Migrating::At(Step::Browsing, going.clone()),
@@ -657,7 +657,7 @@ fn under(going: &Going, heading: &str, asked: impl Iterator<Item = String>) -> R
 
     Ok(std::iter::once(said)
         .chain(asked.map(|command| {
-            let Ok(runs) = theirs(going, &command);
+            let Ok(runs) = once(going, &command);
             let Ok(next) = letting(runs);
 
             next
@@ -821,7 +821,7 @@ fn carding(going: &Going) -> Result<Command, Never> {
     on(going, &in_session)
 }
 
-fn theirs(going: &Going, command: &str) -> Result<Command, Never> {
+fn once(going: &Going, command: &str) -> Result<Command, Never> {
     let Ok(runuser) = ExternalProgram::Runuser.name();
     let Ok(env) = ExternalProgram::Env.name();
 

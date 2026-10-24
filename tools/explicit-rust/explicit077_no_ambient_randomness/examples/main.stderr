@@ -1,0 +1,11 @@
+warning: `rand::thread_rng`: the generator is an input no caller named, and a decision read from it cannot be replayed
+  --> $DIR/main.rs:5:5
+   |
+LL |     thread_rng().r#gen::<u8>()
+   |     ^^^^^^^^^^^^
+   |
+   = help: read the seed at the edge and pass it inward, so a run can be replayed exactly -- pressed a second time with the same seed, it answers with the same decisions, which is the property that turns a fault into a check
+   = note: `#[warn(explicit077_no_ambient_randomness)]` on by default
+
+warning: 1 warning emitted
+

@@ -53,27 +53,27 @@ pub struct Alphabet {
     pub key: &'static str,
     pub says: &'static str,
     pub upright: &'static str,
-    pub across: &'static str,
+    pub width: &'static str,
     pub xkb: &'static str,
 }
 
 pub const LATIN: &str = "latin";
 
 pub const EVERY: [Alphabet; 8] = [
-    Alphabet { key: LATIN, says: "Latin", upright: "full", across: "landscape", xkb: US },
-    Alphabet { key: "arabic", says: "Arabic", upright: "arabic", across: "arabic", xkb: "ara" },
+    Alphabet { key: LATIN, says: "Latin", upright: "full", width: "landscape", xkb: US },
+    Alphabet { key: "arabic", says: "Arabic", upright: "arabic", width: "arabic", xkb: "ara" },
     Alphabet {
         key: "georgian",
         says: "Georgian",
         upright: "georgian",
-        across: "georgian",
+        width: "georgian",
         xkb: "ge",
     },
-    Alphabet { key: "greek", says: "Greek", upright: "greek", across: "greek", xkb: "gr" },
-    Alphabet { key: "hebrew", says: "Hebrew", upright: "hebrew", across: "hebrew", xkb: "il" },
-    Alphabet { key: "persian", says: "Persian", upright: "persian", across: "persian", xkb: "ir" },
-    Alphabet { key: "cyrillic", says: "Russian", upright: "cyrillic", across: "cyrillic", xkb: "ru" },
-    Alphabet { key: "thai", says: "Thai", upright: "thai", across: "thai", xkb: "th" },
+    Alphabet { key: "greek", says: "Greek", upright: "greek", width: "greek", xkb: "gr" },
+    Alphabet { key: "hebrew", says: "Hebrew", upright: "hebrew", width: "hebrew", xkb: "il" },
+    Alphabet { key: "persian", says: "Persian", upright: "persian", width: "persian", xkb: "ir" },
+    Alphabet { key: "cyrillic", says: "Russian", upright: "cyrillic", width: "cyrillic", xkb: "ru" },
+    Alphabet { key: "thai", says: "Thai", upright: "thai", width: "thai", xkb: "th" },
 ];
 
 pub const US: &str = "us";
@@ -165,7 +165,7 @@ pub fn walk(alphabets: &[&'static Alphabet], held: Orientation) -> Result<Vec<St
         .map(|alphabet| {
             match held {
                 Orientation::Upright => alphabet.upright.to_string(),
-                Orientation::Across => alphabet.across.to_string(),
+                Orientation::Across => alphabet.width.to_string(),
             }
         })
         .collect();
@@ -269,7 +269,7 @@ mod tests {
         let keys: BTreeSet<&str> = EVERY.iter().map(|alphabet| alphabet.key).collect();
         let says: BTreeSet<&str> = EVERY.iter().map(|alphabet| alphabet.says).collect();
         let upright: BTreeSet<&str> = EVERY.iter().map(|alphabet| alphabet.upright).collect();
-        let across: BTreeSet<&str> = EVERY.iter().map(|alphabet| alphabet.across).collect();
+        let across: BTreeSet<&str> = EVERY.iter().map(|alphabet| alphabet.width).collect();
 
         assert_eq!(keys.len(), EVERY.len());
         assert_eq!(says.len(), EVERY.len());

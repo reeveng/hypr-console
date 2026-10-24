@@ -11,10 +11,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use console_architecture::facts::LIBRARY;
-use console_architecture::{Architecture, FACTS, MAP};
+use console_architecture::{Architecture, FACTS, MAP, PAGE};
 use console_core_arguments::{Command, Operands, ValidationError, run_main};
 use console_core_external_programs::Program;
 use console_core_never::Never;
+
 
 #[derive(Debug)]
 enum MapError {
@@ -25,6 +26,7 @@ enum MapError {
     ReadFile(PathBuf, std::io::Error),
     Facts(console_architecture::facts::Unread),
     Read(console_architecture::Unread),
+    Elements(serde_json::Error),
     Writing(console_core_atomic_writes::Unwritten),
 }
 
@@ -42,6 +44,7 @@ impl std::fmt::Display for MapError {
             MapError::ReadFile(at, fault) => write!(to, "{}: {fault}", at.display()),
             MapError::Facts(fault) => write!(to, "{fault}"),
             MapError::Read(fault) => write!(to, "{fault}"),
+            MapError::Elements(fault) => write!(to, "the page's elements would not be written as JSON: {fault}"),
             MapError::Writing(fault) => write!(to, "{fault}"),
         }
     }
@@ -140,8 +143,10 @@ fn draw_map(into: &Path) -> Result<(), MapError> {
 
     let architecture = Architecture::read(&root).map_err(MapError::Read)?;
     let Ok(map) = architecture.render();
+    let page = architecture.page().map_err(MapError::Elements)?;
 
-    console_core_atomic_writes::whole(&root.join(MAP), map.as_bytes()).map_err(MapError::Writing)
+    console_core_atomic_writes::whole(&root.join(MAP), map.as_bytes()).map_err(MapError::Writing)?;
+    console_core_atomic_writes::whole(&root.join(PAGE), page.as_bytes()).map_err(MapError::Writing)
 }
 
 const FACTS_AT: [&str; 1] = ["FACTS"];

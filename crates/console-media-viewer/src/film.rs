@@ -1,51 +1,54 @@
-//! A film, played: its sound through the speaker and its frames onto the card.
+//! A film, played: its sound through the speaker and its pictures onto the card.
 //!
-//! Two ffmpegs, one for each half, started at the same place in the film and
-//! kept together by one clock. The sound is `console_music_player`'s
+//! The sound and the pictures are read apart, from the same place in the film,
+//! and kept together by one clock. The sound is `console_music_player`'s
 //! `Sounding`, which is already the one place on this device that turns a file
 //! into something heard, and it already knows how far through the file the
-//! speaker has got. So the sound is the clock: each frame is read off a pipe
-//! of raw pictures at the film's own rate, knows which moment of the film it
-//! is, and is handed to the card when the sound reaches that moment. A frame
-//! that comes out after its moment has passed is dropped rather than shown
-//! late, so a slow machine shows fewer frames of a film that stays in step with
-//! its sound instead of every frame of one that falls behind it. A film with no
+//! speaker has got. So the sound is the clock: each picture comes out of
+//! `console_films` knowing which moment of the film it is, and is
+//! handed to the card when the sound reaches that moment. A picture whose
+//! moment has passed by the time it is decoded is not coloured or drawn, so a
+//! slow machine shows fewer pictures of a film that stays in step with its
+//! sound instead of every picture of one that falls behind it. A film with no
 //! sound has no speaker to follow, and follows the wall instead.
 //!
-//! **Nothing is paused.** A pause ends both programs and keeps where the film
-//! had got to, which is `Sounding`'s own argument for the music player and it
-//! holds here for the same reasons: a stream held open keeps the machine awake,
-//! and nothing can tell a running ffmpeg to go somewhere else anyway. A seek, a
-//! speed and a choice of subtitles are the same: the film is started again from
-//! where it is, with the new thing asked for. [`next`] is that decision, and it
-//! is arithmetic, so it is what the tests press.
+//! **Nothing is paused.** A pause lets the pictures go and keeps where the
+//! film had got to, which is `Sounding`'s own argument for the music player
+//! and it holds here for the same reasons: a decoder held open keeps the
+//! machine awake for nobody. A seek, a speed and a choice of subtitles are the
+//! same: the film is started again from where it is, with the new thing asked
+//! for. [`next`] is that decision, and it is arithmetic, so it is what the
+//! tests press.
 //!
-//! **The card is told, not asked.** Each frame goes to `console_panel::frames`,
+//! **The card is told, not asked.** Each picture goes to `console_panel::frames`,
 //! which repaints the picture's own rectangle and nothing else, and once a
 //! second of film the rows are asked for again so that the clock and the bar
 //! under the picture move on. The words, the bar and the buttons are painted
-//! once a second and the film thirty times.
+//! once a second and the film as often as it has pictures.
 //!
-//! **Subtitles are drawn into the frames.** libass is inside ffmpeg already,
-//! and a line of text drawn by the program that knows when it is due is a line
-//! that cannot fall out of step with the picture. A film seeked to the middle
-//! starts its timestamps at nothing, so the frames are moved to where they are
-//! in the film before the words are drawn over them and moved back after.
+//! **Subtitles go with the picture they are said over.** libass drew them into
+//! the frames when ffmpeg made the frames. Now each picture is handed to the
+//! card with the lines due at its moment, and the card draws them over the
+//! foot of the picture in its own letters -- so a line cannot fall out of step
+//! with the picture, and it is as legible as every other word on the card. The
+//! lines come from a track in the film or a file beside it, read by
+//! `console_core_subtitle_files`.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use console_core_external_programs::Program;
+use console_films::Picture;
+use console_concurrency::Cores;
 use console_core_geometry::Size;
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, toward_zero_u64};
+use console_core_number_conversion::{fitted, index, toward_zero_u64};
 use console_core_shapes::Pixels;
+use console_core_subtitle_files::{Cue, Written};
 use console_music_player::sounding::{Sounding, Tempo, Wanted};
-use console_program_lifetime::{BoundToParent, alongside};
+
+pub use console_films::Sound;
 
 use crate::playing::{self, Captions};
 
@@ -57,111 +60,41 @@ pub struct Facts {
     pub words: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sound {
-    Audible,
-    Silent,
-}
-
 const ORDINARY_RATE: f64 = 30.0;
 
 const FASTEST_RATE: f64 = 60.0;
 
 pub fn facts(film: &Path) -> Result<Option<Facts>, Never> {
-    let Ok(mut asking) = Program::Ffprobe.command();
+    let opened = console_films::open(film);
 
-    let said = match asking
-        .args(["-v", "error", "-show_entries", "stream=codec_type,r_frame_rate:format=duration"])
-        .args(["-of", "default=nw=1"])
-        .arg(film)
-        .stdin(Stdio::null())
-        .output()
-    {
-        Ok(said) => said,
+    let opened = match opened {
+        Ok(Some(opened)) => opened,
+        Ok(None) => return Ok(None),
         Err(fault) => {
-            eprintln!("viewer: ffprobe: {fault}");
+            eprintln!("viewer: {fault}");
 
             return Ok(None);
         },
     };
 
-    match said.status.success() {
-        true => {},
-        false => return Ok(None),
-    }
+    let Ok(facts) = opened.facts();
 
-    read(&String::from_utf8_lossy(&said.stdout))
-}
-
-pub fn read(said: &str) -> Result<Option<Facts>, Never> {
-    let mut facts = Facts { rate: 0.0, seconds: 0.0, sound: Sound::Silent, words: 0 };
-    let mut kind = "";
-    let mut pictured = Pictured::No;
-
-    for line in said.lines() {
-        let (key, value) = match line.split_once('=') {
-            Some(said) => said,
-            None => continue,
-        };
-
-        match key {
-            "codec_type" => {
-                kind = value;
-
-                match value {
-                    "audio" => facts.sound = Sound::Audible,
-                    "subtitle" => facts.words = facts.words.saturating_add(1),
-                    "video" => pictured = Pictured::Yes,
-                    _another_kind => {},
-                }
-            },
-            "r_frame_rate" => match (kind, facts.rate > 0.0) {
-                ("video", false) => {
-                    let Ok(rate) = rate(value);
-
-                    facts.rate = rate;
-                },
-                (_, _) => {},
-            },
-            "duration" => match value.parse::<f64>() {
-                Ok(seconds) => facts.seconds = seconds.max(0.0),
-                Err(_not_said) => {},
-            },
-            _another_key => {},
-        }
-    }
-
-    Ok(match pictured {
-        Pictured::Yes => Some(Facts {
-            rate: match facts.rate > 0.0 {
-                true => facts.rate.min(FASTEST_RATE),
-                false => ORDINARY_RATE,
-            },
-            ..facts
-        }),
-        Pictured::No => None,
-    })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Pictured {
-    Yes,
-    No,
-}
-
-fn rate(said: &str) -> Result<f64, Never> {
-    let (over, under) = match said.split_once('/') {
-        Some(split) => split,
-        None => (said, "1"),
+    let facts = match facts {
+        Some(facts) => facts,
+        None => return Ok(None),
     };
 
-    Ok(match (over.parse::<f64>(), under.parse::<f64>()) {
-        (Ok(over), Ok(under)) => match under > 0.0 {
-            true => over / under,
-            false => 0.0,
+    let Ok(words) = fitted::<_, u32>(facts.subtitles.len());
+
+    Ok(Some(Facts {
+        rate: match facts.rate > 0.0 {
+            true => facts.rate.min(FASTEST_RATE),
+            false => ORDINARY_RATE,
         },
-        (Err(_unmeasured), _) | (_, Err(_unmeasured)) => 0.0,
-    })
+        seconds: facts.seconds.max(0.0),
+        sound: facts.sound,
+        words,
+    }))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -199,35 +132,6 @@ pub fn next(playing: Option<&PlaybackRequest>, wanted: Option<&PlaybackRequest>)
     })
 }
 
-pub fn words_filter(film: &Path, captions: Captions, words: u32, from: f64) -> Result<Option<String>, Never> {
-    let Ok(track) = captions.track();
-
-    let track = match track {
-        Some(track) => track,
-        None => return Ok(None),
-    };
-
-    let Ok(beside) = sidecars(film);
-
-    let Ok(beyond) = console_core_number_conversion::index(track.saturating_sub(words));
-
-    let (file, stream) = match track < words {
-        true => (film.to_path_buf(), Some(track)),
-        false => match beside.get(beyond) {
-            Some(file) => (file.clone(), None),
-            None => return Ok(None),
-        },
-    };
-
-    let Ok(named) = escaped(&file.to_string_lossy());
-    let chosen = match stream {
-        Some(stream) => format!(":si={stream}"),
-        None => String::new(),
-    };
-
-    Ok(Some(format!("setpts=PTS+{from}/TB,subtitles=filename={named}{chosen},setpts=PTS-STARTPTS")))
-}
-
 pub fn sidecars(film: &Path) -> Result<Vec<PathBuf>, Never> {
     let name = match film.file_name().and_then(|name| name.to_str()) {
         Some(name) => name,
@@ -244,32 +148,59 @@ pub fn sidecars(film: &Path) -> Result<Vec<PathBuf>, Never> {
     Ok(said.into_iter().map(|name| folder.join(name)).filter(|at| at.is_file()).collect())
 }
 
-pub fn escaped(path: &str) -> Result<String, Never> {
-    let mut once = String::new();
+fn cues(at: &Path, film: &console_films::Film, captions: Captions) -> Result<Vec<Cue>, Never> {
+    let Ok(track) = captions.track();
 
-    for letter in path.chars() {
-        match letter {
-            '\\' | '\'' | ':' => {
-                once.push('\\');
-                once.push(letter);
-            },
-            other => once.push(other),
-        }
+    let track = match track {
+        Some(track) => track,
+        None => return Ok(Vec::new()),
+    };
+
+    let Ok(facts) = film.facts();
+
+    let inside = match facts {
+        Some(facts) => facts.subtitles,
+        None => Vec::new(),
+    };
+
+    let Ok(wanted) = index(track);
+
+    match inside.get(wanted) {
+        Some(subtitles) => {
+            return Ok(match film.cues(subtitles) {
+                Ok(cues) => cues,
+                Err(fault) => {
+                    eprintln!("viewer: {fault}");
+
+                    Vec::new()
+                },
+            });
+        },
+        None => {},
     }
 
-    let mut twice = String::new();
+    let Ok(inside) = fitted::<_, u32>(inside.len());
+    let Ok(beyond) = index(track.saturating_sub(inside));
+    let Ok(beside) = sidecars(at);
 
-    for letter in once.chars() {
-        match letter {
-            '\\' | '\'' | '[' | ']' | ',' | ';' => {
-                twice.push('\\');
-                twice.push(letter);
-            },
-            other => twice.push(other),
-        }
-    }
+    let file = match beside.get(beyond) {
+        Some(file) => file,
+        None => return Ok(Vec::new()),
+    };
 
-    Ok(twice)
+    let Ok(written) = Written::of(file);
+
+    let (written, bytes) = match (written, std::fs::read(file)) {
+        (Some(written), Ok(bytes)) => (written, bytes),
+        (None, _) => return Ok(Vec::new()),
+        (Some(_), Err(fault)) => {
+            eprintln!("viewer: {}: {fault}", file.display());
+
+            return Ok(Vec::new());
+        },
+    };
+
+    console_core_subtitle_files::read(&bytes, written)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,14 +275,15 @@ impl Film {
             ended: Mutex::new(Ended::No),
         });
 
-        let Ok(filter) = words_filter(&asked.film, asked.captions, facts.words, asked.from);
+        let Ok(cores) = Cores::counted();
         let showing = Showing {
             film: asked.film.clone(),
             from: asked.from,
             tempo,
             rate: facts.rate,
             size: room,
-            words: filter,
+            captions: asked.captions,
+            cores,
         };
         let (carrying, timing) = (Arc::clone(&shared), Arc::clone(&clock));
         let pictures = std::thread::spawn(move || {
@@ -393,36 +325,8 @@ struct Showing {
     tempo: f64,
     rate: f64,
     size: Size<u32>,
-    words: Option<String>,
-}
-
-fn decoding(showing: &Showing, size: Size<u32>) -> Result<Option<BoundToParent>, Never> {
-    let Size { width: wide, height: tall } = size;
-    let scaled = format!("scale={wide}:{tall}");
-    let filter = match &showing.words {
-        Some(words) => format!("{words},{scaled}"),
-        None => scaled,
-    };
-
-    let Ok(mut asking) = Program::Ffmpeg.command();
-
-    asking
-        .args(["-v", "error", "-nostdin", "-ss", &format!("{}", showing.from), "-i"])
-        .arg(&showing.film)
-        .args(["-an", "-sn", "-vf", &filter, "-r", &format!("{}", showing.rate)])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
-        .stdout(Stdio::piped())
-        .stdin(Stdio::null())
-        .stderr(Stdio::null());
-
-    Ok(match alongside(&mut asking) {
-        Ok(decoding) => Some(decoding),
-        Err(fault) => {
-            eprintln!("viewer: {}: will not decode: {fault}", showing.film.display());
-
-            None
-        },
-    })
+    captions: Captions,
+    cores: Cores,
 }
 
 fn state(shared: &Shared) -> Result<Going, Never> {
@@ -453,85 +357,72 @@ fn wait(shared: &Shared, seconds: f64) -> Result<Going, Never> {
     })
 }
 
-pub fn fitted_size(had: Size<u32>, room: Size<u32>) -> Result<Size<u32>, Never> {
-    let Ok(fitted) = console_pictures::fit_within(had, room);
-    let even = |side: u32| side.saturating_sub(side.wrapping_rem(2)).max(2);
+fn drawn(picture: &Picture, room: Size<u32>, cores: Cores) -> Result<Pixels, Never> {
+    let Ok(shown) = picture.size();
+    let Ok(made) = console_pictures::fit_within(shown, room);
+    let Ok(drawn) = picture.rgba_at(made, cores);
+    let stride = made.width.saturating_mul(4);
 
-    Ok(Size { width: even(fitted.width), height: even(fitted.height) })
+    Ok(Pixels { width: made.width, height: made.height, stride, bytes: Arc::new(drawn.rgba) })
 }
 
 fn shown(showing: &Showing, clock: &Clock, shared: &Shared) -> Result<(), Never> {
-    let had = match console_pictures::measure(&showing.film) {
-        Ok(Some(had)) => had,
-        Ok(None) => Size { width: 16, height: 9 },
-        Err(_unmeasured) => Size { width: 16, height: 9 },
-    };
-    let Ok(size) = fitted_size(had, showing.size);
-    let Ok(decoder) = decoding(showing, size);
+    let opened = console_films::open(&showing.film);
 
-    let mut decoder = match decoder {
-        Some(decoder) => decoder,
-        None => return ended(shared),
-    };
+    let film = match opened {
+        Ok(Some(film)) => film,
+        Ok(None) => return ended(shared),
+        Err(fault) => {
+            eprintln!("viewer: {fault}");
 
-    let Ok(out) = decoder.take_stdout();
-
-    let out = match out {
-        Some(out) => out,
-        None => return ended(shared),
+            return ended(shared);
+        },
     };
 
-    let long = u64::from(size.width).saturating_mul(u64::from(size.height)).saturating_mul(4);
-    let Ok(long) = console_core_number_conversion::index(long);
-    let stride = size.width.saturating_mul(4);
-    let a_frame = 1.0 / showing.rate;
-    let played = console_core_iteration::iterate((out, 0_u64, u64::MAX), |(mut out, read, said_second)| {
-        let mut frame = vec![0u8; long];
+    let Ok(cues) = cues(&showing.film, &film, showing.captions);
+    let pictures = film.pictures(showing.from);
 
-        match out.read_exact(&mut frame) {
-            Ok(()) => {},
-            Err(_the_film_is_over) => return Ok(Step::Halt(Stop::FilmOver)),
-        }
+    let pictures = match pictures {
+        Ok(Some(pictures)) => pictures,
+        Ok(None) => return ended(shared),
+        Err(fault) => {
+            eprintln!("viewer: {fault}");
 
-        let Ok(counted) = read.float();
-        let due = showing.from + counted * a_frame;
-        let read = read.saturating_add(1);
+            return ended(shared);
+        },
+    };
 
-        let Ok(still) = until_due(clock, shared, Due { at: due, early: a_frame / 2.0, tempo: showing.tempo });
+    let played = console_core_iteration::iterate((pictures, u64::MAX), |(mut pictures, said_second)| {
+        let next = pictures.next_picture();
 
-        match still {
-            Going::Off => return Ok(Step::Halt(Stop::TurnedOff)),
-            Going::On => {},
-        }
+        let picture = match next {
+            Ok(Some(picture)) => picture,
+            Ok(None) => return Ok(Step::Halt(Stop::FilmOver)),
+            Err(fault) => {
+                eprintln!("viewer: {fault}");
 
-        let Ok(still) = state(shared);
-
-        match still {
-            Going::Off => return Ok(Step::Halt(Stop::TurnedOff)),
-            Going::On => {},
-        }
-
-        let Ok(now) = clock.now();
-
-        match now - due > a_frame * 2.0 {
-            true => return Ok(Step::Again((out, read, said_second))),
-            false => {},
-        }
-
-        let pixels = Pixels { width: size.width, height: size.height, stride, bytes: Arc::new(frame) };
-        let Ok(()) = console_panel::frames::insert(&showing.film, pixels);
-        let Ok(second) = toward_zero_u64(due);
-
-        let said_second = match second == said_second {
-            true => said_second,
-            false => {
-                let Ok(()) = console_panel::frames::tell(console_panel::frames::Notice::Rows);
-
-                second
+                return Ok(Step::Halt(Stop::FilmOver));
             },
         };
 
-        Ok(Step::Again((out, read, said_second)))
+        let Ok(put) = put(showing, (clock, shared), &picture, &cues);
+
+        Ok(match put {
+            Put::Off => Step::Halt(Stop::TurnedOff),
+            Put::Late => Step::Again((pictures, said_second)),
+            Put::Shown(due) => {
+                let Ok(second) = toward_zero_u64(due);
+
+                match second == said_second {
+                    true => {},
+                    false => {
+                        let Ok(()) = console_panel::frames::tell(console_panel::frames::Notice::Rows);
+                    },
+                }
+
+                Step::Again((pictures, second))
+            },
+        })
     });
 
     match played {
@@ -539,6 +430,44 @@ fn shown(showing: &Showing, clock: &Clock, shared: &Shared) -> Result<(), Never>
         Ok(Stop::TurnedOff) => Ok(()),
         Err(_endless) => ended(shared),
     }
+}
+
+enum Put {
+    Shown(f64),
+    Late,
+    Off,
+}
+
+fn put(showing: &Showing, keeping: (&Clock, &Shared), picture: &Picture, cues: &[Cue]) -> Result<Put, Never> {
+    let (clock, shared) = keeping;
+    let a_frame = 1.0 / showing.rate;
+    let Ok(due) = picture.at();
+    let Ok(still) = until_due(clock, shared, Due { at: due, early: a_frame / 2.0, tempo: showing.tempo });
+
+    match still {
+        Going::Off => return Ok(Put::Off),
+        Going::On => {},
+    }
+
+    let Ok(still) = state(shared);
+
+    match still {
+        Going::Off => return Ok(Put::Off),
+        Going::On => {},
+    }
+
+    let Ok(now) = clock.now();
+
+    match now - due > a_frame * 2.0 {
+        true => return Ok(Put::Late),
+        false => {},
+    }
+
+    let Ok(pixels) = drawn(picture, showing.size, showing.cores);
+    let Ok(said) = console_core_subtitle_files::showing(cues, due);
+    let Ok(()) = console_panel::frames::insert(&showing.film, pixels, said);
+
+    Ok(Put::Shown(due))
 }
 
 enum Stop {
@@ -628,102 +557,93 @@ mod tests {
         }
     }
 
-    #[test]
-    fn what_ffprobe_says_about_a_film_is_read_into_what_playing_it_needs() -> Result<(), &'static str> {
-        let said = "codec_type=video\nr_frame_rate=30000/1001\ncodec_type=audio\nr_frame_rate=0/0\n\
-                    codec_type=subtitle\nr_frame_rate=0/0\ncodec_type=subtitle\nr_frame_rate=0/0\nduration=12.5\n";
-        let Ok(facts) = read(said);
-        let facts = facts.ok_or("a film with a picture in it is a film")?;
+    fn fixture(named: &str) -> Result<PathBuf, Never> {
+        Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join("../console-films/tests/films").join(named))
+    }
 
-        assert!((facts.rate - 29.97).abs() < 0.01, "{facts:?}");
-        assert_eq!(facts.sound, Sound::Audible);
-        assert_eq!(facts.words, 2);
-        assert!((facts.seconds - 12.5).abs() < 0.001);
+    #[test]
+    fn what_a_film_says_about_itself_is_what_playing_it_needs() -> Result<(), Box<dyn Error>> {
+        let Ok(at) = fixture("red-then-blue.vp9.webm");
+        let Ok(heard) = facts(&at);
+        let heard = heard.ok_or("a film with pictures in it is a film")?;
+
+        assert!((heard.rate - 25.0).abs() < 0.5, "{heard:?}");
+        assert!((heard.seconds - 2.0).abs() < 0.1, "{heard:?}");
+        assert_eq!((heard.sound, heard.words), (Sound::Audible, 0));
+
+        let Ok(at) = fixture("with-subtitles.av1.mkv");
+        let Ok(worded) = facts(&at);
+        let worded = worded.ok_or("a film with words in it is a film")?;
+
+        assert_eq!((worded.sound, worded.words), (Sound::Silent, 1));
+
+        let not_a_film = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+
+        assert_eq!(facts(&not_a_film), Ok(None));
 
         Ok(())
     }
 
     #[test]
-    fn a_film_with_no_sound_or_no_rate_still_plays_and_a_song_is_not_a_film() -> Result<(), &'static str> {
-        let Ok(silent) = read("codec_type=video\nr_frame_rate=0/0\nduration=3\n");
-        let silent = silent.ok_or("a silent film is a film")?;
+    fn subtitles_come_from_the_film_first_and_then_from_a_file_beside_it() -> Result<(), Box<dyn Error>> {
+        let folder = console_core_temporary_directories::fresh("viewer-words")?;
+        let at = folder.join("holiday.mkv");
+        let Ok(inside) = fixture("with-subtitles.av1.mkv");
 
-        assert_eq!(silent.sound, Sound::Silent);
-        assert!((silent.rate - ORDINARY_RATE).abs() < 0.001);
-        assert_eq!(read("codec_type=audio\nr_frame_rate=0/0\nduration=3\n"), Ok(None));
+        std::fs::copy(&inside, &at)?;
+        console_core_atomic_writes::whole(&folder.join("holiday.srt"), b"1\n00:00:00,100 --> 00:00:00,900\nBeside it\n")?;
 
-        let Ok(fast) = read("codec_type=video\nr_frame_rate=240/1\n");
-        let fast = fast.ok_or("fast is a film")?;
+        let opened = console_films::open(&at)?;
+        let film = opened.ok_or("the copy is a film")?;
+        let Ok(off) = cues(&at, &film, Captions::Off);
+        let Ok(inside) = cues(&at, &film, Captions::Track(0));
+        let Ok(beside) = cues(&at, &film, Captions::Track(1));
+        let Ok(past_the_end) = cues(&at, &film, Captions::Track(2));
+        let Ok(said_inside) = console_core_subtitle_files::showing(&inside, 0.6);
+        let Ok(said_beside) = console_core_subtitle_files::showing(&beside, 0.6);
 
-        assert!((fast.rate - FASTEST_RATE).abs() < 0.001, "{fast:?}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_name_with_the_filter_syntax_in_it_is_said_so_the_filter_reads_it_whole() {
-        assert_eq!(escaped("/x/plain.mkv"), Ok(String::from("/x/plain.mkv")));
-        assert_eq!(escaped("it's a: test, [x].mkv"), Ok(String::from("it\\\\\\'s a\\\\: test\\, \\[x\\].mkv")));
-    }
-
-    #[test]
-    fn subtitles_off_draw_nothing_into_the_frames() {
-        assert_eq!(words_filter(Path::new("/x/holiday.mp4"), Captions::Off, 2, 0.0), Ok(None));
-    }
-
-    #[test]
-    fn a_subtitle_track_inside_the_film_is_asked_for_by_its_number_and_starts_where_the_film_does() -> Result<(), &'static str> {
-        let Ok(filter) = words_filter(Path::new("/x/holiday.mp4"), Captions::Track(1), 2, 30.0);
-        let filter = filter.ok_or("a track the film has is drawn")?;
-
-        assert_eq!(filter, "setpts=PTS+30/TB,subtitles=filename=/x/holiday.mp4:si=1,setpts=PTS-STARTPTS");
-        assert_eq!(words_filter(Path::new("/x/holiday.mp4"), Captions::Track(5), 2, 0.0), Ok(None));
+        assert!(off.is_empty());
+        assert_eq!(said_inside, vec![String::from("Red, at first")]);
+        assert_eq!(said_beside, vec![String::from("Beside it")]);
+        assert!(past_the_end.is_empty());
 
         Ok(())
-    }
-
-    #[test]
-    fn a_frame_is_an_even_size_inside_the_room() {
-        assert_eq!(fitted_size(Size { width: 1920, height: 1080 }, Size { width: 801, height: 801 }), Ok(Size { width: 800, height: 450 }));
-        assert_eq!(fitted_size(Size { width: 1, height: 1 }, Size { width: 1, height: 1 }), Ok(Size { width: 2, height: 2 }));
     }
 
     #[test]
     fn a_film_plays_through_its_frames_onto_the_card_and_says_when_it_is_over() -> Result<(), Box<dyn Error>> {
-        let folder = console_core_temporary_directories::fresh("viewer-film")?;
-        let at = folder.join("viewer-film.mkv");
-        let Ok(mut making) = Program::Ffmpeg.command();
-        let made = making
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x48:r=5:d=2"])
-            .arg(&at)
-            .status()?;
-
-        assert!(made.success(), "ffmpeg made no film to play");
-
+        let Ok(at) = fixture("with-subtitles.av1.mkv");
         let Ok(facts) = facts(&at);
-        let facts = facts.ok_or("ffprobe says the film it was handed is no film")?;
+        let facts = facts.ok_or("the film it was handed is no film")?;
 
         assert_eq!(facts.sound, Sound::Silent, "this test must not make a noise on the machine running it");
 
         let room = Size { width: 32, height: 32 };
         let _looking = console_panel::frames::current(&at, room);
         let Ok(sound) = Sounding::new(|_progress| Ok(()));
-        let asked = PlaybackRequest { film: at.clone(), from: 0.0, speed: 1, captions: Captions::Off, sought: None };
+        let asked = PlaybackRequest { film: at.clone(), from: 0.0, speed: 1, captions: Captions::Track(0), sought: None };
         let Ok(film) = Film::start(asked, &facts, room, Arc::new(sound));
         let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
-        let mut seen: Vec<Arc<Vec<u8>>> = Vec::new();
+        let mut seen: (Vec<Arc<Vec<u8>>>, Vec<Vec<String>>) = (Vec::new(), Vec::new());
 
-        let Ok(over) = console_waiting::until_handed(patience, &mut seen, |seen| {
+        let Ok(over) = console_waiting::until_handed(patience, &mut seen, |(seen, heard)| {
             match console_panel::frames::current(&at, room) {
                 Ok(Some(frame)) => match seen.contains(&frame.bytes) {
                     true => {},
                     false => {
-                        assert_eq!((frame.width, frame.height), (32, 24), "a frame is the film's shape inside the room");
+                        assert_eq!((frame.width, frame.height), (32, 21), "a frame is the film's shape inside the room");
 
                         seen.push(Arc::clone(&frame.bytes));
                     },
                 },
                 Ok(None) | Err(_) => {},
+            }
+
+            let Ok(said) = console_panel::frames::said(&at);
+
+            match heard.contains(&said) {
+                true => {},
+                false => heard.push(said),
             }
 
             let Ok(ended) = film.ended();
@@ -736,10 +656,12 @@ mod tests {
         let Ok(heard_at) = film.at();
 
         drop(film);
-        let _ = std::fs::remove_file(&at);
+
+        let (seen, heard) = seen;
 
         assert_eq!(over, console_waiting::Outcome::Happened, "a two second film never ended");
         assert!(seen.len() >= 2, "the picture on the card never moved on: {} different frames reached it", seen.len());
+        assert!(heard.contains(&vec![String::from("Red, at first")]) && heard.contains(&vec![String::from("then blue")]), "the subtitles were not said over the film: {heard:?}");
         assert!(heard_at > 0.5, "the film's clock stood still at {heard_at}");
 
         Ok(())

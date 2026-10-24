@@ -813,7 +813,7 @@ fn health_check(root: &Path, manifest: &Manifest) -> Result<health::Standing, Un
         let Ok(state) = install::state(&source, live, User(user), written);
         let Ok(settled) = state.up_to_date();
 
-        match state != install::State::Unreadable && settled == UpToDate::No {
+        match state != install::State::ParseError && settled == UpToDate::No {
             true => standing.adrift.push(live.clone()),
             false => {},
         }
@@ -1861,7 +1861,7 @@ fn write(
             install::State::Unsourced => {
                 let Ok(()) = moving.say(&format!("{RED}no source for{OFF} {path}"));
             }
-            install::State::Differs | install::State::Missing | install::State::Unreadable => {
+            install::State::Differs | install::State::NotFound | install::State::ParseError => {
                 let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {path}"));
 
                 let Ok(from) = install::source_of(source, path);

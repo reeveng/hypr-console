@@ -1,0 +1,59 @@
+warning: a trait object, whose call the machine follows at a moment the stack already committed to
+  --> $DIR/console_kernel_case.rs:6:11
+   |
+LL |     what: Box<dyn Drawn>,
+   |           ^^^^^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+   = note: `#[warn(explicit072_no_dynamic_dispatch)]` on by default
+
+warning: a function pointer, whose call the call graph does not contain
+  --> $DIR/console_kernel_case.rs:7:11
+   |
+LL |     held: fn() -> u8,
+   |           ^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+
+warning: a trait object, whose call the machine follows at a moment the stack already committed to
+  --> $DIR/console_kernel_case.rs:11:16
+   |
+LL | fn drawn(what: &dyn Drawn, held: fn() -> u8) -> u8 {
+   |                ^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+
+warning: a function pointer, whose call the call graph does not contain
+  --> $DIR/console_kernel_case.rs:11:34
+   |
+LL | fn drawn(what: &dyn Drawn, held: fn() -> u8) -> u8 {
+   |                                  ^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+
+warning: a trait object, whose call the machine follows at a moment the stack already committed to
+  --> $DIR/console_kernel_case.rs:23:28
+   |
+LL |     fn handed(&self, what: &dyn Drawn) -> u8 {
+   |                            ^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+
+warning: a function pointer, whose call the call graph does not contain
+  --> $DIR/console_kernel_case.rs:27:27
+   |
+LL |     fn table(&self, held: [fn() -> u8; 2]) -> u8 {
+   |                           ^^^^^^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+
+warning: a trait object, whose call the machine follows at a moment the stack already committed to
+  --> $DIR/console_kernel_case.rs:33:27
+   |
+LL |     fn asked(&self, what: Option<Box<dyn Drawn>>) -> u8;
+   |                           ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: name the behaviours as an enum's variants and match where the choice is made, so the call graph stays static and adding a behaviour is adding a variant the compiler asks every match about
+
+warning: 7 warnings emitted
+

@@ -1,0 +1,144 @@
+/// Declare a newtype wrapper for a `fn` ptr
+/// and define related, useful items for that `fn` ptr (see below).
+/// Given a `fn` signature with no body,
+/// this generates a `mod` with the name of the `fn` provided that contains:
+///
+/// * `type FnPtr`:
+///     The raw, inner `fn` ptr (according to the provided signature) contained by `Fn`.
+///
+/// * `type Fn`:
+///     A newtype wrapping `FnPtr`.
+///     It defines `const fn new(FnPtr) -> Self` to construct it
+///     and `const fn get(&self) -> &FnPtr` to read the `FnPtr`.
+///
+///     These methods are marked `pub(super)`
+///     as they are meant to be used in the module calling [`wrap_fn_ptr!`].
+///
+///     It is meant for a `fn call` method to also be implemented
+///     for this type to allow users to call the `fn`
+///     in a type-safe (e.x. [`BitDepth`]-wise)
+///     and generally safer (memory safety-wise) way.
+///
+/// * `impl ` [`DefaultValue`] ` for Fn`:
+///     A `const`-compatible default implementation of `Fn`
+///     that just calls [`unimplemented!`].
+///     This lets `Fn` be used by [`enum_map!`] without wrapping it in an [`Option`],
+///     and removes any need for an [`Option::unwrap`] check,
+///     as the check is moved to inside the `fn` call.
+///
+/// * `decl_fn!`:
+///     A macro that, given a `fn $fn_name:ident`,
+///     declares an `extern "C" fn` with the `fn` signature provided.
+///     This macro can and is meant to be used with [`bd_fn!`].
+///
+/// This ensures that the `fn` signature is consistent between all of these
+/// and reduces the need to repeat the `fn` signature many times.
+///
+/// [`BitDepth`]: crate::include::common::bitdepth::BitDepth
+/// [`DefaultValue`]: crate::src::enum_map::DefaultValue
+/// [`enum_map!`]: crate::src::enum_map::enum_map
+/// [`bd_fn!`]: crate::include::common::bitdepth::bd_fn
+macro_rules! wrap_fn_ptr {
+    ($vis:vis unsafe extern "C" fn $name:ident(
+            $($arg_name:ident: $arg_ty:ty),*$(,)?
+    ) -> $return_ty:ty) => {
+        $vis mod $name {
+            use $crate::src::enum_map::DefaultValue;
+            #[allow(unused_imports)]
+            use super::*;
+
+            // When asm is enabled, use real function pointers for C calling convention.
+            #[cfg(asm_fn_ptrs)]
+            pub type FnPtr = unsafe extern "C" fn($($arg_name: $arg_ty),*) -> $return_ty;
+
+            #[cfg(asm_fn_ptrs)]
+            #[derive(Clone, Copy, PartialEq, Eq)]
+            #[repr(transparent)]
+            pub struct Fn(FnPtr);
+
+            #[cfg(asm_fn_ptrs)]
+            impl Fn {
+                pub(super) const fn new(fn_ptr: FnPtr) -> Self {
+                    Self(fn_ptr)
+                }
+
+                pub(super) const fn get(&self) -> &FnPtr {
+                    &self.0
+                }
+            }
+
+            #[cfg(asm_fn_ptrs)]
+            impl DefaultValue for Fn {
+                const DEFAULT: Self = {
+                    extern "C" fn default_unimplemented(
+                        $($arg_name: $arg_ty,)*
+                    ) -> $return_ty {
+                        $(let _ = $arg_name;)*
+                        unimplemented!()
+                    }
+                    Self::new(default_unimplemented)
+                };
+            }
+
+            // When asm is disabled (including c-ffi without asm), use a unit struct.
+            // The `call` methods use direct dispatch and never dereference fn ptrs.
+            // The c-ffi feature only controls the dav1d_* extern "C" entry points,
+            // NOT the internal DSP dispatch mechanism.
+            #[cfg(not(asm_fn_ptrs))]
+            #[derive(Clone, Copy, PartialEq, Eq)]
+            pub struct Fn(());
+
+            #[cfg(not(asm_fn_ptrs))]
+            impl Fn {
+                /// Accept a function pointer but discard it — direct dispatch
+                /// bypasses function pointers entirely.
+                #[allow(dead_code)]
+                pub(super) const fn new(
+                    _fn_ptr: unsafe extern "C" fn($($arg_name: $arg_ty),*) -> $return_ty
+                ) -> Self {
+                    Fn(())
+                }
+            }
+
+            #[cfg(not(asm_fn_ptrs))]
+            impl DefaultValue for Fn {
+                const DEFAULT: Self = Fn(());
+            }
+
+            #[cfg(asm_fn_ptrs)]
+            #[allow(unused_macros)]
+            macro_rules! decl_fn {
+                (fn $fn_name:ident) => {{
+                    unsafe extern "C" {
+                        fn $fn_name($($arg_name: $arg_ty,)*) -> $return_ty;
+                    }
+
+                    self::$name::Fn::new($fn_name)
+                }};
+            }
+
+            #[cfg(asm_fn_ptrs)]
+            #[allow(unused_imports)]
+            pub(crate) use decl_fn;
+
+            /// Declare a safe SIMD function wrapper.
+            ///
+            /// When asm is disabled, this accepts a function path but
+            /// discards it — dispatch goes through direct calls in `call()`.
+            /// Kept for backward compatibility with init functions.
+            #[cfg(not(asm_fn_ptrs))]
+            #[allow(unused_macros)]
+            macro_rules! decl_fn_safe {
+                ($fn_path:path) => {{
+                    self::$name::Fn::new($fn_path)
+                }};
+            }
+
+            #[cfg(not(asm_fn_ptrs))]
+            #[allow(unused_imports)]
+            pub(crate) use decl_fn_safe;
+        }
+    };
+}
+
+pub(crate) use wrap_fn_ptr;

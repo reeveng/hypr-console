@@ -156,7 +156,7 @@ struct Waiting {
 
 enum Woke<E> {
     Tick(Timer),
-    Changed(Change),
+    Modified(Change),
     Custom(E),
     Ended(Exit),
     Finished,
@@ -261,8 +261,8 @@ where
 
                     return Ok(Step::Again(turning));
                 }
-                Woke::Changed(change) => {
-                    turning.queue.push_back(Event::Changed(change));
+                Woke::Modified(change) => {
+                    turning.queue.push_back(Event::Modified(change));
 
                     return Ok(Step::Again(turning));
                 }
@@ -434,7 +434,7 @@ fn wait<E>(called: &str, timers: &mut Vec<Waiting>, waits: &Waits<'_, E>) -> Res
 
 fn arrival<E>(arrived: Arrived<E>) -> Result<Option<Woke<E>>, Never> {
     Ok(match arrived {
-        Arrived::Pool(Received::Event(change)) => Some(Woke::Changed(change)),
+        Arrived::Pool(Received::Event(change)) => Some(Woke::Modified(change)),
         Arrived::Pool(Received::Connected) => None,
         Arrived::Custom(event) => Some(Woke::Custom(event)),
         Arrived::Ended(how) => Some(Woke::Ended(how)),

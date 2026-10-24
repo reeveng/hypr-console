@@ -160,8 +160,8 @@ pub enum Covers {
 
 impl Panel {
     pub fn covers(&self, at: Point<i32>) -> Result<Covers, Never> {
-        let Ok(wide) = across(self.size.width);
-        let Ok(tall) = across(self.size.height);
+        let Ok(wide) = width(self.size.width);
+        let Ok(tall) = width(self.size.height);
 
         let inside = at.x >= self.at.x
             && at.y >= self.at.y
@@ -195,7 +195,7 @@ pub fn texts(shapes: &[Shape]) -> Result<Vec<Text>, Never> {
         .collect())
 }
 
-fn across(many: u32) -> Result<i32, Never> {
+fn width(many: u32) -> Result<i32, Never> {
     fitted(many)
 }
 

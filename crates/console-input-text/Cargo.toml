@@ -1,0 +1,18 @@
+[package]
+name = "console-input-text"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_input_text"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-draw-surface.workspace = true
+
+[lints]
+workspace = true

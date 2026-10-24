@@ -100,7 +100,7 @@ mod tests {
     use super::*;
     use std::error::Error;
     use crate::configuration::Configuration;
-    use console_core_color::{Ground, HexColor};
+    use console_core_color::{Ground, Ansi};
 
     const PALETTE: &str = include_str!("../../../theme/palette.toml");
 
@@ -155,7 +155,7 @@ mod tests {
             for slot in SLOTS {
                 let Ok(code) = terminal.slot(shade, slot);
 
-                let Ok(got) = color::contrast(HexColor(code), Ground(&terminal.background));
+                let Ok(got) = color::contrast(Ansi(code), Ground(&terminal.background));
 
                 let least = match slot {
                     "black" => 4.5,

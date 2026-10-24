@@ -4,9 +4,8 @@
 //! for free. A PDF page and a comic page arrive as pictures, and to highlight
 //! a line of one the words and their boxes have to come from somewhere else.
 //! Apple calls this Live Text. For a PDF they come from the PDF itself, which
-//! usually carries its text and where each word is drawn: poppler's
-//! `pdftotext -bbox-layout` hands both over as markup of blocks, lines and
-//! words. A scanned PDF has no such layer, and a comic never has, so for those
+//! usually carries its text and where each word is drawn, and
+//! [`crate::portable_document`] reads both out of it. A scanned PDF has no such layer, and a comic never has, so for those
 //! the words are recognized off the picture by tesseract, whose TSV says the
 //! same things one word to a row.
 //!
@@ -38,8 +37,6 @@ use std::ops::Range;
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-
-use crate::markup::{self, Token};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Area {
@@ -75,7 +72,7 @@ fn spacing(letter: Option<char>) -> Result<Spacing, Never> {
 }
 
 impl Paragraph {
-    fn push(&mut self, said: &str, area: Area) -> Result<(), Never> {
+    pub(crate) fn push(&mut self, said: &str, area: Area) -> Result<(), Never> {
         let Ok(before) = spacing(self.text.chars().last());
         let Ok(after) = spacing(said.chars().next());
 
@@ -96,78 +93,10 @@ impl Paragraph {
     }
 }
 
-fn number(attributes: &[(String, String)], name: &str) -> Result<Option<f64>, Never> {
-    let Ok(said) = markup::attribute(attributes, name);
-
-    Ok(match said.map(str::parse::<f64>) {
-        Some(Ok(read)) => Some(read),
-        Some(Err(_not_a_number)) => None,
-        None => None,
-    })
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Page {
     width: f64,
     height: f64,
-}
-
-#[derive(Default)]
-struct Layout {
-    page: Option<Page>,
-    paragraphs: Vec<Paragraph>,
-    word: Option<Area>,
-    said: String,
-}
-
-impl Layout {
-    fn start(&mut self, name: &str, attributes: &[(String, String)]) -> Result<(), Never> {
-        let Ok(corners) = corners(attributes);
-
-        match (name, self.page, corners) {
-            ("page", _, _) => {
-                let Ok(width) = number(attributes, "width");
-                let Ok(height) = number(attributes, "height");
-
-                self.page = width.zip(height).map(|(width, height)| Page { width, height });
-            },
-            ("block", _, _) => self.paragraphs.push(Paragraph::default()),
-            ("word", Some(page), Some(Corners { low, high })) => {
-                let Ok(area) = share(Area { left: low.x, top: low.y, width: high.x - low.x, height: high.y - low.y }, page);
-
-                self.said.clear();
-                self.word = Some(area);
-            },
-            (_, _, _) => {},
-        }
-
-        Ok(())
-    }
-
-    fn end(&mut self, name: &str) -> Result<(), Never> {
-        match (name, self.word.take(), self.paragraphs.last_mut()) {
-            ("word", Some(area), Some(paragraph)) => paragraph.push(self.said.trim(), area),
-            (_, _, _) => Ok(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Corners {
-    low: Point<f64>,
-    high: Point<f64>,
-}
-
-fn corners(attributes: &[(String, String)]) -> Result<Option<Corners>, Never> {
-    let Ok(left) = number(attributes, "xmin");
-    let Ok(top) = number(attributes, "ymin");
-    let Ok(right) = number(attributes, "xmax");
-    let Ok(bottom) = number(attributes, "ymax");
-
-    Ok(match (left, top, right, bottom) {
-        (Some(left), Some(top), Some(right), Some(bottom)) => Some(Corners { low: Point { x: left, y: top }, high: Point { x: right, y: bottom } }),
-        (None, _, _, _) | (_, None, _, _) | (_, _, None, _) | (_, _, _, None) => None,
-    })
 }
 
 fn share(area: Area, page: Page) -> Result<Area, Never> {
@@ -175,25 +104,6 @@ fn share(area: Area, page: Page) -> Result<Area, Never> {
         true => Area { left: area.left / page.width, top: area.top / page.height, width: area.width / page.width, height: area.height / page.height },
         false => area,
     })
-}
-
-pub fn from_layout(markup: &str) -> Result<Vec<Paragraph>, Never> {
-    let Ok(tokens) = markup::tokenize(markup);
-    let mut layout = Layout::default();
-
-    for token in &tokens {
-        let Ok(()) = match token {
-            Token::StartTag { name, attributes } => layout.start(name, attributes),
-            Token::EndTag { name } => layout.end(name),
-            Token::Text(said) => {
-                layout.said.push_str(said);
-
-                Ok(())
-            },
-        };
-    }
-
-    Ok(layout.paragraphs.into_iter().filter(|paragraph| !paragraph.words.is_empty()).collect())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,8 +307,6 @@ pub fn areas(paragraph: &Paragraph, run: &Range<u32>) -> Result<Vec<Area>, Never
 mod tests {
     use super::*;
 
-    const LAYOUT: &str = include_str!("../tests/a-page.layout.html");
-
     const RECOGNIZED: &str = include_str!("../tests/a-page.tsv");
 
     fn texts(paragraphs: &[Paragraph]) -> Result<Vec<&str>, Never> {
@@ -406,29 +314,10 @@ mod tests {
     }
 
     #[test]
-    fn a_pdf_text_layer_is_read_as_its_paragraphs() {
-        let Ok(read) = from_layout(LAYOUT);
-
-        assert_eq!(texts(&read), Ok(vec!["Call me Ishmael.", "Some years ago, never mind how long precisely, having little."]));
-    }
-
-    #[test]
     fn what_was_recognized_off_a_picture_is_read_the_same_way() {
         let Ok(read) = from_recognition(RECOGNIZED);
 
         assert_eq!(texts(&read), Ok(vec!["Call me Ishmael.", "Some years ago, never mind how long precisely, having little."]));
-    }
-
-    #[test]
-    fn a_word_knows_its_letters_and_its_share_of_the_page() -> Result<(), &'static str> {
-        let Ok(read) = from_layout(LAYOUT);
-        let first = read.first().and_then(|paragraph| paragraph.words.get(1)).ok_or("a second word")?;
-
-        assert_eq!(first.run, 5..7, "me");
-        assert!((first.area.left - 91.2825 / 450.0).abs() < 1e-6);
-        assert!((first.area.top - 65.945547 / 600.0).abs() < 1e-6);
-
-        Ok(())
     }
 
     #[test]
@@ -498,7 +387,7 @@ mod tests {
 
     #[test]
     fn a_highlight_covers_the_boxes_of_the_words_it_runs_over() -> Result<(), &'static str> {
-        let Ok(read) = from_layout(LAYOUT);
+        let Ok(read) = from_recognition(RECOGNIZED);
         let paragraph = read.get(1).ok_or("a second paragraph")?;
         let Ok(covered) = areas(paragraph, &(5..14));
 

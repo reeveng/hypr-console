@@ -154,7 +154,7 @@ use console_applications::found;
 use console_compositor::events::CompositorEvent;
 use console_core_atomic_writes::Stored;
 use console_core_color::palette::{self, PaletteError, WearingError};
-use console_core_color::{Ground, HexColor, Oklch, Rgba, over};
+use console_core_color::{Ground, Ansi, Oklch, Rgba, over};
 use console_core_geometry::{Point, Size};
 use console_core_iteration::Step;
 use console_core_never::Never;
@@ -1095,7 +1095,7 @@ fn washed(
     share: f64,
 ) -> Result<Oklch, PaletteError> {
     let ink = hex(spent, what)?;
-    let Ok(mixed) = over(HexColor(ink), ground, share);
+    let Ok(mixed) = over(Ansi(ink), ground, share);
     let channels = Rgba::of(&mixed)
         .map_err(|_| PaletteError::Invalid { color: what, value: mixed.clone() })?;
     let Ok(washed) = Oklch::of(channels);

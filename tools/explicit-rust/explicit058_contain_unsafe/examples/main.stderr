@@ -1,0 +1,29 @@
+warning: an `unsafe` block is written here
+  --> $DIR/main.rs:3:5
+   |
+LL |     unsafe { *held }
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: an `unsafe` block is held to this rule wherever it is written. Either the guarantee is checked somewhere -- the kernel, the type, the protocol -- and the checking belongs behind a type of its own that checks once, or it is held nowhere and must not be written. Where the site really is the one that cannot be helped -- a signal handler, a page two processes agreed on -- allow this rule here and let the reason say who is doing the checking
+   = note: `#[warn(explicit058_contain_unsafe)]` on by default
+
+warning: an `unsafe fn` is written here, which hands the invariant to every caller
+  --> $DIR/main.rs:7:1
+   |
+LL | / unsafe fn held_at(held: *const u8) -> u8 {
+LL | |     unsafe { *held }
+LL | | }
+   | |_^
+   |
+   = help: an `unsafe` block is held to this rule wherever it is written. Either the guarantee is checked somewhere -- the kernel, the type, the protocol -- and the checking belongs behind a type of its own that checks once, or it is held nowhere and must not be written. Where the site really is the one that cannot be helped -- a signal handler, a page two processes agreed on -- allow this rule here and let the reason say who is doing the checking
+
+warning: an `unsafe` block is written here
+  --> $DIR/main.rs:8:5
+   |
+LL |     unsafe { *held }
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: an `unsafe` block is held to this rule wherever it is written. Either the guarantee is checked somewhere -- the kernel, the type, the protocol -- and the checking belongs behind a type of its own that checks once, or it is held nowhere and must not be written. Where the site really is the one that cannot be helped -- a signal handler, a page two processes agreed on -- allow this rule here and let the reason say who is doing the checking
+
+warning: 3 warnings emitted
+

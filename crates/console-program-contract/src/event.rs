@@ -38,7 +38,7 @@ use crate::subscription::Timer;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event<E> {
     Opened,
-    Changed(Change),
+    Modified(Change),
     Tick(Timer, Elapsed),
     Replied(Answer),
     Chosen(Choice),

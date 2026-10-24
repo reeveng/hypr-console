@@ -30,6 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
 
 use console_core_never::Never;
+use console_panel::running::Exit;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
@@ -289,6 +290,30 @@ pub fn password(said: &str) -> Result<Option<String>, Never> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub summary: String,
+    pub body: String,
+}
+
+pub fn joined(name: &str, exit: &Exit) -> Result<Notice, Never> {
+    Ok(match exit {
+        Exit::Success => Notice { summary: format!("Connected to {name}"), body: String::new() },
+        Exit::Failure { said } => {
+            let said = match said.strip_prefix("Error: ") {
+                Some(rest) => rest,
+                None => said,
+            };
+            let body = match said.contains("Secrets were required") {
+                true => "The password was not accepted.",
+                false => said,
+            };
+
+            Notice { summary: format!("Couldn't connect to {name}"), body: body.to_string() }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,6 +471,27 @@ no:Locked:30:2437 MHz:WPA1 WPA2";
         assert_eq!(link("286.7 MBit/s HE-MCS 11 HE-NSS 2"), Ok(Receiving::Faster));
         assert_eq!(link("6.0 MBit/s"), Ok(Receiving::Unknown));
         assert_eq!(receiving("Not connected.\n"), Ok(Receiving::Unknown));
+    }
+
+    #[test]
+    fn joining_says_whether_it_connected_and_why_not() {
+        let refused = Exit::Failure {
+            said: "Error: Connection activation failed: Secrets were required, but not provided.".to_string(),
+        };
+        let gone = Exit::Failure { said: "Error: No network with SSID 'Home' found.".to_string() };
+
+        assert_eq!(
+            joined("Home", &Exit::Success),
+            Ok(Notice { summary: "Connected to Home".to_string(), body: String::new() })
+        );
+        assert_eq!(
+            joined("Home", &refused),
+            Ok(Notice { summary: "Couldn't connect to Home".to_string(), body: "The password was not accepted.".to_string() })
+        );
+        assert_eq!(
+            joined("Home", &gone),
+            Ok(Notice { summary: "Couldn't connect to Home".to_string(), body: "No network with SSID 'Home' found.".to_string() })
+        );
     }
 
     #[test]

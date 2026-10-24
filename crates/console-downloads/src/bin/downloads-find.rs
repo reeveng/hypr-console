@@ -23,8 +23,7 @@ use console_downloads::covers::{self, Fetched};
 use console_downloads::gutenberg;
 use console_downloads::standard_ebooks;
 use console_downloads::looking::{self, Found, Looked};
-use console_downloads::store::{self, Kind, SIDE};
-use console_core_external_programs::Program;
+use console_downloads::store::{self, Kind};
 use console_core_never::Never;
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
@@ -192,23 +191,13 @@ fn picture(cache: &Path, found: &Found) -> Result<(), Never> {
 }
 
 fn drawn_out(part: &Path, at: &Path) -> Result<(), Never> {
-    let Ok(mut ffmpeg) = Program::Ffmpeg.command();
+    match covers::shrunk(part, at) {
+        Ok(()) => {},
+        Err(fault) => {
+            eprintln!("downloads-find: {}: {fault}", part.display());
 
-    let done = ffmpeg
-        .args(["-loglevel", "error", "-y", "-i"])
-        .arg(part)
-        .args([
-            "-vf",
-            &format!("scale={SIDE}:{SIDE}:force_original_aspect_ratio=decrease"),
-        ])
-        .arg(at)
-        .status();
-
-    match done.is_ok_and(|how| how.success()) {
-        true => {},
-        false => {
             let _ = std::fs::remove_file(at);
-        }
+        },
     }
 
     Ok(())

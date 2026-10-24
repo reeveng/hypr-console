@@ -1,0 +1,43 @@
+warning: `recv` waits for as long as the other end takes, and a dead sender is forever
+  --> $DIR/main.rs:7:5
+   |
+LL |     events.recv().ok()
+   |     ^^^^^^^^^^^^^
+   |
+   = help: give the wait a deadline -- `recv_timeout`, `try_lock`, `wait_timeout` -- and a retry both a maximum count and a cap on the backoff, so the end is arithmetic rather than hope. Where the source is trusted to answer, allow this rule here and let the reason say who is on the other end
+   = note: `#[warn(explicit057_no_unbounded_wait)]` on by default
+
+warning: `lock` waits for as long as the holder takes, and a holder that never returns is forever
+  --> $DIR/main.rs:12:5
+   |
+LL |     locked.lock().ok().map(|held| *held)
+   |     ^^^^^^^^^^^^^
+   |
+   = help: give the wait a deadline -- `recv_timeout`, `try_lock`, `wait_timeout` -- and a retry both a maximum count and a cap on the backoff, so the end is arithmetic rather than hope. Where the source is trusted to answer, allow this rule here and let the reason say who is on the other end
+
+warning: `Condvar::wait` waits for a notify that a machine gone wrong may never send
+  --> $DIR/main.rs:18:19
+   |
+LL |     let _unused = under.wait(over.lock().unwrap());
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: give the wait a deadline -- `recv_timeout`, `try_lock`, `wait_timeout` -- and a retry both a maximum count and a cap on the backoff, so the end is arithmetic rather than hope. Where the source is trusted to answer, allow this rule here and let the reason say who is on the other end
+
+warning: `lock` waits for as long as the holder takes, and a holder that never returns is forever
+  --> $DIR/main.rs:18:30
+   |
+LL |     let _unused = under.wait(over.lock().unwrap());
+   |                              ^^^^^^^^^^^
+   |
+   = help: give the wait a deadline -- `recv_timeout`, `try_lock`, `wait_timeout` -- and a retry both a maximum count and a cap on the backoff, so the end is arithmetic rather than hope. Where the source is trusted to answer, allow this rule here and let the reason say who is on the other end
+
+warning: a blocking read waits for a device that may have stopped answering
+  --> $DIR/main.rs:26:13
+   |
+LL |     let _ = source.read_to_end(&mut kept);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: give the wait a deadline -- `recv_timeout`, `try_lock`, `wait_timeout` -- and a retry both a maximum count and a cap on the backoff, so the end is arithmetic rather than hope. Where the source is trusted to answer, allow this rule here and let the reason say who is on the other end
+
+warning: 5 warnings emitted
+

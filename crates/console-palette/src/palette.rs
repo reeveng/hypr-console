@@ -200,7 +200,7 @@ fn settle_until_it_carries(
     let clears = |lightness: f64| {
         let Ok(at) = asked.at(lightness);
         let Ok(code) = color::hexcode(at);
-        let Ok(cleared) = floor.cleared_by(color::HexColor(ink), color::Ground(&code));
+        let Ok(cleared) = floor.cleared_by(color::Ansi(ink), color::Ground(&code));
 
         cleared
     };
@@ -251,8 +251,8 @@ mod tests {
         let got = resolve(&two)?;
         let text = got.must("text")?;
         let night = got.must("night")?;
-        let Ok(ratio) = color::contrast(color::HexColor(text), color::Ground(night));
-        let Ok(lightness_contrast) = color::lightness_contrast(color::HexColor(text), color::Ground(night));
+        let Ok(ratio) = color::contrast(color::Ansi(text), color::Ground(night));
+        let Ok(lightness_contrast) = color::lightness_contrast(color::Ansi(text), color::Ground(night));
 
         assert!(ratio >= 10.0);
         assert!(lightness_contrast.abs() >= 75.0);
@@ -285,8 +285,8 @@ mod tests {
         let got = resolve(&two)?;
         let pink = got.must("pink")?;
         let night = got.must("night")?;
-        let Ok(ratio) = color::contrast(color::HexColor(pink), color::Ground(night));
-        let Ok(lightness_contrast) = color::lightness_contrast(color::HexColor(night), color::Ground(pink));
+        let Ok(ratio) = color::contrast(color::Ansi(pink), color::Ground(night));
+        let Ok(lightness_contrast) = color::lightness_contrast(color::Ansi(night), color::Ground(pink));
 
         assert!(ratio >= 7.0);
         assert!(lightness_contrast >= 75.0);
@@ -303,7 +303,7 @@ mod tests {
         let got = resolve(&two)?;
         let text = got.must("text")?;
         let night = got.must("night")?;
-        let Ok(ratio) = color::contrast(color::HexColor(text), color::Ground(night));
+        let Ok(ratio) = color::contrast(color::Ansi(text), color::Ground(night));
 
         assert!(ratio >= 7.0);
 
@@ -362,9 +362,9 @@ mod tests {
         let tight = resolve(&both)?;
         let loose = loose.must("pink")?;
         let tight = tight.must("pink")?;
-        let Ok(loose_ratio) = color::contrast(color::HexColor(loose), color::Ground(NIGHT_CODE));
-        let Ok(loose_lightness_contrast) = color::lightness_contrast(color::HexColor(loose), color::Ground(NIGHT_CODE));
-        let Ok(tight_lightness_contrast) = color::lightness_contrast(color::HexColor(tight), color::Ground(NIGHT_CODE));
+        let Ok(loose_ratio) = color::contrast(color::Ansi(loose), color::Ground(NIGHT_CODE));
+        let Ok(loose_lightness_contrast) = color::lightness_contrast(color::Ansi(loose), color::Ground(NIGHT_CODE));
+        let Ok(tight_lightness_contrast) = color::lightness_contrast(color::Ansi(tight), color::Ground(NIGHT_CODE));
 
         assert!(loose_ratio >= 7.0, "the ratio alone is already clear");
         assert!(loose_lightness_contrast.abs() < 75.0, "and the Contrast alone is not");

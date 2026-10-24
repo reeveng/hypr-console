@@ -86,7 +86,6 @@ pub fn pictures(cache: &Path) -> Result<PathBuf, Never> {
     Ok(folder.join("pictures"))
 }
 
-pub const SIDE: &str = "128";
 
 pub fn picture_of(cache: &Path, id: &str) -> Result<Option<PathBuf>, Never> {
     let Ok(named) = valid_id(id);

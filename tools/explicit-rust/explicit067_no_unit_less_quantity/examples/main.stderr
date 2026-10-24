@@ -1,0 +1,59 @@
+warning: a field that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:2:8
+   |
+LL |     x: f64,
+   |        ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+   = note: `#[warn(explicit067_no_unit_less_quantity)]` on by default
+
+warning: a parameter that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:6:14
+   |
+LL | fn drawn(at: f64, from: f64) -> f64 {
+   |              ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+
+warning: a parameter that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:6:25
+   |
+LL | fn drawn(at: f64, from: f64) -> f64 {
+   |                         ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+
+warning: an answer that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:6:33
+   |
+LL | fn drawn(at: f64, from: f64) -> f64 {
+   |                                 ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+
+warning: a parameter that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:13:32
+   |
+LL |     fn measured(&self, across: f64) -> f64 {
+   |                                ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+
+warning: an answer that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:13:40
+   |
+LL |     fn measured(&self, across: f64) -> f64 {
+   |                                        ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+
+warning: a parameter that is a bare float, which is a quantity with no unit
+  --> $DIR/main.rs:19:26
+   |
+LL |     fn scaled(&self, by: f32) -> u8;
+   |                          ^^^
+   |
+   = help: give the quantity a one-word type of its own, the way `console-core-geometry` gives a place and a size each one name, so a caller says what the number is and the wrong unit does not compile. Where the float really is a ratio or an answer with no unit at all, allow this rule here and let the reason say so
+
+warning: 7 warnings emitted
+

@@ -17,7 +17,7 @@ use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_music::library::{self, folder};
 use console_music::looking::{self, Song};
-use console_music::tags;
+use console_music_player::tags;
 
 const NOW_AND_THEN: u32 = 50;
 

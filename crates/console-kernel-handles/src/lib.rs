@@ -84,7 +84,7 @@ pub enum ObjectType {
     Channel,
     MemoryObject,
     ExecutableResource,
-    Job,
+    TaskObj,
     Process,
 }
 
@@ -147,7 +147,7 @@ enum JobState {
     Killed,
 }
 
-struct Job {
+struct Task {
     jobs: BTreeSet<ObjectId>,
     processes: BTreeSet<ProcessId>,
     policy: Policy,
@@ -158,7 +158,7 @@ enum Object {
     Endpoint(Endpoint),
     Memory,
     ExecutableResource,
-    Job(Job),
+    TaskObj(Task),
     Process(ProcessId),
 }
 
@@ -245,7 +245,7 @@ impl Kernel {
             next_object: 1,
             next_handle: 1,
         };
-        let job = kernel.new_object(Object::Job(Job {
+        let job = kernel.new_object(Object::TaskObj(Task {
             jobs: BTreeSet::new(),
             processes: BTreeSet::new(),
             policy: Policy::ALLOW_ALL,
@@ -267,7 +267,7 @@ impl Kernel {
         let parent = self.running_job(by, parent)?;
         let above = self.job(parent)?;
         let policy = above.policy;
-        let child = self.new_object(Object::Job(Job {
+        let child = self.new_object(Object::TaskObj(Task {
             jobs: BTreeSet::new(),
             processes: BTreeSet::new(),
             policy,
@@ -493,7 +493,7 @@ impl Kernel {
 
         match entry.object {
             Object::Process(process) => self.end(process),
-            Object::Job(_) => self.kill_job(handle.object),
+            Object::TaskObj(_) => self.kill_job(handle.object),
             Object::Endpoint(_) | Object::Memory | Object::ExecutableResource => {
                 Err(HandleError::WrongType(ObjectType::Process))
             },
@@ -637,7 +637,7 @@ impl Kernel {
                         taken.extend(gone);
                     }
                 },
-                Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_) => {},
+                Object::Memory | Object::ExecutableResource | Object::TaskObj(_) | Object::Process(_) => {},
             }
         }
 
@@ -697,12 +697,12 @@ impl Kernel {
 
         match (entry.references, &entry.object) {
             (0, Object::Endpoint(_)) => {},
-            (_, Object::Endpoint(_) | Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_)) => return Ok(Vec::new()),
+            (_, Object::Endpoint(_) | Object::Memory | Object::ExecutableResource | Object::TaskObj(_) | Object::Process(_)) => return Ok(Vec::new()),
         }
 
         let endpoint = match self.objects.remove(&handle.object) {
             Some(Entry { object: Object::Endpoint(endpoint), .. }) => endpoint,
-            Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_), .. }) | None => return Ok(Vec::new()),
+            Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::TaskObj(_) | Object::Process(_), .. }) | None => return Ok(Vec::new()),
         };
 
         let carried: Vec<Handle> = endpoint.waiting.into_iter().flat_map(|message| message.handles).collect();
@@ -714,7 +714,7 @@ impl Kernel {
 
         match peer {
             Some(Entry { object: Object::Endpoint(peer), .. }) => peer.peer = None,
-            Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_), .. }) | None => {},
+            Some(Entry { object: Object::Memory | Object::ExecutableResource | Object::TaskObj(_) | Object::Process(_), .. }) | None => {},
         }
 
         Ok(carried)
@@ -739,19 +739,19 @@ impl Kernel {
 
         match &mut entry.object {
             Object::Endpoint(endpoint) => Ok(endpoint),
-            Object::Memory | Object::ExecutableResource | Object::Job(_) | Object::Process(_) => {
+            Object::Memory | Object::ExecutableResource | Object::TaskObj(_) | Object::Process(_) => {
                 Err(HandleError::WrongType(ObjectType::Channel))
             },
         }
     }
 
-    fn job(&mut self, id: ObjectId) -> Result<&mut Job, HandleError> {
+    fn job(&mut self, id: ObjectId) -> Result<&mut Task, HandleError> {
         let entry = self.entry(id)?;
 
         match &mut entry.object {
-            Object::Job(job) => Ok(job),
+            Object::TaskObj(job) => Ok(job),
             Object::Endpoint(_) | Object::Memory | Object::ExecutableResource | Object::Process(_) => {
-                Err(HandleError::WrongType(ObjectType::Job))
+                Err(HandleError::WrongType(ObjectType::TaskObj))
             },
         }
     }
@@ -763,7 +763,7 @@ impl Kernel {
             Object::Endpoint(_) => ObjectType::Channel,
             Object::Memory => ObjectType::MemoryObject,
             Object::ExecutableResource => ObjectType::ExecutableResource,
-            Object::Job(_) => ObjectType::Job,
+            Object::TaskObj(_) => ObjectType::TaskObj,
             Object::Process(_) => ObjectType::Process,
         };
 
@@ -802,7 +802,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Channel => "a channel",
             ObjectType::MemoryObject => "memory",
             ObjectType::ExecutableResource => "the executable resource",
-            ObjectType::Job => "a job",
+            ObjectType::TaskObj => "a job",
             ObjectType::Process => "a process",
         })
     }

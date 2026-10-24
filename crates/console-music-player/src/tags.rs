@@ -3,43 +3,53 @@
 //! This was `console-music`'s until the player stopped being kew's. Both need
 //! it now -- the panel to list a library it is not playing, the player to say
 //! on the bus what is playing -- and a second reading of one file is the thing
-//! `CLAUDE.md` warns drifts quietly. So the reading is here and the running is
-//! not: [`asking`] is the words to ask ffprobe, [`read`] is what the answer
-//! means, and each caller runs the program the way its own crate runs programs.
+//! `CLAUDE.md` warns drifts quietly. So the reading is here, once, for both.
 //!
-//! ffprobe is asked, and nothing here reads a file. It is on the machine
-//! already -- the downloader puts the cover inside a song with ffmpeg and the
-//! wallpaper is pressed with it -- and it reads every kind of file kew plays,
-//! which is nine formats keeping their tags in four different places.
+//! `console-core-audio-metadata` reads the file. It used to be ffprobe, asked
+//! once per song, which made a library of a thousand songs a thousand programs
+//! started and their JSON read back; this is the same answer in the same
+//! process, for every kind of file the player plays, from source this tree
+//! carries rather than a package it installs.
 //!
 //! Where a tag lives is the whole reason this is not one line. An mp3 says its
-//! title in the format's tags; an opus says it in the audio stream's; and the
-//! picture stapled to either is a stream of its own carrying tags that look
-//! exactly like a song's and say "Album cover". So the format is read first,
-//! then the streams that are sound, and the first answer to a name is the one
-//! kept.
+//! title in an ID3 frame, an opus in a Vorbis comment, an m4a in an atom, and
+//! one file can carry two of those that disagree. The reader names each item the
+//! same way whatever it was kept in, and [`NAMED`] says which of those names
+//! are about the music and what this tree calls them -- the words ffprobe used,
+//! because they are the ones the rest of this file was written against. An
+//! item it does not name is an identifier, a sort order or a gain, and is
+//! nobody's business on a screen. The primary tag is read first, and the first
+//! answer to a name is the one kept.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use serde_json::Value;
+use console_core_audio_metadata::error::FileParseError;
+use console_core_audio_metadata::prelude::{AudioFile, ItemKey, TaggedFileExt};
+use console_core_audio_metadata::tag::Tag;
 
 pub const BETWEEN: &str = " \u{00b7} ";
 
 pub const AS_MUCH: u32 = 300;
 
-const NOT_THE_MUSIC: [&str; 8] = [
-    "compatible_brands",
-    "description",
-    "encoder",
-    "language",
-    "major_brand",
-    "minor_version",
-    "purl",
-    "synopsis",
+const NAMED: [(ItemKey, &str); 15] = [
+    (ItemKey::TrackTitle, "title"),
+    (ItemKey::TrackArtist, "artist"),
+    (ItemKey::AlbumArtist, "album_artist"),
+    (ItemKey::AlbumTitle, "album"),
+    (ItemKey::TrackSubtitle, "subtitle"),
+    (ItemKey::RecordingDate, "date"),
+    (ItemKey::Year, "date"),
+    (ItemKey::Genre, "genre"),
+    (ItemKey::Comment, "comment"),
+    (ItemKey::Description, "description"),
+    (ItemKey::Composer, "composer"),
+    (ItemKey::Performer, "performer"),
+    (ItemKey::Publisher, "publisher"),
+    (ItemKey::Label, "label"),
+    (ItemKey::CopyrightMessage, "copyright"),
 ];
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -64,51 +74,62 @@ impl Tags {
     }
 }
 
-pub fn ffprobe_arguments(path: &Path) -> Result<Vec<String>, Never> {
-    let word = |said: &str| said.to_string();
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Metadata {
+    pub items: Vec<(String, String)>,
+    pub length: f64,
+}
 
-    Ok(vec![
-        word("-v"),
-        word("quiet"),
-        word("-show_entries"),
-        word("format=duration:format_tags:stream=codec_type:stream_tags"),
-        word("-of"),
-        word("json"),
-        word("-i"),
-        path.to_string_lossy().to_string(),
-    ])
+#[derive(Debug)]
+pub enum Unread {
+    File(FileParseError),
+}
+
+impl std::fmt::Display for Unread {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unread::File(fault) => write!(formatter, "reading its tags: {fault}"),
+        }
+    }
+}
+
+impl std::error::Error for Unread {}
+
+pub fn metadata(path: &Path) -> Result<Metadata, Unread> {
+    let file = console_core_audio_metadata::read_from_path(path).map_err(Unread::File)?;
+    let mut items: Vec<(String, String)> = Vec::new();
+    let primary = file.primary_tag();
+
+    let first: Vec<&Tag> = primary.into_iter().chain(file.tags()).collect();
+
+    for tag in first {
+        let Ok(()) = gathered(tag, &mut items);
+    }
+
+    Ok(Metadata { items, length: file.properties().duration().as_secs_f64() })
+}
+
+fn heard(path: &Path) -> Result<Metadata, Never> {
+    Ok(match metadata(path) {
+        Ok(metadata) => metadata,
+        Err(fault) => {
+            eprintln!("music: {}: {fault}", path.display());
+
+            Metadata::default()
+        },
+    })
 }
 
 pub fn of(path: &Path) -> Result<Tags, Never> {
-    let Ok(said) = ffprobe(path);
+    let Ok(heard) = heard(path);
 
-    read(&said)
+    read(&heard.items)
 }
 
 pub fn playing(path: &Path) -> Result<Playing, Never> {
-    let Ok(said) = ffprobe(path);
+    let Ok(heard) = heard(path);
 
-    played(&said)
-}
-
-fn ffprobe(path: &Path) -> Result<String, Never> {
-    let Ok(arguments) = ffprobe_arguments(path);
-    let Ok(mut asking) = Program::Ffprobe.command();
-
-    asking.args(&arguments);
-
-    let Ok(()) = console_response_times::not_a_press(&mut asking);
-
-    let done = match asking.output() {
-        Ok(done) => done,
-        Err(fault) => {
-            eprintln!("music: {}: asking ffprobe: {fault}", path.display());
-
-            return Ok(String::new());
-        },
-    };
-
-    Ok(String::from_utf8_lossy(&done.stdout).to_string())
+    played(&heard)
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -119,15 +140,12 @@ pub struct Playing {
     pub length: f64,
 }
 
-pub fn played(said: &str) -> Result<Playing, Never> {
-    let Ok(tags) = read(said);
-    let Ok(all) = every(said);
+pub fn played(metadata: &Metadata) -> Result<Playing, Never> {
+    let Ok(tags) = read(&metadata.items);
 
     let first = |wanted: &str| {
-        all.iter().find(|(name, _said)| name == wanted).map(|(_name, said)| said.clone())
+        metadata.items.iter().find(|(name, _said)| name == wanted).map(|(_name, said)| said.clone())
     };
-
-    let Ok(length) = length(said);
 
     Ok(Playing {
         title: tags.title,
@@ -136,61 +154,11 @@ pub fn played(said: &str) -> Result<Playing, Never> {
             Some(album) => album,
             None => String::new(),
         },
-        length,
+        length: metadata.length,
     })
 }
 
-fn length(said: &str) -> Result<f64, Never> {
-    let held = match serde_json::from_str::<Value>(said) {
-        Ok(held) => held,
-        Err(_not_json) => return Ok(0.0),
-    };
-
-    let told = held.get("format").and_then(|format| format.get("duration"));
-
-    Ok(match told.and_then(Value::as_str).map(str::parse::<f64>) {
-        Some(Ok(length)) => length,
-        None => 0.0,
-        Some(Err(_not_a_number)) => 0.0,
-    })
-}
-
-pub fn every(said: &str) -> Result<Vec<(String, String)>, Never> {
-    let mut all: Vec<(String, String)> = Vec::new();
-
-    let held = match serde_json::from_str::<Value>(said) {
-        Ok(held) => held,
-        Err(_not_json) => return Ok(all),
-    };
-
-    match held.get("format").and_then(|format| format.get("tags")) {
-        Some(tags) => gathered(tags, &mut all)?,
-        None => {},
-    }
-
-    match held.get("streams").and_then(Value::as_array) {
-        Some(streams) => {
-            for stream in streams {
-                match stream.get("codec_type").and_then(Value::as_str) == Some("audio") {
-                    true => {},
-                    false => continue,
-                }
-
-                match stream.get("tags") {
-                    Some(tags) => gathered(tags, &mut all)?,
-                    None => {},
-                }
-            }
-        }
-        None => {},
-    }
-
-    Ok(all)
-}
-
-pub fn read(said: &str) -> Result<Tags, Never> {
-    let Ok(all) = every(said);
-
+pub fn read(all: &[(String, String)]) -> Result<Tags, Never> {
     #[cfg_attr(
         dylint_lib = "explicit028_no_search_in_a_loop",
         allow(
@@ -212,35 +180,39 @@ pub fn read(said: &str) -> Result<Tags, Never> {
         Some(artist) => artist,
         None => String::new(),
     };
-    let rest = rest(&all, Song { title: &title, artist: &artist })?;
+    let rest = rest(all, Song { title: &title, artist: &artist })?;
 
     Ok(Tags { rest, title, artist })
 }
 
-fn gathered(tags: &Value, into: &mut Vec<(String, String)>) -> Result<(), Never> {
-    let held = match tags.as_object() {
-        Some(held) => held,
-        None => return Ok(()),
-    };
+fn named(key: ItemKey) -> Result<Option<&'static str>, Never> {
+    Ok(NAMED.iter().find(|(named, _name)| *named == key).map(|(_key, name)| *name))
+}
 
+fn gathered(tag: &Tag, into: &mut Vec<(String, String)>) -> Result<(), Never> {
     let mut had: BTreeSet<String> = into.iter().map(|(name, _)| name.clone()).collect();
+    let mut found: Vec<(String, String)> = Vec::new();
 
-    for (name, value) in held {
-        let said = match value.as_str() {
-            Some(said) => said,
-            None => continue,
+    for item in tag.items() {
+        let Ok(name) = named(item.key());
+
+        let (name, said) = match (name, item.value().text()) {
+            (Some(name), Some(said)) => (name, said),
+            (None, _) | (_, None) => continue,
         };
 
         let said = said.split_whitespace().collect::<Vec<&str>>().join(" ");
-        let name = name.trim().to_lowercase();
 
-        match said.is_empty() || !had.insert(name.clone()) {
+        match said.is_empty() || !had.insert(name.to_string()) {
             true => continue,
             false => {},
         }
 
-        into.push((name, said));
+        found.push((name.to_string(), said));
     }
+
+    found.sort();
+    into.extend(found);
 
     Ok(())
 }
@@ -256,10 +228,10 @@ fn rest(all: &[(String, String)], song: Song<'_>) -> Result<String, Never> {
     let mut rest: Vec<&str> = Vec::new();
     let mut already: BTreeSet<&str> = BTreeSet::new();
 
-    for (name, said) in all {
+    for (_name, said) in all {
         let known = said == title || said == artist;
 
-        match known || NOT_THE_MUSIC.contains(&name.as_str()) {
+        match known {
             true => continue,
             false => {},
         }
@@ -283,52 +255,83 @@ fn cut(said: &str, to: u32) -> Result<String, Never> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use console_core_audio_metadata::config::WriteOptions;
+    use console_core_audio_metadata::tag::{TagExt, TagType};
+    use console_core_number_conversion::fitted;
 
-    fn an_opus() -> Result<String, Never> {
-        Ok(serde_json::json!({
-            "streams": [
-                {
-                    "codec_type": "audio",
-                    "tags": {
-                        "ALBUM": "Favourite Worst Nightmare",
-                        "ARTIST": "Arctic Monkeys",
-                        "DATE": "20141225",
-                        "ENCODER": "Lavf62.3.100",
-                        "TITLE": "505"
-                    }
-                },
-                { "codec_type": "video", "tags": { "comment": "Cover (front)" } }
-            ],
-            "format": { }
-        })
-        .to_string())
+    fn items(said: &[(&str, &str)]) -> Result<Vec<(String, String)>, Never> {
+        Ok(said.iter().map(|(name, said)| (name.to_string(), said.to_string())).collect())
     }
 
-    fn an_mp3() -> Result<String, Never> {
-        Ok(serde_json::json!({
-            "streams": [
-                { "codec_type": "audio", "tags": { "encoder": "Lavc58.13" } },
-                {
-                    "codec_type": "video",
-                    "tags": { "title": "Album cover", "comment": "Other" }
-                }
-            ],
-            "format": {
-                "tags": {
-                    "artist": "2PacVEVO",
-                    "title": "2Pac - Changes ft. Talent",
-                    "date": "20110705",
-                    "purl": "https://www.youtube.com/watch?v=eXvBjCO19QY"
-                }
-            }
-        })
-        .to_string())
+    fn an_opus() -> Result<Vec<(String, String)>, Never> {
+        items(&[
+            ("album", "Favourite Worst Nightmare"),
+            ("artist", "Arctic Monkeys"),
+            ("date", "20141225"),
+            ("title", "505"),
+        ])
+    }
+
+    fn an_mp3() -> Result<Vec<(String, String)>, Never> {
+        items(&[("artist", "2PacVEVO"), ("date", "20110705"), ("title", "2Pac - Changes ft. Talent")])
+    }
+
+    pub(crate) fn a_second_of_silence() -> Result<Vec<u8>, Never> {
+        a_wave(&[0; 8000])
+    }
+
+    pub(crate) fn a_wave(samples: &[i16]) -> Result<Vec<u8>, Never> {
+        let rate: u32 = 8000;
+        let Ok(count) = fitted::<_, u32>(samples.len());
+        let data = count.saturating_mul(2);
+        let mut said: Vec<u8> = Vec::new();
+
+        said.extend(b"RIFF");
+        said.extend(data.saturating_add(36).to_le_bytes());
+        said.extend(b"WAVEfmt ");
+        said.extend(16_u32.to_le_bytes());
+        said.extend(1_u16.to_le_bytes());
+        said.extend(1_u16.to_le_bytes());
+        said.extend(rate.to_le_bytes());
+        said.extend(rate.saturating_mul(2).to_le_bytes());
+        said.extend(2_u16.to_le_bytes());
+        said.extend(16_u16.to_le_bytes());
+        said.extend(b"data");
+        said.extend(data.to_le_bytes());
+        said.extend(samples.iter().flat_map(|sample| sample.to_le_bytes()));
+
+        Ok(said)
     }
 
     #[test]
-    fn a_song_that_keeps_its_tags_in_the_stream_is_read_the_same_as_one_that_does_not() {
+    fn a_song_on_disk_says_its_title_artist_and_length() -> Result<(), Box<dyn std::error::Error>> {
+        let folder = console_core_temporary_directories::fresh("music-player-tags")?;
+        let song = folder.join("song.wav");
+        let Ok(silence) = a_second_of_silence();
+
+        console_core_atomic_writes::whole(&song, &silence)?;
+
+        let mut tag = Tag::new(TagType::Id3v2);
+
+        tag.insert_text(ItemKey::TrackTitle, "Rain".to_string());
+        tag.insert_text(ItemKey::TrackArtist, "Nujabes".to_string());
+        tag.insert_text(ItemKey::AlbumTitle, "Modal Soul".to_string());
+        tag.save_to_path(&song, WriteOptions::default())?;
+
+        let Ok(playing) = playing(&song);
+
+        assert_eq!(playing.title, "Rain");
+        assert_eq!(playing.artist, "Nujabes");
+        assert_eq!(playing.album, "Modal Soul");
+        assert_eq!(playing.length.round(), 1.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_song_that_keeps_its_tags_in_one_place_is_read_the_same_as_one_that_keeps_them_in_another() {
         let Ok(opus_said) = an_opus();
         let Ok(opus) = read(&opus_said);
         let Ok(mp3_said) = an_mp3();
@@ -341,15 +344,8 @@ mod tests {
     }
 
     #[test]
-    fn what_the_cover_says_about_itself_is_not_what_the_song_says() {
-        let tagless = serde_json::json!({
-            "streams": [
-                { "codec_type": "audio", "tags": { } },
-                { "codec_type": "video", "tags": { "title": "Album cover" } }
-            ],
-            "format": { }
-        });
-        let Ok(tags) = read(&tagless.to_string());
+    fn what_no_one_named_is_not_what_the_song_says() {
+        let Ok(tags) = read(&[]);
 
         assert_eq!(tags, Tags::default());
         assert_eq!(tags.tagged(), Ok(Tagged::None));
@@ -367,43 +363,31 @@ mod tests {
     }
 
     #[test]
-    fn what_is_said_twice_is_kept_once_and_on_one_line() {
-        let said = serde_json::json!({
-            "format": {
-                "tags": {
-                    "album_artist": "Nujabes",
-                    "artist": "Nujabes",
-                    "comment": "Provided to YouTube\n\nby Hydeout",
-                    "synopsis": "Provided to YouTube\n\nby Hydeout"
-                }
-            }
-        });
-        let Ok(tags) = read(&said.to_string());
+    fn what_is_said_twice_is_kept_once() {
+        let Ok(said) = items(&[
+            ("album_artist", "Nujabes"),
+            ("artist", "Nujabes"),
+            ("comment", "Provided to YouTube by Hydeout"),
+            ("description", "Provided to YouTube by Hydeout"),
+        ]);
+        let Ok(tags) = read(&said);
 
         assert_eq!(tags.rest, "Provided to YouTube by Hydeout");
     }
 
     #[test]
     fn a_description_no_one_would_read_is_cut_where_it_stops_being_worth_it() {
-        let said = serde_json::json!({
-            "format": { "tags": { "comment": "x".repeat(1000) } }
-        });
-        let Ok(tags) = read(&said.to_string());
+        let long = "x".repeat(1000);
+        let Ok(said) = items(&[("comment", &long)]);
+        let Ok(tags) = read(&said);
 
         assert_eq!(u32::try_from(tags.rest.chars().count()), Ok(AS_MUCH));
     }
 
     #[test]
-    fn a_file_that_could_not_be_asked_says_nothing() {
-        assert_eq!(read(""), Ok(Tags::default()));
-        assert_eq!(read("not json"), Ok(Tags::default()));
-    }
+    fn a_file_that_could_not_be_read_says_nothing() {
+        let Ok(tags) = of(Path::new("/nowhere/at/all.opus"));
 
-    #[test]
-    fn a_name_ffprobe_would_read_as_a_flag_is_handed_to_it_as_a_file() {
-        let Ok(arguments) = ffprobe_arguments(Path::new("/home/x/-Rain.opus"));
-
-        assert_eq!(arguments.last().map(String::as_str), Some("/home/x/-Rain.opus"));
-        assert_eq!(arguments.iter().rev().nth(1).map(String::as_str), Some("-i"));
+        assert_eq!(tags, Tags::default());
     }
 }

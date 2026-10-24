@@ -1,0 +1,15 @@
+warning: this is a little language invented inside the file, and nobody said what it is for
+  --> $DIR/main.rs:1:1
+   |
+LL | / macro_rules! said {
+LL | |     ($held:expr) => {
+LL | |         $held + 1
+LL | |     };
+LL | | }
+   | |_^
+   |
+   = help: a macro is a cost every reader of it pays: new syntax whose definition is not on the line that uses it. Where it really saves more than it costs, allow this rule here and let the reason say what it saves; where it does not, it wants to be a function
+   = note: `#[warn(explicit080_macro_budget)]` on by default
+
+warning: 1 warning emitted
+

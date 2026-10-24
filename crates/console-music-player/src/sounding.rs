@@ -1,20 +1,19 @@
-//! Sound, as a pipe with this program standing in the middle of it.
+//! Sound, as a pipe with this program at the head of it.
 //!
-//! ffmpeg writes one song out as plain samples and pw-cat plays what it is
-//! handed. Between them is a loop in a thread of its own, and that loop is
+//! [`decoding`] reads one song out as plain samples and pw-cat plays what it
+//! is handed. Between them is a loop in a thread of its own, and that loop is
 //! every control this player has: pausing ends the pipe, position is how much
 //! has been written, and stopping is a pipe that closes. None of the three is a
 //! question asked of someone else's program, which is what made every one of
 //! kew's answers a thing to be waited for rather than read.
 //!
 //! **A pause that keeps the pipe keeps the machine awake.** Not writing was
-//! the cheaper pause and it left ffmpeg and pw-cat standing with the stream
-//! open, which is a sink PipeWire will not suspend: the graph goes on running,
-//! the codec stays powered, and a handheld with the music paused draws what a
-//! handheld playing music draws. So a pause ends both programs and keeps the
-//! one thing that cannot be worked out again, which is where in the song it
-//! got to. Starting again is the seek this file already had to write, because
-//! nothing can tell a running ffmpeg to go somewhere else anyway.
+//! the cheaper pause and it left pw-cat standing with the stream open, which
+//! is a sink PipeWire will not suspend: the graph goes on running, the codec
+//! stays powered, and a handheld with the music paused draws what a handheld
+//! playing music draws. So a pause ends the sink, lets the song go, and keeps
+//! the one thing that cannot be worked out again, which is where in the song
+//! it got to. Starting again is a seek, which this file has to do anyway.
 //!
 //! **A song also keeps the machine from sleeping**, which is the other sense of
 //! the word and a different mechanism entirely. The desktop suspends itself ten
@@ -28,18 +27,18 @@
 //! `console-awake` is the rest of that argument.
 //!
 //! What is kept is what was heard rather than what was written. The samples in
-//! the pipe and in pw-cat's own buffer go with the programs, so folding the raw
+//! the pipe and in pw-cat's own buffer go with pw-cat, so folding the raw
 //! count into the offset would step over [`AHEAD`] of music every time someone
 //! pressed pause. Taking it off costs at worst a third of a second heard twice,
 //! which is the direction to be wrong in.
 //!
-//! Seeking is the one that costs. Nothing can tell a running ffmpeg to go
-//! somewhere else, so a seek ends the one that is running and starts another at
-//! the offset. GStreamer would seek without opening the file again; `lib.rs`
-//! says why that was not enough to take it.
+//! A seek is a run begun again: the song opened and its container asked for
+//! the second, and a sink started for it. Opening a file costs little now that
+//! no program is started to read it, so a run is one shape however it began
+//! rather than a running decoder told to go somewhere else.
 //!
-//! What position is, exactly. Samples are counted as they are written, at
-//! forty-eight thousand a second, two channels of them, two bytes each. What
+//! What position is, exactly. Frames are counted as they are written, a frame
+//! being one sample for each channel, at the rate the song was made at. What
 //! has been written is not what has been heard: the pipe to pw-cat holds what a
 //! pipe holds and pw-cat holds its own latency on top, so the count runs ahead
 //! of the speaker by an amount that is bounded rather than known. [`AHEAD`] is
@@ -53,7 +52,7 @@
 //! is no pipe to be ahead of at all, so what is reported is the offset itself.
 //!
 //! **A tempo is the file's time and not the speaker's.** A film at twice its
-//! speed is ffmpeg's `atempo` between the decoder and the pipe, so what is
+//! speed is [`stretching`] between the decoder and the pipe, so what is
 //! written is ordinary samples at an ordinary rate and a second of them is two
 //! seconds of the film. The position multiplies what was heard by the tempo
 //! and nothing else changes, which is why the music player, which never asks
@@ -68,11 +67,11 @@
 //!
 //! **What a press costs is written down here rather than worked out later.** The
 //! stretch someone feels is between asking for a song and hearing one, and it
-//! is spent in three places this thread can see: starting the decoder, starting
-//! the sink, and waiting for the first samples to come out of one and be taken
-//! by the other. So the stopwatch is [`one`]'s own and it ends at the first
-//! write, not at the end of the song, and a run that never reaches a first
-//! write -- a decoder that would not start, a press overtaken by the next one --
+//! is spent in three places this thread can see: opening the song, starting
+//! the sink, and the first samples decoded out of one and taken by the other.
+//! So the stopwatch is [`one`]'s own and it ends at the first write, not at the
+//! end of the song, and a run that never reaches a first write -- a song that
+//! would not open, a press overtaken by the next one --
 //! writes nothing, because no one waited for a sound that never came.
 //!
 //! The thread decides nothing about music. It is told a song and an offset, and
@@ -83,6 +82,8 @@
 //! across to it would be the shape of fault kew had -- one list walked by
 //! whoever got there first.
 
+use crate::decoding::{self, Block, Decoding, Format};
+use crate::stretching::Stretching;
 use console_awake::{InhibitResult, InhibitReason, Staying};
 use console_core_external_programs::Program;
 use console_core_iteration::Step;
@@ -90,25 +91,19 @@ use console_core_never::Never;
 use console_core_number_conversion::Float;
 use console_program_lifetime::{BoundToParent, alongside};
 use console_response_times::{Wait, Waiting};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, ChildStdout, Stdio};
+use std::process::{ChildStdin, Stdio};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 
-pub const RATE: &str = "48000";
-
-pub const CHANNELS: &str = "2";
-
-pub const SAMPLE: &str = "s16";
+pub const SAMPLE: &str = "f32";
 
 pub const LATENCY: &str = "50ms";
 
-const A_SECOND: u64 = 192_000;
-
 const AHEAD: f64 = 0.383;
 
-const CHUNK: u32 = 8_192;
+const UNTOLD: u32 = 48_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Wanted {
@@ -167,12 +162,19 @@ struct Task {
     turn: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct State {
     job: Task,
     wanted: Wanted,
+    rate: u32,
     written: u64,
     ended: Option<u64>,
+}
+
+impl Default for State {
+    fn default() -> State {
+        State { job: Task::default(), wanted: Wanted::default(), rate: UNTOLD, written: 0, ended: None }
+    }
 }
 
 struct Playback {
@@ -317,8 +319,7 @@ fn ahead(wanted: Wanted) -> Result<f64, Never> {
 
 fn played_position(state: &State, ahead: f64) -> Result<f64, Never> {
     let Ok(written) = state.written.float();
-    let Ok(a_second) = A_SECOND.float();
-    let carried = (written / a_second - ahead) * state.job.tempo.0;
+    let carried = (written / f64::from(state.rate.max(1)) - ahead) * state.job.tempo.0;
 
     Ok((state.job.from + carried).max(state.job.from).max(0.0))
 }
@@ -415,28 +416,33 @@ fn one(
     progress: &dyn Fn(Progress) -> Result<(), Never>,
 ) -> Result<Reached, Never> {
     let Ok(mut waiting) = Waiting::here(Wait { who: "music-player", what: "sounding" });
-    let Ok(decoding) = reading(song, job.from, job.tempo);
 
-    let mut decoding = match decoding {
-        Some(decoding) => decoding,
-        None => return Ok(Reached::Requested),
+    let mut decoding = match decoding::opened(song, job.from) {
+        Ok(decoding) => decoding,
+        Err(fault) => {
+            eprintln!("music-player: {}: {fault}", song.display());
+
+            return Ok(Reached::End);
+        },
     };
 
-    let Ok(()) = waiting.mark("ffmpeg");
-    let Ok(playing) = sink();
+    let Ok(first) = decoding.decoded();
+
+    let first = match first {
+        Some(first) => first,
+        None => return Ok(Reached::End),
+    };
+
+    let Ok(()) = waiting.mark("decoder");
+    let Ok(()) = began(telling, first.format.rate);
+    let Ok(playing) = sink(first.format);
 
     let mut playing = match playing {
         Some(playing) => playing,
         None => return Ok(Reached::Requested),
     };
 
-    let Ok(out) = decoding.take_stdout();
     let Ok(into) = playing.take_stdin();
-
-    let out = match out {
-        Some(out) => out,
-        None => return Ok(Reached::Requested),
-    };
 
     let into = match into {
         Some(into) => into,
@@ -444,8 +450,9 @@ fn one(
     };
 
     let Ok(()) = waiting.mark("sink");
-    let Ok(chunk) = console_core_number_conversion::index(CHUNK);
-    let pouring = Pouring { out, into, buffer: vec![0; chunk], sounded: Some(waiting) };
+    let Ok(stretching) = stretching(&first, job.tempo);
+    let channels = first.format.channels.max(1);
+    let pouring = Pouring { decoding, into, stretching, channels, waiting: Some(first), sounded: Some(waiting) };
 
     let poured = console_core_iteration::iterate(pouring, |pouring| poured(telling, job.turn, progress, pouring));
 
@@ -455,11 +462,55 @@ fn one(
     })
 }
 
+fn stretching(first: &Block, tempo: Tempo) -> Result<Option<Stretching>, Never> {
+    match tempo == Tempo::default() {
+        true => Ok(None),
+        false => {
+            let Ok(stretching) = Stretching::new(first.format, tempo.0);
+
+            Ok(Some(stretching))
+        },
+    }
+}
+
+fn began(telling: &Arc<Playback>, rate: u32) -> Result<(), Never> {
+    let Ok(mut state) = lock(&telling.state);
+
+    state.rate = rate;
+
+    Ok(())
+}
+
 struct Pouring {
-    out: ChildStdout,
+    decoding: Decoding,
     into: ChildStdin,
-    buffer: Vec<u8>,
+    stretching: Option<Stretching>,
+    channels: u32,
+    waiting: Option<Block>,
     sounded: Option<Waiting>,
+}
+
+impl Pouring {
+    fn heard(&mut self) -> Result<Option<Vec<f32>>, Never> {
+        let next = match self.waiting.take() {
+            Some(block) => Some(block),
+            None => {
+                let Ok(next) = self.decoding.decoded();
+
+                next
+            },
+        };
+
+        Ok(match (next, self.stretching.as_mut()) {
+            (Some(block), None) => Some(block.samples),
+            (Some(block), Some(stretching)) => {
+                let Ok(laid) = stretching.stretched(&block.samples);
+
+                Some(laid)
+            },
+            (None, _) => None,
+        })
+    }
 }
 
 fn poured(
@@ -476,22 +527,28 @@ fn poured(
         Payload::On => {},
     }
 
-    let carried = match pouring.out.read(&mut pouring.buffer) {
-        Ok(0) => return Ok(Step::Halt(Reached::End)),
-        Ok(read) => match pouring.buffer.get(..read) {
-            Some(carried) => carried,
-            None => return Ok(Step::Halt(Reached::Requested)),
-        },
-        Err(_the_decoder_has_gone) => return Ok(Step::Halt(Reached::Requested)),
+    let Ok(heard) = pouring.heard();
+
+    let samples = match heard {
+        Some(samples) => samples,
+        None => return Ok(Step::Halt(Reached::End)),
     };
 
-    match pouring.into.write_all(carried) {
+    let bytes: Vec<u8> = samples.iter().flat_map(|sample| sample.to_le_bytes()).collect();
+
+    match pouring.into.write_all(&bytes) {
         Ok(()) => {},
         Err(_the_sink_has_gone) => return Ok(Step::Halt(Reached::Requested)),
     }
 
-    let Ok(read) = console_core_number_conversion::fitted::<_, u64>(carried.len());
-    let Ok(crossed) = wrote(telling, read);
+    let Ok(written) = console_core_number_conversion::fitted::<_, u64>(samples.len());
+
+    let frames = match written.checked_div(u64::from(pouring.channels)) {
+        Some(frames) => frames,
+        None => 0,
+    };
+
+    let Ok(crossed) = wrote(telling, frames);
 
     match crossed {
         Crossed::ASecond => {
@@ -511,13 +568,14 @@ fn poured(
     Ok(Step::Again(pouring))
 }
 
-fn wrote(telling: &Arc<Playback>, read: u64) -> Result<Crossed, Never> {
+fn wrote(telling: &Arc<Playback>, frames: u64) -> Result<Crossed, Never> {
     let Ok(mut state) = lock(&telling.state);
-    let before = state.written.checked_div(A_SECOND);
+    let a_second = u64::from(state.rate);
+    let before = state.written.checked_div(a_second);
 
-    state.written = state.written.saturating_add(read);
+    state.written = state.written.saturating_add(frames);
 
-    Ok(match before == state.written.checked_div(A_SECOND) {
+    Ok(match before == state.written.checked_div(a_second) {
         true => Crossed::None,
         false => Crossed::ASecond,
     })
@@ -538,34 +596,12 @@ fn carrying_on(telling: &Arc<Playback>, turn: u64) -> Result<Payload, Never> {
     })
 }
 
-fn reading(song: &Path, from: f64, tempo: Tempo) -> Result<Option<BoundToParent>, Never> {
-    let Ok(mut asking) = Program::Ffmpeg.command();
-
-    asking
-        .args(["-v", "quiet", "-nostdin", "-ss", &format!("{from}"), "-i"])
-        .arg(song)
-        .args(["-vn", "-af", &format!("atempo={}", tempo.0)])
-        .args(["-f", "s16le", "-ar", RATE, "-ac", CHANNELS, "-"])
-        .stdout(Stdio::piped())
-        .stdin(Stdio::null())
-        .stderr(Stdio::null());
-
-    Ok(match alongside(&mut asking) {
-        Ok(decoding) => Some(decoding),
-        Err(fault) => {
-            eprintln!("music-player: {}: will not decode: {fault}", song.display());
-
-            None
-        },
-    })
-}
-
-fn sink() -> Result<Option<BoundToParent>, Never> {
+fn sink(format: Format) -> Result<Option<BoundToParent>, Never> {
     let Ok(mut asking) = Program::PwCat.command();
 
     asking
-        .args(["--playback", "--raw", "--format", SAMPLE, "--rate", RATE])
-        .args(["--channels", CHANNELS, "--latency", LATENCY, "-"])
+        .args(["--playback", "--raw", "--format", SAMPLE, "--rate", &format.rate.to_string()])
+        .args(["--channels", &format.channels.to_string(), "--latency", LATENCY, "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -584,11 +620,16 @@ fn sink() -> Result<Option<BoundToParent>, Never> {
 mod tests {
     use super::*;
 
+    const RATE: u32 = 44_100;
+
+    const A_SECOND: u64 = 44_100;
+
     fn at(from: f64, wanted: Wanted, written: u64) -> Result<Arc<Playback>, Never> {
         Ok(Arc::new(Playback {
             state: Mutex::new(State {
                 job: Task { song: Some(PathBuf::from("a-song.flac")), from, tempo: Tempo::default(), turn: 1 },
                 wanted,
+                rate: RATE,
                 written,
                 ended: None,
             }),

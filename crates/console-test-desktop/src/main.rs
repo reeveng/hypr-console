@@ -9,8 +9,9 @@
 //! console-desktop shot FILE --until AT   and not before AT has a line in it
 //! console-desktop shot FILE --press S   once the screen is still, run S
 //!                            inside, and do not go on until it has finished
-//! console-desktop pressing AT --then C  once AT has been drawn to, press C,
-//!                            and not return until it has been drawn to again
+//! console-desktop pressing AT --then C  once AT has been drawn to by a panel
+//!                            holding the keyboard, press C, and not return
+//!                            until it has been drawn to again
 //! console-desktop shot FILE --clients AT what windows it had, written to AT
 //! console-desktop shot FILE --monitors AT what screen it was, written to AT
 //! console-desktop describe --open C --until AT [--press S]
@@ -92,7 +93,7 @@ enum Verb {
     Run,
     #[words(word = "shot", about = "a picture of it at FILE, once the screen has stopped changing")]
     Shot,
-    #[words(word = "pressing", about = "once FILE has been drawn to, press --then, and wait for it to be drawn to again")]
+    #[words(word = "pressing", about = "once FILE has been drawn to by a panel holding the keyboard, press --then, and wait for it to be drawn to again")]
     Pressing,
     #[words(word = "describe", about = "--open alone and headless, until it has described itself to --until; no picture")]
     Describe,
@@ -262,6 +263,17 @@ fn press_file(asked: &Arguments) -> Result<u8, Unnested> {
         session::Wrote::Some => {},
         session::Wrote::None => eprintln!(
             "console-desktop: nothing had drawn to {} in {}s, and {command} is pressed anyway",
+            at.display(),
+            session::A_LINE.as_secs()
+        ),
+    }
+
+    let Ok(listening) = session::wait_for_the_keyboard(at, session::A_LINE);
+
+    match listening {
+        session::Wrote::Some => {},
+        session::Wrote::None => eprintln!(
+            "console-desktop: whoever writes {} never held the keyboard in {}s, and {command} is pressed anyway",
             at.display(),
             session::A_LINE.as_secs()
         ),

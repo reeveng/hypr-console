@@ -4,13 +4,13 @@
 //!
 //! Outside the library, like `panel-pictures` and for the same reason: asking a book
 //! its title means opening it, and a cover means unpacking a picture out of it
-//! or asking poppler to draw a first page. The library starts this for the books
+//! or drawing a first page. The library starts this for the books
 //! it has not seen, goes on drawing them under their file names, and reads the
 //! catalog again when it has been written.
 //!
 //! An EPUB's cover is the picture it names as one, written out as it was
-//! packed. A comic's is its first page. A PDF's is its first page drawn by
-//! poppler, because that is what a PDF's cover is. The pictures are written
+//! packed. A comic's is its first page. A PDF's is its first page drawn,
+//! because that is what a PDF's cover is. The pictures are written
 //! whole into the cache and the panel's picture store decodes them at the size
 //! a cover is drawn, the same way it does every thumbnail on this machine.
 //!
@@ -22,10 +22,10 @@ use std::process::ExitCode;
 
 use console_books::library::{self, CatalogEntry, Format};
 use console_books::open;
-use console_core_external_programs::Program;
+use console_books::portable_document::{self, Scale};
 use console_core_never::Never;
 
-const COVER_TALL: &str = "900";
+const COVER_TALL: u32 = 900;
 
 fn main() -> ExitCode {
     let Ok(home) = console_core_places::home();
@@ -191,21 +191,18 @@ fn from_comic(book: &library::Book, covers: &Path) -> Result<CatalogEntry, open:
 }
 
 fn from_portable_document(book: &library::Book, covers: &Path) -> Result<CatalogEntry, open::BookError> {
-    let at = covers.join(&book.name);
-    let Ok(mut drawing) = Program::Pdftoppm.command();
+    let png = PathBuf::from(format!("{}.png", covers.join(&book.name).display()));
+    let document = portable_document::opened(&book.path).map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
+    let drawn = document.png(0, Scale::Tall(COVER_TALL)).map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
 
-    let drawn = drawing
-        .args(["-f", "1", "-l", "1", "-scale-to-y", COVER_TALL, "-scale-to-x", "-1", "-png", "-singlefile"])
-        .arg(&book.path)
-        .arg(&at)
-        .status()
-        .map_err(|fault| open::BookError::Reading(book.path.clone(), fault))?;
+    let cover = match drawn.map(|bytes| console_core_atomic_writes::whole(&png, &bytes)) {
+        Some(Ok(())) => Some(png),
+        Some(Err(fault)) => {
+            eprintln!("books-catalog: {fault}");
 
-    let png = PathBuf::from(format!("{}.png", at.display()));
-
-    let cover = match (drawn.success(), png.exists()) {
-        (true, true) => Some(png),
-        (true, false) | (false, _) => None,
+            None
+        },
+        None => None,
     };
 
     Ok(CatalogEntry { title: book.title.clone(), cover })

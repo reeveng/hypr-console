@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Notes
-Comment=Notes with a title and a body, kept as Markdown in the Notes folder
+Comment=Notes written on a page, the first line the title, kept as Markdown in the Notes folder
 Exec=/usr/local/bin/notes
 Icon=accessories-text-editor
 Terminal=false

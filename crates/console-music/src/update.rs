@@ -119,7 +119,7 @@ fn decide(state: &Standing, event: &Event<MusicEvent>) -> Result<Transition<Stan
     let heard = match event {
         Event::Custom(heard) => heard,
         Event::Opened
-        | Event::Changed(_)
+        | Event::Modified(_)
         | Event::Tick(_, _)
         | Event::Replied(_)
         | Event::Chosen(_)

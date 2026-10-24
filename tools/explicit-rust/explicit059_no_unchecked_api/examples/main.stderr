@@ -1,0 +1,11 @@
+error: `core::slice::<impl [T]>::get_unchecked` checks nothing: indexing with the `None` thrown away; `get` returns the absence instead
+  --> $DIR/main.rs:3:24
+   |
+LL |     let one = unsafe { held.get_unchecked(at) };
+   |                        ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: use the spelling whose answer is a value. Where the check really was done beside the call, allow this rule here and let the reason point at where
+   = note: `#[deny(explicit059_no_unchecked_api)]` on by default
+
+error: aborting due to 1 previous error
+

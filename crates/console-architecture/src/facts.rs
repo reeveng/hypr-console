@@ -64,7 +64,7 @@ pub enum Field {
     #[words(word = "kind")]
     Kind,
     #[words(word = "what")]
-    What,
+    Action,
 }
 
 pub const ANY_EVENT_GROUP: &str = "*";
@@ -130,7 +130,7 @@ fn one(line: &str) -> Result<Fact, Unread> {
     let package = field(line, &value, Field::Package)?;
     let target = field(line, &value, Field::Target)?;
     let said = field(line, &value, Field::Kind)?;
-    let what = field(line, &value, Field::What)?;
+    let what = field(line, &value, Field::Action)?;
     let Ok(kind) = kind(&said);
     let kind = kind.ok_or_else(|| Unread::NoSuchKind(String::from(line)))?;
 

@@ -1,0 +1,11 @@
+warning: this arm meets a fault and does nothing
+  --> $DIR/main.rs:5:9
+   |
+LL |         Err(_) => {}
+   |         ^^^^^^^^^^^^
+   |
+   = help: the arm is where the recovery is said: retry it, degrade to the answer that can be given, or hand the fault upward with `?` so the caller decides. An arm that only logs has not recovered either -- it has said the fault out loud and carried on as though it were not there
+   = note: `#[warn(explicit063_fault_has_recovery)]` on by default
+
+warning: 1 warning emitted
+

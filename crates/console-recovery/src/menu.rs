@@ -193,7 +193,7 @@ fn showing(before: &Menu, after: &Menu, event: &Event<ButtonPress>) -> Result<Sh
             Event::Opened => Showing::Again,
             Event::Custom(_)
             | Event::Tick(_, _)
-            | Event::Changed(_)
+            | Event::Modified(_)
             | Event::Replied(_)
             | Event::Chosen(_)
             | Event::Stopping => Showing::AsItWas,

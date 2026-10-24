@@ -1,0 +1,83 @@
+warning: `remove` answers an index that is not in the list with a panic
+  --> $DIR/main.rs:9:5
+   |
+LL |     held.remove(at);
+   |     ^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get`, or reorder so the index is one the list itself handed over, rather than one a caller could be wrong about
+   = note: `#[warn(explicit056_no_hidden_panic_api)]` on by default
+
+warning: `insert` answers an index that is not in the list with a panic
+  --> $DIR/main.rs:18:5
+   |
+LL |     held.insert(at, one);
+   |     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get`, or reorder so the index is one the list itself handed over, rather than one a caller could be wrong about
+
+warning: `swap` answers an index that is not in the list with a panic
+  --> $DIR/main.rs:27:5
+   |
+LL |     held.swap(from, to);
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: ask with `get`, or reorder so the index is one the list itself handed over, rather than one a caller could be wrong about
+
+warning: `split_at` answers two lengths that do not agree with a panic
+  --> $DIR/main.rs:34:11
+   |
+LL |     match held.split_at(at) {
+   |           ^^^^^^^^^^^^^^^^^
+   |
+   = help: `split_at_checked` returns the halves as a value, and a length is checked once where it is read rather than trusted twice here
+
+warning: `copy_from_slice` answers two lengths that do not agree with a panic
+  --> $DIR/main.rs:41:5
+   |
+LL |     into.copy_from_slice(from);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `split_at_checked` returns the halves as a value, and a length is checked once where it is read rather than trusted twice here
+
+warning: `chunks` with a zero panics, and the zero is written here
+  --> $DIR/main.rs:46:5
+   |
+LL |     held.chunks(0).collect()
+   |     ^^^^^^^^^^^^^^
+   |
+   = help: the count is a quantity that cannot be zero -- a `NonZeroUsize`, the same proof division already asks for -- rather than a panic at runtime
+
+warning: `step_by` with a zero panics, and the zero is written here
+  --> $DIR/main.rs:51:5
+   |
+LL |     held.iter().step_by(0).copied().collect()
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: the count is a quantity that cannot be zero -- a `NonZeroUsize`, the same proof division already asks for -- rather than a panic at runtime
+
+warning: `borrow_mut` answers a value already held with a panic
+  --> $DIR/main.rs:56:13
+   |
+LL |     let _ = cell.borrow_mut();
+   |             ^^^^^^^^^^^^^^^^^
+   |
+   = help: `try_borrow_mut` returns the absence instead, which is a thing the caller can meet rather than a fault they cannot
+
+warning: adding or subtracting a `Duration` or an `Instant` panics on overflow
+  --> $DIR/main.rs:63:13
+   |
+LL |     let _ = from + Duration::from_secs(1);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `checked_add` and `checked_sub` return the absence instead, which is the answer every other quantity in this tree already gives
+
+warning: `borrow_mut` answers a value already held with a panic
+  --> $DIR/main.rs:70:13
+   |
+LL |     let _ = cell.borrow_mut();
+   |             ^^^^^^^^^^^^^^^^^
+   |
+   = help: `try_borrow_mut` returns the absence instead, which is a thing the caller can meet rather than a fault they cannot
+
+warning: 10 warnings emitted
+

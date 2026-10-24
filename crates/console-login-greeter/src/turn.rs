@@ -3,8 +3,8 @@
 //!
 //! The Legion Go's panel is taller than it is wide and sits in the machine on
 //! its side. A compositor turns every frame for it; with no compositor, this
-//! does, once per frame and by the same rule `console_screen::Screen` walks a
-//! point by for transform 1: what is across the picture is down the panel, and
+//! does, once per frame and by the rule `console-core-screen-orientation`
+//! walks every point by: what is across the picture is down the panel, and
 //! what is down the picture runs back across it. A finger on the panel is
 //! reported the panel's way up, so [`on_the_picture`] walks it back the other
 //! way.
@@ -15,33 +15,35 @@
 //! changes the rows the line runs through and nothing else, and turning the
 //! whole picture for it was most of what a frame cost. The turning walks the
 //! panel's rows in order, so what reaches the mapped buffer is written the
-//! way that memory wants it, a row at a time.
+//! way that memory wants it, a row at a time. The band is a stretch of the
+//! picture, and the panel rows it lands on are asked of the same rule rather
+//! than worked out here for the one way up this machine is mounted.
 
-use console_core_geometry::{Point, Size};
+use console_core_geometry::{Point, Rectangle, Size};
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_screen::{Mounted, QUARTER};
+use console_core_screen_orientation::{Mounted, Transform};
 
 const PIXEL: u32 = 4;
 
-pub fn drawn_at(panel: Size<u32>) -> Result<Size<u32>, Never> {
+fn mounting(panel: Size<u32>) -> Result<Transform, Never> {
     let Ok(mounted) = Mounted::of(panel);
 
-    Ok(match mounted {
-        Mounted::Sideways => Size { width: panel.height, height: panel.width },
-        Mounted::Upright => panel,
-    })
+    mounted.transform()
+}
+
+pub fn drawn_at(panel: Size<u32>) -> Result<Size<u32>, Never> {
+    let Ok(transform) = mounting(panel);
+
+    transform.picture_size(panel)
 }
 
 pub fn on_the_picture(panel: Size<u32>, share: Point<f64>) -> Result<Point<f64>, Never> {
-    let Ok(mounted) = Mounted::of(panel);
-    let Ok(drawn) = drawn_at(panel);
-    let (wide, tall) = (f64::from(drawn.width), f64::from(drawn.height));
+    let Ok(transform) = mounting(panel);
+    let Ok(drawn) = transform.picture_size(panel);
+    let Ok(picture) = transform.onto_picture(share);
 
-    Ok(match mounted {
-        Mounted::Sideways => Point { x: (1.0 - share.y) * wide, y: share.x * tall },
-        Mounted::Upright => Point { x: share.x * wide, y: share.y * tall },
-    })
+    Ok(Point { x: picture.x * f64::from(drawn.width), y: picture.y * f64::from(drawn.height) })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,34 +75,58 @@ pub fn changed(before: &[u8], now: &[u8], drawn: Size<u32>) -> Result<Option<Row
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Onto {
+    transform: Transform,
+    panel: Size<u32>,
+    pitch: u32,
+}
+
 pub fn laid_into(picture: &[u8], panel: Size<u32>, rows: Rows, target: &mut [u8], pitch: u32) -> Result<(), Never> {
-    let Ok(mounted) = Mounted::of(panel);
-    let Ok(transform) = mounted.transform();
-    let Ok(drawn) = drawn_at(panel);
-    let Ok(pixel_long) = index(PIXEL);
-    let Ok(pitch) = index(pitch);
-    let Ok(across) = index(drawn.width.saturating_mul(PIXEL));
+    let Ok(transform) = mounting(panel);
+
+    laid_at(picture, Onto { transform, panel, pitch }, rows, target)
+}
+
+fn laid_at(picture: &[u8], onto: Onto, rows: Rows, target: &mut [u8]) -> Result<(), Never> {
+    match onto.transform {
+        Transform::Normal => copied(picture, onto, rows, target),
+        Transform::Degrees90 | Transform::Degrees180 | Transform::Degrees270 => turned(picture, onto, rows, target),
+    }
+}
+
+fn copied(picture: &[u8], onto: Onto, rows: Rows, target: &mut [u8]) -> Result<(), Never> {
+    let Ok(pitch) = index(onto.pitch);
+    let Ok(across) = index(onto.panel.width.saturating_mul(PIXEL));
     let Ok(from) = index(rows.from);
     let Ok(many) = index(rows.to.saturating_sub(rows.from));
 
-    match transform == QUARTER {
-        true => {}
-        false => {
-            for (row, laid) in picture.chunks_exact(across.max(1)).zip(target.chunks_mut(pitch.max(1))).skip(from).take(many) {
-                match laid.get_mut(..across) {
-                    Some(laid) => laid.copy_from_slice(row),
-                    None => {}
-                }
-            }
-
-            return Ok(());
+    for (row, laid) in picture.chunks_exact(across.max(1)).zip(target.chunks_mut(pitch.max(1))).skip(from).take(many) {
+        match laid.get_mut(..across) {
+            Some(laid) => laid.copy_from_slice(row),
+            None => {}
         }
     }
 
-    for (along, laid) in (0_u32..drawn.width).rev().zip(target.chunks_mut(pitch.max(1))) {
-        for down in rows.from..rows.to {
-            let Ok(taken) = index(down.saturating_mul(drawn.width).saturating_add(along).saturating_mul(PIXEL));
-            let Ok(put) = index(down.saturating_mul(PIXEL));
+    Ok(())
+}
+
+fn turned(picture: &[u8], onto: Onto, rows: Rows, target: &mut [u8]) -> Result<(), Never> {
+    let Onto { transform, panel, pitch } = onto;
+    let Ok(drawn) = transform.picture_size(panel);
+    let band = Rectangle { origin: Point { x: 0, y: rows.from }, size: Size { width: drawn.width, height: rows.to.saturating_sub(rows.from) } };
+    let Ok(covered) = transform.rectangle_on_panel(panel, band);
+    let Ok(pixel_long) = index(PIXEL);
+    let Ok(pitch) = index(pitch);
+    let Ok(from) = index(covered.origin.y);
+    let Ok(many) = index(covered.size.height);
+    let along = covered.origin.x..covered.origin.x.saturating_add(covered.size.width);
+
+    for (down, laid) in (0_u32..).zip(target.chunks_mut(pitch.max(1))).skip(from).take(many) {
+        for across in along.clone() {
+            let Ok(under) = transform.pixel_on_picture(panel, Point { x: across, y: down });
+            let Ok(taken) = index(under.y.saturating_mul(drawn.width).saturating_add(under.x).saturating_mul(PIXEL));
+            let Ok(put) = index(across.saturating_mul(PIXEL));
             let pixel = picture.get(taken..taken.saturating_add(pixel_long));
             let spot = laid.get_mut(put..put.saturating_add(pixel_long));
 
@@ -188,6 +214,30 @@ mod tests {
 
         assert_eq!(band, Some(Rows { from: 1, to: 3 }));
         assert_eq!(still, None);
+    }
+
+    #[test]
+    fn a_band_laid_at_any_turn_is_the_picture_under_each_pixel_of_it_and_nothing_else() {
+        let panel = Size { width: 3, height: 5 };
+        let picture: Vec<u8> = (1_u8..=60).collect();
+        let rows = Rows { from: 1, to: 3 };
+
+        for transform in console_core_screen_orientation::EVERY {
+            let Ok(drawn) = transform.picture_size(panel);
+            let mut laid = vec![0_u8; 60];
+            let Ok(()) = laid_at(&picture, Onto { transform, panel, pitch: 12 }, rows, &mut laid);
+
+            for ((down, across), spot) in (0_u32..5).flat_map(|down| (0_u32..3).map(move |across| (down, across))).zip(laid.as_chunks::<4>().0) {
+                let Ok(under) = transform.pixel_on_picture(panel, Point { x: across, y: down });
+                let picked = under.y.saturating_mul(drawn.width).saturating_add(under.x).saturating_mul(PIXEL).saturating_add(1);
+                let Ok(first) = console_core_number_conversion::fitted::<u32, u8>(picked);
+
+                match (rows.from..rows.to).contains(&under.y) {
+                    true => assert_eq!(spot.first(), Some(&first), "{transform:?} at {across},{down}"),
+                    false => assert_eq!(*spot, [0, 0, 0, 0], "{transform:?} drew outside the band at {across},{down}"),
+                }
+            }
+        }
     }
 
     #[test]

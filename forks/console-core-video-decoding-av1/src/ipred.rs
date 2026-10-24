@@ -1,0 +1,2668 @@
+#![cfg_attr(not(feature = "asm"), forbid(unsafe_code))]
+use crate::include::common::bitdepth::AsPrimitive;
+use crate::include::common::bitdepth::BPC;
+use crate::include::common::bitdepth::BitDepth;
+use crate::include::common::bitdepth::DynPixel;
+use crate::include::common::intops::apply_sign;
+use crate::include::common::intops::iclip;
+use crate::include::dav1d::headers::Rav1dPixelLayoutSubSampled;
+use crate::include::dav1d::picture::PicOffset;
+use crate::src::owned_recon::ReconDst;
+use crate::src::owned_recon::ReconSrc;
+
+/// The owned reconstruction band is only ever armed in the pure-Rust
+/// configuration (see [`crate::src::owned_recon`]); the `asm` feature implies
+/// `c-ffi`, which declines. So the `asm` dispatch arms may recover the tracked
+/// picture offset unconditionally.
+#[cfg(feature = "asm")]
+const OWNED_BAND_DECLINES_UNDER_C_FFI: &str = "owned recon band is never armed under `c-ffi`/`asm`";
+use crate::src::cpu::CpuFlags;
+use crate::src::enum_map::enum_map;
+use crate::src::enum_map::enum_map_ty;
+use crate::src::ffi_safe::FFISafe;
+use crate::src::internal::SCRATCH_AC_TXTP_LEN;
+use crate::src::internal::SCRATCH_EDGE_LEN;
+#[cfg(feature = "asm")]
+use crate::src::levels::DC_128_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::DC_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::FILTER_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::HOR_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::LEFT_DC_PRED;
+use crate::src::levels::N_IMPL_INTRA_PRED_MODES;
+#[cfg(feature = "asm")]
+use crate::src::levels::PAETH_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::SMOOTH_H_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::SMOOTH_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::SMOOTH_V_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::TOP_DC_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::VERT_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::Z1_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::Z2_PRED;
+#[cfg(feature = "asm")]
+use crate::src::levels::Z3_PRED;
+#[cfg(feature = "asm")]
+use crate::src::strided::Strided as _;
+use crate::src::tables::FLT_INCR;
+use crate::src::tables::dav1d_dr_intra_derivative;
+use crate::src::tables::dav1d_filter_intra_taps;
+use crate::src::tables::dav1d_sm_weights;
+use crate::src::tables::filter_fn;
+use crate::src::wrap_fn_ptr::wrap_fn_ptr;
+#[allow(non_camel_case_types)]
+type ptrdiff_t = isize;
+use std::cmp;
+use std::ffi::c_int;
+use std::ffi::c_uint;
+#[cfg(feature = "asm")]
+use std::slice;
+use strum::FromRepr;
+use zerocopy::FromBytes;
+use zerocopy::IntoBytes;
+
+use crate::src::enum_map::DefaultValue;
+
+#[cfg(all(
+    feature = "asm",
+    not(any(target_arch = "riscv64", target_arch = "riscv32"))
+))]
+use crate::include::common::bitdepth::bd_fn;
+
+#[cfg(all(feature = "asm", target_arch = "x86_64"))]
+use crate::include::common::bitdepth::bpc_fn;
+
+wrap_fn_ptr!(pub unsafe extern "C" fn angular_ipred(
+    dst_ptr: *mut DynPixel,
+    stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    angle: c_int,
+    max_width: c_int,
+    max_height: c_int,
+    bitdepth_max: c_int,
+    _topleft_off: usize,
+    _dst: *const FFISafe<PicOffset>,
+) -> ());
+
+/// Direct dispatch for intra prediction - bypasses function pointer table.
+/// Selects optimal SIMD implementation at runtime based on CPU features.
+/// `mode`: prediction mode index (0-13)
+#[cfg(not(feature = "asm"))]
+fn intra_pred_direct<BD: BitDepth>(
+    mode: usize,
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+    angle: c_int,
+    max_width: c_int,
+    max_height: c_int,
+    bd: BD,
+) {
+    #[cfg(target_arch = "x86_64")]
+    if crate::src::safe_simd::ipred::intra_pred_dispatch::<BD>(
+        mode,
+        dst,
+        topleft,
+        topleft_off,
+        width,
+        height,
+        angle,
+        max_width,
+        max_height,
+        bd,
+    ) {
+        return;
+    }
+
+    #[cfg(all(feature = "asm", target_arch = "aarch64"))]
+    if crate::src::safe_simd::ipred_arm::intra_pred_dispatch::<BD>(
+        mode,
+        dst,
+        topleft,
+        topleft_off,
+        width,
+        height,
+        angle,
+        max_width,
+        max_height,
+        bd,
+    ) {
+        return;
+    }
+
+    // Scalar fallback
+    #[allow(unreachable_code)]
+    match mode {
+        0 => {
+            let dc = DcGen::TopLeft.call::<BD>(topleft, topleft_off, width, height) as c_int;
+            splat_dc::<BD>(dst, width, height, dc, bd)
+        }
+        1 => ipred_v_rust::<BD>(dst, topleft, topleft_off, width, height),
+        2 => ipred_h_rust::<BD>(dst, topleft, topleft_off, width, height),
+        3 => {
+            let dc = DcGen::Left.call::<BD>(topleft, topleft_off, width, height) as c_int;
+            splat_dc::<BD>(dst, width, height, dc, bd)
+        }
+        4 => {
+            let dc = DcGen::Top.call::<BD>(topleft, topleft_off, width, height) as c_int;
+            splat_dc::<BD>(dst, width, height, dc, bd)
+        }
+        5 => {
+            let dc = bd.bitdepth_max().as_::<c_int>() + 1 >> 1;
+            splat_dc::<BD>(dst, width, height, dc, bd)
+        }
+        6 => ipred_z1_rust::<BD>(
+            dst,
+            topleft,
+            topleft_off,
+            width,
+            height,
+            angle,
+            max_width,
+            max_height,
+            bd,
+        ),
+        7 => ipred_z2_rust::<BD>(
+            dst,
+            topleft,
+            topleft_off,
+            width,
+            height,
+            angle,
+            max_width,
+            max_height,
+            bd,
+        ),
+        8 => ipred_z3_rust::<BD>(
+            dst,
+            topleft,
+            topleft_off,
+            width,
+            height,
+            angle,
+            max_width,
+            max_height,
+            bd,
+        ),
+        9 => ipred_smooth_rust::<BD>(dst, topleft, topleft_off, width, height),
+        10 => ipred_smooth_v_rust::<BD>(dst, topleft, topleft_off, width, height),
+        11 => ipred_smooth_h_rust::<BD>(dst, topleft, topleft_off, width, height),
+        12 => ipred_paeth_rust::<BD>(dst, topleft, topleft_off, width, height),
+        13 => ipred_filter_rust::<BD>(
+            dst,
+            topleft,
+            topleft_off,
+            width,
+            height,
+            angle,
+            max_width,
+            max_height,
+            bd,
+        ),
+        _ => unreachable!(),
+    }
+}
+
+impl angular_ipred::Fn {
+    #[allow(dead_code)]
+    pub fn call<BD: BitDepth>(
+        &self,
+        mode: usize,
+        dst: &mut ReconDst<'_>,
+        topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+        topleft_off: usize,
+        width: c_int,
+        height: c_int,
+        angle: c_int,
+        max_width: c_int,
+        max_height: c_int,
+        bd: BD,
+    ) {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "asm")] {
+                let _ = mode;
+                let dst = dst.as_pic().expect(OWNED_BAND_DECLINES_UNDER_C_FFI);
+                let dst_ptr = dst.as_mut_ptr::<BD>().cast();
+                let stride = dst.stride();
+                let topleft = topleft[topleft_off..].as_ptr().cast();
+                let bd = bd.into_c();
+                let dst = FFISafe::new(&dst);
+                // SAFETY: Fallbacks are safe; asm is supposed to do the same.
+                unsafe {
+                    self.get()(
+                        dst_ptr,
+                        stride,
+                        topleft,
+                        width,
+                        height,
+                        angle,
+                        max_width,
+                        max_height,
+                        bd,
+                        topleft_off,
+                        dst,
+                    )
+                }
+            } else {
+                let _ = self;
+                intra_pred_direct::<BD>(
+                    mode,
+                    dst,
+                    topleft,
+                    topleft_off,
+                    width,
+                    height,
+                    angle,
+                    max_width,
+                    max_height,
+                    bd,
+                )
+            }
+        }
+    }
+}
+
+wrap_fn_ptr!(pub unsafe extern "C" fn cfl_ac(
+    ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+    y_ptr: *const DynPixel,
+    stride: ptrdiff_t,
+    w_pad: c_int,
+    h_pad: c_int,
+    cw: c_int,
+    ch: c_int,
+    _y: *const FFISafe<PicOffset>,
+) -> ());
+
+/// Direct dispatch for CFL AC - bypasses function pointer table.
+/// Tries safe_simd AVX2 first (8bpc only); falls back to scalar.
+/// `layout`: pixel layout subsampling variant
+#[cfg(not(feature = "asm"))]
+fn cfl_ac_direct<BD: BitDepth>(
+    layout: Rav1dPixelLayoutSubSampled,
+    ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+    y: &ReconSrc<'_>,
+    w_pad: c_int,
+    h_pad: c_int,
+    cw: c_int,
+    ch: c_int,
+) {
+    let (is_ss_hor, is_ss_ver) = match layout {
+        Rav1dPixelLayoutSubSampled::I420 => (true, true),
+        Rav1dPixelLayoutSubSampled::I422 => (true, false),
+        Rav1dPixelLayoutSubSampled::I444 => (false, false),
+    };
+    #[cfg(target_arch = "x86_64")]
+    if crate::src::safe_simd::ipred::cfl_ac_dispatch::<BD>(
+        ac,
+        y,
+        w_pad,
+        h_pad,
+        cw as usize,
+        ch as usize,
+        is_ss_hor,
+        is_ss_ver,
+    ) {
+        return;
+    }
+    #[cfg(target_arch = "aarch64")]
+    if crate::src::safe_simd::ipred_arm::cfl_ac_dispatch::<BD>(
+        ac,
+        y,
+        w_pad,
+        h_pad,
+        cw as usize,
+        ch as usize,
+        is_ss_hor,
+        is_ss_ver,
+    ) {
+        return;
+    }
+    cfl_ac_rust::<BD>(
+        ac,
+        y,
+        w_pad,
+        h_pad,
+        cw as usize,
+        ch as usize,
+        is_ss_hor,
+        is_ss_ver,
+    );
+}
+
+impl cfl_ac::Fn {
+    #[allow(dead_code)]
+    pub fn call<BD: BitDepth>(
+        &self,
+        layout: Rav1dPixelLayoutSubSampled,
+        ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+        y: &ReconSrc<'_>,
+        w_pad: c_int,
+        h_pad: c_int,
+        cw: c_int,
+        ch: c_int,
+    ) {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "asm")] {
+                let _ = layout;
+                let y = y.as_pic().expect(OWNED_BAND_DECLINES_UNDER_C_FFI);
+                let y_ptr = y.as_ptr::<BD>().cast();
+                let stride = y.stride();
+                let y = FFISafe::new(&y);
+                // SAFETY: Fallback `fn cfl_ac_rust` is safe; asm is supposed to do the same.
+                unsafe { self.get()(ac, y_ptr, stride, w_pad, h_pad, cw, ch, y) }
+            } else {
+                let _ = self;
+                cfl_ac_direct::<BD>(layout, ac, y, w_pad, h_pad, cw, ch)
+            }
+        }
+    }
+}
+
+wrap_fn_ptr!(pub unsafe extern "C" fn cfl_pred(
+    dst_ptr: *mut DynPixel,
+    stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    alpha: c_int,
+    bitdepth_max: c_int,
+    _topleft_off: usize,
+    _dst: *const FFISafe<PicOffset>,
+) -> ());
+
+/// Direct dispatch for CFL prediction - bypasses function pointer table.
+/// No safe_simd implementations exist, so this dispatches to scalar fallback.
+/// `mode`: CFL pred mode index (DC_PRED=0, DC_128_PRED=5, TOP_DC_PRED=4, LEFT_DC_PRED=3)
+#[cfg(not(feature = "asm"))]
+fn cfl_pred_direct<BD: BitDepth>(
+    mode: usize,
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    alpha: c_int,
+    bd: BD,
+) {
+    let dc = match mode {
+        0 => DcGen::TopLeft.call::<BD>(topleft, topleft_off, width, height) as c_int,
+        3 => DcGen::Left.call::<BD>(topleft, topleft_off, width, height) as c_int,
+        4 => DcGen::Top.call::<BD>(topleft, topleft_off, width, height) as c_int,
+        5 => bd.bitdepth_max().as_::<c_int>() + 1 >> 1,
+        _ => unreachable!(),
+    };
+    #[cfg(target_arch = "x86_64")]
+    if crate::src::safe_simd::ipred::cfl_pred_dispatch::<BD>(dst, width, height, dc, ac, alpha, bd)
+    {
+        return;
+    }
+    #[cfg(target_arch = "aarch64")]
+    if crate::src::safe_simd::ipred_arm::cfl_pred_dispatch::<BD>(
+        dst, width, height, dc, ac, alpha, bd,
+    ) {
+        return;
+    }
+    cfl_pred(dst, width, height, dc, ac, alpha, bd);
+}
+
+impl cfl_pred::Fn {
+    #[allow(dead_code)]
+    pub fn call<BD: BitDepth>(
+        &self,
+        mode: usize,
+        dst: &mut ReconDst<'_>,
+        topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+        topleft_off: usize,
+        width: c_int,
+        height: c_int,
+        ac: &[i16; SCRATCH_AC_TXTP_LEN],
+        alpha: c_int,
+        bd: BD,
+    ) {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "asm")] {
+                let _ = mode;
+                let dst = dst.as_pic().expect(OWNED_BAND_DECLINES_UNDER_C_FFI);
+                let dst_ptr = dst.as_mut_ptr::<BD>().cast();
+                let stride = dst.stride();
+                let topleft = topleft[topleft_off..].as_ptr().cast();
+                let bd = bd.into_c();
+                let dst = FFISafe::new(&dst);
+                // SAFETY: Fallback `fn cfl_pred` is safe; asm is supposed to do the same.
+                unsafe {
+                    self.get()(
+                        dst_ptr,
+                        stride,
+                        topleft,
+                        width,
+                        height,
+                        ac,
+                        alpha,
+                        bd,
+                        topleft_off,
+                        dst,
+                    )
+                }
+            } else {
+                let _ = self;
+                cfl_pred_direct::<BD>(
+                    mode,
+                    dst,
+                    topleft,
+                    topleft_off,
+                    width,
+                    height,
+                    ac,
+                    alpha,
+                    bd,
+                )
+            }
+        }
+    }
+}
+
+wrap_fn_ptr!(pub unsafe extern "C" fn pal_pred(
+    dst_ptr: *mut DynPixel,
+    stride: ptrdiff_t,
+    pal: *const [DynPixel; 8],
+    idx: *const u8,
+    w: c_int,
+    h: c_int,
+    _dst: *const FFISafe<PicOffset>,
+) -> ());
+
+/// Direct dispatch for palette prediction - bypasses function pointer table.
+/// No safe_simd implementations exist, so this dispatches to scalar fallback.
+#[cfg(not(feature = "asm"))]
+fn pal_pred_direct<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    pal: &[BD::Pixel; 8],
+    idx: &[u8],
+    w: c_int,
+    h: c_int,
+) {
+    pal_pred_rust::<BD>(dst, pal, idx, w, h);
+}
+
+impl pal_pred::Fn {
+    #[allow(dead_code)]
+    pub fn call<BD: BitDepth>(
+        &self,
+        dst: &mut ReconDst<'_>,
+        pal: &[BD::Pixel; 8],
+        idx: &[u8],
+        w: c_int,
+        h: c_int,
+    ) {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "asm")] {
+                // SAFETY: `DisjointMut` is unchecked for asm `fn`s,
+                // but passed through as an extra arg for the fallback `fn`.
+                let dst = dst.as_pic().expect(OWNED_BAND_DECLINES_UNDER_C_FFI);
+                let dst_ptr = dst.as_mut_ptr::<BD>().cast();
+                let stride = dst.stride();
+                let pal = pal.as_ptr().cast();
+                let idx = idx[..(w * h) as usize / 2].as_ptr();
+                let dst = FFISafe::new(&dst);
+                // SAFETY: Fallback `fn pal_pred_rust` is safe; asm is supposed to do the same.
+                unsafe { self.get()(dst_ptr, stride, pal, idx, w, h, dst) }
+            } else {
+                let _ = self;
+                pal_pred_direct::<BD>(dst, pal, idx, w, h)
+            }
+        }
+    }
+}
+
+pub struct Rav1dIntraPredDSPContext {
+    pub intra_pred: [angular_ipred::Fn; 14],
+    pub cfl_ac: enum_map_ty!(Rav1dPixelLayoutSubSampled, cfl_ac::Fn),
+    pub cfl_pred: [cfl_pred::Fn; 6],
+    pub pal_pred: pal_pred::Fn,
+}
+
+#[inline(never)]
+fn splat_dc<BD: BitDepth>(dst: &mut ReconDst<'_>, width: c_int, height: c_int, dc: c_int, bd: BD) {
+    let height = height as usize;
+    let width = width as usize;
+    assert!(dc <= bd.bitdepth_max().as_::<c_int>());
+    let dc = dc.as_::<BD::Pixel>();
+    if BD::BPC == BPC::BPC8 && width > 4 {
+        dst.for_rows_mut::<BD, _>(width, height, |_, row| {
+            let row: &mut [[BD::Pixel; 8]] =
+                FromBytes::mut_from_bytes(IntoBytes::as_mut_bytes(row)).unwrap();
+            row.fill([dc; 8]);
+        });
+    } else {
+        dst.for_rows_mut::<BD, _>(width, height, |_, row| {
+            let row: &mut [[BD::Pixel; 4]] =
+                FromBytes::mut_from_bytes(IntoBytes::as_mut_bytes(row)).unwrap();
+            row.fill([dc; 4]);
+        });
+    };
+}
+
+#[inline(never)]
+/// Test-only alias for the scalar CfL oracle, so the aarch64 parity sweep in
+/// `safe_simd::ipred_arm` compares against the *real* reference rather than a
+/// transcription of it.
+#[cfg(all(test, target_arch = "aarch64", not(feature = "asm")))]
+pub(crate) fn cfl_pred_scalar_for_test<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    width: c_int,
+    height: c_int,
+    dc: c_int,
+    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    alpha: c_int,
+    bd: BD,
+) {
+    cfl_pred(dst, width, height, dc, ac, alpha, bd)
+}
+
+fn cfl_pred<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    width: c_int,
+    height: c_int,
+    dc: c_int,
+    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    alpha: c_int,
+    bd: BD,
+) {
+    let width = width as usize;
+    let height = height as usize;
+    let ac = &ac[..width * height];
+    dst.for_rows_mut::<BD, _>(width, height, |y, row| {
+        let ac = &ac[y * width..];
+        for x in 0..width {
+            let diff = alpha * ac[x] as c_int;
+            row[x] = bd.iclip_pixel(dc + apply_sign(diff.abs() + 32 >> 6, diff));
+        }
+    });
+}
+
+fn dc_gen_top<BD: BitDepth>(
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    offset: usize,
+    width: c_int,
+) -> c_uint {
+    let mut dc = width as u32 >> 1;
+    for i in 0..width as usize {
+        dc += topleft[offset + 1 + i].as_::<c_uint>();
+    }
+    return dc >> width.trailing_zeros();
+}
+
+fn dc_gen_left<BD: BitDepth>(
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    offset: usize,
+    height: c_int,
+) -> c_uint {
+    let mut dc = height as u32 >> 1;
+    for i in 0..height as usize {
+        dc += topleft[offset - (1 + i)].as_::<c_uint>();
+    }
+    return dc >> height.trailing_zeros();
+}
+
+fn dc_gen<BD: BitDepth>(
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    offset: usize,
+    width: c_int,
+    height: c_int,
+) -> c_uint {
+    let (multiplier_1x2, multiplier_1x4, base_shift) = match BD::BPC {
+        BPC::BPC8 => (0x5556, 0x3334, 16),
+        BPC::BPC16 => (0xAAAB, 0x6667, 17),
+    };
+
+    let mut dc = (width + height >> 1) as u32;
+    for i in 0..width as usize {
+        dc += topleft[offset + i + 1].as_::<c_uint>();
+    }
+    for i in 0..height as usize {
+        dc += topleft[offset - (i + 1)].as_::<c_uint>();
+    }
+    dc >>= (width + height).trailing_zeros();
+
+    if width != height {
+        dc *= if width > height * 2 || height > width * 2 {
+            multiplier_1x4
+        } else {
+            multiplier_1x2
+        };
+        dc >>= base_shift;
+    }
+    return dc;
+}
+
+#[derive(FromRepr)]
+#[repr(u8)]
+enum DcGen {
+    Top,
+    Left,
+    TopLeft,
+}
+
+impl DcGen {
+    fn call<BD: BitDepth>(
+        &self,
+        topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+        offset: usize,
+        width: c_int,
+        height: c_int,
+    ) -> c_uint {
+        match self {
+            Self::Top => dc_gen_top::<BD>(topleft, offset, width),
+            Self::Left => dc_gen_left::<BD>(topleft, offset, height),
+            Self::TopLeft => dc_gen::<BD>(topleft, offset, width, height),
+        }
+    }
+}
+
+/// Reconstructs the reference to the topleft edge array from a pointer into the
+/// array and an offset from the start of the array.
+///
+/// The topleft pointer passed to asm is always a pointer into a buffer of
+/// length [`SCRATCH_EDGE_LEN`]. For the Rust fallbacks we also pass in the
+/// offset from the front of the buffer so that we can reconstruct the original
+/// array reference in order to use safe array operations within the fallbacks.
+///
+/// # Safety
+///
+/// `topleft_ptr` must be a pointer into an array of length [`SCRATCH_EDGE_LEN`]
+/// and is `topleft_off` elements from the beginning of the array. This should
+/// be guaranteed by the logic in `angular_ipred::call`.
+#[cfg(feature = "asm")]
+unsafe fn reconstruct_topleft<'a, BD: BitDepth>(
+    topleft_ptr: *const DynPixel,
+    topleft_off: usize,
+) -> &'a [BD::Pixel; SCRATCH_EDGE_LEN] {
+    // SAFETY: Same as `# Safety` preconditions.
+    unsafe {
+        &*topleft_ptr
+            .cast::<BD::Pixel>()
+            .sub(topleft_off)
+            .cast::<[BD::Pixel; SCRATCH_EDGE_LEN]>()
+    }
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_dc_c_erased<BD: BitDepth, const DC_GEN: u8>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    let dc_gen = DcGen::from_repr(DC_GEN).unwrap();
+
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    let dc = dc_gen.call::<BD>(topleft, topleft_off, width, height) as c_int;
+    let bd = BD::from_c(bitdepth_max);
+    splat_dc(dst, width, height, dc, bd)
+}
+
+/// # Safety
+///
+/// Must be called by [`cfl_pred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_cfl_c_erased<BD: BitDepth, const DC_GEN: u8>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    alpha: c_int,
+    bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    let dc_gen = DcGen::from_repr(DC_GEN).unwrap();
+
+    // SAFETY: Was passed as `FFISafe::new(_)` in `cfl_pred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn cfl_pred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    let dc = dc_gen.call::<BD>(topleft, topleft_off, width, height) as c_int;
+    let bd = BD::from_c(bitdepth_max);
+    cfl_pred(dst, width, height, dc, ac, alpha, bd)
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_dc_128_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    _topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    bitdepth_max: c_int,
+    _topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    let bd = BD::from_c(bitdepth_max);
+    let dc = bd.bitdepth_max().as_::<c_int>() + 1 >> 1;
+    splat_dc(dst, width, height, dc, bd)
+}
+
+/// # Safety
+///
+/// Must be called by [`cfl_pred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_cfl_128_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    _topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    alpha: c_int,
+    bitdepth_max: c_int,
+    _topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `cfl_pred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    let bd = BD::from_c(bitdepth_max);
+    let dc = bd.bitdepth_max().as_::<c_int>() + 1 >> 1;
+    cfl_pred(dst, width, height, dc, ac, alpha, bd)
+}
+
+fn ipred_v_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+) {
+    let width = width as usize;
+    let height = height as usize;
+
+    dst.for_rows_mut::<BD, _>(width, height, |_, row| {
+        BD::pixel_copy(row, &topleft[topleft_off + 1..][..width], width);
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_v_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    _bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    ipred_v_rust::<BD>(dst, topleft, topleft_off, width, height)
+}
+
+fn ipred_h_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+) {
+    let width = width as usize;
+    let height = height as usize;
+
+    dst.for_rows_mut::<BD, _>(width, height, |y, row| {
+        BD::pixel_set(row, topleft[topleft_off - (1 + y)], width);
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_h_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    _bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    ipred_h_rust::<BD>(dst, topleft, topleft_off, width, height)
+}
+
+fn ipred_paeth_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    tl: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    tl_off: usize,
+    width: c_int,
+    height: c_int,
+) {
+    let width = width as usize;
+    let height = height as usize;
+
+    let topleft = tl[tl_off].as_::<c_int>();
+    dst.for_rows_mut::<BD, _>(width, height, |y, dst| {
+        let left = tl[tl_off - (y + 1)].as_::<c_int>();
+        for x in 0..width {
+            let top = tl[tl_off + 1 + x].as_::<c_int>();
+            let base = left + top - topleft;
+            let ldiff = (left - base).abs();
+            let tdiff = (top - base).abs();
+            let tldiff = (topleft - base).abs();
+
+            dst[x] = (if ldiff <= tdiff && ldiff <= tldiff {
+                left
+            } else if tdiff <= tldiff {
+                top
+            } else {
+                topleft
+            })
+            .as_::<BD::Pixel>();
+        }
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_paeth_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    tl_ptr: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    _bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(tl_ptr, topleft_off) };
+    ipred_paeth_rust::<BD>(dst, topleft, topleft_off, width, height)
+}
+
+fn ipred_smooth_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+) {
+    let [width, height] = [width, height].map(|it| it as usize);
+
+    let weights_hor = &dav1d_sm_weights[width..][..width];
+    let weights_ver = &dav1d_sm_weights[height..][..height];
+    let right = topleft[topleft_off + width].as_::<c_int>();
+    let bottom = topleft[topleft_off - height].as_::<c_int>();
+
+    dst.for_rows_mut::<BD, _>(width, height, |y, dst| {
+        for x in 0..width {
+            let pred = weights_ver[y] as c_int * topleft[topleft_off + 1 + x].as_::<c_int>()
+                + (256 - weights_ver[y] as c_int) * bottom
+                + weights_hor[x] as c_int * topleft[topleft_off - (1 + y)].as_::<c_int>()
+                + (256 - weights_hor[x] as c_int) * right;
+            dst[x] = (pred + 256 >> 9).as_::<BD::Pixel>();
+        }
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_smooth_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    _bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    ipred_smooth_rust::<BD>(dst, topleft, topleft_off, width, height)
+}
+
+fn ipred_smooth_v_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+) {
+    let [width, height] = [width, height].map(|it| it as usize);
+
+    let weights_ver = &dav1d_sm_weights[height..][..height];
+    let bottom = topleft[topleft_off - height].as_::<c_int>();
+
+    dst.for_rows_mut::<BD, _>(width, height, |y, dst| {
+        for x in 0..width {
+            let pred = weights_ver[y] as c_int * topleft[topleft_off + 1 + x].as_::<c_int>()
+                + (256 - weights_ver[y] as c_int) * bottom;
+            dst[x] = (pred + 128 >> 8).as_::<BD::Pixel>();
+        }
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_smooth_v_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    _bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    ipred_smooth_v_rust::<BD>(dst, topleft, topleft_off, width, height)
+}
+
+fn ipred_smooth_h_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+) {
+    let [width, height] = [width, height].map(|it| it as usize);
+
+    let weights_hor = &dav1d_sm_weights[width..][..width];
+    let right = topleft[topleft_off + width].as_::<c_int>();
+
+    dst.for_rows_mut::<BD, _>(width, height, |y, dst| {
+        for x in 0..width {
+            let pred = weights_hor[x] as c_int * topleft[topleft_off - (y + 1)].as_::<c_int>()
+                + (256 - weights_hor[x] as c_int) * right;
+            dst[x] = (pred + 128 >> 8).as_::<BD::Pixel>();
+        }
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_smooth_h_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    _a: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    _bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft, topleft_off) };
+    ipred_smooth_h_rust::<BD>(dst, topleft, topleft_off, width, height)
+}
+
+#[inline(never)]
+pub(crate) fn get_filter_strength(wh: c_int, angle: c_int, is_sm: bool) -> c_int {
+    if is_sm {
+        match (wh, angle) {
+            (..=8, 64..) => 2,
+            (..=8, 40..) => 1,
+            (..=8, ..) => 0,
+            (..=16, 48..) => 2,
+            (..=16, 20..) => 1,
+            (..=16, ..) => 0,
+            (..=24, 4..) => 3,
+            (..=24, ..) => 0,
+            (..) => 3,
+        }
+    } else {
+        match (wh, angle) {
+            (..=8, 56..) => 1,
+            (..=8, ..) => 0,
+            (..=16, 40..) => 1,
+            (..=16, ..) => 0,
+            (..=24, 32..) => 3,
+            (..=24, 16..) => 2,
+            (..=24, 8..) => 1,
+            (..=24, ..) => 0,
+            (..=32, 32..) => 3,
+            (..=32, 4..) => 2,
+            (..=32, ..) => 1,
+            (..) => 3,
+        }
+    }
+}
+
+#[inline(never)]
+pub(crate) fn filter_edge<BD: BitDepth>(
+    out: &mut [BD::Pixel],
+    sz: c_int,
+    lim_from: c_int,
+    lim_to: c_int,
+    r#in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    in_off: usize,
+    from: c_int,
+    to: c_int,
+    strength: c_int,
+) {
+    static kernel: [[u8; 5]; 3] = [[0, 4, 8, 4, 0], [0, 5, 6, 5, 0], [2, 4, 4, 4, 2]];
+
+    assert!(strength > 0);
+    let mut i = 0;
+    while i < cmp::min(sz, lim_from) {
+        out[i as usize] = r#in[in_off + iclip(i, from, to - 1) as usize];
+        i += 1;
+    }
+    while i < cmp::min(lim_to, sz) {
+        let mut s = 0;
+        for j in 0..5 {
+            s += r#in[in_off.wrapping_add_signed(iclip(i - 2 + j, from, to - 1) as isize)]
+                .as_::<c_int>()
+                * kernel[(strength - 1) as usize][j as usize] as c_int;
+        }
+        out[i as usize] = (s + 8 >> 4).as_::<BD::Pixel>();
+        i += 1;
+    }
+    while i < sz {
+        out[i as usize] = r#in[in_off + iclip(i, from, to - 1) as usize];
+        i += 1;
+    }
+}
+
+#[inline]
+pub(crate) fn get_upsample(wh: c_int, angle: c_int, is_sm: bool) -> bool {
+    angle < 40 && wh <= (16 >> is_sm as u8)
+}
+
+#[inline(never)]
+pub(crate) fn upsample_edge<BD: BitDepth>(
+    out: &mut [BD::Pixel],
+    hsz: c_int,
+    r#in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    in_off: usize,
+    from: c_int,
+    to: c_int,
+    bd: BD,
+) {
+    static kernel: [i8; 4] = [-1, 9, 9, -1];
+    for i in 0..hsz - 1 {
+        out[(i * 2) as usize] = r#in[in_off + iclip(i, from, to - 1) as usize];
+        let mut s = 0;
+        for j in 0..4 {
+            s += r#in[in_off.wrapping_add_signed(iclip(i + j - 1, from, to - 1) as isize)]
+                .as_::<c_int>()
+                * kernel[j as usize] as c_int;
+        }
+        out[(i * 2 + 1) as usize] =
+            iclip(s + 8 >> 4, 0, bd.bitdepth_max().as_::<c_int>()).as_::<BD::Pixel>();
+    }
+    let i = hsz - 1;
+    out[(i * 2) as usize] = r#in[in_off + iclip(i, from, to - 1) as usize];
+}
+
+fn ipred_z1_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_in_off: usize,
+    width: c_int,
+    height: c_int,
+    mut angle: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    bd: BD,
+) {
+    let is_sm = (angle >> 9) & 1 != 0;
+    let enable_intra_edge_filter = (angle >> 10) != 0;
+    angle &= 511;
+    assert!(angle < 90);
+    let mut dx = dav1d_dr_intra_derivative[(angle >> 1) as usize] as c_int;
+    let mut top_out = [0.into(); 64 + 64];
+    let upsample_above = if enable_intra_edge_filter {
+        get_upsample(width + height, 90 - angle, is_sm)
+    } else {
+        false
+    };
+    let (top, max_base_x) = if upsample_above {
+        upsample_edge::<BD>(
+            &mut top_out,
+            width + height,
+            topleft_in,
+            topleft_in_off + 1,
+            -1,
+            width + cmp::min(width, height),
+            bd,
+        );
+        dx <<= 1;
+
+        (top_out.as_slice(), 2 * (width + height) - 2)
+    } else {
+        let filter_strength = if enable_intra_edge_filter {
+            get_filter_strength(width + height, 90 - angle, is_sm)
+        } else {
+            0
+        };
+        if filter_strength != 0 {
+            filter_edge::<BD>(
+                &mut top_out,
+                width + height,
+                0,
+                width + height,
+                topleft_in,
+                topleft_in_off + 1,
+                -1,
+                width + cmp::min(width, height),
+                filter_strength,
+            );
+            (top_out.as_slice(), width + height - 1)
+        } else {
+            (
+                &topleft_in[topleft_in_off + 1..],
+                width + cmp::min(width, height) - 1,
+            )
+        }
+    };
+    let width = width as usize;
+    let max_base_x = max_base_x as usize;
+    let base_inc = 1 + upsample_above as usize;
+    dst.for_rows_mut::<BD, _>(width, height as usize, |y, dst| {
+        let xpos = (y as c_int + 1) * dx;
+        let frac = xpos & 0x3e;
+
+        for x in 0..width {
+            let base = (xpos >> 6) as usize + base_inc * x;
+            if base < max_base_x {
+                let v =
+                    top[base].as_::<c_int>() * (64 - frac) + top[base + 1].as_::<c_int>() * frac;
+                dst[x] = (v + 32 >> 6).as_::<BD::Pixel>();
+            } else {
+                BD::pixel_set(&mut dst[x..], top[max_base_x], width - x);
+                break;
+            }
+        }
+    });
+}
+
+fn ipred_z2_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_in_off: usize,
+    width: c_int,
+    height: c_int,
+    mut angle: c_int,
+    max_width: c_int,
+    max_height: c_int,
+    bd: BD,
+) {
+    let is_sm = (angle >> 9) & 1 != 0;
+    let enable_intra_edge_filter = angle >> 10;
+    angle &= 511;
+    assert!(angle > 90 && angle < 180);
+    let mut dy = dav1d_dr_intra_derivative[(angle - 90 >> 1) as usize] as c_int;
+    let mut dx = dav1d_dr_intra_derivative[(180 - angle >> 1) as usize] as c_int;
+    let upsample_left = if enable_intra_edge_filter != 0 {
+        get_upsample(width + height, 180 - angle, is_sm)
+    } else {
+        false
+    };
+    let upsample_above = if enable_intra_edge_filter != 0 {
+        get_upsample(width + height, angle - 90, is_sm)
+    } else {
+        false
+    };
+    let mut edge = [0.into(); 64 + 64 + 1];
+    let topleft = 64;
+
+    if upsample_above {
+        upsample_edge::<BD>(
+            &mut edge[topleft..],
+            width + 1,
+            topleft_in,
+            topleft_in_off,
+            0,
+            width + 1,
+            bd,
+        );
+        dx <<= 1;
+    } else {
+        let filter_strength = if enable_intra_edge_filter != 0 {
+            get_filter_strength(width + height, angle - 90, is_sm)
+        } else {
+            0
+        };
+        if filter_strength != 0 {
+            filter_edge::<BD>(
+                &mut edge[topleft + 1..],
+                width,
+                0,
+                max_width,
+                topleft_in,
+                topleft_in_off + 1,
+                -1,
+                width,
+                filter_strength,
+            );
+        } else {
+            let width = width as usize;
+            BD::pixel_copy(
+                &mut edge[topleft + 1..][..width],
+                &topleft_in[topleft_in_off + 1..][..width],
+                width,
+            );
+        }
+    }
+    if upsample_left {
+        upsample_edge::<BD>(
+            &mut edge[topleft - height as usize * 2..],
+            height + 1,
+            topleft_in,
+            topleft_in_off - height as usize,
+            0,
+            height + 1,
+            bd,
+        );
+        dy <<= 1;
+    } else {
+        let filter_strength_0 = if enable_intra_edge_filter != 0 {
+            get_filter_strength(width + height, 180 - angle, is_sm)
+        } else {
+            0
+        };
+        if filter_strength_0 != 0 {
+            filter_edge::<BD>(
+                &mut edge[topleft - height as usize..],
+                height,
+                height - max_height,
+                height,
+                topleft_in,
+                topleft_in_off - height as usize,
+                0,
+                height + 1,
+                filter_strength_0,
+            );
+        } else {
+            let height = height as usize;
+            BD::pixel_copy(
+                &mut edge[topleft - height..][..height],
+                &topleft_in[topleft_in_off - height..][..height],
+                height,
+            );
+        }
+    }
+    edge[topleft] = topleft_in[topleft_in_off];
+
+    let base_inc_x = 1 + upsample_above as usize;
+    let left = topleft - (1 + upsample_left as usize);
+    let width = width as usize;
+    dst.for_rows_mut::<BD, _>(width, height as usize, |y, dst| {
+        let y = y as c_int;
+        let xpos = (1 + (upsample_above as c_int) << 6) - (dx * (y + 1));
+        let base_x = xpos >> 6;
+        let frac_x = xpos & 0x3e;
+
+        for x in 0..width {
+            let ypos = (y << 6 + upsample_left as c_int) - (dy * (x + 1) as c_int);
+            let base_x = base_x + (base_inc_x * x) as c_int;
+            let v = if base_x >= 0 {
+                edge[topleft + base_x as usize].as_::<c_int>() * (64 - frac_x)
+                    + edge[topleft + base_x as usize + 1].as_::<c_int>() * frac_x
+            } else {
+                let base_y = ypos >> 6;
+                assert!(base_y >= -(1 + upsample_left as c_int));
+                let frac_y = ypos & 0x3e;
+                edge[left.wrapping_add_signed(-base_y as isize)].as_::<c_int>() * (64 - frac_y)
+                    + edge[left.wrapping_add_signed(-(base_y + 1) as isize)].as_::<c_int>() * frac_y
+            };
+            dst[x] = (v + 32 >> 6).as_::<BD::Pixel>();
+        }
+    });
+}
+
+fn ipred_z3_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_in_off: usize,
+    width: c_int,
+    height: c_int,
+    mut angle: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    bd: BD,
+) {
+    let is_sm = (angle >> 9) & 1 != 0;
+    let enable_intra_edge_filter = angle >> 10;
+    angle &= 511;
+    assert!(angle > 180);
+    let mut dy = dav1d_dr_intra_derivative[(270 - angle >> 1) as usize] as usize;
+    let mut left_out = [0.into(); 64 + 64];
+    let left;
+    let left_off;
+    let max_base_y;
+    let upsample_left = if enable_intra_edge_filter != 0 {
+        get_upsample(width + height, angle - 180, is_sm)
+    } else {
+        false
+    };
+    if upsample_left {
+        upsample_edge::<BD>(
+            &mut left_out,
+            width + height,
+            topleft_in,
+            topleft_in_off - (width + height) as usize,
+            cmp::max(width - height, 0),
+            width + height + 1,
+            bd,
+        );
+        left = left_out.as_slice();
+        left_off = 2 * (width + height) as usize - 2;
+        max_base_y = 2 * (width + height) - 2;
+        dy <<= 1;
+    } else {
+        let filter_strength = if enable_intra_edge_filter != 0 {
+            get_filter_strength(width + height, angle - 180, is_sm)
+        } else {
+            0
+        };
+
+        if filter_strength != 0 {
+            filter_edge::<BD>(
+                &mut left_out,
+                width + height,
+                0,
+                width + height,
+                topleft_in,
+                topleft_in_off - (width + height) as usize,
+                cmp::max(width - height, 0),
+                width + height + 1,
+                filter_strength,
+            );
+            left = left_out.as_slice();
+            left_off = (width + height - 1) as usize;
+            max_base_y = width + height - 1;
+        } else {
+            left = topleft_in.as_slice();
+            left_off = topleft_in_off - 1;
+            max_base_y = height + cmp::min(width, height) - 1;
+        }
+    }
+    let base_inc = 1 + upsample_left as usize;
+    let width = width as usize;
+    let height = height as usize;
+    let max_base_y = max_base_y as usize;
+    let pxstride = dst.pixel_stride::<BD>();
+    for x in 0..width {
+        let ypos = dy * (x + 1);
+        let frac = (ypos & 0x3e) as i32;
+
+        for y in 0..height {
+            let base = (ypos >> 6) + base_inc * y;
+            if base < max_base_y {
+                let v = left[left_off - base].as_::<i32>() * (64 - frac)
+                    + left[left_off - (base + 1)].as_::<i32>() * frac;
+                dst.at(y as isize * pxstride + x as isize)
+                    .set::<BD>((v + 32 >> 6).as_::<BD::Pixel>());
+            } else {
+                for y in y..height {
+                    dst.at(y as isize * pxstride + x as isize)
+                        .set::<BD>(left[left_off - max_base_y]);
+                }
+                break;
+            }
+        }
+    }
+}
+
+/// # Safety
+///
+/// Must be called by [`angular_ipred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn ipred_z_c_erased<BD: BitDepth, const Z: usize>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft_in: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    angle: c_int,
+    max_width: c_int,
+    max_height: c_int,
+    bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft_in = unsafe { reconstruct_topleft::<BD>(topleft_in, topleft_off) };
+    let bd = BD::from_c(bitdepth_max);
+    [ipred_z1_rust, ipred_z2_rust, ipred_z3_rust][Z - 1](
+        dst,
+        topleft_in,
+        topleft_off,
+        width,
+        height,
+        angle,
+        max_width,
+        max_height,
+        bd,
+    )
+}
+
+fn ipred_filter_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft_off: usize,
+    width: c_int,
+    height: c_int,
+    filt_idx: c_int,
+    _max_width: c_int,
+    _max_height: c_int,
+    bd: BD,
+) {
+    let width = width as usize / 4 * 4; // To elide bounds checks.
+    let height = height as usize;
+    let filt_idx = filt_idx as usize;
+    let stride = dst.pixel_stride::<BD>();
+    let filt_idx = filt_idx & 511;
+
+    let filter = &dav1d_filter_intra_taps[filt_idx];
+    // `top` was a LIVE READ GUARD on `dst`, refreshed once per row pair. An
+    // owned band cannot hand out `&` and `&mut` to itself at the same time —
+    // that is the whole point — so the row is copied into a local instead. It
+    // is the row this kernel wrote one iteration ago, at most 64 pixels; the
+    // values, and therefore the output, are identical.
+    const MAX_FILTER_W: usize = 64;
+    assert!(width <= MAX_FILTER_W);
+    let mut top = [topleft_in[0]; MAX_FILTER_W];
+    top[..width].copy_from_slice(&topleft_in[topleft_off + 1..][..width]);
+    let mut row_base: isize = 0;
+    for y in (0..height).step_by(2) {
+        let topleft_off = topleft_off - y;
+        let mut topleft = topleft_in[topleft_off];
+        for x in (0..width).step_by(4) {
+            let p0 = topleft;
+            let [p1, p2, p3, p4] = top[x..][..4].try_into().unwrap();
+            let p5;
+            let p6;
+            if x == 0 {
+                let left = &topleft_in[topleft_off - 1 - 1..][..2];
+                p5 = left[1];
+                p6 = left[0];
+            } else {
+                p5 = dst.at(row_base + (x - 1) as isize).get::<BD>();
+                p6 = dst.at(row_base + stride + (x - 1) as isize).get::<BD>();
+            }
+            let p = [p0, p1, p2, p3, p4, p5, p6].map(|p| p.as_::<i32>());
+            let mut flt_ptr = filter.as_slice();
+
+            for yy in 0..2 {
+                let mut ptr = dst.at(row_base + yy * stride + x as isize);
+                let ptr_slice = &mut *ptr.slice_mut::<BD>(4);
+                for xx in ptr_slice {
+                    let acc = filter_fn(flt_ptr, p);
+                    *xx = bd.iclip_pixel(acc + 8 >> 4);
+                    flt_ptr = &flt_ptr[FLT_INCR..];
+                }
+            }
+            topleft = p4;
+        }
+        row_base += stride;
+        {
+            let row = dst.at(row_base);
+            let g = row.slice::<BD>(width);
+            top[..width].copy_from_slice(&g[..width]);
+        }
+        row_base += stride;
+    }
+}
+
+#[cfg(feature = "asm")]
+unsafe extern "C" fn ipred_filter_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    topleft_in: *const DynPixel,
+    width: c_int,
+    height: c_int,
+    filt_idx: c_int,
+    max_width: c_int,
+    max_height: c_int,
+    bitdepth_max: c_int,
+    topleft_off: usize,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `angular_ipred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: `fn angular_ipred::Fn::call` makes `topleft` `topleft_off` from the beginning of the array.
+    let topleft = unsafe { reconstruct_topleft::<BD>(topleft_in, topleft_off) };
+    let bd = BD::from_c(bitdepth_max);
+    ipred_filter_rust(
+        dst,
+        topleft,
+        topleft_off,
+        width,
+        height,
+        filt_idx,
+        max_width,
+        max_height,
+        bd,
+    )
+}
+
+/// Test-only alias for the scalar `cfl_ac` oracle, so the aarch64 parity sweep
+/// in `safe_simd::ipred_arm` compares against the *real* reference rather than
+/// a transcription of it.
+#[cfg(all(test, target_arch = "aarch64", not(feature = "asm")))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cfl_ac_scalar_for_test<BD: BitDepth>(
+    ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+    y_src: &ReconSrc<'_>,
+    w_pad: c_int,
+    h_pad: c_int,
+    width: usize,
+    height: usize,
+    is_ss_hor: bool,
+    is_ss_ver: bool,
+) {
+    cfl_ac_rust::<BD>(ac, y_src, w_pad, h_pad, width, height, is_ss_hor, is_ss_ver)
+}
+
+// Kept out-of-line so the scalar fallback is attributable in a `sample`
+// profile. `perf/st1-kernels` inserted `cfl_ac_scalar_for_test` BETWEEN this
+// attribute and its function, which silently moved the attribute onto the
+// test-only alias — and, because that alias is `#[cfg(test)]`, deleted it
+// outright from every non-test build. Restored here; see the compose record.
+#[inline(never)]
+fn cfl_ac_rust<BD: BitDepth>(
+    ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+    y_src: &ReconSrc<'_>,
+    w_pad: c_int,
+    h_pad: c_int,
+    width: usize,
+    height: usize,
+    is_ss_hor: bool,
+    is_ss_ver: bool,
+) {
+    let ac = &mut ac[..width * height];
+    let [w_pad, h_pad] = [w_pad, h_pad].map(|pad| usize::try_from(pad).unwrap() * 4);
+    assert!(w_pad < width);
+    assert!(h_pad < height);
+    let [ss_hor, ss_ver] = [is_ss_hor, is_ss_ver].map(|is_ss| is_ss as u8);
+    let y_pxstride = y_src.pixel_stride::<BD>();
+
+    // Single guard covering all source rows instead of per-pixel guards.
+    // Source spans (height-h_pad)<<ss_ver rows, (width-w_pad)<<ss_hor cols.
+    let active_h = height - h_pad;
+    let active_w = width - w_pad;
+    let src_cols = active_w << ss_hor as usize;
+    let row_stride = y_pxstride << ss_ver;
+
+    for y in 0..active_h {
+        let aci = y * width;
+        // Per-row reads to avoid stride-wide guard overlap with tile threads.
+        let row_pic = y_src.at(y as isize * row_stride);
+        let row_guard = row_pic.slice::<BD>(src_cols);
+        let row_below_guard;
+        let row_below: Option<&[BD::Pixel]> = if is_ss_ver {
+            let below_pic = row_pic.at(y_pxstride);
+            row_below_guard = below_pic.slice::<BD>(src_cols);
+            Some(&*row_below_guard)
+        } else {
+            None
+        };
+        for x in 0..active_w {
+            let sx = x << ss_hor;
+            let mut ac_sum = row_guard[sx].as_::<i32>();
+            if is_ss_hor {
+                ac_sum += row_guard[sx + 1].as_::<i32>();
+            }
+            if let Some(below) = row_below {
+                ac_sum += below[sx].as_::<i32>();
+                if is_ss_hor {
+                    ac_sum += below[sx + 1].as_::<i32>();
+                }
+            }
+            ac[aci + x] = (ac_sum << 1 + !is_ss_ver as u8 + !is_ss_hor as u8) as i16;
+        }
+        for x in active_w..width {
+            ac[aci + x] = ac[aci + x - 1];
+        }
+    }
+    for y in height - h_pad..height {
+        let aci = y * width;
+        let (src, dst) = ac.split_at_mut(aci);
+        dst[..width].copy_from_slice(&src[src.len() - width..]);
+    }
+
+    let log2sz = width.trailing_zeros() + height.trailing_zeros();
+    let mut sum = 1 << log2sz >> 1;
+    for y in 0..height {
+        let aci = y * width;
+        for x in 0..width {
+            sum += ac[aci + x] as i32;
+        }
+    }
+    let sum = (sum >> log2sz) as i16;
+
+    // subtract DC
+    for y in 0..height {
+        let aci = y * width;
+        for x in 0..width {
+            ac[aci + x] -= sum;
+        }
+    }
+}
+
+/// # Safety
+///
+/// Must be called by [`cfl_ac::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn cfl_ac_c_erased<BD: BitDepth, const IS_SS_HOR: bool, const IS_SS_VER: bool>(
+    ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+    _y_ptr: *const DynPixel,
+    _stride: ptrdiff_t,
+    w_pad: c_int,
+    h_pad: c_int,
+    cw: c_int,
+    ch: c_int,
+    y: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(_)` in `cfl_ac::Fn::call`.
+    let y = ReconSrc::Pic(*unsafe { FFISafe::get(y) });
+    let y = &y;
+    let cw = cw as usize;
+    let ch = ch as usize;
+    cfl_ac_rust::<BD>(ac, y, w_pad, h_pad, cw, ch, IS_SS_HOR, IS_SS_VER);
+}
+
+fn pal_pred_rust<BD: BitDepth>(
+    dst: &mut ReconDst<'_>,
+    pal: &[BD::Pixel; 8],
+    idx: &[u8],
+    w: c_int,
+    h: c_int,
+) {
+    let w = w as usize;
+    let h = h as usize;
+    let idx = &idx[..w * h / 2];
+
+    // ONE GUARD PER ROW, not one per TWO PIXELS. The old shape took a fresh
+    // `slice_mut(2)` inside the x loop, i.e. `w/2` registrations per row and
+    // `w*h/2` for the block, to write pixels that a single row guard already
+    // covers exactly. Narrowing below a row buys no exclusion here — the row
+    // is written in full — so this is a strict reduction in registration count
+    // with no change of extent at ANY thread count (`for_rows_mut`'s
+    // tile-threaded branch is the same per-row `[off, off+w)` the write set
+    // already spanned).
+    dst.for_rows_mut::<BD, _>(w, h, |y, row| {
+        for (i, x) in idx[y * (w / 2)..].iter().zip((0..w).step_by(2)) {
+            assert!((i & 0x88) == 0);
+            row[x] = pal[(i & 7) as usize];
+            row[x + 1] = pal[(i >> 4) as usize];
+        }
+    });
+}
+
+/// # Safety
+///
+/// Must be called by [`pal_pred::Fn::call`].
+#[cfg(feature = "asm")]
+#[deny(unsafe_op_in_unsafe_fn)]
+unsafe extern "C" fn pal_pred_c_erased<BD: BitDepth>(
+    _dst_ptr: *mut DynPixel,
+    _stride: ptrdiff_t,
+    pal: *const [DynPixel; 8],
+    idx: *const u8,
+    w: c_int,
+    h: c_int,
+    dst: *const FFISafe<PicOffset>,
+) {
+    // SAFETY: Was passed as `FFISafe::new(dst)` in `pal_pred::Fn::call`.
+    let dst = *unsafe { FFISafe::get(dst) };
+    let dst = &mut ReconDst::Pic(dst);
+    // SAFETY: Undoing dyn cast in `pal_pred::Fn::call`.
+    let pal = unsafe { &*pal.cast() };
+    // SAFETY: Length sliced in `pal_pred::Fn::call`.
+    let idx = unsafe { slice::from_raw_parts(idx, (w * h) as usize / 2) };
+    pal_pred_rust::<BD>(dst, pal, idx, w, h)
+}
+
+#[cfg(all(feature = "asm", target_arch = "aarch64"))]
+mod neon {
+    use super::*;
+
+    use to_method::To;
+
+    #[cfg(feature = "bitdepth_8")]
+    use crate::include::common::bitdepth::BitDepth8;
+
+    #[cfg(feature = "bitdepth_16")]
+    use crate::include::common::bitdepth::BitDepth16;
+
+    wrap_fn_ptr!(unsafe extern "C" fn z13_fill(
+        dst: *mut DynPixel,
+        stride: ptrdiff_t,
+        topleft: *const DynPixel,
+        width: c_int,
+        height: c_int,
+        dxy: c_int,
+        max_base_xy: c_int,
+    ) -> ());
+
+    impl z13_fill::Fn {
+        pub fn call<BD: BitDepth>(
+            &self,
+            dst: *mut BD::Pixel,
+            stride: ptrdiff_t,
+            topleft: &[BD::Pixel],
+            width: c_int,
+            height: c_int,
+            dxy: c_int,
+            max_base_xy: c_int,
+        ) {
+            let dst = dst.cast();
+            let topleft = topleft.as_ptr().cast();
+            // SAFETY: We're assuming the asm is actually correct and safe.
+            unsafe { self.get()(dst, stride, topleft, width, height, dxy, max_base_xy) }
+        }
+    }
+
+    wrap_fn_ptr!(unsafe extern "C" fn z2_fill(
+        dst: *mut DynPixel,
+        stride: ptrdiff_t,
+        top: *const DynPixel,
+        left: *const DynPixel,
+        width: c_int,
+        height: c_int,
+        dx: c_int,
+        dy: c_int,
+    ) -> ());
+
+    impl z2_fill::Fn {
+        pub fn call<BD: BitDepth>(
+            &self,
+            dst: *mut BD::Pixel,
+            stride: ptrdiff_t,
+            top: &[BD::Pixel],
+            left: &[BD::Pixel],
+            width: c_int,
+            height: c_int,
+            dx: c_int,
+            dy: c_int,
+        ) {
+            let dst = dst.cast();
+            let top = top.as_ptr().cast();
+            let left = left.as_ptr().cast();
+            // SAFETY: We're assuming the asm is actually correct and safe.
+            unsafe { self.get()(dst, stride, top, left, width, height, dx, dy) }
+        }
+    }
+
+    wrap_fn_ptr!(unsafe extern "C" fn z1_upsample_edge(
+        out: *mut DynPixel,
+        hsz: c_int,
+        in_0: *const DynPixel,
+        end: c_int,
+        _bitdepth_max: c_int,
+    ) -> ());
+
+    impl z1_upsample_edge::Fn {
+        pub fn call<BD: BitDepth>(
+            &self,
+            out: &mut [BD::Pixel],
+            hsz: c_int,
+            in_0: &[BD::Pixel],
+            end: c_int,
+            bd: BD,
+        ) {
+            let out = out.as_mut_ptr().cast();
+            let in_0 = in_0.as_ptr().cast();
+            let bd = bd.into_c();
+            // SAFETY: We're assuming the asm is actually correct and safe.
+            unsafe { self.get()(out, hsz, in_0, end, bd) }
+        }
+    }
+
+    wrap_fn_ptr!(unsafe extern "C" fn z1_filter_edge(
+        out: *mut DynPixel,
+        sz: c_int,
+        in_0: *const DynPixel,
+        end: c_int,
+        strength: c_int,
+    ) -> ());
+
+    impl z1_filter_edge::Fn {
+        pub fn call<BD: BitDepth>(
+            &self,
+            out: &mut [BD::Pixel],
+            sz: c_int,
+            in_0: &[BD::Pixel],
+            end: c_int,
+            strength: c_int,
+        ) {
+            let out = out.as_mut_ptr().cast();
+            let in_0 = in_0.as_ptr().cast();
+            // SAFETY: We're assuming the asm is actually correct and safe.
+            unsafe { self.get()(out, sz, in_0, end, strength) }
+        }
+    }
+
+    wrap_fn_ptr!(unsafe extern "C" fn z2_upsample_edge(
+        out: *mut DynPixel,
+        hsz: c_int,
+        in_0: *const DynPixel,
+        _bitdepth_max: c_int,
+    ) -> ());
+
+    impl z2_upsample_edge::Fn {
+        pub fn call<BD: BitDepth>(
+            &self,
+            out: &mut [BD::Pixel],
+            hsz: c_int,
+            in_0: &[BD::Pixel],
+            bd: BD,
+        ) {
+            let out = out.as_mut_ptr().cast();
+            let in_0 = in_0.as_ptr().cast();
+            let bd = bd.into_c();
+            // SAFETY: We're assuming the asm is actually correct and safe.
+            unsafe { self.get()(out, hsz, in_0, bd) }
+        }
+    }
+
+    wrap_fn_ptr!(unsafe extern "C" fn reverse(
+        dst: *mut DynPixel,
+        src: *const DynPixel,
+        n: c_int,
+    ) -> ());
+
+    impl reverse::Fn {
+        pub fn call<BD: BitDepth>(&self, dst: &mut [BD::Pixel], src: &[BD::Pixel], n: c_int) {
+            let dst = dst.as_mut_ptr().cast();
+            let src = src.as_ptr().cast();
+            // SAFETY: We're assuming the asm is actually correct and safe.
+            unsafe { self.get()(dst, src, n) }
+        }
+    }
+
+    fn rav1d_ipred_pixel_set_neon<BD: BitDepth>(out: &mut [BD::Pixel], px: BD::Pixel, n: c_int) {
+        // `pixel_set` takes a `px: BD::Pixel`.
+        // Since it's not behind a ptr, we can't make it a `DynPixel`
+        // and call it uniformly with `bd_fn!`.
+
+        unsafe extern "C" {
+            #[cfg(feature = "bitdepth_8")]
+            fn dav1d_ipred_pixel_set_8bpc_neon(
+                out: *mut DynPixel,
+                px: <BitDepth8 as BitDepth>::Pixel,
+                n: c_int,
+            );
+
+            #[cfg(feature = "bitdepth_16")]
+            fn dav1d_ipred_pixel_set_16bpc_neon(
+                out: *mut DynPixel,
+                px: <BitDepth16 as BitDepth>::Pixel,
+                n: c_int,
+            );
+        }
+
+        let out = out.as_mut_ptr().cast();
+        match BD::BPC {
+            BPC::BPC8 => {
+                // Really a no-op cast, but it's difficult to do it properly with generics.
+                let px = px.to::<u16>() as <BitDepth8 as BitDepth>::Pixel;
+                // SAFETY: We're assuming the asm is actually correct and safe.
+                unsafe { dav1d_ipred_pixel_set_8bpc_neon(out, px, n) }
+            }
+            BPC::BPC16 => {
+                let px = px.into();
+                // SAFETY: We're assuming the asm is actually correct and safe.
+                unsafe { dav1d_ipred_pixel_set_16bpc_neon(out, px, n) }
+            }
+        }
+    }
+
+    fn ipred_z1_neon<BD: BitDepth>(
+        dst: *mut BD::Pixel,
+        stride: ptrdiff_t,
+        topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+        topleft_off: usize,
+        width: c_int,
+        height: c_int,
+        mut angle: c_int,
+        _max_width: c_int,
+        _max_height: c_int,
+        bd: BD,
+    ) {
+        let topleft_in = &topleft_in[topleft_off..];
+        let is_sm = (angle >> 9) & 1 != 0;
+        let enable_intra_edge_filter = angle >> 10;
+        angle &= 511;
+        let mut dx = dav1d_dr_intra_derivative[(angle >> 1) as usize] as c_int;
+        const TOP_OUT_SIZE: usize = 64 + 64 * (64 + 15) * 2 + 16;
+        let mut top_out = [0.into(); TOP_OUT_SIZE];
+        let max_base_x;
+        let upsample_above = if enable_intra_edge_filter != 0 {
+            get_upsample(width + height, 90 - angle, is_sm)
+        } else {
+            false
+        };
+        if upsample_above {
+            bd_fn!(z1_upsample_edge::decl_fn, BD, ipred_z1_upsample_edge, neon).call(
+                &mut top_out,
+                width + height,
+                topleft_in,
+                width + cmp::min(width, height),
+                bd,
+            );
+            max_base_x = 2 * (width + height) - 2;
+            dx <<= 1;
+        } else {
+            let filter_strength = if enable_intra_edge_filter != 0 {
+                get_filter_strength(width + height, 90 - angle, is_sm)
+            } else {
+                0
+            };
+            if filter_strength != 0 {
+                bd_fn!(z1_filter_edge::decl_fn, BD, ipred_z1_filter_edge, neon).call::<BD>(
+                    &mut top_out,
+                    width + height,
+                    topleft_in,
+                    width + cmp::min(width, height),
+                    filter_strength,
+                );
+                max_base_x = width + height - 1;
+            } else {
+                max_base_x = width + cmp::min(width, height) - 1;
+                let len = max_base_x as usize + 1;
+                top_out[..len].copy_from_slice(&topleft_in[1..][..len]);
+            }
+        }
+        let base_inc = 1 + upsample_above as c_int;
+        let pad_pixels = width + 15;
+        let px = top_out[max_base_x as usize];
+        rav1d_ipred_pixel_set_neon::<BD>(
+            &mut top_out[max_base_x as usize + 1..],
+            px,
+            pad_pixels * base_inc,
+        );
+        if upsample_above {
+            bd_fn!(z13_fill::decl_fn, BD, ipred_z1_fill2, neon)
+                .call::<BD>(dst, stride, &top_out, width, height, dx, max_base_x);
+        } else {
+            bd_fn!(z13_fill::decl_fn, BD, ipred_z1_fill1, neon)
+                .call::<BD>(dst, stride, &top_out, width, height, dx, max_base_x);
+        };
+    }
+
+    fn ipred_z2_neon<BD: BitDepth>(
+        dst: *mut BD::Pixel,
+        stride: ptrdiff_t,
+        topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+        topleft_off: usize,
+        width: c_int,
+        height: c_int,
+        mut angle: c_int,
+        max_width: c_int,
+        max_height: c_int,
+        bd: BD,
+    ) {
+        let topleft_in = &topleft_in[topleft_off..];
+        let is_sm = (angle >> 9) & 1 != 0;
+        let enable_intra_edge_filter = angle >> 10;
+        angle &= 511;
+        assert!(angle > 90 && angle < 180);
+        let mut dy = dav1d_dr_intra_derivative[((angle - 90) >> 1) as usize] as c_int;
+        let mut dx = dav1d_dr_intra_derivative[((180 - angle) >> 1) as usize] as c_int;
+        let mut buf = [0.to::<BD::Pixel>(); 3 * (64 + 1)]; // NOTE: C code doesn't initialize
+
+        // The asm can underread below the start of top[] and left[]; to avoid
+        // surprising behaviour, make sure this is within the allocated stack space.
+        let left_offset = 2 * (64 + 1);
+        let top_offset = 1 * (64 + 1);
+        let flipped_offset = 0 * (64 + 1);
+
+        let upsample_left = if enable_intra_edge_filter != 0 {
+            get_upsample(width + height, 180 - angle, is_sm)
+        } else {
+            false
+        };
+        let upsample_above = if enable_intra_edge_filter != 0 {
+            get_upsample(width + height, angle - 90, is_sm)
+        } else {
+            false
+        };
+
+        if upsample_above {
+            bd_fn!(z2_upsample_edge::decl_fn, BD, ipred_z2_upsample_edge, neon).call(
+                &mut buf[top_offset..],
+                width,
+                topleft_in,
+                bd,
+            );
+            dx <<= 1;
+        } else {
+            let filter_strength = if enable_intra_edge_filter != 0 {
+                get_filter_strength(width + height, angle - 90, is_sm)
+            } else {
+                0
+            };
+
+            if filter_strength != 0 {
+                bd_fn!(z1_filter_edge::decl_fn, BD, ipred_z1_filter_edge, neon).call::<BD>(
+                    &mut buf[1 + top_offset..],
+                    cmp::min(max_width, width),
+                    topleft_in,
+                    width,
+                    filter_strength,
+                );
+
+                if max_width < width {
+                    let len = (width - max_width) as usize;
+                    buf[top_offset + 1 + max_width as usize..][..len]
+                        .copy_from_slice(&topleft_in[1 + max_width as usize..][..len]);
+                }
+            } else {
+                BD::pixel_copy(
+                    &mut buf[1 + top_offset..],
+                    &topleft_in[1..][..width as usize],
+                    width as usize,
+                );
+            }
+        }
+
+        if upsample_left {
+            buf[flipped_offset] = topleft_in[0];
+            bd_fn!(reverse::decl_fn, BD, ipred_reverse, neon).call::<BD>(
+                &mut buf[1 + flipped_offset..],
+                topleft_in,
+                height,
+            );
+            let (src, dst) = buf.split_at_mut(left_offset);
+            bd_fn!(z2_upsample_edge::decl_fn, BD, ipred_z2_upsample_edge, neon).call(
+                dst,
+                height,
+                &src[flipped_offset..],
+                bd,
+            );
+            dy <<= 1;
+        } else {
+            let filter_strength = if enable_intra_edge_filter != 0 {
+                get_filter_strength(width + height, 180 - angle, is_sm)
+            } else {
+                0
+            };
+            if filter_strength != 0 {
+                buf[flipped_offset] = topleft_in[0];
+                bd_fn!(reverse::decl_fn, BD, ipred_reverse, neon).call::<BD>(
+                    &mut buf[1 + flipped_offset..],
+                    topleft_in,
+                    height,
+                );
+                let (src, dst) = buf.split_at_mut(1 + left_offset);
+                bd_fn!(z1_filter_edge::decl_fn, BD, ipred_z1_filter_edge, neon).call::<BD>(
+                    dst,
+                    cmp::min(max_height, height),
+                    &src[flipped_offset..],
+                    height,
+                    filter_strength,
+                );
+                if max_height < height {
+                    let len = (height - max_height) as usize;
+                    let (src, dst) = buf[1 + max_height as usize..].split_at_mut(left_offset);
+                    dst[..len].copy_from_slice(&src[flipped_offset..][..len]);
+                }
+            } else {
+                bd_fn!(reverse::decl_fn, BD, ipred_reverse, neon).call::<BD>(
+                    &mut buf[left_offset + 1..],
+                    topleft_in,
+                    height,
+                );
+            }
+        }
+        buf[top_offset] = topleft_in[0];
+        buf[left_offset] = topleft_in[0];
+
+        assert!(!(upsample_above && upsample_left));
+
+        if !upsample_above && !upsample_left {
+            bd_fn!(z2_fill::decl_fn, BD, ipred_z2_fill1, neon).call::<BD>(
+                dst,
+                stride,
+                &buf[top_offset..],
+                &buf[left_offset..],
+                width,
+                height,
+                dx,
+                dy,
+            );
+        } else if upsample_above {
+            bd_fn!(z2_fill::decl_fn, BD, ipred_z2_fill2, neon).call::<BD>(
+                dst,
+                stride,
+                &buf[top_offset..],
+                &buf[left_offset..],
+                width,
+                height,
+                dx,
+                dy,
+            );
+        } else {
+            bd_fn!(z2_fill::decl_fn, BD, ipred_z2_fill3, neon).call::<BD>(
+                dst,
+                stride,
+                &buf[top_offset..],
+                &buf[left_offset..],
+                width,
+                height,
+                dx,
+                dy,
+            );
+        };
+    }
+
+    fn ipred_z3_neon<BD: BitDepth>(
+        dst: *mut BD::Pixel,
+        stride: ptrdiff_t,
+        topleft_in: &[BD::Pixel; SCRATCH_EDGE_LEN],
+        topleft_off: usize,
+        width: c_int,
+        height: c_int,
+        mut angle: c_int,
+        _max_width: c_int,
+        _max_height: c_int,
+        bd: BD,
+    ) {
+        let topleft_in = &topleft_in[topleft_off..];
+        let is_sm = (angle >> 9) & 1 != 0;
+        let enable_intra_edge_filter = angle >> 10;
+        angle &= 511;
+        assert!(angle > 180);
+        let mut dy = dav1d_dr_intra_derivative[(270 - angle >> 1) as usize] as c_int;
+        let mut flipped = [0.into(); 64 + 64 + 16];
+        let mut left_out = [0.into(); 64 + 64 + (64 + 15) * 2];
+        let max_base_y;
+        let upsample_left = if enable_intra_edge_filter != 0 {
+            get_upsample(width + height, angle - 180, is_sm)
+        } else {
+            false
+        };
+        if upsample_left {
+            flipped[0] = topleft_in[0];
+            bd_fn!(reverse::decl_fn, BD, ipred_reverse, neon).call::<BD>(
+                &mut flipped[1..],
+                topleft_in,
+                height + cmp::max(width, height),
+            );
+            bd_fn!(z1_upsample_edge::decl_fn, BD, ipred_z1_upsample_edge, neon).call(
+                &mut left_out,
+                width + height,
+                &flipped,
+                height + cmp::min(width, height),
+                bd,
+            );
+            max_base_y = 2 * (width + height) - 2;
+            dy <<= 1;
+        } else {
+            let filter_strength = if enable_intra_edge_filter != 0 {
+                get_filter_strength(width + height, angle - 180, is_sm)
+            } else {
+                0
+            };
+            if filter_strength != 0 {
+                flipped[0] = topleft_in[0];
+                bd_fn!(reverse::decl_fn, BD, ipred_reverse, neon).call::<BD>(
+                    &mut flipped[1..],
+                    topleft_in,
+                    height + cmp::max(width, height),
+                );
+                bd_fn!(z1_filter_edge::decl_fn, BD, ipred_z1_filter_edge, neon).call::<BD>(
+                    &mut left_out,
+                    width + height,
+                    &flipped,
+                    height + cmp::min(width, height),
+                    filter_strength,
+                );
+                max_base_y = width + height - 1;
+            } else {
+                bd_fn!(reverse::decl_fn, BD, ipred_reverse, neon).call::<BD>(
+                    &mut left_out,
+                    topleft_in,
+                    height + cmp::min(width, height),
+                );
+                max_base_y = height + cmp::min(width, height) - 1;
+            }
+        }
+        let base_inc = 1 + upsample_left as c_int;
+        let pad_pixels = cmp::max(64 - max_base_y - 1, height + 15);
+        let px = left_out[max_base_y as usize];
+        rav1d_ipred_pixel_set_neon::<BD>(
+            &mut left_out[max_base_y as usize + 1..],
+            px,
+            pad_pixels * base_inc,
+        );
+        if upsample_left {
+            bd_fn!(z13_fill::decl_fn, BD, ipred_z3_fill2, neon)
+                .call::<BD>(dst, stride, &left_out, width, height, dy, max_base_y);
+        } else {
+            bd_fn!(z13_fill::decl_fn, BD, ipred_z3_fill1, neon)
+                .call::<BD>(dst, stride, &left_out, width, height, dy, max_base_y);
+        };
+    }
+
+    /// # Safety
+    ///
+    /// Must be called from [`angular_ipred::Fn::call`].
+    #[deny(unsafe_op_in_unsafe_fn)]
+    pub unsafe extern "C" fn ipred_z_neon_erased<BD: BitDepth, const Z: usize>(
+        dst: *mut DynPixel,
+        stride: ptrdiff_t,
+        topleft_in: *const DynPixel,
+        width: c_int,
+        height: c_int,
+        angle: c_int,
+        max_width: c_int,
+        max_height: c_int,
+        bitdepth_max: c_int,
+        topleft_off: usize,
+        _dst: *const FFISafe<PicOffset>,
+    ) {
+        let dst = dst.cast();
+        // SAFETY: Reconstructed from args passed by `angular_ipred::Fn::call`.
+        let topleft_in = unsafe { reconstruct_topleft::<BD>(topleft_in, topleft_off) };
+        let bd = BD::from_c(bitdepth_max);
+        [ipred_z1_neon, ipred_z2_neon, ipred_z3_neon][Z - 1](
+            dst,
+            stride,
+            topleft_in,
+            topleft_off,
+            width,
+            height,
+            angle,
+            max_width,
+            max_height,
+            bd,
+        )
+    }
+}
+
+impl Rav1dIntraPredDSPContext {
+    pub const fn default<BD: BitDepth>() -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "asm")] {
+                Self {
+                    intra_pred: {
+                        let mut a = [DefaultValue::DEFAULT; N_IMPL_INTRA_PRED_MODES];
+                        a[DC_PRED as usize] =
+                            angular_ipred::Fn::new(ipred_dc_c_erased::<BD, { DcGen::TopLeft as u8 }>);
+                        a[DC_128_PRED as usize] = angular_ipred::Fn::new(ipred_dc_128_c_erased::<BD>);
+                        a[TOP_DC_PRED as usize] =
+                            angular_ipred::Fn::new(ipred_dc_c_erased::<BD, { DcGen::Top as u8 }>);
+                        a[LEFT_DC_PRED as usize] =
+                            angular_ipred::Fn::new(ipred_dc_c_erased::<BD, { DcGen::Left as u8 }>);
+                        a[HOR_PRED as usize] = angular_ipred::Fn::new(ipred_h_c_erased::<BD>);
+                        a[VERT_PRED as usize] = angular_ipred::Fn::new(ipred_v_c_erased::<BD>);
+                        a[PAETH_PRED as usize] = angular_ipred::Fn::new(ipred_paeth_c_erased::<BD>);
+                        a[SMOOTH_PRED as usize] = angular_ipred::Fn::new(ipred_smooth_c_erased::<BD>);
+                        a[SMOOTH_V_PRED as usize] = angular_ipred::Fn::new(ipred_smooth_v_c_erased::<BD>);
+                        a[SMOOTH_H_PRED as usize] = angular_ipred::Fn::new(ipred_smooth_h_c_erased::<BD>);
+                        a[Z1_PRED as usize] = angular_ipred::Fn::new(ipred_z_c_erased::<BD, 1>);
+                        a[Z2_PRED as usize] = angular_ipred::Fn::new(ipred_z_c_erased::<BD, 2>);
+                        a[Z3_PRED as usize] = angular_ipred::Fn::new(ipred_z_c_erased::<BD, 3>);
+                        a[FILTER_PRED as usize] = angular_ipred::Fn::new(ipred_filter_c_erased::<BD>);
+                        a
+                    },
+                    cfl_ac: enum_map!(Rav1dPixelLayoutSubSampled => cfl_ac::Fn; match key {
+                        I420 => cfl_ac::Fn::new(cfl_ac_c_erased::<BD, true, true>),
+                        I422 => cfl_ac::Fn::new(cfl_ac_c_erased::<BD, true, false>),
+                        I444 => cfl_ac::Fn::new(cfl_ac_c_erased::<BD, false, false>),
+                    }),
+                    cfl_pred: {
+                        let mut a = [DefaultValue::DEFAULT; 6];
+                        a[DC_PRED as usize] =
+                            cfl_pred::Fn::new(ipred_cfl_c_erased::<BD, { DcGen::TopLeft as u8 }>);
+                        a[DC_128_PRED as usize] = cfl_pred::Fn::new(ipred_cfl_128_c_erased::<BD>);
+                        a[TOP_DC_PRED as usize] =
+                            cfl_pred::Fn::new(ipred_cfl_c_erased::<BD, { DcGen::Top as u8 }>);
+                        a[LEFT_DC_PRED as usize] =
+                            cfl_pred::Fn::new(ipred_cfl_c_erased::<BD, { DcGen::Left as u8 }>);
+                        a
+                    },
+                    pal_pred: pal_pred::Fn::new(pal_pred_c_erased::<BD>),
+                }
+            } else {
+                Self {
+                    intra_pred: [DefaultValue::DEFAULT; N_IMPL_INTRA_PRED_MODES],
+                    cfl_ac: enum_map!(Rav1dPixelLayoutSubSampled => cfl_ac::Fn; match key {
+                        I420 => cfl_ac::Fn::DEFAULT,
+                        I422 => cfl_ac::Fn::DEFAULT,
+                        I444 => cfl_ac::Fn::DEFAULT,
+                    }),
+                    cfl_pred: [DefaultValue::DEFAULT; 6],
+                    pal_pred: pal_pred::Fn::DEFAULT,
+                }
+            }
+        }
+    }
+
+    #[cfg(all(feature = "asm", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[inline(always)]
+    const fn init_x86<BD: BitDepth>(mut self, flags: CpuFlags) -> Self {
+        if !flags.contains(CpuFlags::SSSE3) {
+            return self;
+        }
+
+        self.intra_pred[DC_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_dc, ssse3);
+        self.intra_pred[DC_128_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_128, ssse3);
+        self.intra_pred[TOP_DC_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_top, ssse3);
+        self.intra_pred[LEFT_DC_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_left, ssse3);
+        self.intra_pred[HOR_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_h, ssse3);
+        self.intra_pred[VERT_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_v, ssse3);
+        self.intra_pred[PAETH_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_paeth, ssse3);
+        self.intra_pred[SMOOTH_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth, ssse3);
+        self.intra_pred[SMOOTH_H_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_h, ssse3);
+        self.intra_pred[SMOOTH_V_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_v, ssse3);
+        self.intra_pred[Z1_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_z1, ssse3);
+        self.intra_pred[Z2_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_z2, ssse3);
+        self.intra_pred[Z3_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_z3, ssse3);
+        self.intra_pred[FILTER_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_filter, ssse3);
+
+        self.cfl_pred[DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl, ssse3);
+        self.cfl_pred[DC_128_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_128, ssse3);
+        self.cfl_pred[TOP_DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_top, ssse3);
+        self.cfl_pred[LEFT_DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_left, ssse3);
+
+        self.cfl_ac = enum_map!(Rav1dPixelLayoutSubSampled => cfl_ac::Fn; match key {
+            I420 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_420, ssse3),
+            I422 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_422, ssse3),
+            I444 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_444, ssse3),
+        });
+
+        self.pal_pred = bd_fn!(pal_pred::decl_fn, BD, pal_pred, ssse3);
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            if !flags.contains(CpuFlags::AVX2) {
+                return self;
+            }
+
+            self.intra_pred[DC_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_dc, avx2);
+            self.intra_pred[DC_128_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_128, avx2);
+            self.intra_pred[TOP_DC_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_top, avx2);
+            self.intra_pred[LEFT_DC_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_left, avx2);
+            self.intra_pred[HOR_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_h, avx2);
+            self.intra_pred[VERT_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_v, avx2);
+            self.intra_pred[PAETH_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_paeth, avx2);
+            self.intra_pred[SMOOTH_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth, avx2);
+            self.intra_pred[SMOOTH_H_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_h, avx2);
+            self.intra_pred[SMOOTH_V_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_v, avx2);
+            self.intra_pred[Z1_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_z1, avx2);
+            self.intra_pred[Z2_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_z2, avx2);
+            self.intra_pred[Z3_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_z3, avx2);
+            self.intra_pred[FILTER_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_filter, avx2);
+
+            self.cfl_pred[DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl, avx2);
+            self.cfl_pred[DC_128_PRED as usize] =
+                bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_128, avx2);
+            self.cfl_pred[TOP_DC_PRED as usize] =
+                bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_top, avx2);
+            self.cfl_pred[LEFT_DC_PRED as usize] =
+                bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_left, avx2);
+
+            self.cfl_ac = enum_map!(Rav1dPixelLayoutSubSampled => cfl_ac::Fn; match key {
+                I420 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_420, avx2),
+                I422 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_422, avx2),
+                I444 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_444, avx2),
+            });
+
+            self.pal_pred = bd_fn!(pal_pred::decl_fn, BD, pal_pred, avx2);
+
+            if !flags.contains(CpuFlags::AVX512ICL) {
+                return self;
+            }
+
+            if let BPC::BPC8 = BD::BPC {
+                self.intra_pred[DC_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_dc, avx512icl);
+                self.intra_pred[DC_128_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_dc_128, avx512icl);
+                self.intra_pred[TOP_DC_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_dc_top, avx512icl);
+                self.intra_pred[LEFT_DC_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_dc_left, avx512icl);
+                self.intra_pred[HOR_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_h, avx512icl);
+                self.intra_pred[VERT_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_v, avx512icl);
+                self.intra_pred[Z2_PRED as usize] =
+                    bpc_fn!(angular_ipred::decl_fn, 8 bpc, ipred_z2, avx512icl);
+            }
+
+            self.intra_pred[PAETH_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_paeth, avx512icl);
+            self.intra_pred[SMOOTH_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth, avx512icl);
+            self.intra_pred[SMOOTH_H_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_h, avx512icl);
+            self.intra_pred[SMOOTH_V_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_v, avx512icl);
+            self.intra_pred[Z1_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_z1, avx512icl);
+            self.intra_pred[Z2_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_z2, avx512icl);
+            self.intra_pred[Z3_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_z3, avx512icl);
+            self.intra_pred[FILTER_PRED as usize] =
+                bd_fn!(angular_ipred::decl_fn, BD, ipred_filter, avx512icl);
+
+            self.pal_pred = bd_fn!(pal_pred::decl_fn, BD, pal_pred, avx512icl);
+        }
+
+        self
+    }
+
+    #[cfg(all(feature = "asm", any(target_arch = "arm", target_arch = "aarch64")))]
+    #[inline(always)]
+    const fn init_arm<BD: BitDepth>(mut self, flags: CpuFlags) -> Self {
+        if !flags.contains(CpuFlags::NEON) {
+            return self;
+        }
+
+        self.intra_pred[DC_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_dc, neon);
+        self.intra_pred[DC_128_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_128, neon);
+        self.intra_pred[TOP_DC_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_top, neon);
+        self.intra_pred[LEFT_DC_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_dc_left, neon);
+        self.intra_pred[HOR_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_h, neon);
+        self.intra_pred[VERT_PRED as usize] = bd_fn!(angular_ipred::decl_fn, BD, ipred_v, neon);
+        self.intra_pred[PAETH_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_paeth, neon);
+        self.intra_pred[SMOOTH_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth, neon);
+        self.intra_pred[SMOOTH_V_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_v, neon);
+        self.intra_pred[SMOOTH_H_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_smooth_h, neon);
+        #[cfg(target_arch = "aarch64")]
+        {
+            use self::neon::ipred_z_neon_erased;
+
+            self.intra_pred[Z1_PRED as usize] =
+                angular_ipred::Fn::new(ipred_z_neon_erased::<BD, 1>);
+            self.intra_pred[Z2_PRED as usize] =
+                angular_ipred::Fn::new(ipred_z_neon_erased::<BD, 2>);
+            self.intra_pred[Z3_PRED as usize] =
+                angular_ipred::Fn::new(ipred_z_neon_erased::<BD, 3>);
+        }
+        self.intra_pred[FILTER_PRED as usize] =
+            bd_fn!(angular_ipred::decl_fn, BD, ipred_filter, neon);
+
+        self.cfl_pred[DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl, neon);
+        self.cfl_pred[DC_128_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_128, neon);
+        self.cfl_pred[TOP_DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_top, neon);
+        self.cfl_pred[LEFT_DC_PRED as usize] = bd_fn!(cfl_pred::decl_fn, BD, ipred_cfl_left, neon);
+
+        self.cfl_ac = enum_map!(Rav1dPixelLayoutSubSampled => cfl_ac::Fn; match key {
+            I420 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_420, neon),
+            I422 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_422, neon),
+            I444 => bd_fn!(cfl_ac::decl_fn, BD, ipred_cfl_ac_444, neon),
+        });
+
+        self.pal_pred = bd_fn!(pal_pred::decl_fn, BD, pal_pred, neon);
+
+        self
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "asm")]
+    const fn init<BD: BitDepth>(self, flags: CpuFlags) -> Self {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            return self.init_x86::<BD>(flags);
+        }
+        #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+        {
+            return self.init_arm::<BD>(flags);
+        }
+
+        #[allow(unreachable_code)] // Reachable on some #[cfg]s.
+        {
+            let _ = flags;
+            self
+        }
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "asm"))]
+    const fn init<BD: BitDepth>(self, flags: CpuFlags) -> Self {
+        #[allow(unreachable_code)] // Reachable on some #[cfg]s.
+        {
+            let _ = flags;
+            self
+        }
+    }
+
+    #[cfg(feature = "asm")]
+    pub const fn new<BD: BitDepth>(flags: CpuFlags) -> Self {
+        Self::default::<BD>().init::<BD>(flags)
+    }
+
+    #[cfg(not(feature = "asm"))]
+    pub const fn new<BD: BitDepth>(flags: CpuFlags) -> Self {
+        Self::default::<BD>().init::<BD>(flags)
+    }
+}

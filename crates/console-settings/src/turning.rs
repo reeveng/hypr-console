@@ -32,8 +32,9 @@
 //! upside down it is the only way up that reads at all.
 
 use console_core_never::Never;
+use console_core_screen_orientation::{Mounted, Transform};
 use console_core_words::Words;
-use console_screen::{Mounted, Screen};
+use console_screen::Screen;
 
 use crate::screens::{Output, Unnamed};
 
@@ -51,29 +52,22 @@ pub enum Turn {
 
 pub const EVERY: [Turn; 4] = [Turn::Left, Turn::Upright, Turn::Right, Turn::Over];
 
-pub const QUARTERS: u32 = 4;
-
 impl Turn {
-    pub fn quarters(self) -> Result<u32, Never> {
+    pub fn from_the_mounting(self) -> Result<Transform, Never> {
         Ok(match self {
-            Turn::Left => 1,
-            Turn::Upright => 0,
-            Turn::Right => 3,
-            Turn::Over => 2,
+            Turn::Left => Transform::Degrees90,
+            Turn::Upright => Transform::Normal,
+            Turn::Right => Transform::Degrees270,
+            Turn::Over => Transform::Degrees180,
         })
     }
 
-    pub fn transform(self, mode: console_core_geometry::Size<u32>) -> Result<u32, Never> {
+    pub fn transform(self, mode: console_core_geometry::Size<u32>) -> Result<Transform, Never> {
         let Ok(mounted) = Mounted::of(mode);
         let Ok(mounting) = mounted.transform();
-        let Ok(quarters) = self.quarters();
+        let Ok(turned) = self.from_the_mounting();
 
-        let round = mounting.saturating_add(quarters).checked_rem(QUARTERS);
-
-        Ok(match round {
-            Some(transform) => transform,
-            None => mounting,
-        })
+        mounting.then(turned)
     }
 
     pub fn of(said: &str) -> Result<Option<Self>, Never> {
@@ -113,17 +107,17 @@ mod tests {
     use super::*;
     use console_core_geometry::Size;
 
-    const PANEL: Screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+    const PANEL: Screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: Transform::Degrees90 };
 
-    const LAPTOP: Screen = Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: 0 };
+    const LAPTOP: Screen = Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: Transform::Normal };
 
     #[test]
     fn upright_is_the_way_the_panel_is_mounted_and_not_a_transform_of_nothing() {
         let Ok(handheld) = Turn::Upright.transform(PANEL.mode);
         let Ok(desk) = Turn::Upright.transform(LAPTOP.mode);
 
-        assert_eq!(handheld, 1);
-        assert_eq!(desk, 0);
+        assert_eq!(handheld, Transform::Degrees90);
+        assert_eq!(desk, Transform::Normal);
     }
 
     #[test]
@@ -131,12 +125,12 @@ mod tests {
         let Ok(left) = Turn::Left.transform(PANEL.mode);
         let Ok(right) = Turn::Right.transform(PANEL.mode);
 
-        assert_eq!((left, right), (2, 0));
+        assert_eq!((left, right), (Transform::Degrees180, Transform::Normal));
     }
 
     #[test]
     fn the_four_a_panel_can_stand_at_are_four_transforms_and_no_two_the_same() {
-        let every: Vec<u32> = EVERY
+        let every: Vec<Transform> = EVERY
             .into_iter()
             .map(|turn| {
                 let Ok(transform) = turn.transform(PANEL.mode);
@@ -145,11 +139,11 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(every, vec![2, 1, 0, 3]);
+        assert_eq!(every, vec![Transform::Degrees180, Transform::Degrees90, Transform::Normal, Transform::Degrees270]);
 
         let Ok(over) = Turn::Over.transform(LAPTOP.mode);
 
-        assert_eq!(over, 2, "a half turn is a half turn whichever way a panel is mounted");
+        assert_eq!(over, Transform::Degrees180, "a half turn is a half turn whichever way a panel is mounted");
     }
 
     #[test]

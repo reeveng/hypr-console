@@ -74,6 +74,11 @@
 //! that is ours is the eight between an evdev code and an xkb one, which is
 //! historical and never changes.
 //!
+//! Whether the surface holds the keyboard is kept as well, from the enter and
+//! leave the compositor sends, because a key pressed before the enter goes to
+//! whoever held the keyboard before, and a check that presses the moment a
+//! panel has drawn is pressing at a surface that may not be listening yet.
+//!
 //! A key that is held down arrives once. Repeat is the client's to run, from
 //! the rate the compositor sends in `repeat_info`, and nothing above this has
 //! asked for one: a d-pad held on a list is a step per press today. When
@@ -202,6 +207,12 @@ pub enum Keyboard {
     Takes,
     OnDemand,
     Declines,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardFocus {
+    Here,
+    Elsewhere,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -460,6 +471,7 @@ pub struct Bound {
     reading: xkb::Context,
     typing: Option<xkb::State>,
     keyboard_events: Vec<KeyboardEvent>,
+    focus: KeyboardFocus,
 }
 
 pub struct Surface {
@@ -558,6 +570,7 @@ impl Surface {
             reading: xkb::Context::new(xkb::CONTEXT_NO_FLAGS),
             typing: None,
             keyboard_events: Vec::new(),
+            focus: KeyboardFocus::Elsewhere,
         };
 
         Ok(Surface { connection, queue, bound })
@@ -863,6 +876,10 @@ impl Surface {
 
     pub fn keyboard_events(&mut self) -> Result<Vec<KeyboardEvent>, Never> {
         Ok(std::mem::take(&mut self.bound.keyboard_events))
+    }
+
+    pub fn keyboard_focus(&self) -> Result<KeyboardFocus, Never> {
+        Ok(self.bound.focus)
     }
 
     pub fn pointer_events(&mut self) -> Result<Vec<PointerEvent>, Never> {
@@ -1535,6 +1552,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Bound {
                     Err(why) => eprintln!("no keymap to read: {why}"),
                 }
             }
+            wl_keyboard::Event::Enter { .. } => bound.focus = KeyboardFocus::Here,
+            wl_keyboard::Event::Leave { .. } => bound.focus = KeyboardFocus::Elsewhere,
             wl_keyboard::Event::Modifiers {
                 mods_depressed,
                 mods_latched,

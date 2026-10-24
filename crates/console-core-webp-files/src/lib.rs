@@ -28,17 +28,25 @@
 //! rather than drawn in part.
 
 mod alpha;
+#[allow(dead_code, reason = "a piece of the lossy encoder, landed ahead of the frame writer that will call it; until that is written its own tests are what runs it")]
+mod boolean_encoder;
 mod booleans;
 mod chances;
 mod colours;
 mod container;
 mod drawing;
+#[allow(dead_code, reason = "a piece of the lossy encoder, landed ahead of the frame writer that will call it; until that is written its own tests are what runs it")]
+mod forward;
 mod inverse;
 mod loop_filter;
 mod lossless;
 mod lossy;
+#[allow(dead_code, reason = "a piece of the lossy encoder, landed ahead of the frame writer that will call it; until that is written its own tests are what runs it")]
+mod mode_coding;
 mod prediction;
 mod prefix;
+#[allow(dead_code, reason = "a piece of the lossy encoder, landed ahead of the frame writer that will call it; until that is written its own tests are what runs it")]
+mod residual_coding;
 mod rounds;
 mod transforms;
 

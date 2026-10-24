@@ -15,11 +15,11 @@
 //! it. [`measured`] says how big that upright picture is without decoding any
 //! of it.
 //!
-//! Baseline and progressive JPEGs are read, in grey, YCbCr or RGB, with any
-//! chroma subsampling whose factors divide each other. What a camera does not
-//! write -- arithmetic coding, twelve bits a sample, the lossless and the
-//! hierarchical processes, CMYK -- is refused by name, so a caller can hand the
-//! file to something that does read it.
+//! Baseline and progressive JPEGs are read, in grey, YCbCr, RGB or the CMYK a
+//! print shop's software writes, with any chroma subsampling whose factors
+//! divide each other. What nothing this desktop meets writes -- arithmetic
+//! coding, twelve bits a sample, the lossless and the hierarchical processes --
+//! is refused by name.
 //!
 //! Nothing here opens a file. It is handed bytes, and a stranger's bytes are
 //! what it is for: every length the file states is checked against what is
@@ -73,7 +73,6 @@ pub enum Unsupported {
     Lossless,
     Hierarchical,
     TwelveBits,
-    Cmyk,
     Components(u8),
     Sampling,
     HeightAfterwards,
@@ -99,7 +98,6 @@ impl std::fmt::Display for Unsupported {
             Unsupported::Lossless => write!(to, "losslessly"),
             Unsupported::Hierarchical => write!(to, "hierarchically"),
             Unsupported::TwelveBits => write!(to, "at twelve bits a sample"),
-            Unsupported::Cmyk => write!(to, "in CMYK"),
             Unsupported::Components(count) => write!(to, "with {count} components"),
             Unsupported::Sampling => write!(to, "with sampling factors that do not divide each other"),
             Unsupported::HeightAfterwards => write!(to, "with its height after the first scan"),

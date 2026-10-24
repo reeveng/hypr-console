@@ -25,7 +25,9 @@
 //! [`Mounted`] says a panel whose native mode is taller than it is wide is one
 //! someone screwed in sideways, which is what the Legion Go's 1600x2560 eDP is
 //! and what no laptop's is. A desktop that has to be told that in a file per
-//! machine is a desktop no one can install on a machine no one here owns.
+//! machine is a desktop no one can install on a machine no one here owns. The
+//! arithmetic of a turn is `console-core-screen-orientation`'s, and this crate
+//! only says which screen it is asked about.
 //!
 //! A test environment that is not the shape, the size or the density of the
 //! thing it stands in for is a test environment that agrees with you. The
@@ -42,12 +44,14 @@ use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, whole_u32};
 
+pub use console_core_screen_orientation::{Mounted, ParseError, Shape, Transform};
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Screen {
     pub mode: Size<u32>,
     pub refresh: u32,
     pub scale: f64,
-    pub transform: u32,
+    pub transform: Transform,
 }
 
 pub const CONFIGURATION: &str = "files/home/@user@/.config/console/hypr/hyprland.lua";
@@ -61,6 +65,7 @@ pub enum Undeclared {
     NoScale,
     ScaleNotANumber,
     NoTransform,
+    NotATransform(ParseError),
     NotAWholeNumber(String),
 }
 
@@ -74,6 +79,7 @@ impl fmt::Display for Undeclared {
             Undeclared::NoScale => write!(to, "the screen says nothing about its scale"),
             Undeclared::ScaleNotANumber => write!(to, "that scale is not a number"),
             Undeclared::NoTransform => write!(to, "the screen says nothing about its transform"),
+            Undeclared::NotATransform(fault) => write!(to, "{fault}"),
             Undeclared::NotAWholeNumber(said) => write!(to, "{said:?} is not a whole number"),
         }
     }
@@ -86,12 +92,6 @@ pub fn from_hyprland_config() -> Result<Screen, Undeclared> {
 }
 
 const DECLARED: &str = include_str!("../../../files/home/@user@/.config/console/hypr/hyprland.lua");
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Turned {
-    Sideways,
-    Upright,
-}
 
 impl Screen {
     pub fn read(lua: &str) -> Result<Self, Undeclared> {
@@ -115,43 +115,26 @@ impl Screen {
         let Ok(found) = after(&block, Named("transform"));
 
         let turn = found.ok_or(Undeclared::NoTransform)?;
-        let transform = number(&turn)?;
+        let numbered = number(&turn)?;
+        let transform = Transform::of(i64::from(numbered)).map_err(Undeclared::NotATransform)?;
 
         Ok(Screen { mode: Size { width: wide, height: tall }, refresh, scale, transform })
     }
 
-    pub fn orientation(&self) -> Result<Turned, Never> {
-        Ok(match self.transform & 1 == 1 {
-            true => Turned::Sideways,
-            false => Turned::Upright,
-        })
-    }
-
     pub fn pixels(&self) -> Result<Size<u32>, Never> {
-        let Ok(turned) = self.orientation();
-
-        Ok(match turned {
-            Turned::Sideways => Size { width: self.mode.height, height: self.mode.width },
-            Turned::Upright => self.mode,
-        })
+        self.transform.picture_size(self.mode)
     }
 
     pub fn on_the_panel(&self, at: Point<u32>) -> Result<Point<u32>, Never> {
         let Ok(room) = self.logical();
-        let (across, down) = (
-            f64::from(at.x) / f64::from(room.width.max(1)),
-            f64::from(at.y) / f64::from(room.height.max(1)),
-        );
-
-        let (x, y) = match self.transform & 3 {
-            0 => (across, down),
-            1 => (down, 1.0 - across),
-            2 => (1.0 - across, 1.0 - down),
-            _ => (1.0 - down, across),
+        let share = Point {
+            x: f64::from(at.x) / f64::from(room.width.max(1)),
+            y: f64::from(at.y) / f64::from(room.height.max(1)),
         };
+        let Ok(on_the_panel) = self.transform.onto_panel(share);
 
-        let Ok(across) = whole_u32(x * f64::from(self.mode.width));
-        let Ok(down) = whole_u32(y * f64::from(self.mode.height));
+        let Ok(across) = whole_u32(on_the_panel.x * f64::from(self.mode.width));
+        let Ok(down) = whole_u32(on_the_panel.y * f64::from(self.mode.height));
 
         Ok(Point { x: across, y: down })
     }
@@ -180,29 +163,11 @@ impl Screen {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Shape {
-    Wider,
-    Taller,
-}
-
-impl Shape {
-    pub fn other(self) -> Result<Shape, Never> {
-        Ok(match self {
-            Shape::Wider => Shape::Taller,
-            Shape::Taller => Shape::Wider,
-        })
-    }
-}
-
 impl Screen {
     pub fn shape(&self) -> Result<Shape, Never> {
         let Ok(pixels) = self.pixels();
 
-        Ok(match pixels.height > pixels.width {
-            true => Shape::Taller,
-            false => Shape::Wider,
-        })
+        Shape::of(pixels)
     }
 }
 
@@ -234,40 +199,7 @@ impl Canvas {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mounted {
-    Sideways,
-    Upright,
-}
-
-pub const QUARTER: u32 = 1;
-
-pub const SQUARE: u32 = 0;
-
 pub const INTERNAL: &str = "eDP";
-
-impl Mounted {
-    pub fn of(mode: Size<u32>) -> Result<Self, Never> {
-        Ok(match mode.height > mode.width {
-            true => Mounted::Sideways,
-            false => Mounted::Upright,
-        })
-    }
-
-    pub fn transform(self) -> Result<u32, Never> {
-        Ok(match self {
-            Mounted::Sideways => QUARTER,
-            Mounted::Upright => SQUARE,
-        })
-    }
-
-    pub fn how_it_is_mounted(self) -> Result<&'static str, Never> {
-        Ok(match self {
-            Mounted::Sideways => "taller than it is wide, so it is turned a quarter",
-            Mounted::Upright => "wider than it is tall, so it is not turned",
-        })
-    }
-}
 
 pub fn panel(monitors: &[Monitor]) -> Result<Option<&Monitor>, Never> {
     let built_in = monitors.iter().find(|monitor| monitor.named.starts_with(INTERNAL));
@@ -296,10 +228,14 @@ pub fn from_monitor(monitor: &Monitor) -> Result<Option<Screen>, Never> {
         None => return Ok(None),
     };
 
+    let transform = match Transform::of(turn) {
+        Ok(transform) => transform,
+        Err(_flipped_or_no_transform_at_all) => return Ok(None),
+    };
+
     let Ok(across) = fitted::<i64, u32>(wide);
     let Ok(down) = fitted::<i64, u32>(tall);
     let Ok(refresh) = whole_u32(refresh);
-    let Ok(transform) = fitted::<i64, u32>(turn);
 
     Ok(Some(Screen { mode: Size { width: across, height: down }, refresh, scale, transform }))
 }
@@ -425,9 +361,9 @@ mod tests {
         Ok(Point { x, y })
     }
 
-    const HANDHELD_SCREEN: Screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: 1 };
+    const HANDHELD_SCREEN: Screen = Screen { mode: Size { width: 1600, height: 2560 }, refresh: 144, scale: 2.5, transform: Transform::Degrees90 };
 
-    const LAPTOP_SCREEN: Screen = Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: SQUARE };
+    const LAPTOP_SCREEN: Screen = Screen { mode: Size { width: 1920, height: 1200 }, refresh: 60, scale: 1.0, transform: Transform::Normal };
 
     #[test]
     fn the_screen_this_device_has_is_read() -> Result<(), Box<dyn Error>> {
@@ -435,11 +371,7 @@ mod tests {
         let Ok(turned) = size((2560, 1600));
 
         assert_eq!(screen.pixels(), Ok(turned));
-        assert_eq!(
-            screen.orientation(),
-            Ok(Turned::Sideways),
-            "the panel is mounted portrait and turned"
-        );
+        assert_eq!(screen.transform, Transform::Degrees90, "the panel is mounted portrait and turned");
 
         Ok(())
     }
@@ -447,13 +379,13 @@ mod tests {
     #[test]
     fn the_seed_reads_a_finger_through_the_quarter_it_draws_the_seed_screen_at() -> Result<(), Box<dyn Error>> {
         let screen = from_hyprland_config()?;
-        let said = format!("transform = {}", screen.transform);
+        let Ok(number) = screen.transform.number();
+        let said = format!("transform = {number}");
         let (_, from_touch) = DECLARED.split_once("touchdevice").ok_or("the seed says how a touch is read")?;
 
         assert!(
             from_touch.contains(&said),
-            "the seed draws at {} and reads a finger at something else",
-            screen.transform
+            "the seed draws at {number} and reads a finger at something else"
         );
 
         let (before_dofile, _) = DECLARED.split_once("pcall(dofile").ok_or("the seed reads the machine's own block")?;
@@ -482,7 +414,7 @@ mod tests {
 
     #[test]
     fn a_screen_that_is_not_turned_leaves_a_finger_where_it_was() {
-        let upright = Screen { transform: 0, ..HANDHELD_SCREEN };
+        let upright = Screen { transform: Transform::Normal, ..HANDHELD_SCREEN };
         let Ok(room) = upright.logical();
         let Ok(top_left) = point((0, 0));
         let Ok(far_corner) = point((room.width, room.height));
@@ -495,7 +427,8 @@ mod tests {
     #[test]
     fn every_turn_puts_the_corner_somewhere_of_its_own() {
         let Ok(top_left) = point((0, 0));
-        let corners: Vec<Point<u32>> = (0..4)
+        let corners: Vec<Point<u32>> = console_core_screen_orientation::EVERY
+            .into_iter()
             .map(|transform| {
                 let Ok(corner) = Screen { transform, ..HANDHELD_SCREEN }.on_the_panel(top_left);
 
@@ -516,11 +449,11 @@ mod tests {
         let laptop = LAPTOP_SCREEN;
 
         assert_eq!(portrait.shape(), Ok(Shape::Wider), "a sideways panel at its quarter is wide");
-        assert_eq!(Screen { transform: 3, ..portrait }.shape(), Ok(Shape::Wider), "the other quarter");
-        assert_eq!(Screen { transform: 0, ..portrait }.shape(), Ok(Shape::Taller));
-        assert_eq!(Screen { transform: 2, ..portrait }.shape(), Ok(Shape::Taller), "upside down");
+        assert_eq!(Screen { transform: Transform::Degrees270, ..portrait }.shape(), Ok(Shape::Wider), "the other quarter");
+        assert_eq!(Screen { transform: Transform::Normal, ..portrait }.shape(), Ok(Shape::Taller));
+        assert_eq!(Screen { transform: Transform::Degrees180, ..portrait }.shape(), Ok(Shape::Taller), "upside down");
         assert_eq!(laptop.shape(), Ok(Shape::Wider));
-        assert_eq!(Screen { transform: 1, ..laptop }.shape(), Ok(Shape::Taller));
+        assert_eq!(Screen { transform: Transform::Degrees90, ..laptop }.shape(), Ok(Shape::Taller));
     }
 
     #[test]
@@ -529,7 +462,7 @@ mod tests {
         let Ok(upright) = size((1600, 2560));
 
         assert_eq!(HANDHELD_SCREEN.pixels(), Ok(turned));
-        assert_eq!(Screen { transform: 0, ..HANDHELD_SCREEN }.pixels(), Ok(upright));
+        assert_eq!(Screen { transform: Transform::Normal, ..HANDHELD_SCREEN }.pixels(), Ok(upright));
     }
 
     #[test]
@@ -583,7 +516,7 @@ mod tests {
 
         assert_eq!(screen.mode, mode);
         assert_eq!(screen.scale, 1.0);
-        assert_eq!(screen.transform, SQUARE);
+        assert_eq!(screen.transform, Transform::Normal);
         assert_eq!(screen.pixels(), Ok(mode), "nothing is turned");
 
         Ok(())
@@ -600,17 +533,6 @@ mod tests {
     }
 
     #[test]
-    fn a_panel_taller_than_it_is_wide_was_screwed_in_sideways() {
-        let Ok(handheld) = size((1600, 2560));
-        let Ok(laptop) = size((1920, 1200));
-        let Ok(wide) = size((2560, 1600));
-
-        assert_eq!(Mounted::of(handheld), Ok(Mounted::Sideways), "the handheld");
-        assert_eq!(Mounted::of(laptop), Ok(Mounted::Upright), "a laptop");
-        assert_eq!(Mounted::of(wide), Ok(Mounted::Upright));
-    }
-
-    #[test]
     fn what_a_sideways_panel_wants_is_the_quarter_turn_the_device_is_set_up_with() -> Result<(), Box<dyn Error>> {
         let declared = from_hyprland_config()?;
         let Ok(mounted) = Mounted::of(declared.mode);
@@ -620,6 +542,22 @@ mod tests {
             transform, declared.transform,
             "the turn in the compositor's file is the one the panel's own mode asks for, so a \
              machine no one here owns needs no file to say it"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_flipped_screen_is_not_read_as_the_turn_under_the_flip() -> Result<(), Box<dyn Error>> {
+        let monitors = monitors(
+            r#"[{"name":"eDP-1","width":1600,"height":2560,"refreshRate":144.0,"scale":2.5,"transform":5}]"#,
+        )?;
+        let Ok(shown) = shown(&monitors);
+
+        assert_eq!(shown, None);
+        assert_eq!(
+            Screen::read(r#"hl.monitor({ mode = "1600x2560@144", scale = 2.5, transform = 5 })"#),
+            Err(Undeclared::NotATransform(ParseError::Flipped(5)))
         );
 
         Ok(())

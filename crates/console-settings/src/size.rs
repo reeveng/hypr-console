@@ -138,7 +138,7 @@ impl Across {
 }
 
 impl Size {
-    pub fn across(self) -> Result<Across, Never> {
+    pub fn width(self) -> Result<Across, Never> {
         Ok(match self {
             Size::Tiny => Across::Pixels,
             Size::Smaller => Across::Points(Canvas(1280)),
@@ -149,7 +149,7 @@ impl Size {
     }
 
     pub fn scale_on(self, screen: &Screen) -> Result<f64, Never> {
-        let Ok(across) = self.across();
+        let Ok(across) = self.width();
 
         across.scale_on(screen)
     }
@@ -200,7 +200,7 @@ pub fn current_size(monitors: &[console_compositor::Monitor]) -> Result<Option<S
 pub fn lua(panel: Output<'_>, screen: &Screen, scale: f64) -> Result<String, Never> {
     let (wide, tall) = (screen.mode.width, screen.mode.height);
     let named = panel.0;
-    let transform = screen.transform;
+    let Ok(transform) = screen.transform.number();
 
     Ok(format!(
         r#"hl.monitor({{ output = "{named}", mode = "{wide}x{tall}@{}", position = "auto", scale = {scale}, transform = {transform} }}) hl.config({{ input = {{ touchdevice = {{ output = "{named}", transform = {transform} }} }} }})"#,
@@ -220,7 +220,7 @@ mod tests {
             mode: console_core_geometry::Size { width: 1920, height: 1200 },
             refresh: 60,
             scale: 1.0,
-            transform: 0,
+            transform: console_screen::Transform::Normal,
         })
     }
 
@@ -300,16 +300,16 @@ mod tests {
             mode: console_core_geometry::Size { width: 1280, height: 800 },
             refresh: 60,
             scale: 1.0,
-            transform: 0,
+            transform: console_screen::Transform::Normal,
         };
 
-        let Ok(smaller) = Size::Smaller.across();
-        let Ok(normal) = Size::Normal.across();
+        let Ok(smaller) = Size::Smaller.width();
+        let Ok(normal) = Size::Normal.width();
 
         assert_eq!(smaller.fits(&small), Ok(Fits::OnThePanel), "1280 across on a 1280 panel");
         assert_eq!(normal.fits(&small), Ok(Fits::OnThePanel));
 
-        let Ok(tiny) = Size::Tiny.across();
+        let Ok(tiny) = Size::Tiny.width();
 
         assert_eq!(tiny.fits(&small), Ok(Fits::OnThePanel), "the panel's own pixels always fit");
     }
@@ -414,13 +414,14 @@ mod tests {
     fn the_touchscreen_is_read_through_the_quarter_the_picture_is_drawn_at() -> Result<(), Failure> {
         let declared = console_screen::from_hyprland_config()?;
 
-        for transform in 0..4 {
+        for transform in console_core_screen_orientation::EVERY {
             let screen = Screen { transform, ..declared };
             let Ok(said) = lua_for(&screen, 2.5);
+            let Ok(number) = transform.number();
 
             assert!(said.contains("touchdevice"), "the finger was not told anything: {said}");
             assert_eq!(
-                said.matches(&format!("transform = {transform}")).count(),
+                said.matches(&format!("transform = {number}")).count(),
                 2,
                 "the screen and the finger on it are at two different quarters: {said}"
             );

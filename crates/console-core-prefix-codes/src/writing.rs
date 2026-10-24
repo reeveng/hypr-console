@@ -218,19 +218,19 @@ struct Fronts {
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Taken {
+struct Claimed {
     node: Node,
     weight: u64,
     fronts: Fronts,
 }
 
-fn lightest(leaves: &[u64], joined: &[(u64, [Node; 2])], fronts: Fronts) -> Result<Option<Taken>, Never> {
+fn lightest(leaves: &[u64], joined: &[(u64, [Node; 2])], fronts: Fronts) -> Result<Option<Claimed>, Never> {
     let Ok(leaf) = index(fronts.leaf);
     let Ok(made) = index(fronts.joined);
     let past_the_leaf = Fronts { leaf: fronts.leaf.saturating_add(1), joined: fronts.joined };
     let past_the_joined = Fronts { leaf: fronts.leaf, joined: fronts.joined.saturating_add(1) };
-    let a_leaf = |weight: u64| Taken { node: Node::Leaf(fronts.leaf), weight, fronts: past_the_leaf };
-    let a_join = |weight: u64| Taken { node: Node::Joined(fronts.joined), weight, fronts: past_the_joined };
+    let a_leaf = |weight: u64| Claimed { node: Node::Leaf(fronts.leaf), weight, fronts: past_the_leaf };
+    let a_join = |weight: u64| Claimed { node: Node::Joined(fronts.joined), weight, fronts: past_the_joined };
 
     Ok(match (leaves.get(leaf), joined.get(made)) {
         (Some(one), Some((other, _))) => match one <= other {
@@ -243,7 +243,7 @@ fn lightest(leaves: &[u64], joined: &[(u64, [Node; 2])], fronts: Fronts) -> Resu
     })
 }
 
-fn two_lightest(leaves: &[u64], joined: &[(u64, [Node; 2])], fronts: Fronts) -> Result<Option<[Taken; 2]>, Never> {
+fn two_lightest(leaves: &[u64], joined: &[(u64, [Node; 2])], fronts: Fronts) -> Result<Option<[Claimed; 2]>, Never> {
     let Ok(first) = lightest(leaves, joined, fronts);
 
     let first = match first {

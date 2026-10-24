@@ -86,6 +86,7 @@ console-notifications.workspace = true
 console-music.workspace = true
 console-panel.workspace = true
 console-screen.workspace = true
+console-core-screen-orientation.workspace = true
 console-wallpaper.workspace = true
 console-input-alphabets.workspace = true
 console-input-language.workspace = true

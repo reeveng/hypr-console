@@ -62,9 +62,9 @@ pub enum State {
     #[words(name = "differs")]
     Differs,
     #[words(name = "missing")]
-    Missing,
+    NotFound,
     #[words(name = "cannot read")]
-    Unreadable,
+    ParseError,
     #[words(name = "unsourced")]
     Unsourced,
 }
@@ -73,7 +73,7 @@ impl State {
     pub fn up_to_date(self) -> Result<UpToDate, Never> {
         Ok(match self {
             State::Ok | State::WrittenOnce => UpToDate::Yes,
-            State::Differs | State::Missing | State::Unreadable | State::Unsourced => UpToDate::No,
+            State::Differs | State::NotFound | State::ParseError | State::Unsourced => UpToDate::No,
         })
     }
 }
@@ -114,9 +114,9 @@ pub fn state(source: &Path, live: &str, user: User<'_>, written: Written) -> Res
         (Ok(_), Err(fault)) => match fault.kind() == std::io::ErrorKind::PermissionDenied {
             true => match written {
                 Written::Once => State::WrittenOnce,
-                Written::Always => State::Unreadable,
+                Written::Always => State::ParseError,
             },
-            false => State::Missing,
+            false => State::NotFound,
         },
         (Ok(held), Ok(there)) => match written {
             Written::Once => State::WrittenOnce,
@@ -212,8 +212,8 @@ mod tests {
             Err(_refused) => {},
         }
 
-        assert_eq!(said, Ok(State::Unreadable), "a file that cannot be read is not a file that is gone");
-        assert_ne!(said, Ok(State::Missing));
+        assert_eq!(said, Ok(State::ParseError), "a file that cannot be read is not a file that is gone");
+        assert_ne!(said, Ok(State::NotFound));
 
         Ok(())
     }
@@ -236,7 +236,7 @@ mod tests {
 
         assert_eq!(
             state(&source, &at, LIVING_HERE, Written::Once),
-            Ok(State::Missing),
+            Ok(State::NotFound),
             "nothing would have put it back"
         );
 

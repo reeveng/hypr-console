@@ -153,7 +153,7 @@ impl Oklch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HexColor<'a>(pub &'a str);
+pub struct Ansi<'a>(pub &'a str);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ground<'a>(pub &'a str);
@@ -369,7 +369,7 @@ pub fn luminance(code: &str) -> Result<f64, Never> {
     Ok(0.2126 * red + 0.7152 * green + 0.0722 * blue)
 }
 
-pub fn contrast(ink: HexColor<'_>, ground: Ground<'_>) -> Result<f64, Never> {
+pub fn contrast(ink: Ansi<'_>, ground: Ground<'_>) -> Result<f64, Never> {
     let Ok(first) = luminance(ink.0);
     let Ok(second) = luminance(ground.0);
 
@@ -402,7 +402,7 @@ fn apca_luminance(code: &str) -> Result<f64, Never> {
     })
 }
 
-pub fn lightness_contrast(ink: HexColor<'_>, ground: Ground<'_>) -> Result<f64, Never> {
+pub fn lightness_contrast(ink: Ansi<'_>, ground: Ground<'_>) -> Result<f64, Never> {
     let Ok(ink) = apca_luminance(ink.0);
     let Ok(ground) = apca_luminance(ground.0);
 
@@ -441,7 +441,7 @@ pub enum Clears {
 }
 
 impl Floor {
-    pub fn cleared_by(self, ink: HexColor<'_>, ground: Ground<'_>) -> Result<Clears, Never> {
+    pub fn cleared_by(self, ink: Ansi<'_>, ground: Ground<'_>) -> Result<Clears, Never> {
         let Ok(contrast) = contrast(ink, ground);
         let Ok(lightness_contrast) = lightness_contrast(ink, ground);
 
@@ -451,7 +451,7 @@ impl Floor {
         })
     }
 
-    pub fn clears_all(self, ink: HexColor<'_>, grounds: &[String]) -> Result<Clears, Never> {
+    pub fn clears_all(self, ink: Ansi<'_>, grounds: &[String]) -> Result<Clears, Never> {
         for ground in grounds {
             let Ok(cleared) = self.cleared_by(ink, Ground(ground));
 
@@ -471,7 +471,7 @@ impl fmt::Display for Floor {
     }
 }
 
-pub fn over(ink: HexColor<'_>, ground: Ground<'_>, alpha: f64) -> Result<String, Never> {
+pub fn over(ink: Ansi<'_>, ground: Ground<'_>, alpha: f64) -> Result<String, Never> {
     let Ok(top) = bytes(ink.0);
     let Ok(bottom) = bytes(ground.0);
 
@@ -502,7 +502,7 @@ pub fn lightest_clearing(
     let clears = |lightness: f64| {
         let Ok(at) = from.at(lightness);
         let Ok(code) = hexcode(at);
-        let Ok(clears) = floor.clears_all(HexColor(&code), grounds);
+        let Ok(clears) = floor.clears_all(Ansi(&code), grounds);
 
         clears
     };
@@ -543,7 +543,7 @@ pub fn darkest_clearing(
     let clears = |lightness: f64| {
         let Ok(at) = from.at(lightness);
         let Ok(code) = hexcode(at);
-        let Ok(clears) = floor.clears_all(HexColor(&code), ceilings);
+        let Ok(clears) = floor.clears_all(Ansi(&code), ceilings);
 
         clears
     };

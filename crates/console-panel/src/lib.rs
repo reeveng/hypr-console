@@ -38,4 +38,5 @@ pub mod surface;
 pub mod tab;
 pub mod description;
 pub mod whose;
+pub mod window;
 pub mod zoom;

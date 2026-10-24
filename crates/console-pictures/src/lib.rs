@@ -7,22 +7,13 @@
 //! compositor reads, so the toolkit was carrying four call sites for a shape
 //! that fits in one struct.
 //!
-//! **What decodes it is what the device already has.** ffmpeg is in
-//! `[packages]` because the viewer and the thumbnails have always wanted
-//! frames out of a film, and it reads every raster format this desktop can
-//! meet -- PNG, JPEG, WebP, HEIF, the lot -- and scales while it is there.
-//! What it does not read is SVG, which is most of an icon theme, so an SVG is
-//! drawn by the library gdk-pixbuf was calling for it all along: librsvg, as
-//! `rsvg-convert`, into a PNG that the same one path then reads. That is one
-//! new package to lose a toolkit, and it is the package the toolkit was using.
-//!
-//! **The size is asked for rather than guessed.** Raw video carries no header,
-//! so a decode that scales and then reads the bytes does not know what shape
-//! they are. ffprobe says what the file is before ffmpeg is told what to make
-//! of it, the fitting is arithmetic here where it can be tested, and ffmpeg is
-//! handed the exact width and height -- so the run that comes back is the size
-//! this crate already said it would be, and a short one is a fault rather than
-//! a picture with a torn last row.
+//! **What decodes it is this process, and ffmpeg only for what is left.** The
+//! formats a photograph, a screenshot and an icon arrive in are read by crates
+//! in this tree, and a film's first picture by `console-films`, which
+//! reads MPEG-4 and Matroska and the four codecs a film is written in. What
+//! none of them reads -- HEIF and AVIF off a phone, TIFF, a film in another
+//! container -- is handed to ffmpeg by `stills`, which asks ffprobe for the
+//! size first so the run that comes back is a size this crate already knew.
 //!
 //! Two shapes are wanted and both are here. A picture drawn into a space is
 //! fitted to it, which is every icon and every thumbnail; a cover under a song
@@ -43,8 +34,8 @@
 //! the time a folder takes to show. `console-core-jpeg-files` reads a JPEG in
 //! this process, at the smallest of its own sizes that covers the room, and the
 //! way the camera was held -- which ffprobe does not say, so a portrait was
-//! measured lying on its side. What it refuses, CMYK or arithmetic coding, goes
-//! to ffmpeg as everything did before. `console-core-png-files` reads a PNG
+//! measured lying on its side. What it refuses, arithmetic coding or twelve
+//! bits a sample, goes to ffmpeg as everything did before. `console-core-png-files` reads a PNG
 //! whole, whatever kind it is, `console-core-gif-files` the first frame of a
 //! GIF and `console-core-webp-files` the first frame of a WebP, lossy or
 //! lossless, and each is drawn down from there. The first twelve bytes of a
@@ -75,12 +66,10 @@
 //! smaller while it decodes it, is the measure this is held to: no slower, and
 //! in no more memory.
 //!
-//! **A page of a PDF arrives already decoded.** poppler's `pdftoppm` writes
-//! the page it drew as a PPM on its standard output, which is a line of header
-//! and then the pixels, so [`from_portable_pixmap`] reads it here rather than handing a
-//! file to ffmpeg to find out what it already says. The same shape is what
-//! [`portable_pixmap`] writes, for a picture this desktop drew itself -- a QR
-//! code of the Wi-Fi -- which then goes the one way every other file does.
+//! **A picture this desktop drew itself is a PPM.** A line of header and then
+//! the pixels is what [`portable_pixmap`] writes -- a QR code of the Wi-Fi --
+//! and [`from_portable_pixmap`] reads it back, so it goes the one way every
+//! other file does.
 //!
 //! A file that neither of them can read is no picture rather than a failure. It
 //! is the ordinary case -- a folder of two hundred things is walked for the few
@@ -89,13 +78,14 @@
 //! that is not the length this crate worked out, because both of those are the
 //! machine rather than the file.
 
+mod stills;
+
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 
 use console_concurrency::Cores;
-use console_core_external_programs::Program;
+use console_films::FilmError;
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_jpeg_files::{JpegError, Task};
 use console_core_webp_files::WebpError;
@@ -107,12 +97,15 @@ use console_core_words::Words;
 
 pub const SVG: &str = "svg";
 
-const BYTES_A_PIXEL: u32 = 4;
+pub(crate) const BYTES_A_PIXEL: u32 = 4;
 
 pub const SPREAD_FROM: u32 = 512;
 
 #[derive(Debug)]
 pub enum PictureError {
+    Unread(PathBuf, std::io::Error),
+    Unrendered(PathBuf, console_core_scalable_vector_graphics::Error),
+    Film(FilmError),
     Query(&'static str, std::io::Error),
     Unmeasured(PathBuf, String),
     Short { of: PathBuf, wanted: u64, got: u64 },
@@ -121,13 +114,12 @@ pub enum PictureError {
 impl std::fmt::Display for PictureError {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            PictureError::Unread(at, fault) => write!(to, "{}: {fault}", at.display()),
+            PictureError::Unrendered(at, fault) => write!(to, "{}: drawing it: {fault}", at.display()),
+            PictureError::Film(fault) => write!(to, "{fault}"),
             PictureError::Query(program, fault) => write!(to, "{program}: {fault}"),
-            PictureError::Unmeasured(at, said) => {
-                write!(to, "{}: nothing says how big this is: {said:?}", at.display())
-            },
-            PictureError::Short { of, wanted, got } => {
-                write!(to, "{}: {got} bytes of a picture that is {wanted}", of.display())
-            },
+            PictureError::Unmeasured(at, said) => write!(to, "{}: nothing says how big this is: {said:?}", at.display()),
+            PictureError::Short { of, wanted, got } => write!(to, "{}: {got} bytes of a picture that is {wanted}", of.display()),
         }
     }
 }
@@ -173,7 +165,7 @@ pub struct Bitmap {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FullSize {
     Decoded(Format, Bitmap),
-    Refused(Format),
+    Rejected(Format),
     Unrecognized,
 }
 
@@ -393,30 +385,32 @@ pub fn measure(at: &Path) -> Result<Option<Size<u32>>, PictureError> {
         None => {},
     }
 
-    let Ok(mut asking) = Program::Ffprobe.command();
+    let filmed = film_measured(at)?;
 
-    let said = asking
-        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height"])
-        .args(["-of", "csv=p=0"])
-        .arg(at)
-        .output()
-        .map_err(|fault| PictureError::Query("ffprobe", fault))?;
-
-    match said.status.success() {
-        true => {},
-        false => return Ok(None),
+    match filmed {
+        Some(upright) => Ok(Some(upright)),
+        None => stills::measured(at),
     }
+}
 
-    let printed = String::from_utf8_lossy(&said.stdout).trim().to_string();
+fn film_measured(at: &Path) -> Result<Option<Size<u32>>, PictureError> {
+    let film = console_films::open(at);
 
-    let (wide, tall) = match printed.split_once(',') {
-        Some((wide, tall)) => (wide.trim().to_string(), tall.trim().to_string()),
-        None => return Err(PictureError::Unmeasured(at.to_path_buf(), printed)),
+    let film = match film {
+        Ok(Some(film)) => film,
+        Ok(None) => return Ok(None),
+        Err(fault) => return unless_decoding(fault),
     };
 
-    match (wide.parse::<u32>(), tall.parse::<u32>()) {
-        (Ok(wide), Ok(tall)) => Ok(Some(Size { width: wide, height: tall })),
-        (Err(_), _) | (_, Err(_)) => Err(PictureError::Unmeasured(at.to_path_buf(), printed)),
+    let Ok(facts) = film.facts();
+
+    Ok(facts.map(|facts| facts.size))
+}
+
+fn unless_decoding<T>(fault: FilmError) -> Result<Option<T>, PictureError> {
+    match fault {
+        FilmError::Unopened(_, _) | FilmError::Unread(_, _) => Ok(None),
+        FilmError::Undecoded(_, _) => Err(PictureError::Film(fault)),
     }
 }
 
@@ -437,22 +431,27 @@ pub fn fit_within(had: Size<u32>, within: Size<u32>) -> Result<Size<u32>, Never>
     Ok(Size { width: made_wide.max(1), height: made_tall.max(1) })
 }
 
-fn extract_frame(at: &Path, filter: &str) -> Result<Option<Vec<u8>>, PictureError> {
-    let Ok(mut asking) = Program::Ffmpeg.command();
+fn first_picture(at: &Path) -> Result<Option<console_films::Picture>, PictureError> {
+    let film = console_films::open(at);
 
-    let said = asking
-        .args(["-v", "error", "-i"])
-        .arg(at)
-        .args(["-vf", filter, "-frames:v", "1"])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|fault| PictureError::Query("ffmpeg", fault))?;
+    let film = match film {
+        Ok(Some(film)) => film,
+        Ok(None) => return Ok(None),
+        Err(fault) => return unless_decoding(fault),
+    };
 
-    Ok(match said.status.success() {
-        true => Some(said.stdout),
-        false => None,
-    })
+    match film.first_picture() {
+        Ok(picture) => Ok(picture),
+        Err(fault) => unless_decoding(fault),
+    }
+}
+
+fn shrunk(picture: &Bitmap, shape: Shape, made: Size<u32>) -> Result<Pixels, Never> {
+    let Ok(region) = region(picture.size, shape);
+    let Ok(rgba) = scaled(Source { rgba: &picture.rgba, width: picture.size.width, region }, made);
+    let stride = made.width.saturating_mul(BYTES_A_PIXEL);
+
+    Ok(Pixels { width: made.width, height: made.height, stride, bytes: Arc::new(rgba) })
 }
 
 fn is_a_drawing(at: &Path) -> Result<Rendering, Never> {
@@ -470,45 +469,53 @@ enum Rendering {
     AsPixels,
 }
 
-fn rasterized(at: &Path, within: Size<u32>) -> Result<Option<PathBuf>, PictureError> {
-    let Ok(into) = beside(at);
-    let Ok(mut asking) = Program::RsvgConvert.command();
-    let Size { width: wide, height: tall } = within;
+fn drawn_from_paths(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
+    let bytes = std::fs::read(at).map_err(|fault| PictureError::Unread(at.to_path_buf(), fault))?;
+    let options = console_core_scalable_vector_graphics::Options::default();
+    let tree = console_core_scalable_vector_graphics::Tree::from_data(&bytes, &options).map_err(|fault| PictureError::Unrendered(at.to_path_buf(), fault))?;
+    let drawn = tree.size();
+    let Ok(wide) = whole_u32(f64::from(drawn.width()));
+    let Ok(tall) = whole_u32(f64::from(drawn.height()));
+    let Ok(made) = fit_within(Size { width: wide, height: tall }, within);
+    let Ok(across) = console_core_number_conversion::fitted::<u32, u16>(made.width);
+    let Ok(down) = console_core_number_conversion::fitted::<u32, u16>(made.height);
+    let scale = console_core_path_rasterizer::Transform::from_scale(f32::from(across) / drawn.width(), f32::from(down) / drawn.height());
 
-    let said = asking
-        .args(["-w", &wide.to_string(), "-h", &tall.to_string()])
-        .args(["--keep-aspect-ratio", "-f", "png", "-o"])
-        .arg(&into)
-        .arg(at)
-        .output()
-        .map_err(|fault| PictureError::Query("rsvg-convert", fault))?;
+    let mut pixmap = match console_core_path_rasterizer::Pixmap::new(made.width, made.height) {
+        Some(pixmap) => pixmap,
+        None => return Ok(None),
+    };
 
-    Ok(match said.status.success() {
-        true => Some(into),
-        false => {
-            let _ = std::fs::remove_file(&into);
+    console_core_scalable_vector_graphics_rasterizer::render(&tree, scale, &mut pixmap.as_mut());
 
-            None
-        }
-    })
+    let rgba: Vec<u8> = pixmap.pixels().iter().flat_map(|pixel| {
+        let color = pixel.demultiply();
+
+        [color.red(), color.green(), color.blue(), color.alpha()]
+    }).collect();
+    let stride = made.width.saturating_mul(BYTES_A_PIXEL);
+
+    Ok(Some(Pixels { width: made.width, height: made.height, stride, bytes: Arc::new(rgba) }))
 }
 
 #[cfg_attr(
     dylint_lib = "explicit044_no_ambient_value",
     allow(
         explicit044_no_ambient_value,
-        reason = "the name of a file this process is about to make and then delete, which nothing outside the process can hand it and nothing outside the process may share"
+        reason = "the name of a picture a test is about to make and then delete, which nothing outside the process can hand it and nothing outside the process may share"
     )
 )]
+#[cfg(test)]
 static ONE_AFTER_ANOTHER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[cfg_attr(
     dylint_lib = "explicit044_no_ambient_value",
     allow(
         explicit044_no_ambient_value,
-        reason = "a file this process makes, reads once and deletes, on the device and not in a test, where a directory from `fresh` would be left behind after every picture"
+        reason = "a picture a test makes, reads once and deletes, where a directory from `fresh` would be left behind after every one"
     )
 )]
+#[cfg(test)]
 fn beside(at: &Path) -> Result<PathBuf, Never> {
     let mine = ONE_AFTER_ANOTHER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let named = match at.file_stem().map(|named| named.to_string_lossy().to_string()) {
@@ -522,33 +529,10 @@ fn beside(at: &Path) -> Result<PathBuf, Never> {
 pub fn decoded(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
     let Ok(drawn_as) = is_a_drawing(at);
 
-    let standing = match drawn_as {
-        Rendering::AsPixels => None,
-        Rendering::AsPaths => {
-            let rasterized = rasterized(at, within)?;
-
-            match rasterized {
-                Some(standing) => Some(standing),
-                None => return Ok(None),
-            }
-        },
-    };
-
-    let reading = match &standing {
-        Some(standing) => standing.as_path(),
-        None => at,
-    };
-
-    let read = read(reading, within);
-
-    match standing {
-        Some(standing) => {
-            let _ = std::fs::remove_file(standing);
-        },
-        None => {},
+    match drawn_as {
+        Rendering::AsPixels => read(at, within),
+        Rendering::AsPaths => drawn_from_paths(at, within),
     }
-
-    read
 }
 
 fn read(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
@@ -560,42 +544,25 @@ fn read(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
         None => {},
     }
 
-    let measured = measure(at)?;
+    let first = first_picture(at)?;
 
-    let had = match measured {
-        Some(had) => had,
-        None => return Ok(None),
+    let picture = match first {
+        Some(picture) => picture,
+        None => return stills::fitted(at, within),
     };
 
+    let Ok(had) = picture.size();
     let Ok(made) = fit_within(had, within);
-    let Size { width: wide, height: tall } = made;
 
-    let drawn = extract_frame(at, &format!("scale={wide}:{tall}"))?;
-
-    let bytes = match drawn {
-        Some(bytes) => bytes,
-        None => return Ok(None),
+    let Ok(cores) = match within.width.max(within.height) >= SPREAD_FROM {
+        true => Cores::counted(),
+        false => Cores::one(),
     };
 
-    to_pixels(at, made, bytes)
-}
-
-fn to_pixels(at: &Path, made: Size<u32>, bytes: Vec<u8>) -> Result<Option<Pixels>, PictureError> {
-    let wanted = u64::from(made.width)
-        .saturating_mul(u64::from(BYTES_A_PIXEL))
-        .saturating_mul(u64::from(made.height));
-    let Ok(got) = console_core_number_conversion::fitted::<_, u64>(bytes.len());
-
-    match got == wanted {
-        true => {},
-        false => {
-            return Err(PictureError::Short { of: at.to_path_buf(), wanted, got });
-        }
-    }
-
+    let Ok(drawn) = picture.rgba_at(made, cores);
     let stride = made.width.saturating_mul(BYTES_A_PIXEL);
 
-    Ok(Some(Pixels { width: made.width, height: made.height, stride, bytes: Arc::new(bytes) }))
+    Ok(Some(Pixels { width: made.width, height: made.height, stride, bytes: Arc::new(drawn.rgba) }))
 }
 
 struct ImageHeader<'a> {
@@ -687,26 +654,17 @@ pub fn square(at: &Path, size: Size<u32>) -> Result<Option<Pixels>, PictureError
         None => {},
     }
 
-    let measured = measure(at)?;
+    let first = first_picture(at)?;
 
-    let had = match measured {
-        Some(had) => had,
-        None => return Ok(None),
+    let picture = match first {
+        Some(picture) => picture,
+        None => return stills::squared(at, size),
     };
 
-    let side = had.width.min(had.height);
-    let left = had.width.saturating_sub(side).saturating_div(2);
-    let top = had.height.saturating_sub(side).saturating_div(2);
-    let Size { width: wide, height: tall } = size;
+    let Ok(whole) = picture.rgba();
+    let Ok(pixels) = shrunk(&Bitmap { size: whole.size, rgba: whole.rgba }, Shape::Squared(size), size);
 
-    let drawn = extract_frame(at, &format!("crop={side}:{side}:{left}:{top},scale={wide}:{tall}"))?;
-
-    let bytes = match drawn {
-        Some(bytes) => bytes,
-        None => return Ok(None),
-    };
-
-    to_pixels(at, size, bytes)
+    Ok(Some(pixels))
 }
 
 pub fn full_size(at: &Path) -> Result<FullSize, Never> {
@@ -722,7 +680,7 @@ pub fn full_size(at: &Path) -> Result<FullSize, Never> {
 
     let upright = match measured {
         Some(upright) => upright,
-        None => return Ok(FullSize::Refused(format)),
+        None => return Ok(FullSize::Rejected(format)),
     };
 
     let bytes = opened.bytes.as_slice();
@@ -736,7 +694,7 @@ pub fn full_size(at: &Path) -> Result<FullSize, Never> {
 
     Ok(match drawn {
         Ok(Some(bitmap)) => FullSize::Decoded(format, bitmap),
-        Ok(None) => FullSize::Refused(format),
+        Ok(None) => FullSize::Rejected(format),
     })
 }
 
@@ -821,20 +779,27 @@ mod tests {
         assert_eq!(is_a_drawing(Path::new("/x/beach")), Ok(Rendering::AsPixels));
     }
 
-    fn make_picture(at: &Path, said: &str) -> Result<(), Never> {
-        made_for(at, said, 1)
+    fn make_picture(at: &Path, size: Size<u32>, colour: [u8; 4]) -> Result<(), Box<dyn Error>> {
+        let area = u64::from(size.width).saturating_mul(u64::from(size.height));
+        let Ok(area) = console_core_number_conversion::index(area);
+        let rgba = colour.repeat(area);
+        let written = console_core_png_files::encoded(&console_core_png_files::Picture { size, rgba })?;
+
+        console_core_atomic_writes::whole(at, &written)?;
+
+        Ok(())
     }
 
     #[test]
     fn what_comes_back_is_the_size_this_crate_said_and_the_colour_that_was_written() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("red"));
-        let Ok(()) = make_picture(&at, "color=c=red:s=100x50");
+        make_picture(&at, Size { width: 100, height: 50 }, [255, 0, 0, 255])?;
 
         let read = decoded(&at, Size { width: 20, height: 20 });
         let _ = std::fs::remove_file(&at);
 
         let read = read?;
-        let held = read.ok_or("ffmpeg did not read what ffmpeg wrote")?;
+        let held = read.ok_or("the picture just written did not read back")?;
 
         assert_eq!((held.width, held.height, held.stride), (20, 10, 80));
         assert_eq!(held.bytes.len(), 800);
@@ -858,32 +823,19 @@ mod tests {
 
     #[test]
     fn a_film_comes_back_as_its_first_frame_and_not_as_every_frame_in_it() -> Result<(), Box<dyn Error>> {
-        let Ok(at) = beside(Path::new("film"));
-        let at = at.with_extension("mkv");
-        let Ok(()) = made_for(&at, "testsrc=s=64x48:d=2", 50);
+        let at = Path::new(env!("CARGO_MANIFEST_DIR")).join("../console-films/tests/films/red-then-blue.av1.mkv");
 
-        let read = decoded(&at, Size { width: 32, height: 32 });
-        let _ = std::fs::remove_file(&at);
+        let measured = measure(&at)?;
+        let read = decoded(&at, Size { width: 48, height: 48 })?;
+        let held = read.ok_or("the film came back as no picture")?;
 
-        let read = read?;
-        let held = read.ok_or("ffmpeg did not read the film it wrote")?;
+        assert_eq!(measured, Some(Size { width: 96, height: 64 }));
+        assert_eq!((held.width, held.height), (48, 32));
+        assert_eq!(held.bytes.len(), 48_usize.saturating_mul(32).saturating_mul(4));
 
-        assert_eq!((held.width, held.height), (32, 24));
-        assert_eq!(held.bytes.len(), 32_usize.saturating_mul(24).saturating_mul(4));
+        let [red, _, blue, _] = held.bytes.first_chunk::<4>().copied().ok_or("no first pixel")?;
 
-        Ok(())
-    }
-
-    fn made_for(at: &Path, said: &str, frames: u32) -> Result<(), Never> {
-        let Ok(mut asking) = Program::Ffmpeg.command();
-
-        let done = asking
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", said, "-frames:v"])
-            .arg(frames.to_string())
-            .arg(at)
-            .status();
-
-        assert!(done.is_ok_and(|how| how.success()), "ffmpeg made no film to read back");
+        assert!(red > 200 && blue < 60, "the first picture is red and came back as {red} red and {blue} blue");
 
         Ok(())
     }
@@ -901,7 +853,7 @@ mod tests {
         let _ = std::fs::remove_file(&at);
 
         let read = read?;
-        let held = read.ok_or("rsvg-convert drew no picture")?;
+        let held = read.ok_or("the drawing came back as no picture")?;
 
         assert_eq!((held.width, held.height), (32, 32));
         assert_eq!(held.bytes.get(1), Some(&255), "green: {:?}", held.bytes.get(0..4));
@@ -910,15 +862,36 @@ mod tests {
     }
 
     #[test]
+    fn a_tall_drawing_keeps_its_shape_inside_a_square() -> Result<(), Box<dyn Error>> {
+        let Ok(at) = beside(Path::new("tall"));
+        let at = at.with_extension("svg");
+        console_core_atomic_writes::whole(
+            &at,
+            br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20"><rect width="10" height="20" fill="#ff0000"/></svg>"##,
+        )?;
+
+        let read = decoded(&at, Size { width: 32, height: 32 });
+        let _ = std::fs::remove_file(&at);
+
+        let read = read?;
+        let held = read.ok_or("the drawing came back as no picture")?;
+
+        assert_eq!((held.width, held.height), (16, 32));
+        assert_eq!(held.bytes.first_chunk::<4>(), Some(&[255_u8, 0, 0, 255]));
+
+        Ok(())
+    }
+
+    #[test]
     fn the_square_middle_is_the_middle_and_not_a_squashed_whole() -> Result<(), Box<dyn Error>> {
         let Ok(at) = beside(Path::new("halves"));
-        let Ok(()) = make_picture(&at, "color=c=blue:s=40x20");
+        make_picture(&at, Size { width: 40, height: 20 }, [0, 0, 255, 255])?;
 
         let read = square(&at, Size { width: 10, height: 4 });
         let _ = std::fs::remove_file(&at);
 
         let read = read?;
-        let held = read.ok_or("no square of a picture ffmpeg just wrote")?;
+        let held = read.ok_or("no square of a picture just written")?;
 
         assert_eq!((held.width, held.height, held.stride), (10, 4, 40));
         assert_eq!(held.bytes.len(), 160);
@@ -1118,14 +1091,14 @@ mod tests {
     }
 
     #[test]
-    fn a_jpeg_read_here_refuses_is_read_by_ffmpeg_instead() -> Result<(), Box<dyn Error>> {
+    fn a_jpeg_in_ink_is_read_here_too() -> Result<(), Box<dyn Error>> {
         let at = photograph("cmyk", include_bytes!("../../console-core-jpeg-files/tests/pictures/cmyk.jpg"))?;
 
         let read = decoded(&at, Size { width: 20, height: 20 });
         let _ = std::fs::remove_file(&at);
 
         let read = read?;
-        let held = read.ok_or("ffmpeg did not read a CMYK JPEG")?;
+        let held = read.ok_or("a CMYK JPEG came back as no picture")?;
 
         assert_eq!((held.width, held.height), (20, 14));
 

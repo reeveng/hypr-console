@@ -31,7 +31,7 @@ pub enum PackageState {
     #[words(name = "held as a dependency")]
     Borrowed,
     #[words(name = "missing")]
-    Missing,
+    NotFound,
 }
 
 impl PackageState {
@@ -49,7 +49,7 @@ pub fn package_state(installed: &[String], asked_for: &[String], package: &str) 
     Ok(match (said(installed), said(asked_for)) {
         (_, true) => PackageState::Ok,
         (true, false) => PackageState::Borrowed,
-        (false, false) => PackageState::Missing,
+        (false, false) => PackageState::NotFound,
     })
 }
 
@@ -105,14 +105,14 @@ mod tests {
 
     #[test]
     fn a_package_nothing_has_is_missing() {
-        assert_eq!(package_state(&[], &[], "wtype"), Ok(PackageState::Missing));
+        assert_eq!(package_state(&[], &[], "wtype"), Ok(PackageState::NotFound));
     }
 
     #[test]
     fn only_a_package_someone_asked_for_is_settled() {
         let Ok(asked_for) = PackageState::Ok.up_to_date();
         let Ok(borrowed) = PackageState::Borrowed.up_to_date();
-        let Ok(missing) = PackageState::Missing.up_to_date();
+        let Ok(missing) = PackageState::NotFound.up_to_date();
 
         assert_eq!(asked_for, UpToDate::Yes);
         assert_eq!(borrowed, UpToDate::No);

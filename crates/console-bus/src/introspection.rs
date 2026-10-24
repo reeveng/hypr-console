@@ -71,14 +71,14 @@ pub struct Interface {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
-    In,
-    Out,
+    Connected,
+    Disconnected,
 }
 
 fn argument(argument: &Argument, direction: Option<Direction>) -> Result<String, Never> {
     let direction = match direction {
-        Some(Direction::In) => " direction=\"in\"",
-        Some(Direction::Out) => " direction=\"out\"",
+        Some(Direction::Connected) => " direction=\"in\"",
+        Some(Direction::Disconnected) => " direction=\"out\"",
         None => "",
     };
 
@@ -97,8 +97,8 @@ fn arguments(listed: &[Argument], direction: Option<Direction>) -> Result<String
 }
 
 fn method(method: &Method) -> Result<String, Never> {
-    let Ok(taking) = arguments(&method.taking, Some(Direction::In));
-    let Ok(giving) = arguments(&method.giving, Some(Direction::Out));
+    let Ok(taking) = arguments(&method.taking, Some(Direction::Connected));
+    let Ok(giving) = arguments(&method.giving, Some(Direction::Disconnected));
 
     Ok(format!("    <method name=\"{}\">\n{taking}{giving}    </method>\n", method.name))
 }

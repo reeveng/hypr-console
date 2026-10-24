@@ -45,6 +45,8 @@ pub const FACTS: &str = "docs/architecture/facts.jsonl";
 
 pub const MAP: &str = "docs/architecture/map.dot";
 
+pub const PAGE: &str = "docs/architecture/map.html";
+
 pub const UNITS: &str = "files/etc/systemd/user";
 
 #[derive(Debug)]
@@ -128,5 +130,9 @@ impl Architecture {
 
     pub fn render(&self) -> Result<String, Never> {
         drawing::draw(self)
+    }
+
+    pub fn page(&self) -> Result<String, serde_json::Error> {
+        drawing::page(self)
     }
 }

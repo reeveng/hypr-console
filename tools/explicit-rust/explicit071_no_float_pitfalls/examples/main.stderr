@@ -1,0 +1,11 @@
+warning: floats compared with `==`, which a `NaN` on either side quietly answers `false` for
+  --> $DIR/main.rs:3:5
+   |
+LL |     one == another
+   |     ^^^^^^^^^^^^^^
+   |
+   = help: ask with `total_cmp`, which is total over every value the type holds, or -- where the comparison is about the bit pattern -- compare `to_bits()` on purpose. Where both sides are known good by construction, allow this rule here and let the reason say so
+   = note: `#[warn(explicit071_no_float_pitfalls)]` on by default
+
+warning: 1 warning emitted
+

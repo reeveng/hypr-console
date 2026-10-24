@@ -147,7 +147,7 @@ fn decide(state: &Watching, event: &Event<ViewerEvent>) -> Result<Transition<Wat
     let heard = match event {
         Event::Custom(heard) => heard,
         Event::Opened
-        | Event::Changed(_)
+        | Event::Modified(_)
         | Event::Tick(_, _)
         | Event::Replied(_)
         | Event::Chosen(_)

@@ -1,0 +1,11 @@
+warning: `state` on a value the function was handed is being set from outside
+  --> $DIR/main.rs:12:5
+   |
+LL |     held.state = to;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = help: send the change through the door that owns it: a request the machine answers, or a method on the type, so every change is one place a reader can name and no second writer writes the state from underneath the first. Where the value really is this type's to set -- a field it handed out for one call -- allow this rule here and let the reason say so
+   = note: `#[warn(explicit076_typestate_transitions)]` on by default
+
+warning: 1 warning emitted
+

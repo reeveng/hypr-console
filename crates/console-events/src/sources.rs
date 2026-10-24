@@ -152,33 +152,33 @@ pub fn hold(event_group: &EventGroup, say: Sender<Change>) -> Result<Subscribed,
         }
         EventGroup::Sound => {
             let Ok(arguments) = to_strings(&["subscribe"]);
-            let Ok(()) = theirs(EventGroup::Sound, Program::Pactl, arguments, say);
+            let Ok(()) = once(EventGroup::Sound, Program::Pactl, arguments, say);
 
             Subscribed::Yes
         }
         EventGroup::Network => {
             let Ok(arguments) = to_strings(&["monitor"]);
-            let Ok(()) = theirs(EventGroup::Network, Program::Nmcli, arguments, say);
+            let Ok(()) = once(EventGroup::Network, Program::Nmcli, arguments, say);
 
             Subscribed::Yes
         }
         EventGroup::Wifi => {
             let Ok(gdbus) = Program::Gdbus.name();
             let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", NETWORK_MANAGER]);
-            let Ok(()) = theirs(EventGroup::Wifi, Program::Stdbuf, arguments, say);
+            let Ok(()) = once(EventGroup::Wifi, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
         EventGroup::Bluetooth => {
             let Ok(gdbus) = Program::Gdbus.name();
             let Ok(arguments) = to_strings(&["-oL", gdbus, "monitor", "--system", "--dest", BLUEZ]);
-            let Ok(()) = theirs(EventGroup::Bluetooth, Program::Stdbuf, arguments, say);
+            let Ok(()) = once(EventGroup::Bluetooth, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
         EventGroup::Battery => {
             let Ok(arguments) = to_strings(&["monitor", "--udev", "--subsystem-match=power_supply"]);
-            let Ok(()) = theirs(EventGroup::Battery, Program::Udevadm, arguments, say);
+            let Ok(()) = once(EventGroup::Battery, Program::Udevadm, arguments, say);
 
             Subscribed::Yes
         }
@@ -187,13 +187,13 @@ pub fn hold(event_group: &EventGroup, say: Sender<Change>) -> Result<Subscribed,
                 format!("--match=interface={NOTIFICATIONS}"),
                 format!("--match=interface={APPLICATION}"),
             ]);
-            let Ok(()) = theirs(EventGroup::Notifications, Program::Stdbuf, arguments, say);
+            let Ok(()) = once(EventGroup::Notifications, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
         EventGroup::Player => {
             let Ok(arguments) = monitoring(&[format!("--match=path={PLAYERS}")]);
-            let Ok(()) = theirs(EventGroup::Player, Program::Stdbuf, arguments, say);
+            let Ok(()) = once(EventGroup::Player, Program::Stdbuf, arguments, say);
 
             Subscribed::Yes
         }
@@ -277,7 +277,7 @@ fn compositor(say: Sender<Change>) -> Result<(), Never> {
     Ok(())
 }
 
-fn theirs(
+fn once(
     about: EventGroup,
     program: Program,
     arguments: Vec<String>,

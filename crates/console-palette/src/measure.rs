@@ -1,6 +1,6 @@
 //! What was asked of each pairing, and what it actually reached.
 
-use console_core_color::{Ground, HexColor};
+use console_core_color::{Ground, Ansi};
 use console_core_color::{self as color, Short};
 use console_core_never::Never;
 
@@ -156,8 +156,8 @@ pub fn measure(configuration: &Configuration, palette: &Palette) -> Result<Vec<R
                     let ink = palette.must(front)?;
                     let ground = palette.must(back)?;
 
-                    let Ok(got) = color::contrast(HexColor(ink), Ground(ground));
-                    let Ok(got_lightness_contrast) = color::lightness_contrast(HexColor(ink), Ground(ground));
+                    let Ok(got) = color::contrast(Ansi(ink), Ground(ground));
+                    let Ok(got_lightness_contrast) = color::lightness_contrast(Ansi(ink), Ground(ground));
 
                     Ok(Row {
                         front: front.clone(),

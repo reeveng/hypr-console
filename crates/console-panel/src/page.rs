@@ -45,7 +45,7 @@ pub trait Showing {
 
     fn sure(&self, question: &str, about: Subject<'_>, does: &[&str], then: OnChosen);
 
-    fn ask_aloud(&self, question: &str, then: Answer);
+    fn ask_aloud(&self, question: &str, initial: Initial<'_>, then: Answer);
 
     fn open_out(&self);
 
@@ -81,7 +81,7 @@ impl Showing for Nowhere {
 
     fn sure(&self, _question: &str, _about: Subject<'_>, _does: &[&str], _then: OnChosen) {}
 
-    fn ask_aloud(&self, _question: &str, _then: Answer) {}
+    fn ask_aloud(&self, _question: &str, _initial: Initial<'_>, _then: Answer) {}
 
     fn note(&self, _said: &str) {}
 
@@ -263,7 +263,7 @@ pub enum ButtonStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placed {
     Among,
-    Corner,
+    Frame,
 }
 
 impl ButtonPress {
@@ -328,7 +328,7 @@ impl ButtonPress {
     }
 
     pub fn cornered(mut self) -> Result<ButtonPress, Never> {
-        self.placed = Placed::Corner;
+        self.placed = Placed::Frame;
 
         Ok(self)
     }
@@ -377,6 +377,9 @@ pub struct Aside<'a>(pub &'a str);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Subject<'a>(pub &'a str);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Initial<'a>(pub &'a str);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ends<'a> {

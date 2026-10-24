@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["tools/*"]
+exclude = ["tools", "forks"]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +9,21 @@ rust-version = "1.98"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+console-core-audio-metadata = { path = "forks/console-core-audio-metadata" }
+console-core-audio-decoding = { path = "forks/console-core-audio-decoding", default-features = false, features = ["mp3", "flac", "vorbis", "aac", "alac", "pcm", "ogg", "isomp4", "mkv", "wav", "aiff"] }
+console-core-audio-decoding-opus = { path = "forks/console-core-audio-decoding-opus" }
+console-core-video-decoding-advanced-video-coding = { path = "forks/console-core-video-decoding-advanced-video-coding" }
+console-core-video-decoding-av1 = { path = "forks/console-core-video-decoding-av1", features = ["unchecked"] }
+console-core-video-decoding-high-efficiency-video-coding = { path = "forks/console-core-video-decoding-high-efficiency-video-coding" }
+console-core-video-decoding-matroska-container = { path = "forks/console-core-video-decoding-matroska-container" }
+console-core-video-decoding-mpeg-4-container = { path = "forks/console-core-video-decoding-mpeg-4-container" }
+console-core-video-decoding-vp9 = { path = "forks/console-core-video-decoding-vp9" }
+console-films = { path = "crates/console-films" }
+console-core-portable-document-rasterizer = { path = "forks/console-core-portable-document-rasterizer" }
+console-core-portable-document-text = { path = "forks/console-core-portable-document-text" }
+console-core-scalable-vector-graphics = { path = "forks/console-core-scalable-vector-graphics", default-features = false }
+console-core-scalable-vector-graphics-rasterizer = { path = "forks/console-core-scalable-vector-graphics-rasterizer", default-features = false, features = ["svgz"] }
+console-core-path-rasterizer = { path = "forks/console-core-path-rasterizer" }
 rustix = { version = "1.1", features = ["process", "fs", "mm", "event", "pipe", "time", "param", "stdio", "thread", "linux_4_11"] }
 console-applications = { path = "crates/console-applications" }
 console-input-mapping = { path = "crates/console-input-mapping" }
@@ -23,6 +38,7 @@ console-notes = { path = "crates/console-notes" }
 console-core-gif-files = { path = "crates/console-core-gif-files" }
 console-core-jpeg-files = { path = "crates/console-core-jpeg-files" }
 console-core-png-files = { path = "crates/console-core-png-files" }
+console-core-subtitle-files = { path = "crates/console-core-subtitle-files" }
 console-core-picture-scaling = { path = "crates/console-core-picture-scaling" }
 console-core-prefix-codes = { path = "crates/console-core-prefix-codes" }
 console-core-webp-files = { path = "crates/console-core-webp-files" }
@@ -53,6 +69,7 @@ console-button-guide = { path = "crates/console-button-guide" }
 console-home-screen = { path = "crates/console-home-screen" }
 console-how-far = { path = "crates/console-how-far" }
 console-input-focus = { path = "crates/console-input-focus" }
+console-input-text = { path = "crates/console-input-text" }
 console-input-language = { path = "crates/console-input-language" }
 console-input-keyboard = { path = "crates/console-input-keyboard" }
 console-launcher = { path = "crates/console-launcher" }
@@ -97,6 +114,7 @@ console-program-contract = { path = "crates/console-program-contract" }
 console-program-runtime = { path = "crates/console-program-runtime" }
 console-core-reconnect = { path = "crates/console-core-reconnect" }
 console-core-schedules = { path = "crates/console-core-schedules" }
+console-core-screen-orientation = { path = "crates/console-core-screen-orientation" }
 console-core-state-machine = { path = "crates/console-core-state-machine" }
 console-actor = { path = "crates/console-actor" }
 console-rename = { path = "crates/console-rename" }

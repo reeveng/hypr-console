@@ -126,6 +126,38 @@ pub fn and_waited(arguments: Vec<String>) -> Result<(), Never> {
     threads::let_go(doing)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Exit {
+    Success,
+    Failure { said: String },
+}
+
+pub fn on_exit(arguments: Vec<String>, then: impl FnOnce(Exit) + Send + 'static) -> Result<(), Never> {
+    let doing = thread::spawn(move || {
+        let (program, rest) = match arguments.split_first() {
+            Some((program, rest)) => (program, rest),
+            None => return,
+        };
+
+        let mut doing = Command::new(program);
+        doing.args(rest).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+
+        let Ok(()) = console_response_times::not_a_press(&mut doing);
+
+        let exit = match doing.output() {
+            Ok(done) => match done.status.success() {
+                true => Exit::Success,
+                false => Exit::Failure { said: String::from_utf8_lossy(&done.stderr).trim().to_string() },
+            },
+            Err(fault) => Exit::Failure { said: format!("{program} would not start: {fault}") },
+        };
+
+        then(exit);
+    });
+
+    threads::let_go(doing)
+}
+
 pub fn left_running(arguments: &[String]) -> Result<(), Never> {
     use std::os::unix::process::CommandExt;
 

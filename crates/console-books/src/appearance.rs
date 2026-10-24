@@ -21,9 +21,20 @@
 //!
 //! Nothing chosen, or something that cannot be read back, is the page as it
 //! always was: the desktop's own ground, its own text, and a serif.
+//!
+//! The column the words are set in is here too, and the faces they are set
+//! in, because a book is not the only page set this way: a note opened is
+//! written on the same page, and a second spelling of a margin is a margin
+//! that drifts.
 
 use console_core_color::Oklch;
+use console_core_color::palette::Wearing;
+use console_core_fonts::{Font, Weight};
+use console_core_geometry::Size;
 use console_core_never::Never;
+use console_draw_painting::Run;
+
+use crate::pages::Style;
 use console_core_number_conversion::{Float, whole_u32};
 use console_core_words::Words;
 
@@ -144,6 +155,23 @@ impl TextSize {
     }
 }
 
+pub const READING_WIDE: u32 = 720;
+
+pub const READING_EDGE: u32 = 48;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Column {
+    pub left: u32,
+    pub width: u32,
+}
+
+pub fn column(room: Size<u32>) -> Result<Column, Never> {
+    let wide = room.width.saturating_sub(READING_EDGE.saturating_mul(2)).min(READING_WIDE);
+    let left = room.width.saturating_sub(wide).saturating_div(2);
+
+    Ok(Column { left, width: wide })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Appearance {
     pub background: Paint,
@@ -167,6 +195,41 @@ pub struct Settings<'a> {
 }
 
 impl Appearance {
+    #[must_use]
+    pub fn styled(self, style: Style) -> Result<(Font, Weight), Never> {
+        let Ok(family) = self.typeface.family();
+        let Ok((height, weight)) = match style {
+            Style::Body => Ok::<_, Never>((self.text_size.0, Weight::Plain)),
+            Style::Heading => self.text_size.heading().map(|tall| (tall, Weight::Bold)),
+        };
+
+        Ok((Font { family: family.to_string(), height }, weight))
+    }
+
+    #[must_use]
+    pub fn line_height(self, style: Style) -> Result<u32, Never> {
+        let Ok((font, weight)) = self.styled(style);
+        let Ok(measured) = console_draw_painting::measure_text(Run { said: "Ag", weight, width: 4096 }, &font);
+
+        Ok(measured.height.saturating_mul(5).saturating_div(4))
+    }
+
+    #[must_use]
+    pub fn ground(self, wearing: &Wearing) -> Result<Oklch, Never> {
+        Ok(match self.background {
+            Paint::Chosen(ground) => ground,
+            Paint::Desktop => wearing.ground,
+        })
+    }
+
+    #[must_use]
+    pub fn ink(self, wearing: &Wearing) -> Result<Oklch, Never> {
+        Ok(match self.text {
+            Paint::Chosen(ink) => ink,
+            Paint::Desktop => wearing.text,
+        })
+    }
+
     #[must_use]
     pub fn current() -> Result<Appearance, Never> {
         let background = console_defaults::setting(BACKGROUND)?;

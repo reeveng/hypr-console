@@ -73,13 +73,14 @@ alone +command:
 # and refuses to draw if one of them left no file.
 #
 # What it writes is in `docs/architecture/`: the facts, the Graphviz source,
-# and a picture of it when `dot` is on the machine. The docs rather than the
-# crate, because the picture is the one thing in the tree meant to be looked
-# at rather than read, and because the facts are what the rules in
-# `console-architecture/tests` are asked over -- the crate is the reading of
-# them, not where they live. `the_map` holds the source against what the tree
-# would draw now; `ready` runs this and fails if a line changed, which is the
-# half no test on stable can collect.
+# a picture of it when `dot` is on the machine, and `map.html`, the same map
+# as a page a browser opens, where a node tapped lights what it touches. The
+# docs rather than the crate, because the pictures are the one thing in the
+# tree meant to be looked at rather than read, and because the facts are what
+# the rules in `console-architecture/tests` are asked over -- the crate is the
+# reading of them, not where they live. `the_map` holds the source and the page
+# against what the tree would draw now; `ready` runs this and fails if a line
+# changed, which is the half no test on stable can collect.
 
 # draw how the running desktop is connected
 map:

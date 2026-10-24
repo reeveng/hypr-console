@@ -1,0 +1,45 @@
+warning: `COUNTER` is `static mut`: an input nothing named and a race
+  --> $DIR/main.rs:4:1
+   |
+LL | static mut COUNTER: u8 = 0;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hand the value in, or let an actor own it and answer requests about it. Where the crate really is the one place the value can live, allow this rule here and let the reason say why nothing else could hold it
+   = note: `#[warn(explicit068_no_global_mutable_state)]` on by default
+
+warning: `THE_ONE` is a mutable singleton behind a `static`, which is a value the first caller decides for every later one
+  --> $DIR/main.rs:6:1
+   |
+LL | static THE_ONE: OnceLock<u8> = OnceLock::new();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hand the value in, or let an actor own it and answer requests about it. Where the crate really is the one place the value can live, allow this rule here and let the reason say why nothing else could hold it
+
+warning: `GUARDED` is a `static` that changes -- a lock, an atomic, a cell -- which is state every caller shares and nobody handed anybody
+  --> $DIR/main.rs:8:1
+   |
+LL | static GUARDED: Mutex<u8> = Mutex::new(0);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hand the value in, or let an actor own it and answer requests about it. Where the crate really is the one place the value can live, allow this rule here and let the reason say why nothing else could hold it
+
+warning: `COUNTED` is a `static` that changes -- a lock, an atomic, a cell -- which is state every caller shares and nobody handed anybody
+  --> $DIR/main.rs:10:1
+   |
+LL | static COUNTED: AtomicU32 = AtomicU32::new(0);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: hand the value in, or let an actor own it and answer requests about it. Where the crate really is the one place the value can live, allow this rule here and let the reason say why nothing else could hold it
+
+warning: this `thread_local!` is state the whole thread shares, which nobody handed anybody
+  --> $DIR/main.rs:14:1
+   |
+LL | / thread_local! {
+LL | |     static MINE: u8 = 1;
+LL | | }
+   | |_^
+   |
+   = help: hand the value in, or let an actor own it and answer requests about it. Where the crate really is the one place the value can live, allow this rule here and let the reason say why nothing else could hold it
+
+warning: 5 warnings emitted
+

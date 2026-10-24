@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use console_core_geometry::Size;
-use console_core_jpeg_files::{JpegError, Picture, Quality, Task, Unsupported, decoded, decoded_spread, encoded, measured};
+use console_core_jpeg_files::{JpegError, Picture, Quality, Task, decoded, decoded_spread, encoded, measured};
 
 const WHOLE: Size<u32> = Size { width: 75, height: 53 };
 
@@ -136,10 +136,20 @@ fn the_size_is_said_without_reading_the_picture() {
 }
 
 #[test]
-fn what_a_camera_does_not_write_is_refused_by_name() {
-    let refused = decoded(include_bytes!("pictures/cmyk.jpg"), WHOLE);
+fn ink_is_drawn_as_ffmpeg_drew_it() -> Result<(), Box<dyn Error>> {
+    let pictures: [(&[u8], &[u8], f64); 2] = [
+        (include_bytes!("pictures/cmyk.jpg"), include_bytes!("pictures/cmyk.rgb"), 0.1),
+        (include_bytes!("pictures/ycck.jpg"), include_bytes!("pictures/ycck.rgb"), 1.2),
+    ];
 
-    assert_eq!(refused, Err(JpegError::Unsupported(Unsupported::Cmyk)));
+    for (bytes, expected, within) in pictures {
+        let picture = decoded(bytes, WHOLE)?;
+
+        assert_eq!(picture.size, WHOLE);
+        close(&picture, expected, within)?;
+    }
+
+    Ok(())
 }
 
 #[test]

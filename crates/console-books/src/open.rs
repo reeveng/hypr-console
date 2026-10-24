@@ -3,8 +3,8 @@
 //! An EPUB and a comic are both a zip, read whole into memory once and asked
 //! for one page at a time: a novel is a megabyte and a volume of a comic is a
 //! few dozen, which is less than a film's worth of frames and far less than
-//! the cost of opening the file again on every turn. A PDF is not held at all,
-//! because poppler is asked for each page by the file's name.
+//! the cost of opening the file again on every turn. A PDF is not held at all:
+//! it is opened again for each page it is asked for, by its file's name.
 //!
 //! The pictures a comic is made of are its images in the order of their names,
 //! which is the only order a CBZ has: the format is a zip somebody filled, and
@@ -24,6 +24,7 @@ pub enum BookError {
     Publication(PublicationError),
     NotFound(String),
     NoPictures,
+    Document(PathBuf, crate::portable_document::DocumentError),
 }
 
 impl std::fmt::Display for BookError {
@@ -34,6 +35,7 @@ impl std::fmt::Display for BookError {
             BookError::Publication(fault) => write!(to, "{fault}"),
             BookError::NotFound(name) => write!(to, "this book has no {name} in it"),
             BookError::NoPictures => write!(to, "this comic has no pictures in it"),
+            BookError::Document(at, fault) => write!(to, "{}: {fault}", at.display()),
         }
     }
 }

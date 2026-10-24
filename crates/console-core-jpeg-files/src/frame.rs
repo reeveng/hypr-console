@@ -96,8 +96,7 @@ pub(crate) fn frame(process: Process, payload: &[u8]) -> Result<Frame, JpegError
     let width = u32::from(u16::from_be_bytes([wide_high, wide_low]));
 
     match (precision, width, height, count) {
-        (8, 1.., 1.., 1 | 3) => {},
-        (8, 1.., 1.., 4) => return Err(JpegError::Unsupported(Unsupported::Cmyk)),
+        (8, 1.., 1.., 1 | 3 | 4) => {},
         (8, 1.., 1.., other) => return Err(JpegError::Unsupported(Unsupported::Components(other))),
         (8, 1.., 0, _) => return Err(JpegError::Unsupported(Unsupported::HeightAfterwards)),
         (8, 0, _, _) => return Err(JpegError::Corrupt),

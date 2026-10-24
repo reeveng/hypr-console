@@ -20,7 +20,7 @@ pub enum State {
     #[words(name = "differs")]
     Differs,
     #[words(name = "missing")]
-    Missing,
+    NotFound,
     #[words(name = "not built")]
     Unbuilt,
 }
@@ -48,7 +48,7 @@ pub fn state(root: &Path, name: &str) -> Result<State, Never> {
 
     Ok(match (std::fs::read(made), std::fs::read(live)) {
         (Err(_not_built), _) => State::Unbuilt,
-        (Ok(_), Err(_not_installed)) => State::Missing,
+        (Ok(_), Err(_not_installed)) => State::NotFound,
         (Ok(built), Ok(there)) => match built == there {
             true => State::Ok,
             false => State::Differs,
@@ -93,7 +93,7 @@ mod tests {
         let Ok(settled) = State::Unbuilt.up_to_date();
         let Ok(name) = State::Unbuilt.name();
 
-        assert_ne!(State::Unbuilt, State::Missing);
+        assert_ne!(State::Unbuilt, State::NotFound);
         assert_eq!(settled, UpToDate::No);
         assert_eq!(name, "not built");
     }

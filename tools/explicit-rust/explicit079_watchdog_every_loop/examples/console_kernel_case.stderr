@@ -1,0 +1,23 @@
+warning: this loop is a task -- the source is a channel, which ends when a machine dies -- and kicks no watchdog
+  --> $DIR/console_kernel_case.rs:9:5
+   |
+LL | /     for event in events.iter() {
+LL | |         heard = heard.saturating_add(event);
+LL | |     }
+   | |_____^
+   |
+   = help: call the watchdog inside the loop, so a hang is discovered by the machine and answered with a reboot rather than discovered by whoever is holding the device. Where the loop really is short and cannot hang, allow this rule here and let the reason say what ends it
+   = note: `#[warn(explicit079_watchdog_every_loop)]` on by default
+
+warning: this loop is a task -- the source is a channel, which ends when a machine dies -- and kicks no watchdog
+  --> $DIR/console_kernel_case.rs:31:5
+   |
+LL | /     for event in events {
+LL | |         heard = heard.saturating_add(event);
+LL | |     }
+   | |_____^
+   |
+   = help: call the watchdog inside the loop, so a hang is discovered by the machine and answered with a reboot rather than discovered by whoever is holding the device. Where the loop really is short and cannot hang, allow this rule here and let the reason say what ends it
+
+warning: 2 warnings emitted
+

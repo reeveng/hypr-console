@@ -1,0 +1,30 @@
+warning: `TakenAsItComes` reads outside data and accepts fields it has never heard of
+  --> $DIR/main.rs:3:1
+   |
+LL | / struct TakenAsItComes {
+LL | |     //~v WARN EXPLICIT064_NO_UNVALIDATED_INPUT
+LL | |     name: String,
+LL | | }
+   | |_^
+   |
+   = help: say `#[serde(deny_unknown_fields)]`, so the read fails on what the type does not describe rather than running on it. Where a field is genuinely not read any more and files in the wild still name it, allow this rule here and let the reason name the field and the date it can go
+   = note: `#[warn(explicit064_no_unvalidated_input)]` on by default
+
+warning: `TakenAsItComes` reads outside data into a `String` whose length the file decides
+  --> $DIR/main.rs:5:11
+   |
+LL |     name: String,
+   |           ^^^^^^
+   |
+   = help: bound the length at the decoder -- a fixed-capacity form, or a limit said where the file is opened -- rather than trusting the file to be the size a person would have written
+
+warning: `Asked` reads outside data into a `String` whose length the file decides
+  --> $DIR/main.rs:13:11
+   |
+LL |     name: String,
+   |           ^^^^^^
+   |
+   = help: bound the length at the decoder -- a fixed-capacity form, or a limit said where the file is opened -- rather than trusting the file to be the size a person would have written
+
+warning: 3 warnings emitted
+

@@ -271,7 +271,7 @@ fn switched_on() -> Result<std::process::ExitCode, Never> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Dimmed {
+enum DimState {
     Yes,
     No,
 }
@@ -327,17 +327,17 @@ fn follow_or_not() -> Result<std::process::ExitCode, Never> {
     })
 }
 
-fn dimmed() -> Result<Dimmed, Never> {
+fn dimmed() -> Result<DimState, Never> {
     let Ok(remembered) = remembered();
 
     let kept = match remembered {
         Some(kept) => kept,
-        None => return Ok(Dimmed::No),
+        None => return Ok(DimState::No),
     };
 
     Ok(match kept.exists() {
-        true => Dimmed::Yes,
-        false => Dimmed::No,
+        true => DimState::Yes,
+        false => DimState::No,
     })
 }
 
@@ -345,8 +345,8 @@ fn moved_to(sensor: &light::Sensor, acted: Option<Band>) -> Result<Option<Band>,
     let Ok(dimmed) = dimmed();
 
     match dimmed {
-        Dimmed::Yes => return Ok(None),
-        Dimmed::No => {},
+        DimState::Yes => return Ok(None),
+        DimState::No => {},
     }
 
     let Ok(now) = sensor.now();

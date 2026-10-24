@@ -52,6 +52,8 @@ use std::fmt::Write as _;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
+pub use console_draw_surface::KeyboardFocus;
+
 const SAID_NOTHING: &str = "";
 
 fn word_in(held: &serde_json::Value, key: &str) -> Result<String, Never> {
@@ -204,6 +206,7 @@ pub struct Description {
     pub lines: Vec<Line>,
     pub spots: Vec<Spot>,
     pub presses: u64,
+    pub keyboard: KeyboardFocus,
 }
 
 impl Description {
@@ -348,7 +351,7 @@ pub fn serialize(told: &Description) -> Result<String, Never> {
 
     let _ = write!(
         out,
-        "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"presses\":{},\"spots\":{},\"lines\":[{}]}}",
+        "{{\"panel\":{},\"tab\":{},\"out\":{},\"room\":[{},{}],\"presses\":{},\"keyboard\":{},\"spots\":{},\"lines\":[{}]}}",
         panel,
         tab,
         match told.out {
@@ -358,6 +361,10 @@ pub fn serialize(told: &Description) -> Result<String, Never> {
         told.room.0,
         told.room.1,
         told.presses,
+        match told.keyboard {
+            KeyboardFocus::Here => "true",
+            KeyboardFocus::Elsewhere => "false",
+        },
         spots,
         lines.join(",")
     );
@@ -492,6 +499,10 @@ pub fn read(said: &str) -> Result<Description, RenderError> {
             Some(presses) => presses,
             None => 0,
         },
+        keyboard: match held.get("keyboard").and_then(|held| held.as_bool()) {
+            Some(true) => KeyboardFocus::Here,
+            Some(false) | None => KeyboardFocus::Elsewhere,
+        },
         spots: {
             let Ok(spots) = spots_in(&held);
 
@@ -589,6 +600,7 @@ mod tests {
             out: Output::No,
             room: (1024, 640),
             presses: 3,
+            keyboard: KeyboardFocus::Here,
             spots: vec![shut],
             lines: vec![
                 Line {

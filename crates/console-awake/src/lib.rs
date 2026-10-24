@@ -18,10 +18,29 @@
 //! idle timer runs through all of it: by the time the push arrives the screen
 //! is out and the machine is asleep, and the apply that would have taken the
 //! lock above never starts. So `taking_on` holds the same lock over ssh, for
-//! as long as whoever asked is running -- the ssh ends with it, `cat` on the
-//! device reads end-of-file, and the lock goes the way it always does. The
-//! device checks hold it the same way, because a check reads a screen the
-//! idle timer would otherwise dim underneath it.
+//! as long as whoever asked is running -- the ssh ends with it, the device
+//! reads end-of-file, and the lock goes the way it always does. The device
+//! checks hold it the same way, because a check reads a screen the idle timer
+//! would otherwise dim underneath it.
+//!
+//! # Why the far end of that lock speaks
+//!
+//! An ssh that ends while the device is off the network ends only on the
+//! laptop. The close is sent into a route that is not there, the laptop gives
+//! up on it, and the device is left holding a connection nobody is on: it
+//! never hears anything more, so it never hears that. Tailscale's ssh server
+//! sends nothing on a quiet session, and the lock used to be `cat`, which
+//! sends nothing either. That is what happened when the device's Wi-Fi dropped
+//! for a few minutes in the middle of a deploy: the deploy ended, the
+//! end-of-file never arrived, and the device would not dim, blank or sleep
+//! again until somebody powered it off.
+//!
+//! So the device writes a byte back every `HEARTBEAT`. Over a live connection
+//! it lands in the laptop's `/dev/null`. Over a dead one the laptop answers
+//! with a reset, or nothing answers and the device's own retransmissions give
+//! up, and either way the session ends and takes the lock with it.
+//! End-of-file still ends it the moment the laptop lets go; the heartbeat is
+//! only how a connection that died quietly gets found out.
 //!
 //! # Why the lock is not the idle one
 //!
@@ -49,6 +68,7 @@
 //! has quietly stopped being able to suspend.
 
 use std::process::Stdio;
+use std::time::Duration;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
@@ -129,17 +149,27 @@ pub fn inhibit(kept: InhibitReason) -> Result<InhibitResult, Never> {
     })
 }
 
+const HEARTBEAT: Duration = Duration::from_secs(10);
+
+fn heartbeat(every: Duration) -> Result<String, Never> {
+    let Ok(shell) = Program::Sh.name();
+    let seconds = every.as_secs();
+    let Ok(beating) = shell_quote(&format!("while read -t {seconds} _ || [ $? -gt 128 ]; do echo || exit; done"));
+
+    Ok(format!("{shell} -c {beating}"))
+}
+
 pub fn taking_on(host: &str, kept: InhibitReason) -> Result<InhibitResult, Never> {
     let Ok(mut asking) = Program::Ssh.command();
     let Ok(inhibit) = Program::SystemdInhibit.name();
-    let Ok(cat) = Program::Cat.name();
+    let Ok(holding) = heartbeat(HEARTBEAT);
     let Ok(what) = kept.what();
     let Ok(who) = kept.who();
     let Ok(why) = kept.why();
     let Ok(who_quoted) = shell_quote(who);
     let Ok(why_quoted) = shell_quote(why);
     let there = format!(
-        "{inhibit} --what={what} --who={who_quoted} --why={why_quoted} --mode=block {cat}"
+        "{inhibit} --what={what} --who={who_quoted} --why={why_quoted} --mode=block {holding}"
     );
 
     asking
@@ -175,6 +205,8 @@ impl Drop for Staying {
 mod tests {
     use std::error::Error;
     use std::process::Command;
+
+    use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
     use super::*;
 
@@ -228,6 +260,62 @@ mod tests {
                  be interrupted by a machine that stops underneath it"
             )),
         })
+    }
+
+    fn held_far_away() -> Result<console_program_lifetime::BoundToParent, Box<dyn Error>> {
+        let Ok(holding) = heartbeat(Duration::from_secs(1));
+        let Ok(mut asking) = Program::Sh.command();
+
+        asking.args(["-c", &holding]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+
+        let held = alongside(&mut asking)?;
+
+        Ok(held)
+    }
+
+    fn ended(holding: &mut console_program_lifetime::BoundToParent) -> Result<Outcome, Never> {
+        let Ok(patience) = Schedule::of(Duration::from_secs(10));
+
+        until_handed(patience, holding, |holding| {
+            let Ok(still) = holding.still();
+
+            Ok(match still {
+                console_program_lifetime::Still::Ended => Ready::Yes,
+                console_program_lifetime::Still::Running => Ready::NotYet,
+            })
+        })
+    }
+
+    #[test]
+    fn a_lock_whose_holder_has_gone_without_a_word_lets_go() -> Result<(), Box<dyn Error>> {
+        let mut holding = held_far_away()?;
+        let Ok(still_open) = holding.take_stdin();
+        let Ok(hearing) = holding.take_stdout();
+
+        drop(hearing);
+
+        let Ok(gone) = ended(&mut holding);
+
+        assert_eq!(gone, Outcome::Happened, "the device held a lock for a connection nobody was on");
+        drop(still_open);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_lock_lets_go_when_its_holder_does() -> Result<(), Box<dyn Error>> {
+        let mut holding = held_far_away()?;
+        let Ok(hearing) = holding.take_stdout();
+        let Ok(writing) = holding.take_stdin();
+
+        drop(writing);
+
+        let Ok(gone) = ended(&mut holding);
+
+        assert_eq!(gone, Outcome::Happened, "the device held a lock after the laptop let go of it");
+        drop(hearing);
+
+        Ok(())
     }
 
     #[test]

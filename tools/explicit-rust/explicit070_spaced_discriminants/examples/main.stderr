@@ -1,0 +1,14 @@
+warning: `CloseTogether`'s discriminants `One` and `Two` are one bit apart, so a flipped bit turns one into the other and nothing catches it
+  --> $DIR/main.rs:2:1
+   |
+LL | / enum CloseTogether {
+LL | |     One = 0,
+LL | |     Two = 1,
+LL | | }
+   | |_^
+   |
+   = help: space every pair two bits or more apart, so a single-bit error lands between states and the read fails rather than continuing in a state nothing chose. Where the encoding is not this enum's to choose -- a protocol somebody else wrote -- allow this rule here and let the reason name the protocol
+   = note: `#[warn(explicit070_spaced_discriminants)]` on by default
+
+warning: 1 warning emitted
+

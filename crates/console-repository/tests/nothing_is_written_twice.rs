@@ -48,7 +48,7 @@ const MET: u32 = 8;
 
 const ALIKE_ENOUGH: f64 = 0.7;
 
-const ALIKE: [(&[&str], &str); 8] = [
+const ALIKE: [(&[&str], &str); 10] = [
     (
         &[
             "crates/console-home-screen/src/bin/console-home.rs::worth_asking_after",
@@ -88,13 +88,6 @@ const ALIKE: [(&[&str], &str); 8] = [
     ),
     (
         &[
-            "crates/console-music-player/src/tags.rs::an_mp3",
-            "crates/console-music-player/src/tags.rs::an_opus",
-        ],
-        "two ffprobe answers written out as fixtures, one per container, and a fixture is the thing that is meant to be spelled out",
-    ),
-    (
-        &[
             "crates/console-test-stages/src/checking.rs::desktop",
             "crates/console-test-stages/src/checking.rs::here",
         ],
@@ -106,6 +99,27 @@ const ALIKE: [(&[&str], &str); 8] = [
             "crates/console-status-bar/src/showing.rs::out_of",
         ],
         "each surface's Wearing names the colours it spends and no others, and the reading they share is find_color already",
+    ),
+    (
+        &[
+            "crates/console-films/src/colour.rs::row_of",
+            "crates/console-core-webp-files/src/colours.rs::chroma_row",
+        ],
+        "each cuts one row out of a plane of samples, the film reader's over eight and sixteen bits and the WebP reader's over eight, and a crate both would call for a slice is a shelf",
+    ),
+    (
+        &[
+            "crates/console-panel/src/frames.rs::a_red_picture",
+            "crates/console-pictures/src/lib.rs::make_picture",
+        ],
+        "each writes a PNG of one colour for its own crate's tests, and a fixture is the thing that is meant to be spelled out where it is used",
+    ),
+    (
+        &[
+            "crates/console-core-webp-files/src/forward.rs::walsh_row",
+            "crates/console-core-webp-files/src/inverse.rs::walsh_column",
+        ],
+        "the encoder's Walsh-Hadamard butterfly and the decoder's pair the four points differently and hand back their sums in a different order, as libwebp's two do; one written through the other is a permutation on each side of a call",
     ),
 ];
 

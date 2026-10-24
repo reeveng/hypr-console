@@ -38,7 +38,8 @@ pub fn card(arguments: &[String]) -> Result<Card, Never> {
 use console_battery as battery;
 use console_actor::Actor;
 use console_panel::page::{Aside, Handler, Level, Page, Rows, Showing};
-use console_panel::running::{Notification, run_output, say};
+use console_panel::running::{self, Notification, run_output, say};
+use console_notifications::saying;
 use console_panel::before;
 use console_panel::card::{Card, Door};
 use crate::defaults::{self, Application};
@@ -494,13 +495,12 @@ fn size_meanwhile(held: &ActorAddress) -> Result<Vec<console_panel::page::Row>, 
 fn join(network: wifi::Network, known: wifi::Known) -> Result<Handler, Never> {
     Handler::and_stay(move |showing| {
         let name = network.name.clone();
+        let Ok(nmcli) = Program::Nmcli.name();
 
         match known {
             wifi::Known::Yes => {
-                let Ok(nmcli) = Program::Nmcli.name();
                 let Ok(words) = words(&[nmcli, "connection", "up", "id", &name]);
-
-                showing.later(words);
+                let Ok(()) = joining(showing, &name, words);
 
                 return;
             }
@@ -510,10 +510,8 @@ fn join(network: wifi::Network, known: wifi::Known) -> Result<Handler, Never> {
         match network.locked {
             true => {},
             false => {
-                let Ok(nmcli) = Program::Nmcli.name();
                 let Ok(words) = words(&[nmcli, "device", "wifi", "connect", &name]);
-
-                showing.later(words);
+                let Ok(()) = joining(showing, &name, words);
 
                 return;
             }
@@ -523,13 +521,22 @@ fn join(network: wifi::Network, known: wifi::Known) -> Result<Handler, Never> {
         showing.ask(
             &format!("Password for {name}"),
             Arc::new(move |showing, word| {
-                let Ok(words) = words(&[
-                    "nmcli", "device", "wifi", "connect", &asking, "password", word,
-                ]);
-
-                showing.later(words);
+                let Ok(words) = words(&[nmcli, "device", "wifi", "connect", &asking, "password", word]);
+                let Ok(()) = joining(showing, &asking, words);
             }),
         );
+    })
+}
+
+fn joining(showing: &dyn Showing, name: &str, words: Vec<String>) -> Result<(), Never> {
+    let name = name.to_string();
+
+    showing.note(&format!("Joining {name}\u{2026}"));
+
+    running::on_exit(words, move |exit| {
+        let Ok(notice) = wifi::joined(&name, &exit);
+        let Ok(notification) = saying::Notification::new(saying::Content { summary: &notice.summary, body: &notice.body });
+        let Ok(_shown) = saying::raise(&notification);
     })
 }
 

@@ -1,0 +1,27 @@
+warning: an `unsafe impl` written here, and this claims the value crosses a thread boundary safely
+  --> $DIR/main.rs:5:1
+   |
+LL | unsafe impl Send for Carried {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say what the type holds that makes it true, as the `reason` on an allow for this rule here -- the way a `SAFETY:` says what an `unsafe` block stands on
+   = note: `#[warn(explicit069_lock_discipline)]` on by default
+
+warning: an `unsafe impl` written here, and this claims the value may be shared across threads safely
+  --> $DIR/main.rs:6:1
+   |
+LL | unsafe impl Sync for Carried {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: say what the type holds that makes it true, as the `reason` on an allow for this rule here -- the way a `SAFETY:` says what an `unsafe` block stands on
+
+warning: `Relaxed` orders nothing beyond the atomic itself
+  --> $DIR/main.rs:9:23
+   |
+LL |     held.fetch_add(1, Ordering::Relaxed)
+   |                       ^^^^^^^^^^^^^^^^^
+   |
+   = help: write `SeqCst`, which needs nothing from its other end, or allow this rule here with the reason naming the half of the ordering written elsewhere
+
+warning: 3 warnings emitted
+

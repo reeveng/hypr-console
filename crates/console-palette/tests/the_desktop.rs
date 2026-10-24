@@ -13,7 +13,7 @@ use std::error::Error;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use console_core_color::{Ground, HexColor};
+use console_core_color::{Ground, Ansi};
 use console_core_color as color;
 use console_core_directory_listing::Descend;
 use console_core_iteration::{iterate, Step};
@@ -498,7 +498,7 @@ mod the_engine {
 
             assert_eq!(got, expected, "at oklch({lightness} {chroma} {hue})");
 
-            let Ok(reached) = color::contrast(HexColor(&got), Ground("2b212e"));
+            let Ok(reached) = color::contrast(Ansi(&got), Ground("2b212e"));
 
             assert!(
                 (reached - ratio).abs() < 1e-4,
@@ -516,7 +516,7 @@ mod the_engine {
     #[test]
     fn the_apca_numbers_are_the_published_ones() {
         for (ink, ground, expected) in APCA {
-            let Ok(got) = color::lightness_contrast(HexColor(ink), Ground(ground));
+            let Ok(got) = color::lightness_contrast(Ansi(ink), Ground(ground));
 
             assert!(
                 (got - expected).abs() < 0.01,
@@ -527,10 +527,10 @@ mod the_engine {
 
     #[test]
     fn the_polarity_is_the_whole_point_and_is_not_symmetric() {
-        let Ok(one) = color::contrast(HexColor("000000"), Ground("ffffff"));
-        let Ok(other) = color::contrast(HexColor("ffffff"), Ground("000000"));
-        let Ok(white_on_black) = color::lightness_contrast(HexColor("ffffff"), Ground("000000"));
-        let Ok(black_on_white) = color::lightness_contrast(HexColor("000000"), Ground("ffffff"));
+        let Ok(one) = color::contrast(Ansi("000000"), Ground("ffffff"));
+        let Ok(other) = color::contrast(Ansi("ffffff"), Ground("000000"));
+        let Ok(white_on_black) = color::lightness_contrast(Ansi("ffffff"), Ground("000000"));
+        let Ok(black_on_white) = color::lightness_contrast(Ansi("000000"), Ground("ffffff"));
 
         assert_eq!(one, other);
         assert!(white_on_black.abs() != black_on_white.abs());
@@ -538,8 +538,8 @@ mod the_engine {
 
     #[test]
     fn a_color_on_itself_is_no_contrast_in_either_measure() {
-        let Ok(ratio) = color::contrast(HexColor("372c3a"), Ground("372c3a"));
-        let Ok(lightness_contrast) = color::lightness_contrast(HexColor("372c3a"), Ground("372c3a"));
+        let Ok(ratio) = color::contrast(Ansi("372c3a"), Ground("372c3a"));
+        let Ok(lightness_contrast) = color::lightness_contrast(Ansi("372c3a"), Ground("372c3a"));
 
         assert!((ratio - 1.0).abs() < 1e-12);
         assert_eq!(lightness_contrast, 0.0);
@@ -547,13 +547,13 @@ mod the_engine {
 
     #[test]
     fn wcag_flatters_a_dark_pair_and_apca_does_not() {
-        let Ok(on_black) = color::contrast(HexColor("767676"), Ground("000000"));
-        let Ok(on_white) = color::contrast(HexColor("767676"), Ground("ffffff"));
+        let Ok(on_black) = color::contrast(Ansi("767676"), Ground("000000"));
+        let Ok(on_white) = color::contrast(Ansi("767676"), Ground("ffffff"));
 
         assert!(on_black > on_white, "{on_black} should beat {on_white}");
 
-        let Ok(black) = color::lightness_contrast(HexColor("767676"), Ground("000000"));
-        let Ok(white) = color::lightness_contrast(HexColor("767676"), Ground("ffffff"));
+        let Ok(black) = color::lightness_contrast(Ansi("767676"), Ground("000000"));
+        let Ok(white) = color::lightness_contrast(Ansi("767676"), Ground("ffffff"));
 
         let (lightness_contrast_black, lightness_contrast_white) = (black.abs(), white.abs());
         assert!(lightness_contrast_black < lightness_contrast_white, "Contrast {lightness_contrast_black} should be under Contrast {lightness_contrast_white}");

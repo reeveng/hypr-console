@@ -90,6 +90,10 @@ pub struct Cores {
 }
 
 impl Cores {
+    pub fn one() -> Result<Cores, Never> {
+        Ok(Cores { counted: 1 })
+    }
+
     pub fn counted() -> Result<Cores, Never> {
         let Ok(threads) = threads();
         let Ok(cores) = counted_cores(Path::new(CPUS));

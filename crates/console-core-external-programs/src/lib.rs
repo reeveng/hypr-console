@@ -104,16 +104,12 @@ programs! {
     NotifySend, "notify-send", Origin::Package("libnotify");
     Pacman, "pacman", Origin::Arch;
     Pactl, "pactl", Origin::Package("libpulse");
-    Pdfinfo, "pdfinfo", Origin::Package("poppler");
-    Pdftoppm, "pdftoppm", Origin::Package("poppler");
-    Pdftotext, "pdftotext", Origin::Package("poppler");
     Pkill, "pkill", Origin::Arch;
     Powerprofilesctl, "powerprofilesctl", Origin::Package("power-profiles-daemon");
     Ps, "ps", Origin::Arch;
     PwCat, "pw-cat", Origin::Package("pipewire-audio");
     PwRecord, "pw-record", Origin::Package("pipewire-audio");
     Rm, "rm", Origin::Arch;
-    RsvgConvert, "rsvg-convert", Origin::Package("librsvg");
     Runuser, "runuser", Origin::Arch;
     Rustup, "rustup", Origin::Developing;
     Scp, "scp", Origin::Developing;

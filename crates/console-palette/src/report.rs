@@ -1,6 +1,6 @@
 //! The numbers, written down where someone can read them without running this.
 
-use console_core_color::{Ground, HexColor};
+use console_core_color::{Ground, Ansi};
 use console_core_color as color;
 use console_core_never::Never;
 
@@ -116,10 +116,10 @@ fn sixteen(terminal: &Terminal) -> Result<impl Iterator<Item = String> + '_, Nev
 
         let Ok(bright) = terminal.slot(Shade::Bright, slot);
 
-        let Ok(normal_ratio) = color::contrast(HexColor(normal), Ground(&terminal.background));
-        let Ok(normal_lightness_contrast) = color::lightness_contrast(HexColor(normal), Ground(&terminal.background));
-        let Ok(bright_ratio) = color::contrast(HexColor(bright), Ground(&terminal.background));
-        let Ok(bright_lightness_contrast) = color::lightness_contrast(HexColor(bright), Ground(&terminal.background));
+        let Ok(normal_ratio) = color::contrast(Ansi(normal), Ground(&terminal.background));
+        let Ok(normal_lightness_contrast) = color::lightness_contrast(Ansi(normal), Ground(&terminal.background));
+        let Ok(bright_ratio) = color::contrast(Ansi(bright), Ground(&terminal.background));
+        let Ok(bright_lightness_contrast) = color::lightness_contrast(Ansi(bright), Ground(&terminal.background));
 
         format!(
             "| {slot} | `#{normal}` | {normal_ratio:.2}:1 | {normal_lightness_contrast:.1} \

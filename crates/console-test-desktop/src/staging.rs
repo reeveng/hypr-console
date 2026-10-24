@@ -19,7 +19,7 @@ use console_manifest_migrations::USER;
 use console_manifest_engine::modes;
 use console_core_geometry::Size;
 use console_core_never::Never;
-use console_core_number_conversion::{Float, toward_zero_u32};
+use console_core_number_conversion::toward_zero_u32;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use console_core_directory_listing::Descend;
@@ -174,12 +174,9 @@ pub fn room_here(go: &console_screen::Screen) -> Result<Size<u32>, Never> {
     };
 
     let logical = |monitor: &console_compositor::Monitor| {
-        let (wide, tall) = monitor.size?;
-        let scale = monitor.scale?;
-        let Ok(wide) = wide.float();
-        let Ok(tall) = tall.float();
+        let Ok(logical) = monitor.logical();
 
-        Some((wide / scale, tall / scale))
+        logical.map(|size| (f64::from(size.width), f64::from(size.height)))
     };
 
     let largest = monitors.iter().filter_map(logical).fold((f64::NAN, f64::NAN), |held, room| {

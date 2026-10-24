@@ -213,7 +213,7 @@ fn beside(at: &Path, written: Written, taken: impl Fn(&Path) -> bool) -> Result<
 #[derive(Debug)]
 pub enum EditError {
     Unsupported(PathBuf),
-    Refused(PathBuf, Format),
+    Rejected(PathBuf, Format),
     Unnamed(PathBuf),
     Jpeg(PathBuf, JpegError),
     Png(PathBuf, PngError),
@@ -224,7 +224,7 @@ impl std::fmt::Display for EditError {
     fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EditError::Unsupported(at) => write!(to, "{}: no decoder here reads this", at.display()),
-            EditError::Refused(at, format) => {
+            EditError::Rejected(at, format) => {
                 let Ok(says) = format.says();
 
                 write!(to, "{}: the {says} decoder here will not read this one", at.display())
@@ -260,7 +260,7 @@ pub fn saved(at: &Path, change: Change) -> Result<PathBuf, EditError> {
 
     let (format, bitmap) = match read {
         FullSize::Decoded(format, bitmap) => (format, bitmap),
-        FullSize::Refused(format) => return Err(EditError::Refused(at.to_path_buf(), format)),
+        FullSize::Rejected(format) => return Err(EditError::Rejected(at.to_path_buf(), format)),
         FullSize::Unrecognized => return Err(EditError::Unsupported(at.to_path_buf())),
     };
 

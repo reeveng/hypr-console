@@ -1,0 +1,24 @@
+[package]
+name = "console-core-video-decoding-vp9"
+description = "Clean-room pure-Rust VP9 decoder (VP9 Bitstream & Decoding Process Specification)"
+version = "0.4.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.95"
+repository = "https://github.com/storytold/filmcraft"
+
+[lib]
+name = "console_core_video_decoding_vp9"
+path = "src/lib.rs"
+
+[features]
+default = ["threads"]
+threads = ["dep:rayon"]
+
+[dependencies]
+console-core-video-decoding-bitstream = { path = "../console-core-video-decoding-bitstream" }
+thiserror = "2"
+rayon = { version = "1", optional = true }
+
+[lints.rust]
+warnings = "allow"

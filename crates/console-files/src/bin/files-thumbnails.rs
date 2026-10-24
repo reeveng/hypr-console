@@ -7,9 +7,9 @@
 //! ends.
 //!
 //! Every picture wanted is made at once, one per core, through
-//! `console_concurrency`. None of them reads another, each is an ffmpeg run, and
-//! a folder's worth made one after another was a folder's worth of cores
-//! waiting.
+//! `console_concurrency`. None of them reads another, each is a decode of its
+//! own, and a folder's worth made one after another was a folder's worth of
+//! cores waiting.
 //!
 //! Once per thing, ever. What is made goes into the store every desktop shares,
 //! so the second visit to a folder is the listing and the pictures together.
@@ -19,15 +19,10 @@ use std::process::ExitCode;
 
 use console_content_types::Table;
 use console_core_arguments::{Command, Operands, ValidationError, read};
-use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_places::Base;
 use console_files::listing::{Entry, Worth};
-use console_files::thumbnails::{self, SIDE};
-
-const INTO_IT: &str = "3";
-
-const THE_START: &str = "0";
+use console_files::thumbnails;
 
 const FOLDER: [&str; 1] = ["FOLDER"];
 
@@ -148,32 +143,31 @@ fn make_thumbnail(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let part = kept.with_extension("part.png");
+    let png = match thumbnails::drawn(thing, kind) {
+        Ok(Some(png)) => png,
+        Ok(None) => return Ok(()),
+        Err(fault) => {
+            eprintln!("files-thumbnails: {}: {fault}", thing.display());
 
-    let into_it: &[Option<&str>] = match kind.starts_with("video/") {
-        true => &[Some(INTO_IT), Some(THE_START)],
-        false => &[None],
+            return Ok(());
+        }
     };
 
-    let drawn = extract_frame(thing, &part, into_it)?;
+    let Ok(changed) = changed_at(thing);
+    let said = thumbnails::stamped(&png, thumbnails::Stamp { address: &address, changed: &changed })?;
 
-    match drawn {
-        Made::APicture => {
-            let Ok(changed) = changed_at(thing);
-            let Ok(stamped) = stamped(&part, thumbnails::Stamp { address: &address, changed: &changed });
+    let said = match said {
+        Some(said) => said,
+        None => {
+            eprintln!("files-thumbnails: {}: the picture made of it is not a PNG", thing.display());
 
-            match stamped {
-                Made::APicture => {
-                    let _ = std::fs::rename(&part, &kept);
-                }
-                Made::None => {
-                    let _ = std::fs::remove_file(&part);
-                }
-            }
+            return Ok(());
         }
-        Made::None => {
-            let _ = std::fs::remove_file(&part);
-        }
+    };
+
+    match console_core_atomic_writes::whole(&kept, &said) {
+        Ok(()) => {},
+        Err(fault) => eprintln!("files-thumbnails: {}: writing the picture: {fault}", kept.display()),
     }
 
     Ok(())
@@ -196,78 +190,4 @@ fn changed_at(thing: &Path) -> Result<String, Never> {
     };
 
     Ok(since.as_secs().to_string())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Made {
-    APicture,
-    None,
-}
-
-#[cfg_attr(
-    dylint_lib = "explicit029_no_asking_per_item",
-    allow(
-        explicit029_no_asking_per_item,
-        reason = "the list is where in a film to look, and each try runs only when the one before it drew nothing: ffmpeg cannot be asked for a second seek when the first lands past the end"
-    )
-)]
-fn extract_frame(thing: &Path, part: &Path, into_it: &[Option<&str>]) -> Result<Made, Never> {
-    for at in into_it {
-        let Ok(mut asking) = Program::Ffmpeg.command();
-
-        asking.args(["-loglevel", "error", "-y"]);
-
-        match at {
-            Some(at) => {
-                asking.args(["-ss", at]);
-            }
-            None => {},
-        }
-
-        let done = asking
-            .arg("-i")
-            .arg(thing)
-            .args(["-frames:v", "1", "-vf", &format!("scale={SIDE}:{SIDE}:force_original_aspect_ratio=decrease")])
-            .arg(part)
-            .status();
-
-        match done.is_ok_and(|how| how.success()) && part.exists() {
-            true => return Ok(Made::APicture),
-            false => {},
-        }
-    }
-
-    Ok(Made::None)
-}
-
-fn stamped(part: &Path, stamp: thumbnails::Stamp<'_>) -> Result<Made, Never> {
-    let png = match std::fs::read(part) {
-        Ok(png) => png,
-        Err(fault) => {
-            eprintln!("files-thumbnails: {}: {fault}", part.display());
-
-            return Ok(Made::None);
-        }
-    };
-
-    let said = thumbnails::stamped(&png, stamp)?;
-
-    let said = match said {
-        Some(said) => said,
-        None => {
-            eprintln!("files-thumbnails: {}: this is not the PNG ffmpeg was asked for", part.display());
-
-            return Ok(Made::None);
-        }
-    };
-
-    Ok(match console_core_atomic_writes::whole(part, &said) {
-        Ok(()) => Made::APicture,
-
-        Err(fault) => {
-            eprintln!("files-thumbnails: {}: writing the picture: {fault}", part.display());
-
-            Made::None
-        }
-    })
 }

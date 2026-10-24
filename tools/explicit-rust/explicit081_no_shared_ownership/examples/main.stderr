@@ -1,0 +1,67 @@
+warning: an `Arc` is a value nobody owns: whichever holder lets go last frees it, on whatever thread that holder is on
+  --> $DIR/main.rs:9:15
+   |
+LL | type Shared = Arc<Mutex<u8>>;
+   |               ^^^^^^^^^^^^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+   = note: `#[warn(explicit081_no_shared_ownership)]` on by default
+
+warning: an `Rc` is a value nobody owns: whichever holder lets go last frees it
+  --> $DIR/main.rs:13:11
+   |
+LL |     seen: Rc<u8>,
+   |           ^^^^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: a `Weak` is a handle to a value nobody owns, which may already be gone when it is asked
+  --> $DIR/main.rs:14:11
+   |
+LL |     gone: Weak<u8>,
+   |           ^^^^^^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: this `.clone()` makes another owner of a value nobody owns, and nothing at the call says so
+  --> $DIR/main.rs:22:5
+   |
+LL |     count.clone()
+   |     ^^^^^^^^^^^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: an `Arc` is a value nobody owns: whichever holder lets go last frees it, on whatever thread that holder is on
+  --> $DIR/main.rs:30:25
+   |
+LL |     let count: Shared = Arc::new(Mutex::new(1));
+   |                         ^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: an `Arc` is a value nobody owns: whichever holder lets go last frees it, on whatever thread that holder is on
+  --> $DIR/main.rs:32:16
+   |
+LL |     let gone = Arc::downgrade(&Arc::new(1));
+   |                ^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: an `Arc` is a value nobody owns: whichever holder lets go last frees it, on whatever thread that holder is on
+  --> $DIR/main.rs:32:32
+   |
+LL |     let gone = Arc::downgrade(&Arc::new(1));
+   |                                ^^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: an `Rc` is a value nobody owns: whichever holder lets go last frees it
+  --> $DIR/main.rs:33:43
+   |
+LL |     let held = Held { count: again, seen: Rc::new(1), gone };
+   |                                           ^^
+   |
+   = help: give it one owner: move it to the one place that uses it, lend it with a borrow (`std::thread::scope` lends across threads), or keep it behind an actor (`console-actor`) that owns it and answers requests
+
+warning: 8 warnings emitted
+

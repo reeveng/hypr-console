@@ -1,0 +1,43 @@
+warning: this type is `repr(packed)`, which is layout by trickery
+  --> $DIR/main.rs:10:1
+   |
+LL | / struct Trick {
+LL | |     held: u32,
+LL | | }
+   | |_^
+   |
+   = help: pin the shape with `#[repr(C)]` and say the padding in the fields, rather than removing it; a packed field read is a misaligned read on the machine that receives it
+   = note: `#[warn(explicit074_wire_layout_asserted)]` on by default
+
+warning: this type has a shape outside the process, and no layout said for the shape this process gives it
+  --> $DIR/main.rs:20:1
+   |
+LL | / struct Asked {
+LL | |     held: u32,
+LL | | }
+   | |_^
+   |
+   = help: pin it with `#[repr(C)]` and assert its size and alignment in a `const` beside it, so the shape the other end expects is a shape the compiler is held to. Where the other end only ever holds it behind a pointer and never reads inside it, allow this rule here and let the reason say so
+
+warning: this type has a shape outside the process, and no layout said for the shape this process gives it
+  --> $DIR/main.rs:31:1
+   |
+LL | / struct Answered {
+LL | |     held: u32,
+LL | | }
+   | |_^
+   |
+   = help: pin it with `#[repr(C)]` and assert its size and alignment in a `const` beside it, so the shape the other end expects is a shape the compiler is held to. Where the other end only ever holds it behind a pointer and never reads inside it, allow this rule here and let the reason say so
+
+warning: this type has a shape outside the process, and no layout said for the shape this process gives it
+  --> $DIR/main.rs:36:1
+   |
+LL | / struct Called {
+LL | |     held: u32,
+LL | | }
+   | |_^
+   |
+   = help: pin it with `#[repr(C)]` and assert its size and alignment in a `const` beside it, so the shape the other end expects is a shape the compiler is held to. Where the other end only ever holds it behind a pointer and never reads inside it, allow this rule here and let the reason say so
+
+warning: 4 warnings emitted
+

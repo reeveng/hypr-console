@@ -33,6 +33,7 @@ use std::time::Duration;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_panel::description::{Description, KeyboardFocus};
 use console_waiting::Schedule;
 
 use crate::{runtime, stages};
@@ -185,24 +186,49 @@ fn wait_for_count_past(
     })
 }
 
-pub fn presses(at: &Path) -> Result<u64, Never> {
+fn last_told(at: &Path) -> Result<Option<Description>, Never> {
     let read = match std::fs::read_to_string(at) {
         Ok(read) => read,
-        Err(_unreadable) => return Ok(NOT_PRESSED),
+        Err(_unreadable) => return Ok(None),
     };
 
     Ok(match read.lines().last().map(console_panel::description::read) {
-        Some(Ok(told)) => told.presses,
+        Some(Ok(told)) => Some(told),
         Some(Err(unread)) => {
             eprintln!("console-desktop: {}: {unread}", at.display());
 
-            NOT_PRESSED
+            None
         },
+        None => None,
+    })
+}
+
+pub fn presses(at: &Path) -> Result<u64, Never> {
+    let Ok(told) = last_told(at);
+
+    Ok(match told {
+        Some(told) => told.presses,
         None => NOT_PRESSED,
     })
 }
 
 const NOT_PRESSED: u64 = 0;
+
+pub fn wait_for_the_keyboard(at: &Path, patience: Duration) -> Result<Wrote, Never> {
+    let Ok(found) = until(patience, || {
+        let Ok(told) = last_told(at);
+
+        match told.map(|told| told.keyboard) {
+            Some(KeyboardFocus::Here) => Some(()),
+            Some(KeyboardFocus::Elsewhere) | None => None,
+        }
+    });
+
+    Ok(match found {
+        Some(()) => Wrote::Some,
+        None => Wrote::None,
+    })
+}
 
 pub fn wait_for_presses_past(at: &Path, already: u64, patience: Duration) -> Result<Wrote, Never> {
     wait_for_count_past(at, already, patience, presses)

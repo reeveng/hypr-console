@@ -1,6 +1,6 @@
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_never::Never;
-use console_core_picture_scaling::{Scaling, Source, scaled};
+use console_core_picture_scaling::{Plane, Scaling, Source, scaled, scaled_plane};
 
 fn whole(size: Size<u32>) -> Result<Rectangle<u32>, Never> {
     Ok(Rectangle { origin: Point { x: 0, y: 0 }, size })
@@ -46,4 +46,30 @@ fn rows_handed_over_one_at_a_time_make_the_picture_handed_over_whole() {
     }
 
     assert_eq!(scaling.finished(), scaled(Source { rgba: &rgba, width: 12, region }, to));
+}
+
+#[test]
+fn a_plane_is_drawn_with_the_filter_a_picture_is_and_its_padding_is_never_read() {
+    let size = Size { width: 9, height: 7 };
+    let samples: Vec<u8> = (0u8..=u8::MAX).cycle().step_by(7).take(63).collect();
+    let padded: Vec<u8> = samples.chunks(9).flat_map(|line| line.iter().copied().chain([255, 255, 255])).collect();
+    let rgba: Vec<u8> = samples.iter().flat_map(|sample| [*sample, *sample, *sample, 255]).collect();
+    let Ok(region) = whole(size);
+
+    for to in [Size { width: 4, height: 3 }, Size { width: 9, height: 7 }, Size { width: 20, height: 11 }] {
+        let Ok(picture) = scaled(Source { rgba: &rgba, width: 9, region }, to);
+        let reds: Vec<u8> = picture.as_chunks::<4>().0.iter().map(|[red, ..]| *red).collect();
+        let Ok(plane) = scaled_plane(Plane { samples: &padded, stride: 12, size }, to);
+        let furthest = plane.iter().zip(&reds).map(|(plane, red)| plane.abs_diff(*red)).max();
+
+        assert_eq!(plane.len(), reds.len(), "{to:?}");
+        assert!(furthest <= Some(1), "drawn down then across rather than across then down, so a sample may round the other way, and no further: {furthest:?} at {to:?}");
+    }
+}
+
+#[test]
+fn a_plane_of_nothing_is_nothing() {
+    let nothing = Size { width: 0, height: 0 };
+
+    assert_eq!(scaled_plane(Plane { samples: &[], stride: 0, size: nothing }, Size { width: 4, height: 4 }), Ok(Vec::new()));
 }

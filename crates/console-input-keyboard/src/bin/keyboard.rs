@@ -65,6 +65,7 @@ use console_input_keyboard::surface::{Closed, SurfaceError, PointerEvent, Screen
 use std::time::Instant;
 use console_input_keyboard::typing::{After, Typist};
 use console_response_times::{Wait, Waiting};
+use console_screen::Shape;
 
 const NOWHERE: (i32, i32) = (0, 0);
 
@@ -84,17 +85,24 @@ const ON_THE_SCREEN: console_core_arguments::Command = console_core_arguments::C
 };
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Shape {
-    Landscape,
-    Portrait,
+fn standing() -> Result<Shape, Never> {
+    let asked = match console_screen::here() {
+        Ok(asked) => asked,
+        Err(fault) => {
+            eprintln!("console-keyboard: which way up the screen stands: {fault}");
+
+            None
+        }
+    };
+
+    shape_of(asked)
 }
 
-fn landscape(room: Size<u32>) -> Result<Shape, Never> {
-    Ok(match room.width > room.height {
-        true => Shape::Landscape,
-        false => Shape::Portrait,
-    })
+fn shape_of(screen: Option<console_screen::Screen>) -> Result<Shape, Never> {
+    match screen {
+        Some(screen) => screen.shape(),
+        None => Ok(Shape::Wider),
+    }
 }
 
 fn main() -> ExitCode {
@@ -201,6 +209,7 @@ struct State<'a> {
     complained: Logged,
     worn: LayoutKind,
     selected: Option<u32>,
+    standing: Shape,
 }
 
 impl State<'_> {
@@ -250,8 +259,7 @@ impl State<'_> {
     }
 
     fn follows(&mut self) -> Result<(), Never> {
-        let Ok(shape) = landscape(Size { width: u32::MAX, height: self.configuration.height });
-        let Ok(worn) = left_on(shape);
+        let Ok(worn) = left_on(self.standing);
 
         let wanted = match worn {
             Some(wanted) => wanted,
@@ -649,7 +657,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
 
     let Ok(()) = waiting.mark("keymaps");
 
-    let Ok(shape) = landscape(Size { width: u32::MAX, height: configuration.height });
+    let Ok(shape) = standing();
     let Ok((asked, height)) = orientation(configuration, shape);
     let Ok(opening) = left_on(shape);
     let walk: Vec<LayoutKind> = asked
@@ -702,6 +710,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
         complained: Logged::No,
         worn,
         selected: None,
+        standing: shape,
     };
 
     state.while_open().map_err(Unopened::Screen)
@@ -830,8 +839,8 @@ fn left_on(shape: Shape) -> Result<Option<LayoutKind>, Never> {
     let Ok(alphabet) = alphabets::wearing::read(&home, alphabets::wearing::SCREEN);
 
     let arrangement = match shape {
-        Shape::Landscape => alphabet.across,
-        Shape::Portrait => alphabet.upright,
+        Shape::Wider => alphabet.width,
+        Shape::Taller => alphabet.upright,
     };
 
     find_layout(arrangement)
@@ -847,7 +856,7 @@ fn keeps_its_own(showing: LayoutKind) -> Result<(), Never> {
 
     let Ok(of) = of(showing);
     let named = alphabets::EVERY.iter().find(|alphabet| {
-        alphabet.across == of.name || alphabet.upright == of.name
+        alphabet.width == of.name || alphabet.upright == of.name
     });
 
     let alphabet = match named {
@@ -865,10 +874,10 @@ fn keeps_its_own(showing: LayoutKind) -> Result<(), Never> {
 
 fn orientation(configuration: &Configuration, shape: Shape) -> Result<(Vec<String>, u32), Never> {
     let (given, holding, height) = match shape {
-        Shape::Landscape => {
+        Shape::Wider => {
             (&configuration.landscape_layers, Holding::Across, configuration.landscape_height)
         },
-        Shape::Portrait => (&configuration.layers, Holding::Upright, configuration.height),
+        Shape::Taller => (&configuration.layers, Holding::Upright, configuration.height),
     };
 
     let asked = match given.is_empty() {
@@ -935,3 +944,24 @@ fn receive_commands(told: &UnixDatagram) -> Result<Vec<Command>, Never> {
         .collect())
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HANDHELD: console_screen::Screen = console_screen::Screen {
+        mode: Size { width: 1600, height: 2560 },
+        refresh: 144,
+        scale: 2.5,
+        transform: console_screen::Transform::Degrees90,
+    };
+
+    #[test]
+    fn the_board_stands_the_way_the_screen_does_and_not_always_across() {
+        let upright = console_screen::Screen { transform: console_screen::Transform::Normal, ..HANDHELD };
+
+        assert_eq!(shape_of(Some(HANDHELD)), Ok(Shape::Wider));
+        assert_eq!(shape_of(Some(upright)), Ok(Shape::Taller), "a screen turned upright got the board laid across it");
+        assert_eq!(shape_of(None), Ok(Shape::Wider), "a compositor that will not say keeps the board the device is held for");
+    }
+}

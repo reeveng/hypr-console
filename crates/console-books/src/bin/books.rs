@@ -67,13 +67,14 @@ use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
 
 use console_books::annotating::{AnnotationEffect, AnnotationEvent, Annotating, Annotations, Gesture, Made, RAIL, Rail, Target, Tool, Touch, Typed, Visible, VisibleLine};
-use console_books::appearance::{Appearance, Paint, TextSize};
+use console_books::appearance::{self, Appearance, TextSize, READING_EDGE};
 use console_books::flow::{self, Block, Relative};
 use console_books::notes::{self, Mark, Note, Popup, Scale, Scope, Spot, Stroke};
 use console_books::library::{self, Book, CatalogEntry, Format};
 use console_books::live_text::{self, Paragraph};
 use console_books::open::{self, BookError, Comic, OpenPublication};
 use console_books::pages::{self, Layout, Page, Style};
+use console_books::portable_document;
 use console_books::progress::{self, Fraction, Location, Position};
 use console_books::reading::{self, End, PagePosition, Turn, Destination};
 use console_books::grid::{self, Direction, ScrollOffset, Selection, Grid};
@@ -93,13 +94,14 @@ use console_core_internal_programs::InternalProgram;
 use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_core_state_machine::{Machine, Transition};
 use console_draw_painting::Run;
-use console_draw_surface::standing::{Closed, KeyboardEvent, PointerEvent, Window};
+use console_draw_surface::standing::{Closed, PointerEvent, Window};
 use console_draw_surface::{Keysym, Surface};
-use console_panel::card::refusal;
-use console_panel::picker::{self, Alone};
+use console_panel::window::{self, Responder, Update, handle_input, merge};
 use console_panel::pictures::{self as store, Side};
 
 const TITLE: &str = "Books";
+
+const RECOGNIZED_AT: u32 = 150;
 
 const LIBRARY: &str = "Library";
 
@@ -196,21 +198,10 @@ const SANS: &str = "Noto Sans";
 
 const WAITING: Duration = Duration::from_millis(500);
 
-const READING_WIDE: u32 = 720;
-
-const READING_EDGE: u32 = 48;
-
 const TITLE_LINES: u32 = 2;
 
 fn font(family: &str, tall: u32) -> Result<Font, Never> {
     Ok(Font { family: family.to_string(), height: tall })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Update {
-    None,
-    Redraw,
-    Exit,
 }
 
 struct Library {
@@ -299,30 +290,9 @@ const COMMAND: Command = Command {
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let Ok(code) = window::open(&arguments, InternalProgram::Books, &COMMAND, run);
 
-    let Ok(refusing) = refusal(&COMMAND, &arguments);
-
-    match refusing {
-        Some(code) => return code,
-        None => {},
-    }
-
-    let Ok(named) = InternalProgram::Books.name();
-    let Ok(alone) = picker::alone_as(named, &arguments);
-
-    match alone {
-        Alone::Yes => {},
-        Alone::No => return ExitCode::SUCCESS,
-    }
-
-    match run(&arguments) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(fault) => {
-            eprintln!("books: {fault}");
-
-            ExitCode::FAILURE
-        },
-    }
+    code
 }
 
 #[derive(Debug)]
@@ -462,39 +432,6 @@ fn logical_size(surface: &Surface) -> Result<Size<u32>, Never> {
     Ok(match logical {
         Some(logical) => logical,
         None => Size { width: 1280, height: 800 },
-    })
-}
-
-fn handle_input(app: &mut App, surface: &mut Surface, room: Size<u32>) -> Result<Update, Never> {
-    let Ok(keys) = surface.keyboard_events();
-    let Ok(pointer) = surface.pointer_events();
-    let mut outcome = Update::None;
-
-    for KeyboardEvent::Down { key } in keys {
-        let Ok(update) = app.key_pressed(key, room);
-
-        let Ok(merged) = merge(outcome, update);
-
-        outcome = merged;
-    }
-
-    for event in pointer {
-        let Ok(update) = app.pointer_event(event, room);
-
-        let Ok(merged) = merge(outcome, update);
-
-        outcome = merged;
-    }
-
-    Ok(outcome)
-}
-
-#[must_use]
-fn merge(was: Update, now: Update) -> Result<Update, Never> {
-    Ok(match (was, now) {
-        (Update::Exit, _) | (_, Update::Exit) => Update::Exit,
-        (Update::Redraw, _) | (_, Update::Redraw) => Update::Redraw,
-        (Update::None, Update::None) => Update::None,
     })
 }
 
@@ -800,15 +737,6 @@ impl App {
         Ok(Update::Redraw)
     }
 
-    fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
-        let Ok(screen) = self.screen();
-
-        match screen {
-            Screen::Library => self.library_key_pressed(key, room),
-            Screen::Reader => self.reader_key_pressed(key, room),
-        }
-    }
-
     fn library_key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
         let Ok(direction) = direction(key);
 
@@ -1041,56 +969,6 @@ impl App {
         let Ok(()) = self.library.save_location(&name, location);
 
         self.annotate(AnnotationEvent::Left)
-    }
-
-    fn pointer_event(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never> {
-        match event {
-            PointerEvent::Down { at } => {
-                let Ok(at) = point_of(at);
-
-                self.pointer_down = Some(at);
-                self.pointer_at = Some(at);
-
-                self.begin_marking(at, room)
-            },
-            PointerEvent::Moved { at } => {
-                let Ok(at) = point_of(at);
-
-                self.pointer_at = Some(at);
-
-                self.continue_marking(at, room)
-            },
-            PointerEvent::Pinched { by } => {
-                self.pointer_down = None;
-
-                let Ok(()) = self.stop_marking();
-
-                self.pinched(by)
-            },
-            PointerEvent::Up => {
-                self.pinch = None;
-
-                let Ok(finished) = self.finish_marking(room);
-                let lifted = (self.pointer_down.take(), self.pointer_at.take());
-
-                match (finished, lifted) {
-                    (Some(update), _) => Ok(update),
-                    (None, (Some(from), Some(to))) => self.lifted(from, to, room),
-                    (None, (Some(from), None)) => self.tap(from, room),
-                    (None, (None, _)) => Ok(Update::None),
-                }
-            },
-            PointerEvent::Left => {
-                self.pointer_down = None;
-                self.pointer_at = None;
-                self.pinch = None;
-
-                let Ok(()) = self.stop_marking();
-
-                Ok(Update::Redraw)
-            },
-            PointerEvent::Scrolled { .. } => Ok(Update::None),
-        }
     }
 
     fn lifted(&mut self, from: Point<i32>, to: Point<i32>, room: Size<u32>) -> Result<Update, Never> {
@@ -1330,6 +1208,67 @@ impl App {
     }
 }
 
+impl Responder for App {
+    fn key_pressed(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
+        let Ok(screen) = self.screen();
+
+        match screen {
+            Screen::Library => self.library_key_pressed(key, room),
+            Screen::Reader => self.reader_key_pressed(key, room),
+        }
+    }
+
+    fn pointer_event(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never> {
+        match event {
+            PointerEvent::Down { at } => {
+                let Ok(at) = point_of(at);
+
+                self.pointer_down = Some(at);
+                self.pointer_at = Some(at);
+
+                self.begin_marking(at, room)
+            },
+            PointerEvent::Moved { at } => {
+                let Ok(at) = point_of(at);
+
+                self.pointer_at = Some(at);
+
+                self.continue_marking(at, room)
+            },
+            PointerEvent::Pinched { by } => {
+                self.pointer_down = None;
+
+                let Ok(()) = self.stop_marking();
+
+                self.pinched(by)
+            },
+            PointerEvent::Up => {
+                self.pinch = None;
+
+                let Ok(finished) = self.finish_marking(room);
+                let lifted = (self.pointer_down.take(), self.pointer_at.take());
+
+                match (finished, lifted) {
+                    (Some(update), _) => Ok(update),
+                    (None, (Some(from), Some(to))) => self.lifted(from, to, room),
+                    (None, (Some(from), None)) => self.tap(from, room),
+                    (None, (None, _)) => Ok(Update::None),
+                }
+            },
+            PointerEvent::Left => {
+                self.pointer_down = None;
+                self.pointer_at = None;
+                self.pinch = None;
+
+                let Ok(()) = self.stop_marking();
+
+                Ok(Update::Redraw)
+            },
+            PointerEvent::Scrolled { .. } => Ok(Update::None),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Viewport {
     count: u32,
@@ -1420,7 +1359,7 @@ fn control_at(at: Point<i32>, room: Size<u32>) -> Result<Option<Control>, Never>
 }
 
 fn rail_button(room: Size<u32>, index: u32) -> Result<Panel, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(across) = fitted::<u32, i32>(column.left.saturating_sub(RAIL_BUTTON).saturating_div(2));
     let Ok(down) = fitted::<u32, i32>(RAIL_TOP.saturating_add(index.saturating_mul(RAIL_BUTTON.saturating_add(RAIL_GAP))));
 
@@ -1450,7 +1389,7 @@ fn zoom_button(zoom: Zoom) -> Result<Panel, Never> {
 }
 
 fn turn_bar(room: Size<u32>, turn: Turn) -> Result<Panel, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let inset = column.left.saturating_sub(TURN_BAR.width).saturating_div(2);
     let across = match turn {
         Turn::Back => inset,
@@ -1466,7 +1405,7 @@ fn turn_bar(room: Size<u32>, turn: Turn) -> Result<Panel, Never> {
 }
 
 fn turn_target(room: Size<u32>, turn: Turn) -> Result<Panel, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(bar) = turn_bar(room, turn);
     let tall = TURN_BAR.height.saturating_mul(2);
     let Ok(lift) = fitted::<u32, i32>(TURN_BAR.height.saturating_div(2));
@@ -1481,48 +1420,6 @@ fn turn_target(room: Size<u32>, turn: Turn) -> Result<Panel, Never> {
         size: Size { width: room.width.saturating_sub(column.width).saturating_div(2), height: tall },
         ..bar
     })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Column {
-    left: u32,
-    width: u32,
-}
-
-fn column(room: Size<u32>) -> Result<Column, Never> {
-    let wide = room.width.saturating_sub(READING_EDGE.saturating_mul(2)).min(READING_WIDE);
-    let left = room.width.saturating_sub(wide).saturating_div(2);
-
-    Ok(Column { left, width: wide })
-}
-
-fn body_font(appearance: Appearance) -> Result<(Font, Weight), Never> {
-    let Ok(family) = appearance.typeface.family();
-    let Ok(font) = font(family, appearance.text_size.0);
-
-    Ok((font, Weight::Plain))
-}
-
-fn heading_font(appearance: Appearance) -> Result<(Font, Weight), Never> {
-    let Ok(family) = appearance.typeface.family();
-    let Ok(tall) = appearance.text_size.heading();
-    let Ok(font) = font(family, tall);
-
-    Ok((font, Weight::Bold))
-}
-
-fn style_font(style: Style, appearance: Appearance) -> Result<(Font, Weight), Never> {
-    match style {
-        Style::Body => body_font(appearance),
-        Style::Heading => heading_font(appearance),
-    }
-}
-
-fn line_height(style: Style, appearance: Appearance) -> Result<u32, Never> {
-    let Ok((font, weight)) = style_font(style, appearance);
-    let Ok(measured) = console_draw_painting::measure_text(Run { said: "Ag", weight, width: 4096 }, &font);
-
-    Ok(measured.height.saturating_mul(5).saturating_div(4))
 }
 
 fn text_height(room: Size<u32>) -> Result<u32, Never> {
@@ -1544,14 +1441,14 @@ fn chapter_blocks(book: &OpenPublication, section: u32) -> Result<Vec<Block>, Ne
 }
 
 fn paginate_chapter(blocks: &[Block], room: Size<u32>, appearance: Appearance) -> Result<Vec<Page>, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(height) = text_height(room);
-    let Ok(line) = line_height(Style::Body, appearance);
-    let Ok(heading) = line_height(Style::Heading, appearance);
+    let Ok(line) = appearance.line_height(Style::Body);
+    let Ok(heading) = appearance.line_height(Style::Heading);
     let layout = Layout { height, line_height: line, heading_height: heading };
 
     let wrap = |text: &str, style: Style| -> Vec<String> {
-        let Ok((font, weight)) = style_font(style, appearance);
+        let Ok((font, weight)) = appearance.styled(style);
         let Ok(lines) = console_draw_painting::wrapped(Run { said: text, weight, width: column.width }, &font);
 
         lines
@@ -1561,19 +1458,10 @@ fn paginate_chapter(blocks: &[Block], room: Size<u32>, appearance: Appearance) -
 }
 
 fn document_page_count(at: &Path) -> Result<u32, BookError> {
-    let Ok(mut asking) = Program::Pdfinfo.command();
-    let text = asking.arg(at).output().map_err(|fault| BookError::Reading(at.to_path_buf(), fault))?;
-    let text = String::from_utf8_lossy(&text.stdout).into_owned();
+    let document = portable_document::opened(at).map_err(|fault| BookError::Document(at.to_path_buf(), fault))?;
+    let Ok(pages) = document.page_count();
 
-    let pages = text
-        .lines()
-        .find_map(|line| line.strip_prefix("Pages:"))
-        .map(|count| count.trim().parse::<u32>());
-
-    match pages {
-        Some(Ok(pages)) => Ok(pages.max(1)),
-        Some(Err(_)) | None => Err(BookError::NotFound("page count".to_string())),
-    }
+    Ok(pages.max(1))
 }
 
 fn through_page(pages: &[Page], page: u32) -> Result<u32, Never> {
@@ -2086,23 +1974,14 @@ fn decode_image(cache: &Path, named: &str, bytes: &[u8], within: Size<u32>) -> R
 }
 
 fn render_document_page(at: &Path, page: u32, within: Size<u32>) -> Result<Option<Pixels>, Never> {
-    let Ok(mut drawing) = Program::Pdftoppm.command();
-    let number = page.saturating_add(1).to_string();
-    let tall = within.height.to_string();
+    Ok(match portable_document::opened(at) {
+        Ok(document) => {
+            let Ok(drawn) = document.drawn(page, portable_document::Scale::Tall(within.height));
 
-    let drawn = drawing
-        .args(["-f", &number, "-l", &number, "-scale-to-y", &tall, "-scale-to-x", "-1"])
-        .arg(at)
-        .output();
-
-    Ok(match drawn {
-        Ok(drawn) => {
-            let Ok(pixels) = console_pictures::from_portable_pixmap(&drawn.stdout);
-
-            pixels
+            drawn
         },
         Err(fault) => {
-            eprintln!("books: poppler would not draw {}: {fault}", at.display());
+            eprintln!("books: {}: {fault}", at.display());
 
             None
         },
@@ -2557,7 +2436,7 @@ impl Reader {
                 let Ok(on_it) = match line {
                     Some(line) => {
                         let Ok(origin) = line_origin(line, room);
-                        let Ok(tall) = line_height(line.style, self.appearance);
+                        let Ok(tall) = self.appearance.line_height(line.style);
                         let Ok(tall) = fitted::<u32, i32>(tall);
 
                         Ok::<bool, Never>(origin.y <= at.y && at.y <= origin.y.saturating_add(tall))
@@ -2650,7 +2529,7 @@ impl Reader {
 
                 let Ok(top) = line_origin(first, room);
                 let Ok(bottom) = line_origin(last, room);
-                let Ok(tall) = line_height(last.style, self.appearance);
+                let Ok(tall) = self.appearance.line_height(last.style);
                 let Ok(tall) = fitted::<u32, i32>(tall);
 
                 Ok(Some(RunPlace { top: top.y, bottom: bottom.y.saturating_add(tall), left: top.x, icon: Point { x: top.x.saturating_sub(aside), y: top.y } }))
@@ -2843,18 +2722,19 @@ impl Reader {
 
         match &self.content {
             Content::PortableDocument { .. } => {
-                let Ok(mut drawing) = Program::Pdftoppm.command();
-                let number = self.section.saturating_add(1).to_string();
-                let drawn = drawing.args(["-png", "-r", "150", "-singlefile", "-f", &number, "-l", &number]).arg(&self.book.path).arg(base).output();
+                let Ok(at) = beside(base, "png");
+                let png = portable_document::opened(&self.book.path).and_then(|document| document.png(self.section, portable_document::Scale::DotsPerInch(RECOGNIZED_AT)));
 
-                Ok(match drawn {
-                    Ok(_drawn) => {
-                        let Ok(drawn) = beside(base, "png");
+                Ok(match png.map(|png| png.map(|png| console_core_atomic_writes::whole(&at, &png))) {
+                    Ok(Some(Ok(()))) => Some(at),
+                    Ok(Some(Err(fault))) => {
+                        eprintln!("books: {fault}");
 
-                        Some(drawn)
+                        None
                     },
+                    Ok(None) => None,
                     Err(fault) => {
-                        eprintln!("books: poppler would not draw {} for reading: {fault}", self.book.path.display());
+                        eprintln!("books: {}: drawing the page for reading: {fault}", self.book.path.display());
 
                         None
                     },
@@ -2989,18 +2869,14 @@ fn beside(base: &Path, ending: &str) -> Result<PathBuf, Never> {
 }
 
 fn text_layer(at: &Path, section: u32) -> Result<Vec<Paragraph>, Never> {
-    let Ok(mut asking) = Program::Pdftotext.command();
-    let number = section.saturating_add(1).to_string();
-    let answered = asking.args(["-bbox-layout", "-f", &number, "-l", &number]).arg(at).arg("-").output();
-
-    Ok(match answered {
-        Ok(answered) => {
-            let Ok(paragraphs) = live_text::from_layout(&String::from_utf8_lossy(&answered.stdout));
+    Ok(match portable_document::opened(at) {
+        Ok(document) => {
+            let Ok(paragraphs) = document.text(section);
 
             paragraphs
         },
         Err(fault) => {
-            eprintln!("books: poppler would not say what {} says: {fault}", at.display());
+            eprintln!("books: {}: reading its words: {fault}", at.display());
 
             Vec::new()
         },
@@ -3057,7 +2933,7 @@ fn page_text(lines: &[pages::Line]) -> Result<String, Never> {
 }
 
 fn line_origin(line: &pages::Line, room: Size<u32>) -> Result<Point<i32>, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(left) = fitted::<u32, i32>(column.left);
     let Ok(down) = fitted::<u32, i32>(READING_EDGE.saturating_add(line.top));
 
@@ -3067,7 +2943,7 @@ fn line_origin(line: &pages::Line, room: Size<u32>) -> Result<Point<i32>, Never>
 fn nearest_line(lines: &[pages::Line], at: Point<i32>, room: Size<u32>, appearance: Appearance) -> Result<Option<&pages::Line>, Never> {
     Ok(lines.iter().min_by_key(|line| {
         let Ok(origin) = line_origin(line, room);
-        let Ok(tall) = line_height(line.style, appearance);
+        let Ok(tall) = appearance.line_height(line.style);
         let Ok(half) = fitted::<u32, i32>(tall.saturating_div(2));
 
         origin.y.saturating_add(half).abs_diff(at.y)
@@ -3075,7 +2951,7 @@ fn nearest_line(lines: &[pages::Line], at: Point<i32>, room: Size<u32>, appearan
 }
 
 fn width_of(text: &str, style: Style, appearance: Appearance) -> Result<u32, Never> {
-    let Ok((font, weight)) = style_font(style, appearance);
+    let Ok((font, weight)) = appearance.styled(style);
     let Ok(measured) = console_draw_painting::measure_text(Run { said: text, weight, width: 4096 }, &font);
 
     Ok(measured.width)
@@ -3120,12 +2996,12 @@ fn centered_picture(pixels: Pixels, area: Size<u32>) -> Result<Shape, Never> {
 }
 
 fn text_page_shapes(lines: &[pages::Line], room: Size<u32>, ink: Oklch, appearance: Appearance) -> Result<Vec<Shape>, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(left) = fitted::<u32, i32>(column.left);
     let mut shapes = Vec::new();
 
     for line in lines {
-        let Ok((font, weight)) = style_font(line.style, appearance);
+        let Ok((font, weight)) = appearance.styled(line.style);
         let Ok(down) = fitted::<u32, i32>(READING_EDGE.saturating_add(line.top));
 
         shapes.push(Shape::Text(Text {
@@ -3244,7 +3120,7 @@ fn highlight_shapes(reader: &Reader, annotations: &Annotations, lines: &[pages::
                 (true, Some(before), Some(through)) => {
                     let Ok(left) = width_of(before, line.style, reader.appearance);
                     let Ok(right) = width_of(through, line.style, reader.appearance);
-                    let Ok(tall) = line_height(line.style, reader.appearance);
+                    let Ok(tall) = reader.appearance.line_height(line.style);
                     let Ok(origin) = line_origin(line, room);
                     let Ok(at) = offset(origin, Point { x: left, y: 0 });
 
@@ -3329,7 +3205,7 @@ fn cursor_shapes(reader: &Reader, cursor: Option<u32>, lines: &[pages::Line], ro
 
     for line in lines.iter().filter(|line| Some(line.block) == cursor) {
         let Ok(origin) = line_origin(line, room);
-        let Ok(tall) = line_height(line.style, reader.appearance);
+        let Ok(tall) = reader.appearance.line_height(line.style);
 
         shapes.push(Shape::Panel(Panel {
             at: Point { x: origin.x.saturating_sub(12), y: origin.y },
@@ -3435,7 +3311,7 @@ enum Typing {
 }
 
 fn note_frames(reader: &Reader, annotations: &Annotations, room: Size<u32>) -> Result<Vec<NoteFrame>, Never> {
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(left) = fitted::<u32, i32>(column.left);
     let Ok(edge) = fitted::<u32, i32>(READING_EDGE);
     let written = annotations.writing.as_ref().map(|writing| writing.at);
@@ -3609,7 +3485,7 @@ fn rail_shapes(tools: Tools, room: Size<u32>, look: Look) -> Result<Vec<Shape>, 
 
 fn footer(reader: &Reader, room: Size<u32>, look: Look) -> Result<Vec<Shape>, Never> {
     let Ok(location) = reader.location();
-    let Ok(column) = column(room);
+    let Ok(column) = appearance::column(room);
     let Ok(left) = fitted::<u32, i32>(column.left);
     let Ok(down) = fitted::<u32, i32>(room.height.saturating_sub(34));
     let Ok(close_across) = fitted::<u32, i32>(room.width.saturating_sub(grid::MARGIN).saturating_sub(22));
@@ -3698,17 +3574,12 @@ struct Tools {
 }
 
 fn look(wearing: &Wearing, appearance: Appearance) -> Result<Look, Never> {
-    let ground = match appearance.background {
-        Paint::Chosen(ground) => ground,
-        Paint::Desktop => wearing.ground,
-    };
+    let Ok(ground) = appearance.ground(wearing);
+    let Ok(ink) = appearance.ink(wearing);
 
     Ok(Look {
         ground,
-        ink: match appearance.text {
-            Paint::Chosen(ink) => ink,
-            Paint::Desktop => wearing.text,
-        },
+        ink,
         pen: wearing.pink,
         highlight: Oklch { lightness: ground.lightness * 0.8 + 0.12, chroma: 0.09, hue: 95.0 },
     })
@@ -3774,6 +3645,7 @@ fn draw(app: &mut App, surface: &mut Surface) -> Result<(), Never> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_books::appearance::Paint;
 
     #[test]
     fn a_keyboard_taking_the_bottom_of_the_screen_redraws_the_library_into_what_is_left() {
@@ -3852,7 +3724,7 @@ mod tests {
     #[test]
     fn the_bars_beside_the_page_turn_it_and_the_page_itself_is_left_for_notes() -> Result<(), &'static str> {
         let room = Size { width: 1280, height: 800 };
-        let Ok(column) = column(room);
+        let Ok(column) = appearance::column(room);
         let Ok(back) = turn_target(room, Turn::Back);
         let Ok(forward) = turn_target(room, Turn::Forward);
         let Ok(left) = fitted::<u32, i32>(column.left);

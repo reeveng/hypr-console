@@ -85,7 +85,7 @@ impl Machine for LoginPattern {
         match event {
             Event::Custom(LoginPatternEvent::Pressed(press)) => pressed(drawing, press, effects),
             Event::Custom(LoginPatternEvent::Touched(touch)) => on_touch(drawing, touch, effects),
-            Event::Opened | Event::Changed(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping => {
+            Event::Opened | Event::Modified(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping => {
                 Ok(drawing)
             }
         }

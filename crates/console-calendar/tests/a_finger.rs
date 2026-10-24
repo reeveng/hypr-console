@@ -9,10 +9,16 @@
 //! d-pad, the two marks, a swipe -- none of which is written in this crate. So
 //! the one thing worth pressing here is that the month a person is looking at
 //! is the month the d-pad left them on, and that walking back comes back.
+//!
+//! Under load a press could be sent before the compositor had handed the panel
+//! the keyboard, and it went to nobody or arrived merged with the one after it,
+//! so walking back read as a month lost or two months back. The panel says
+//! when it holds the keyboard and a press waits for that, which is the first
+//! thing pressed here.
 
 use std::error::Error;
 
-use console_panel::description::Description;
+use console_panel::description::{Description, KeyboardFocus};
 use console_test_stages::panels::Panel;
 
 fn describe_after(keys: &[&str]) -> Result<Vec<Description>, Box<dyn Error>> {
@@ -67,6 +73,16 @@ fn the_dpad_walks_to_the_month_after_this_one() -> Result<(), Box<dyn Error>> {
     let on = month(card)?;
 
     assert_ne!(opened, on, "right on the month drew the same month again");
+
+    Ok(())
+}
+
+#[test]
+fn the_keyboard_is_held_before_the_first_press() -> Result<(), Box<dyn Error>> {
+    let every = describe_after(&["Right"])?;
+    let listening = every.iter().any(|card| (card.presses, card.keyboard) == (0, KeyboardFocus::Here));
+
+    assert!(listening, "the calendar never said it held the keyboard before it was pressed, so the press went to whoever did");
 
     Ok(())
 }

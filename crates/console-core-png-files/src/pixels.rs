@@ -30,45 +30,45 @@ const OPAQUE: u8 = u8::MAX;
 const CLEAR: u8 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kept {
+pub(crate) enum Stored {
     Grey,
     GreyAlpha,
     Rgb,
     Rgba,
 }
 
-impl Kept {
+impl Stored {
     pub(crate) fn color(self) -> Result<Color, Never> {
         Ok(match self {
-            Kept::Grey => Color::Grey,
-            Kept::GreyAlpha => Color::GreyAlpha,
-            Kept::Rgb => Color::Rgb,
-            Kept::Rgba => Color::Rgba,
+            Stored::Grey => Color::Grey,
+            Stored::GreyAlpha => Color::GreyAlpha,
+            Stored::Rgb => Color::Rgb,
+            Stored::Rgba => Color::Rgba,
         })
     }
 }
 
-pub(crate) fn fewest(rgba: &[u8]) -> Result<Kept, Never> {
+pub(crate) fn fewest(rgba: &[u8]) -> Result<Stored, Never> {
     let (pixels, _) = rgba.as_chunks::<4>();
     let grey = pixels.iter().all(|[red, green, blue, _]| red == green && green == blue);
     let opaque = pixels.iter().all(|[.., alpha]| *alpha == OPAQUE);
 
     Ok(match (grey, opaque) {
-        (true, true) => Kept::Grey,
-        (true, false) => Kept::GreyAlpha,
-        (false, true) => Kept::Rgb,
-        (false, false) => Kept::Rgba,
+        (true, true) => Stored::Grey,
+        (true, false) => Stored::GreyAlpha,
+        (false, true) => Stored::Rgb,
+        (false, false) => Stored::Rgba,
     })
 }
 
-pub(crate) fn unpainted(rgba: &[u8], kept: Kept) -> Result<Vec<u8>, Never> {
+pub(crate) fn unpainted(rgba: &[u8], kept: Stored) -> Result<Vec<u8>, Never> {
     let (pixels, _) = rgba.as_chunks::<4>();
 
     Ok(match kept {
-        Kept::Grey => pixels.iter().map(|[grey, ..]| *grey).collect(),
-        Kept::GreyAlpha => pixels.iter().flat_map(|[grey, _, _, alpha]| [*grey, *alpha]).collect(),
-        Kept::Rgb => pixels.iter().flat_map(|[red, green, blue, _]| [*red, *green, *blue]).collect(),
-        Kept::Rgba => rgba.to_vec(),
+        Stored::Grey => pixels.iter().map(|[grey, ..]| *grey).collect(),
+        Stored::GreyAlpha => pixels.iter().flat_map(|[grey, _, _, alpha]| [*grey, *alpha]).collect(),
+        Stored::Rgb => pixels.iter().flat_map(|[red, green, blue, _]| [*red, *green, *blue]).collect(),
+        Stored::Rgba => rgba.to_vec(),
     })
 }
 

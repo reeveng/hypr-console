@@ -10,7 +10,11 @@ name = "console_pictures"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-scalable-vector-graphics.workspace = true
+console-core-scalable-vector-graphics-rasterizer.workspace = true
+console-core-path-rasterizer.workspace = true
 console-concurrency.workspace = true
+console-films.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
 console-core-gif-files.workspace = true

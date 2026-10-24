@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use console_core_color::{Ground, HexColor};
+use console_core_color::{Ground, Ansi};
 use console_core_color::palette::{SPENT, read};
 use console_input_keyboard::palette::{self, BACKGROUNDS, COLORS, INK};
 
@@ -86,7 +86,7 @@ fn pressed_and_selected_keys_are_seen() -> Result<(), Failure> {
     for option in ["press", "sel"] {
         let named = role(option)?;
         let background = spent.get(named).ok_or(format!("--{option} has no color in the palette"))?;
-        let Ok(apart) = console_core_color::contrast(HexColor(dark_ink), Ground(background));
+        let Ok(apart) = console_core_color::contrast(Ansi(dark_ink), Ground(background));
 
         assert!(
             apart >= 7.0,

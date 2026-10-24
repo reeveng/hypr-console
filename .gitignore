@@ -12,6 +12,11 @@ desktop.png
 /tools/explicit-rust/target/
 /tools/rename-words/target/
 
+# A fork under forks/ is built inside the workspace, but one built on its own,
+# to try it before it was taken in, builds beside itself.
+/forks/*/target/
+/forks/*/Cargo.lock
+
 # Where the sessions working on this tree keep their state, and where each of
 # them puts a worktree of its own -- so this directory contains whole checkouts
 # of this repository, one per session, each with a .claude of its own inside it.

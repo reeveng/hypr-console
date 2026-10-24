@@ -10,6 +10,7 @@ console-compositor.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-places.workspace = true
+console-core-screen-orientation.workspace = true
 console-core-number-conversion.workspace = true
 
 [dev-dependencies]

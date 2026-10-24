@@ -44,7 +44,7 @@ use crate::standing::{
 };
 use console_actor::Actor;
 use console_program_contract::{Effect, Event};
-use console_panel::page::{Answer, Aside, Handler, Heading, Page, Picture, Row, Rows, Showing, OnChosen, Subject};
+use console_panel::page::{Answer, Aside, Handler, Heading, Initial, Page, Picture, Row, Rows, Showing, OnChosen, Subject};
 use console_panel::card::Card;
 
 const NOTHING_SAYS_WHAT_IT_IS: &str = "";
@@ -594,7 +594,7 @@ fn ask_for_a_folder(
         showing.later(making);
     })?;
 
-    showing.ask_aloud(NEW_FOLDER, answer);
+    showing.ask_aloud(NEW_FOLDER, Initial(""), answer);
 
     Ok(())
 }
@@ -897,7 +897,7 @@ fn perform(
                 showing.later(vec!["mv".to_string(), "--".to_string(), was, now]);
             })?;
 
-            showing.ask_aloud(&format!("Rename {}", thing.name), answer);
+            showing.ask_aloud(&format!("Rename {}", thing.name), Initial(""), answer);
         }
     }
 

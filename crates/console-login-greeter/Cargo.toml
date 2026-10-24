@@ -20,6 +20,7 @@ console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-number-conversion.workspace = true
+console-core-screen-orientation.workspace = true
 console-core-shapes.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true

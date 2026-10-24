@@ -68,6 +68,7 @@ struct Looked {
     room: Size<u32>,
     held: FrameState,
     asked: Size<u32>,
+    said: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,7 +282,7 @@ pub fn current(of: &Path, room: Size<u32>) -> Result<Option<Pixels>, Never> {
         None => {},
     }
 
-    *holding = Some(Looked { of: of.to_path_buf(), room, held: FrameState::Decoding, asked: room });
+    *holding = Some(Looked { of: of.to_path_buf(), room, held: FrameState::Decoding, asked: room, said: Vec::new() });
 
     let at = of.to_path_buf();
     let decoding = std::thread::spawn(move || {
@@ -398,7 +399,22 @@ pub fn room(of: &Path) -> Result<Option<Size<u32>>, Never> {
     Ok(holding.as_ref().filter(|looked| looked.of.as_path() == of).map(|looked| looked.room))
 }
 
-pub fn insert(of: &Path, pixels: Pixels) -> Result<(), Never> {
+pub fn said(of: &Path) -> Result<Vec<String>, Never> {
+    let holding = match LOOKING_AT.lock() {
+        Ok(holding) => holding,
+        Err(_a_decode_gave_up_holding_it) => return Ok(Vec::new()),
+    };
+
+    Ok(match holding.as_ref() {
+        Some(looked) => match looked.of.as_path() == of {
+            true => looked.said.clone(),
+            false => Vec::new(),
+        },
+        None => Vec::new(),
+    })
+}
+
+pub fn insert(of: &Path, pixels: Pixels, said: Vec<String>) -> Result<(), Never> {
     let mut holding = match LOOKING_AT.lock() {
         Ok(holding) => holding,
         Err(_a_reader_gave_up_holding_it) => return Ok(()),
@@ -412,7 +428,7 @@ pub fn insert(of: &Path, pixels: Pixels) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    *holding = Some(Looked { of: of.to_path_buf(), room, held: FrameState::Decoded(pixels), asked: room });
+    *holding = Some(Looked { of: of.to_path_buf(), room, held: FrameState::Decoded(pixels), asked: room, said });
 
     drop(holding);
 
@@ -428,6 +444,18 @@ pub fn insert(of: &Path, pixels: Pixels) -> Result<(), Never> {
     )
 )]
 pub(crate) static ONE_TEST_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn a_red_picture(at: &Path, size: Size<u32>) -> Result<(), Box<dyn std::error::Error>> {
+    let area = u64::from(size.width).saturating_mul(u64::from(size.height));
+    let Ok(area) = console_core_number_conversion::index(area);
+    let rgba = [255, 0, 0, 255].repeat(area);
+    let written = console_core_png_files::encoded(&console_core_png_files::Picture { size, rgba })?;
+
+    console_core_atomic_writes::whole(at, &written)?;
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -447,13 +475,7 @@ mod tests {
         let _turn = ONE_TEST_AT_A_TIME.lock();
         let folder = console_core_temporary_directories::fresh("panel-frames")?;
         let at = folder.join("panel-frames.png");
-        let Ok(mut making) = console_core_external_programs::Program::Ffmpeg.command();
-        let made = making
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=40x30", "-frames:v", "1"])
-            .arg(&at)
-            .status();
-
-        assert!(made.is_ok_and(|how| how.success()), "ffmpeg made no picture to look at");
+        a_red_picture(&at, Size { width: 40, height: 30 })?;
 
         let space = Size { width: 80, height: 80 };
 
@@ -493,17 +515,19 @@ mod tests {
         assert_eq!(current(film, space), Ok(None));
         assert_eq!(room(film), Ok(Some(space)));
 
-        let Ok(()) = insert(film, bright.clone());
+        let Ok(()) = insert(film, bright.clone(), vec![String::from("Hello")]);
         let Ok(heard) = wake_state();
 
         assert_eq!(heard.frame, FrameReceived::Yes, "a frame put is a frame the loop hears about");
         assert_eq!(current(film, space), Ok(Some(bright.clone())));
+        assert_eq!(said(film), Ok(vec![String::from("Hello")]), "what is said over a frame comes with it");
+        assert_eq!(said(Path::new("/nowhere/another.mkv")), Ok(Vec::new()));
 
         let Ok(()) = store_frame(film, FrameState::Failed);
 
         assert_eq!(current(film, space), Ok(Some(bright.clone())), "a late still does not cover a frame");
 
-        let Ok(()) = insert(Path::new("/nowhere/another.mkv"), dim);
+        let Ok(()) = insert(Path::new("/nowhere/another.mkv"), dim, Vec::new());
 
         assert_eq!(current(film, space), Ok(Some(bright)), "a frame of a film nobody is looking at is dropped");
 

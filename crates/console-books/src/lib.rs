@@ -12,14 +12,14 @@
 //! lines.
 //!
 //! Three kinds of book open. An EPUB is text and is laid out here, at a size
-//! meant for arm's length. A PDF is already laid out, so poppler draws each page
-//! and the page is shown whole. A comic -- a CBZ, which is what manga arrives as
+//! meant for arm's length. A PDF is already laid out, so each page is drawn as
+//! it was laid out, by [`portable_document`], and shown whole. A comic -- a CBZ, which is what manga arrives as
 //! -- is a zip of pictures shown one to a screen.
 //!
 //! What is worked out and what is drawn are kept apart the way the viewer
 //! keeps them: every module here is arithmetic over text and numbers, tested on
 //! a laptop with no screen, and the `books` program is the one that opens
-//! files, runs poppler and draws.
+//! files and draws.
 
 pub mod annotating;
 pub mod appearance;
@@ -31,6 +31,7 @@ pub mod markup;
 pub mod notes;
 pub mod open;
 pub mod pages;
+pub mod portable_document;
 pub mod progress;
 pub mod reading;
 pub mod grid;

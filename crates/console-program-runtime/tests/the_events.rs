@@ -77,7 +77,7 @@ impl Machine for Rocker {
 
     fn handle(state: Rocker, event: Event<Never>, effects: &mut Queue<Effect<TestEffect>>) -> Result<Rocker, Never> {
         match event {
-            Event::Changed(changed) => {
+            Event::Modified(changed) => {
                 let Ok(()) = effects.offer_all([
                     Effect::Custom(TestEffect::Logged(changed.text.clone())),
                     Effect::Stop(Exit::Success),

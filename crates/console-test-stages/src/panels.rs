@@ -557,6 +557,7 @@ mod tests {
             spots,
             lines,
             presses: 0,
+            keyboard: description::KeyboardFocus::Here,
         })
     }
 

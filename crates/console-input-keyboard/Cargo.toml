@@ -29,6 +29,7 @@ port = [
     "dep:console-input-gamepad",
     "dep:console-input-focus",
     "dep:console-response-times",
+    "dep:console-screen",
     "dep:console-input-event-devices",
     "dep:rustix",
     "dep:xkbcommon",
@@ -56,6 +57,7 @@ console-core-walking.workspace = true
 console-input-gamepad = { workspace = true, optional = true }
 console-input-focus = { workspace = true, optional = true }
 console-response-times = { workspace = true, optional = true }
+console-screen = { workspace = true, optional = true }
 console-input-alphabets = { workspace = true, optional = true }
 console-core-places.workspace = true
 console-input-event-devices = { workspace = true, optional = true }

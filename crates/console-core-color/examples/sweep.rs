@@ -51,12 +51,12 @@ fn main() {
 
     for one in codes {
         for other in codes {
-            let Ok(contrast) = color::contrast(color::HexColor(one), color::Ground(other));
+            let Ok(contrast) = color::contrast(color::Ansi(one), color::Ground(other));
 
             println!("contrast {one} {other} {contrast:.12}");
 
             for alpha in [0.0, 0.075, 0.26, 0.5, 0.52, 0.88, 1.0] {
-                let Ok(over) = color::over(color::HexColor(one), color::Ground(other), alpha);
+                let Ok(over) = color::over(color::Ansi(one), color::Ground(other), alpha);
 
                 println!("over {one} {other} {alpha} {over}");
             }

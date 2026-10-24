@@ -1,0 +1,11 @@
+warning: this name is already bound outside the scope being entered
+  --> $DIR/main.rs:2:9
+   |
+LL |     let held = held.saturating_add(1);
+   |         ^^^^
+   |
+   = help: name the new value what it is -- a conversion names what it becomes, EXPLICIT045's own sentence -- or bind it `_`-prefixed if nobody will read it again. Where the second binding really is the same value narrowed, allow this rule here and let the reason say so
+   = note: `#[warn(explicit073_no_shadowing)]` on by default
+
+warning: 1 warning emitted
+

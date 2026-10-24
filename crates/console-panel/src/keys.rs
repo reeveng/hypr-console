@@ -78,7 +78,10 @@ pub fn meaning(key: Keysym, driving: Driving) -> Result<Meaning, Never> {
         Driving::Panel => driven(key),
         Driving::Question => Ok(match key {
             Keysym::Escape => Meaning::Abandon,
-            _ => Meaning::None,
+            key => match MORE.contains(&key) {
+                true => Meaning::More,
+                false => Meaning::None,
+            },
         }),
         Driving::Search => sought(key),
         Driving::Sure => Ok(match key {
@@ -148,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn while_something_is_being_typed_only_back_is_the_panels() {
+    fn while_something_is_being_typed_only_back_and_y_are_the_panels() {
         assert_eq!(meaning(Keysym::Escape, Driving::Question), Ok(Meaning::Abandon));
 
         for key in [Keysym::BackSpace, Keysym::Down, Keysym::Left, Keysym::Page_Up, Keysym::Return, Keysym::space] {
@@ -159,14 +162,18 @@ mod tests {
     #[test]
     fn y_asks_a_row_what_else_can_be_done_with_it() {
         assert_eq!(meaning(Keysym::F18, Driving::Panel), Ok(Meaning::More));
-        assert_eq!(meaning(Keysym::F18, Driving::Question), Ok(Meaning::None));
+    }
+
+    #[test]
+    fn y_over_a_password_shows_or_hides_it() {
+        assert_eq!(meaning(Keysym::F18, Driving::Question), Ok(Meaning::More));
     }
 
     #[test]
     fn y_is_heard_under_the_name_the_keymap_gives_it() {
         assert_eq!(meaning(Keysym::XF86_Launch9, Driving::Panel), Ok(Meaning::More));
         assert_eq!(meaning(Keysym::XF86_Launch9, Driving::Search), Ok(Meaning::More));
-        assert_eq!(meaning(Keysym::XF86_Launch9, Driving::Question), Ok(Meaning::None));
+        assert_eq!(meaning(Keysym::XF86_Launch9, Driving::Question), Ok(Meaning::More));
     }
 
     #[test]

@@ -81,7 +81,7 @@ fn every_alphabet_someone_can_choose_is_one_the_keyboard_has() -> Result<(), Fai
     let layers = layers()?;
 
     for alphabet in &console_input_alphabets::EVERY {
-        for wanted in [alphabet.upright, alphabet.across] {
+        for wanted in [alphabet.upright, alphabet.width] {
             assert!(
                 layers.contains(wanted),
                 "the settings panel offers {}, which walks the {wanted} arrangement, and the \
@@ -124,7 +124,7 @@ fn every_alphabet_someone_can_choose_can_put_the_insertion_point_where_they_want
     ];
 
     for alphabet in &console_input_alphabets::EVERY {
-        for wanted in [alphabet.upright, alphabet.across] {
+        for wanted in [alphabet.upright, alphabet.width] {
             let Ok(named) = console_input_keyboard::layout::find_layout(wanted);
             let which = named.ok_or(format!("no arrangement called {wanted}"))?;
             let Ok(layout) = console_input_keyboard::layout::of(which);

@@ -1,0 +1,25 @@
+warning: this function takes 9 parameters, past the 8 a call site can keep in order
+  --> $DIR/main.rs:1:1
+   |
+LL | / fn one(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8, g: u8, h: u8, i: u8) -> u8 {
+LL | |     a.saturating_add(b)
+LL | | }
+   | |_^
+   |
+   = help: make the crowd one value with parts -- a struct of the things that travel together, the shape `console-core-geometry` gives a place and a size -- or allow this rule here and let the reason say why the order is visible at the call site
+   = note: `#[warn(explicit075_bounded_complexity)]` on by default
+
+warning: this function nests 7 levels of decisions, past the 6 a head holds
+  --> $DIR/main.rs:12:39
+   |
+LL |                           Some(four) => match four.checked_sub(1) {
+   |  _______________________________________^
+LL | |                             Some(five) => five,
+LL | |                             None => 0,
+LL | |                         },
+   | |_________________________^
+   |
+   = help: name the levels: each `match` inside becomes a function whose name says which case it is, so a reader takes the cases one at a time instead of holding six promises
+
+warning: 2 warnings emitted
+

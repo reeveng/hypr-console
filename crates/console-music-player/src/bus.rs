@@ -8,15 +8,15 @@
 //! changed to meet its player would have made the swap unpressable.
 //!
 //! Everything is answered under one lock. A property read is short; a method
-//! that starts a song is not, because it asks ffprobe what the song says and
-//! ffmpeg for the picture on the front of it before any sound is made. Most of
-//! what either costs is ffmpeg loading its libraries before it reads a byte,
-//! which is the same for both and depends on neither, so the two are asked at
-//! once rather than one after the other. That is still tens of milliseconds
-//! inside a bus call, and it is deliberate: the panel wants the title and the
-//! sleeve at the same moment it wants the sound, and a player that answered
-//! the call first and filled the card in afterwards would draw an empty card
-//! every time a song is pressed.
+//! that starts a song is not, because it reads what the song says and the
+//! picture on the front of it before any sound is made. Both used to be asked
+//! of ffprobe and ffmpeg at once, because most of what either cost was ffmpeg
+//! loading its libraries; they are read out of the file here now, one after the
+//! other, since a read with no program to start is not worth a thread. That is
+//! still a read of the song inside a bus call, and it is deliberate: the
+//! panel wants the title and the sleeve at the same moment it wants the sound,
+//! and a player that answered the call first and filled the card in afterwards
+//! would draw an empty card every time a song is pressed.
 //!
 //! `PropertiesChanged` is emitted for the pair a listener actually acts on --
 //! what is playing, and whether it is. Nothing here polls to find out, and the
@@ -52,7 +52,6 @@ use console_core_number_conversion::{fitted, index};
 use console_response_times::{Wait, Waiting};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread;
 
 use crate::answers::{self, Song, Status, Reply};
 use crate::library;
@@ -331,22 +330,10 @@ pub struct Described {
 }
 
 pub fn described(song: &Path, turn: u64) -> Result<Described, Never> {
-    thread::scope(|scope| {
-        let copying = scope.spawn(|| art::of(song, turn));
-        let Ok(said) = tags::playing(song);
+    let Ok(said) = tags::playing(song);
+    let Ok(art) = art::of(song, turn);
 
-        let art = match copying.join() {
-            Ok(Ok(art)) => art,
-            Ok(Err(never)) => match never {},
-            Err(_the_copy_panicked) => {
-                eprintln!("music-player: {}: the cover was not copied", song.display());
-
-                None
-            },
-        };
-
-        Ok(Described { said, art })
-    })
+    Ok(Described { said, art })
 }
 
 pub fn locked(held: &Arc<Mutex<PlayerState>>) -> Result<MutexGuard<'_, PlayerState>, Never> {

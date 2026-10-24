@@ -787,6 +787,20 @@ fn look(turning: &mut Turning) -> Result<Vec<Effect>, Unscrolled> {
 
     let Ok(focused) = focused_now();
     let Ok(mode) = Mode::detect(&screens, awake, focused);
+    let was = turning.held.mode;
+
+    match was == mode {
+        true => {},
+        false => {
+            let up: Vec<&str> = screens.iter().map(|layer| layer.namespace.as_str()).collect();
+
+            eprintln!(
+                "controller-desktop: the buttons are for {mode:?} now, not {was:?}, with the home \
+                 screen awake {awake:?}, {focused:?} in front and {up:?} up"
+            );
+        },
+    }
+
     let Ok(now_in) = turning.held.now_in(mode);
 
     Ok(now_in)

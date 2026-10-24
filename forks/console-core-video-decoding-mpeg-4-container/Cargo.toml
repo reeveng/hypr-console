@@ -1,0 +1,19 @@
+[package]
+name = "console-core-video-decoding-mpeg-4-container"
+description = "Clean-room ISO BMFF (MP4) and QuickTime (MOV) demuxer and muxer"
+version = "0.4.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.95"
+repository = "https://github.com/storytold/filmcraft"
+
+[lib]
+name = "console_core_video_decoding_mpeg_4_container"
+path = "src/lib.rs"
+
+[dependencies]
+console-core-video-decoding-bitstream = { path = "../console-core-video-decoding-bitstream" }
+thiserror = "2"
+
+[lints.rust]
+warnings = "allow"

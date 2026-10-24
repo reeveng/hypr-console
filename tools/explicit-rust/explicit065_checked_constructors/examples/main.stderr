@@ -1,0 +1,21 @@
+warning: a type whose constructor refuses, with an `impl Default` beside it -- a route around the check
+  --> $DIR/main.rs:2:1
+   |
+LL | / struct Ringed {
+LL | |     held: u8,
+LL | | }
+   | |_^
+   |
+   = help: the constructor refuses what the impl accepts, and anything that can build the type without asking is the check undone. Where the type really has no invariant the impl can break, allow this rule here and let the reason say so
+   = note: `#[warn(explicit065_checked_constructors)]` on by default
+
+warning: a field anyone can write, on a type whose constructor refuses
+  --> $DIR/main.rs:16:15
+   |
+LL |     pub held: u8,
+   |               ^^
+   |
+   = help: the field wants to be private, so the invariant is the constructor's to keep and a reader outside has to ask for it. Where the type really has no invariant -- nothing a writer could set false -- allow this rule here and let the reason say so
+
+warning: 2 warnings emitted
+

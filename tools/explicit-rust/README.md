@@ -76,6 +76,33 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     EXPLICIT052  the kernel is asked through rustix, never through libc
     EXPLICIT053  no `while`; a loop names where it stops
     EXPLICIT054  no `loop`; walk a list, an iterator or a source of events
+    EXPLICIT055  an iterator with no end in it is a loop with no bound
+    EXPLICIT056  a std call that panics without looking like it
+    EXPLICIT057  a wait with no deadline; the end is said at the wait
+    EXPLICIT058  an `unsafe` is held to where it is written
+    EXPLICIT059  the unchecked spellings are promises, not shortcuts
+    EXPLICIT060  a discarded fault with nothing said at the discard
+    EXPLICIT061  behaviour that exists in one profile and not another
+    EXPLICIT062  a warning silenced by region rather than answered
+    EXPLICIT063  a fault met by an arm that does nothing
+    EXPLICIT064  outside data read by a type that accepts more than it says
+    EXPLICIT065  a checked constructor with a route around the check
+    EXPLICIT066  the heap reached for after init, in a crate that flies
+    EXPLICIT067  a quantity that is a bare float in a signature
+    EXPLICIT068  a value the whole process shares, which nobody handed anybody
+    EXPLICIT069  a threading promise written without its reason
+    EXPLICIT070  two discriminants one bit apart, on a wire
+    EXPLICIT071  floats compared with `==` rather than asked
+    EXPLICIT072  a call the call graph does not hold, in a crate that flies
+    EXPLICIT073  a name that means two values in one scope
+    EXPLICIT074  a type handed across an `extern` signature with no layout said
+    EXPLICIT075  nesting past six or parameters past eight
+    EXPLICIT076  a state field assigned from outside the type that owns it
+    EXPLICIT077  a decision read from a source nobody handed in
+    EXPLICIT078  a proc macro's output in a crate that flies
+    EXPLICIT079  a task loop with no kick in it, in a crate that flies
+    EXPLICIT080  a `macro_rules!` with no reason at it
+    EXPLICIT081  a value nobody owns: no `Arc`, no `Rc`, no `Weak` of either
 
 All of them are written. Each is one crate with a `ui/` case beside it.
 
@@ -92,9 +119,47 @@ remaining distance on every run so it is never out of sight. A rule moves from
 `Warn` to `Deny` in its own crate when the last call site that broke it is
 fixed, and by the ratchet's one law it never moves back.
 
-Nothing stands warned. 047 and 048 were the last two in that tier, written
-ahead of the code the way this README said a rule would be, and both came out
-together; what each of them cost is further down. They and 045
+055 through 080 arrived `Warn` -- rules written ahead of the
+code, holding the shape the tree is walking toward, and `just explicit`
+prints where each of them stands today. They come out of a rule taxonomy
+kept for the code that flies: most of it was already answered here (as
+EXPLICIT004 answers the panic and EXPLICIT038 the fault-as-sentence), and the
+questions that came back are the ones above. The ones marked "a crate that
+flies" are asked of `console-kernel` and its family alone -- the desktop
+allocates, derives and holds trait objects by design, and the argument does
+not reach it -- and each of their `ui/` cases is built as a crate named like
+the kernel's, which is the one way to press a flight-scoped rule on a
+desktop. 059 is the one of them that arrived `Deny`: nothing in the
+tree spells a `transmute` or an `unwrap_unchecked`, so it is a ratchet like
+034 and 037 rather than a sweep.
+
+Their first drafts counted what they meant to leave alone, so most of the
+distance `just explicit` printed for them was the rules' own. 073 read the
+bindings a `for` and a `?` are lowered into, which no line of the source
+names, and took the two halves of an or-pattern for two bindings of one name.
+075 counted a `for` as the levels it is lowered into rather than the one it is
+written as, and the `match` inside every `?` besides. 064 asked every struct
+with a `String` in it whether it read outside data, derive or not, and took a
+`Serialize` for a door in. 063 called an empty `Ok(())` arm a fault ignored.
+078 counted `core`'s own derives, which are the toolchain rather than a supply
+chain. 055 flagged `try_iter`, which ends; 056 flagged one `Instant` taken from
+another, which saturates; 057 read a path with the letters `io` anywhere in it
+as a blocking read; and 079 climbed out of the loop into the statements beside
+it. 062 could not fire at all: it let through any `allow` with a reason, and
+018 already denies every `allow` without one. It now asks the region-wide
+allows whatever they say, and the door is `expect`, which the compiler takes
+away again when the warning stops. 074 asked serde types to pin a layout serde
+never reads; it now asks the types an `extern` signature hands across, which is
+the one place the compiler's layout leaves the process. The rest missed what
+they were written for and read it now: a method's signature for 067 and 072,
+a `&dyn` for 072, a `static` lock or atomic for 068, `vec![x; n]`,
+`String::from` and `to_string` for 066, a `for` handed a receiver and
+`repeat_with` for 055, a `RefCell` behind an `Rc` for 056. Each case carries
+the lines that went red against its first draft.
+
+Before them, nothing stood warned. 047 and 048 were the last two in that tier,
+written ahead of the code the way this README said a rule would be, and both
+came out together; what each of them cost is further down. They and 045
 are read out of Kast, which is stricter than either. 045 is EXPLICIT010's
 argument with the numbers taken out of it: a conversion that names neither end
 says nothing at the call site, and Kast has no implicit coercion at all -- a
@@ -1165,6 +1230,38 @@ is `console-waiting`'s, and it is written the same way. It arrived denied with
 053, and `console-core-directory-listing` is where the most common of the loops
 it found went: a stack of directories and a `while let` over its pop, written
 out in about ten crates.
+
+## 081, which asks who owns a value
+
+An `Arc` is a value nobody owns. Each holder keeps it alive and none of them
+decides when it ends, so it is freed by whichever lets go last, on whatever
+thread that one is running on, and its `Drop` runs there with it. That is the
+determinism 039 and 077 keep, lost in a type rather than in a call, and it is
+the cost argument the rules after 026 make as well: every clone and every drop
+is an atomic write to a count that every holder's core shares, priced nowhere
+on the line that pays it. `Arc<Mutex<T>>` is 068's global handed to everybody
+instead of to nobody. `Rc` is the same question on one thread and the `Weak` of
+either is a handle to something that may already be gone, so the four are
+asked together -- an `Arc` denied alone is an `Rc` written instead.
+
+What it asks for is an owner: the value moved to the one place that uses it,
+lent with a borrow -- `std::thread::scope` lends across threads for as long as
+the scope -- or held by an actor that answers requests about it, which is JPL's
+eighth rule for flight software said in Rust: one owning task for a shared
+object, and ownership passed explicitly, preferably by message. It reads the
+type as written, the `Arc` in `Arc::new` and `Arc::clone` included, and a
+`.clone()` that makes an owner with no type at the call; the type is known by
+the standard library's name for it, so a type of this tree's that is called
+`Arc` is left alone, and its case has one. It arrived warned. What it found is
+mostly the panel's handlers -- an `Arc<dyn Fn>` per button, cloned into every
+GTK signal that can press it, which is the closure `docs/programs.md` already
+wants to become a request sent to the page's machine -- and after them an
+`Arc<Mutex<…>>` between a thread that reads and a thread that asks, in the
+event subscription, the status bar and the notification daemon, which is an
+actor written by hand without the mailbox. The media viewer's clock and sound
+are the third kind: one value read at once by the card and by a picture thread
+that was let go, which a scope can lend only once somebody waits for that
+thread.
 
 ## What it is, and what it is not yet
 

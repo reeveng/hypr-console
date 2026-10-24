@@ -55,6 +55,11 @@
 //! rules the notifications daemon already has is the backlog's, and it is one
 //! unit file rather than a library choice.
 //!
+//! A drawing is not on the list at all. SVG was the one thing ffmpeg does not
+//! read, and librsvg drew it as `rsvg-convert` until the renderer moved into
+//! `forks/`; `console-pictures` now draws one in its own process, so no
+//! package stands behind it.
+//!
 //! libvips was considered and is not being used. It is a processing library
 //! and not a drawing one, so it would sit behind this rather than replace it.
 //! What would change the answer is one measurement, and it is a device
@@ -97,23 +102,8 @@ pub const DECODERS: [Decoder; 14] = [
     Decoder { mime: "video/ogg", package: "ffmpeg", because: A_DEMUXER },
 ];
 
-pub const DRAWING: [Needed; 1] = [Needed {
-    package: "librsvg",
-    because: "the one thing ffmpeg does not read, which is most of an icon theme",
-}];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Needed {
-    pub package: &'static str,
-    pub because: &'static str,
-}
-
 pub fn packages() -> Result<Vec<&'static str>, Never> {
-    let mut every: Vec<&'static str> = DECODERS
-        .iter()
-        .map(|one| one.package)
-        .chain(DRAWING.iter().map(|one| one.package))
-        .collect();
+    let mut every: Vec<&'static str> = DECODERS.iter().map(|one| one.package).collect();
     every.sort_unstable();
     every.dedup();
 
@@ -153,15 +143,10 @@ mod tests {
     }
 
     #[test]
-    fn what_draws_an_icon_is_asked_for_as_well_as_what_reads_a_photograph() {
+    fn a_drawing_needs_no_package_because_it_is_drawn_here() {
         let Ok(every) = packages();
 
-        assert!(every.contains(&"librsvg"), "{every:?}");
-
-        for one in DRAWING {
-            assert!(!one.package.is_empty());
-            assert!(!one.because.is_empty(), "{} says no reason", one.package);
-        }
+        assert!(!every.contains(&"librsvg"), "{every:?}");
     }
 
     #[test]

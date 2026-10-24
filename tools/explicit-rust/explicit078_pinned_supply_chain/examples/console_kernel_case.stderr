@@ -1,0 +1,11 @@
+warning: this impl was written by a proc macro: `impl _::_serde::Serialize`
+  --> $DIR/console_kernel_case.rs:1:10
+   |
+LL | #[derive(serde::Serialize)]
+   |          ^^^^^^^^^^^^^^^^
+   |
+   = help: spell the trait by hand -- an impl the kernel writes itself is a line a reviewer can open -- or, where the derive really is from a crate the flight already depends on, allow this rule here and let the reason name the crate and why it is trusted. The pinned build is the argument; this rule is its door
+   = note: `#[warn(explicit078_pinned_supply_chain)]` on by default
+
+warning: 1 warning emitted
+

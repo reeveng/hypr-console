@@ -1,0 +1,477 @@
+# rav1d-safe [![CI](https://img.shields.io/github/actions/workflow/status/imazen/rav1d-safe/ci.yml?style=flat-square)](https://github.com/imazen/rav1d-safe/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/rav1d-safe?style=flat-square)](https://crates.io/crates/rav1d-safe) [![lib.rs](https://img.shields.io/badge/lib.rs-rav1d--safe-orange?style=flat-square)](https://lib.rs/crates/rav1d-safe) [![docs.rs](https://img.shields.io/docsrs/rav1d-safe?style=flat-square)](https://docs.rs/rav1d-safe) [![license](https://img.shields.io/crates/l/rav1d-safe?style=flat-square)](https://github.com/imazen/rav1d-safe#license)
+
+An AV1 decoder with a native **Rust API**: `Decoder`, `Settings`, `Frame`, and
+borrowed pixel-plane views are available directly from `rav1d_safe`. Forked from
+[rav1d](https://github.com/memorysafety/rav1d), with checked safe Rust SIMD enabled
+by default. Rust callers need neither a C FFI wrapper nor the `c-ffi` feature.
+
+Use [zenrav1e](https://github.com/imazen/zenrav1e) to encode raw AV1 and
+[zenavif](https://github.com/imazen/zenavif) for complete AVIF files, including
+container handling and color conversion. See the
+[compiled Rust round-trip examples](docs/RUST_CODEC_WORKFLOW.md).
+
+## Quick Start
+
+Add to your `Cargo.toml`:
+```toml
+[dependencies]
+rav1d-safe = "0.6.0"
+```
+
+Decode an AV1 bitstream:
+```rust
+use rav1d_safe::{Decoder, Planes};
+
+fn decode(obu_data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut decoder = Decoder::new()?;
+
+    // Feed raw OBU data (not IVF/WebM containers)
+    if let Some(frame) = decoder.decode(obu_data)? {
+        println!("{}x{} @ {}bpc", frame.width(), frame.height(), frame.bit_depth());
+
+        match frame.planes() {
+            Planes::Depth8(planes) => {
+                for row in planes.y().rows() {
+                    // row is &[u8] — zero-copy, no allocation
+                }
+            }
+            Planes::Depth16(planes) => {
+                let px = planes.y().pixel(0, 0); // 10 or 12-bit value
+            }
+        }
+    }
+
+    // Drain any buffered frames
+    for frame in decoder.flush()? {
+        // ...
+    }
+    Ok(())
+}
+```
+
+## API Overview
+
+The reference below describes the 0.6.0 API, including `Strictness` and
+cooperative cancellation. The [historical runnable codec examples](docs/RUST_CODEC_WORKFLOW.md)
+remain pinned to the published versions used for their recorded validation.
+
+The public API lives in `src/managed.rs` and is re-exported at the crate root, so **every public type is reachable directly from `rav1d_safe`** — no `src::managed::` path needed. One canonical import covering the whole surface:
+
+```rust
+use rav1d_safe::{
+    Decoder, Settings, Strictness, CpuLevel, Error, Frame, Result,
+    Planes,                       // enum; you match Planes::Depth8(_) / Planes::Depth16(_)
+    Planes8, Planes16,            // the inner per-bit-depth plane sets the variants wrap
+    PlaneView8, PlaneView16,      // zero-copy 2D plane views
+    PixelLayout,                  // I400 / I420 / I422 / I444 (chroma subsampling)
+    DecodeFrameType, InloopFilters,
+    // HDR / color metadata:
+    ColorInfo, ColorPrimaries, TransferCharacteristics, MatrixCoefficients,
+    ColorRange, ContentLightLevel, MasteringDisplay,
+    enabled_features,
+};
+```
+
+Configure the conformance policy by modifying the default settings:
+
+```rust
+use rav1d_safe::{Decoder, Settings, Strictness};
+
+# fn main() -> rav1d_safe::Result<()> {
+let mut settings = Settings::default();
+settings.strictness = Strictness::Lenient;
+let decoder = Decoder::with_settings(settings)?;
+# Ok(())
+# }
+```
+
+The default is `Strictness::Strict`. `Settings` remains non-exhaustive, so
+downstream callers use field assignment rather than a struct literal.
+
+**Core types:**
+
+| Type | Purpose |
+|------|---------|
+| `Decoder` | Decodes AV1 OBU data into frames |
+| `Frame` | Decoded frame with metadata (cloneable, Arc-backed) |
+| `Planes` | Enum with variants `Planes::Depth8(Planes8)` / `Planes::Depth16(Planes16)`, dispatched by bit depth |
+| `Planes8` / `Planes16` | Per-bit-depth plane set: `.y()` → luma view, `.u()` / `.v()` → `Option<view>` (`None` for I400 monochrome) |
+| `PlaneView8` / `PlaneView16` | Zero-copy 2D view: `row(y)`, `pixel(x, y)`, `rows()`, `width()`, `height()`, `stride()` |
+| `Settings` | Thread count, film grain, frame size limit, inloop filters, CPU level, etc. |
+| `CpuLevel` | SIMD dispatch level (`Scalar`, `X86V2`, `X86V3`, `X86V4`, `Neon`, `Native`) |
+| `Error` | Enum: `InvalidData`, `OutOfMemory`, `NeedMoreData`, `InvalidSettings(&str)`, `InitFailed`, `Cancelled`, `Other(String)` |
+
+> **Naming note (reconciles the example above):** `Depth8` / `Depth16` are the *variants* of the `Planes` enum — you write `Planes::Depth8(..)` in a `match`. `Planes8` / `Planes16` are the *struct types* those variants wrap, and are also re-exported at the crate root so you can name them in signatures. Both are correct; they refer to different things.
+
+**Metadata types:** `ColorInfo`, `ColorPrimaries`, `TransferCharacteristics`, `MatrixCoefficients`, `ColorRange`, `ContentLightLevel`, `MasteringDisplay`, `PixelLayout`
+
+### Input Format
+
+The decoder expects raw AV1 Open Bitstream Unit (OBU) data. If you have IVF or WebM containers, strip the container framing first and pass the OBU payload. See `tests/ivf_parser.rs` for an IVF parser example. For complete AVIF images, use [zenavif](https://crates.io/crates/zenavif), which uses rav1d-safe’s Rust API and handles the container, alpha, and color conversion. Use [zenavif-parse](https://crates.io/crates/zenavif-parse) directly only when implementing that container layer yourself; AVIF files can contain multiple image items or tiles, not just one OBU payload.
+
+### Output Format
+
+`decode()` / `flush()` yield a `Frame` of **planar YUV** pixels — there is no built-in RGB conversion (do that downstream, e.g. with `zenpixels-convert`, or via `zenavif` for AVIF). Read the planes through the bit-depth-dispatched `Planes` enum:
+
+```rust
+let layout = frame.pixel_layout();        // PixelLayout: I400 | I420 | I422 | I444
+let bpc    = frame.bit_depth();           // 8, 10, or 12
+
+match frame.planes() {
+    Planes::Depth8(p) => {                 // 8-bit content: planes are u8
+        let y = p.y();                     // PlaneView8 (luma, always present)
+        let u = p.u();                     // Option<PlaneView8> — None for I400 monochrome
+        let v = p.v();                     // Option<PlaneView8>
+        let (w, h, stride) = (y.width(), y.height(), y.stride());
+        for row in y.rows() { /* row: &[u8], one luma scanline, zero-copy */ }
+        let _ = (u, v, w, h, stride);
+    }
+    Planes::Depth16(p) => {                // 10/12-bit content: planes are u16
+        let _y = p.y();                    // PlaneView16; pixel(x, y) -> u16
+    }
+}
+```
+
+- **Subsampling** is reported by `frame.pixel_layout()`: `I420` (4:2:0, chroma half-width & half-height), `I422` (4:2:2, half-width), `I444` (4:4:4, full-res chroma), `I400` (monochrome — `u()`/`v()` return `None`).
+- **Bit depth** is `frame.bit_depth()` (8 / 10 / 12). `Planes::Depth8` carries `u8` samples; `Planes::Depth16` carries `u16` (the 10/12-bit value is in the low bits).
+- Each `PlaneView{8,16}` is a strided 2D view: `row(y)` borrows one scanline, `rows()` iterates them, `pixel(x, y)` reads one sample, and `width()`/`height()`/`stride()` give its geometry. All accessors are zero-copy borrows into the decoder's frame buffer (held alive by the `Frame`).
+
+### Threading
+
+```rust
+use rav1d_safe::{Decoder, Settings, CpuLevel};
+
+// Single-threaded (default) — synchronous, deterministic
+let decoder = Decoder::new()?;
+
+// Tile threading within a frame; safe checked mode supports this.
+let mut settings = Settings::default();
+settings.threads = 4;
+settings.max_frame_delay = 1;
+let decoder = Decoder::with_settings(settings)?;
+
+// Constrained decoding — limit frame size and CPU features
+let mut settings = Settings::default();
+settings.frame_size_limit = 3840 * 2160; // total pixels, not bytes
+settings.cpu_level = CpuLevel::Native;
+let decoder = Decoder::with_settings(settings)?;
+```
+
+#### `frame_size_limit` — the pre-decode DoS guard (read this before decoding untrusted AV1)
+
+This is the only resource bound applied *before* a frame is decoded, so it is the knob that matters for untrusted input. Verified against `src/managed.rs` and `src/obu.rs`:
+
+- **Unit:** the maximum **`width * height` in pixels** (total luma sample count). Not bytes, not the longest dimension. The check is literally `width * height > frame_size_limit` during OBU header parsing — a frame is rejected before any pixel buffer is allocated or decoded.
+- **Default:** **`120_000_000` (120 megapixels)** — chosen to admit ~108 MP phone photos. It is **not** unlimited by default, but 120 MP is large; **set it lower for untrusted servers** (e.g. `7680 * 4320` for an 8K cap, or `3840 * 2160` for 4K).
+- **Disable:** set `frame_size_limit: 0` to turn the limit off entirely (no cap).
+- **On rejection:** the offending OBU fails parsing and `decode()` returns an `Err` (surfaced as `Error::Other` carrying the internal `ERANGE` range error — *not* `Error::InvalidData`). The decoder logs `Frame size WxH exceeds limit N`.
+- **32-bit hosts:** on targets where `usize` is < 64 bits, the effective cap is additionally clamped to `8192 * 8192` regardless of the value you set (a non-zero larger value is silently reduced; `0`/unlimited still means unlimited).
+
+> **Caveat for servers:** `frame_size_limit` bounds the *declared frame dimensions* only. It does **not** bound total decode time, memory of a large-but-legal frame, or the number of OBUs/frames in a stream. There is no per-decode time budget — see *Cancellation* below.
+
+With `threads >= 2` or `threads == 0`, the decoder uses tile threading to parallelize decode within each frame. `decode()` may return `None` for complete frames because processing is asynchronous — call it repeatedly or use `flush()` to drain.
+
+**Tile threading works under `forbid(unsafe_code)` without the `unchecked` feature.** No special feature flags needed:
+
+```toml
+rav1d-safe = { version = "0.6.0", features = ["bitdepth_8", "bitdepth_16"] }
+```
+
+Still-image scaling depends on the encoded tile layout. A single-tile image
+may gain little from additional workers; tiled images can benefit substantially.
+Measure the intended workload and set `max_frame_delay = 1` when comparing
+single-frame latency. Frame threading (`max_frame_delay > 1`) still requires
+the `unchecked` feature. See the [2K/4K/8K still investigation](benchmarks/stills-2026-09-07/README.md)
+and the [performance parity goal](docs/PERFORMANCE_PARITY_GOAL.md).
+
+#### `strictness` — what to do with a stream that breaks the spec
+
+AV1 leaves the handling of non-conforming streams to the decoder. dav1d's library default conceals and keeps going (a player would rather show a damaged frame than stop); the AV1 reference decoder `aomdec` rejects the frame. `Settings::strictness` picks between the two:
+
+- `Strictness::Strict` (**default**) rejects what libaom rejects: dav1d's `strict_std_compliance` checks (OBU trailing bits, the padding after each tile's symbol decoder, the OBU forbidden bit, zero `timing_info`, …) plus the spec's requirement that every decoded `segment_id` stays within `LastActiveSegId`. A desynchronised symbol stream is an `Error::InvalidData` instead of garbage pixels. These are compares at points the decoder already evaluates; none is in a per-pixel loop.
+- `Strictness::Lenient` is dav1d's behaviour, bit-exact with dav1d even on corrupt input. Use it for differential testing against dav1d, or when a best-effort frame beats an error.
+
+Why `Strict` is the default: this decoder's main job is decoding still images and verifying encoder output. An encoder bug that desynchronised the symbol stream (zenrav1e#35) passed every encode→decode round trip for weeks because the decoder concealed it (#422). The 766-vector dav1d md5 gate decodes identically under both settings, and across the AVIF corpora in `benchmarks/strictness_2026-08-28.meta` the only file `Strict` rejects that `Lenient` accepts is a deliberately corrupted conformance-suite sample. `cargo run --release --example strictness_sweep -- <dir>` reports the two verdicts side by side for your own corpus.
+
+### HDR Metadata
+
+```rust
+if let Some(cll) = frame.content_light() {
+    println!("MaxCLL: {} nits", cll.max_content_light_level);
+}
+if let Some(mdcv) = frame.mastering_display() {
+    println!("Peak: {} nits", mdcv.max_luminance_nits());
+}
+let color = frame.color_info();
+// color.primaries, color.transfer_characteristics, color.matrix_coefficients
+```
+
+### Error Handling
+
+Fallible operations return the crate's `Result<T>` alias, which is `Result<T, whereat::At<Error>>` — the `Error` is wrapped in [`whereat`]'s `At<…>`, recording the source location where the failure surfaced (handy for server logs). Unwrap the inner `Error` with `err.error()` (borrow) or `err.decompose().0` (owned). `Error` variants: `InvalidData`, `OutOfMemory`, `NeedMoreData`, `InitFailed`, `InvalidSettings(&str)`, `Cancelled`, `Other(String)`. (`From<Rav1dError>` maps the internal `EAGAIN → NeedMoreData`, `ENOMEM → OutOfMemory`, `EINVAL → InvalidData`, and everything else — including the `frame_size_limit` `ERANGE` — to `Other`.)
+
+### Cancellation
+
+The 0.6.0 Rust API provides `Decoder::set_stop`, accepting an
+`Option<Arc<dyn enough::Stop>>`. Single-threaded decoding checks at superblock-row
+boundaries; tile workers also check for cancellation. A triggered token returns
+`Error::Cancelled`. `None` disables cancellation checks. This is cooperative
+cancellation, not a hard wall-clock deadline; `frame_size_limit` remains useful
+as a separate bound on declared dimensions. This API is not in published 0.5.7.
+
+## Safety Model
+
+The default library compiles under crate-wide `forbid(unsafe_code)` and uses
+runtime borrow-overlap checks. Unsafe implementations behind dependency APIs
+remain part of the trust boundary, including `rav1d-disjoint-mut`, alignment
+helpers, archmage, and SIMD memory-access helpers. This is not a proof of the
+whole decoder or its dependencies.
+
+Enabling `unchecked`, `c-ffi`, or `asm` removes the crate-wide prohibition.
+`c-ffi` implies `unchecked`; `asm` implies `c-ffi`; `partial_asm` also implies
+`unchecked`. In unchecked SIMD paths, local exceptions allow raw loads/stores,
+and untracked buffer constructors bypass runtime overlap tracking. Some modules
+retain their own prohibitions. Normal Rust callers need none of these features.
+
+The default SIMD path uses archmage for feature-token dispatch and
+`safe_unaligned_simd` for reference-based loads/stores, with slice-based kernel
+interfaces.
+
+Verify at runtime with `rav1d_safe::enabled_features()` — returns a comma-delimited list including the active safety level (e.g. `"bitdepth_8, bitdepth_16, safety:forbid-unsafe"`).
+
+## What's Been Ported
+
+The default build compiles under `forbid(unsafe_code)` in the main crate. SIMD kernels live in `src/safe_simd/`, with additional entropy specialization in `src/msac.rs`.
+
+### Ported: All DSP Kernels (AVX2 + NEON)
+
+Every DSP kernel family has a safe Rust SIMD implementation that compiles under `forbid(unsafe_code)`:
+
+| Module | x86 ASM replaced | ARM ASM replaced | Safe Rust |
+|--------|-------------------|-------------------|-----------|
+| mc (motion compensation) | 3 files (SSE/AVX2/AVX-512) x2 bitdepths | 4 files (32+64-bit) x2 bitdepths + SVE/dotprod | `mc.rs` + `mc_arm.rs` |
+| itx (inverse transforms) | 3 files x2 bitdepths | 2 files x2 bitdepths | `itx.rs` + `itx_arm.rs` |
+| ipred (intra prediction) | 3 files x2 bitdepths | 2 files x2 bitdepths | `ipred.rs` + `ipred_arm.rs` |
+| cdef (directional enhancement) | 3 files x2 bitdepths | 2+tmpl files x2 bitdepths | `cdef.rs` + `cdef_arm.rs` |
+| loopfilter | 3 files x2 bitdepths | 2 files x2 bitdepths | `loopfilter.rs` + `loopfilter_arm.rs` |
+| looprestoration (Wiener + SGR) | 3 files x2 bitdepths | 2+common+tmpl files x2 bitdepths | `looprestoration.rs` + `looprestoration_arm.rs` |
+| filmgrain | 3+common files x2 bitdepths | 2 files x2 bitdepths | `filmgrain.rs` + `filmgrain_arm.rs` |
+| pal (palette) | 1 file | *(none — ARM uses scalar)* | `pal.rs` |
+| refmvs (reference MVs) | 1 file | 2 files (32+64-bit) | `refmvs.rs` + `refmvs_arm.rs` |
+| msac (entropy decoder) | 1 file (shared) | 1 file (shared) | inline in `msac.rs` |
+| cpuid | 1 file (55 lines) | — | replaced by `std::arch` detection in `cpu.rs` |
+
+The entropy decoder combines scalar routines with selected safe SIMD specialization; see the [measured entropy experiments](benchmarks/still-entropy-2026-09-07/README.md).
+
+### Not Ported (With Rationale)
+
+**Scaled MC** (put_8tap_scaled, prep_8tap_scaled, put_bilin_scaled, prep_bilin_scaled) — These functions use per-pixel variable step sizes with per-pixel filter selection, making them fundamentally different from fixed-block MC. The ASM versions are heavily register-scheduled for this pattern. Falls back to scalar Rust. ~2% of profile on inter-frame content.
+
+**SSE-only paths** — 14 files, ~52k lines. The safe SIMD dispatch jumps straight to AVX2 when available. On pre-AVX2 hardware (pre-Haswell, 2013), the decoder falls back to scalar Rust rather than SSE intrinsics. SSE-only x86 hardware is rare enough that maintaining a second intrinsics tier isn't worth the code.
+
+**ARM SVE2, dotprod, i8mm extensions** — `mc_dotprod.S` (1,880 lines) and `mc16_sve.S` (1,649 lines) are optional fast paths for newer ARM cores. The safe SIMD covers baseline NEON; these extension paths fall back to the NEON implementation.
+
+**Remaining AVX-512 paths** — Some AVX-512 paths have been ported (itx, mc, ipred, looprestoration Wiener), but others remain unported. Falls back to AVX2 where not implemented.
+
+**ASM infrastructure files** — `x86inc.asm` (1,983 lines), `asm.S`, `util.S`, `*_tmpl.S`, `*_common.S` are macro libraries and constants that only exist to support the raw assembly. No independent functionality to port.
+
+## Performance
+
+For the current assembly-disabled upstream comparison, see the
+[matched 2K/4K/8K benchmark](benchmarks/noasm-2026-09-08/README.md).
+Upstream rav1d has no memory-safe feature mode; turning off its assembly selects
+its Rust implementation, which still contains unsafe code. Checked rav1d-safe
+retains safe SIMD and overlap checks.
+
+### Historical feature-mode measurements
+
+The following older measurements compare rav1d-safe's own feature modes. They
+are not the new upstream no-assembly comparison.
+
+Historical benchmark setup: x86_64 (Zen 4, AVX2), single-threaded, Rust 1.93+, fat LTO. Run with `just profile` (500 iterations for IVF, 20 iterations for AVIF).
+
+### Real photographs (AVIF decode, single image)
+
+Single still images at web-typical quality (YUV420, q60). Source: Google-native 8K photo, downscaled with ImageMagick. These numbers reflect real-world AVIF decode performance where SIMD kernels dominate.
+
+| Resolution | ASM | Safe (checked) | Safe (unchecked) | Safe vs ASM |
+|------------|-----|----------------|------------------|-------------|
+| 4K (3840x2561) | 120.7 ms | 187.8 ms | 179.5 ms | 1.56x |
+| 8K (8192x5464) | 714.1 ms | 1103.2 ms | 1066.9 ms | 1.54x |
+
+(Measured at v0.5.6. The 0.5.6 SIMD work — i16-packed `pmaddwd` transform row+col passes
+and YMM-widened loopfilter — brought the 4K checked ratio from 2.0× down to 1.56×.)
+
+### Small test vectors (IVF, multi-frame decode)
+
+dav1d-test-data allintra 352x288 (39 frames). Entropy-heavy bitstream where the serial msac decoder dominates, which compresses the ratio compared to pixel-heavy workloads.
+
+| Build | ms/iter | ms/frame | vs ASM |
+|-------|---------|----------|--------|
+| ASM | 104.3 | 2.67 | 1.0x |
+| Safe (checked) | 158.6 | 4.07 | 1.52x |
+| Safe (unchecked) | 153.3 | 3.93 | 1.47x |
+| Partial ASM | 141.2 | 3.62 | 1.35x |
+
+### Where the gap comes from
+
+The safe build is ~1.56x slower on 4K real images and ~1.52x on entropy-heavy vectors. The gap breaks down:
+
+- **Entropy decoder (msac)**: ~45% of decode time. Serial dependency chain — the core symbol decode loop can't be parallelized; ~95% of `decode_coefs` is irreducible algorithmic cost (only ~3-5% is Rust-specific bounds-check/index overhead). The `partial_asm` feature uses hand-tuned ASM for msac and loopfilter, bringing 4K photo decodes to 1.25x vs full ASM.
+- **Calling conventions**: The ASM kernels use custom register allocation across function boundaries. Rust's ABI reloads registers at each call site.
+- **Scaled MC**: Falls back to scalar Rust (~2% of inter-frame content). The ASM version uses per-pixel variable-step register scheduling that doesn't map cleanly to safe intrinsics.
+- **Bounds checking**: The `unchecked` feature skips DisjointMut borrow tracking. This saves ~5% on photos, confirming the tracking overhead is modest.
+
+### Reproduce locally
+
+```sh
+just generate-bench-avif  # create 4K/8K AVIF test images (requires avifdec + avifenc)
+just profile              # all four modes side-by-side (ASM, partial ASM, checked, unchecked)
+just profile-quick        # same with fewer iterations
+```
+
+## Conformance
+
+Tested against the [dav1d-test-data](https://code.videolan.org/videolan/dav1d-test-data) suite. MD5 hashes verified at all CPU dispatch levels (scalar, SSE4.2, AVX2, native).
+
+**784 of 803 test vectors pass** across all levels.
+
+19 vectors are not exercised by the test harness:
+
+| Category | Count | Reason |
+|----------|-------|--------|
+| sframe | 1 | Requires S-frame support |
+| svc (operating points) | 6 | Always decodes at default operating point |
+| argon (vq_suite) | 12 | Various decode modes and operating point selection tests |
+
+Run conformance tests with `cargo test --release --test decode_cpu_levels`.
+
+## Building
+
+Use a current stable Rust toolchain. The default checked library is tested on its declared Rust 1.89 minimum; the workflow examples and benchmarks record their exact compiler versions. Install via [rustup.rs](https://rustup.rs).
+
+```sh
+# Default safe-SIMD build (recommended)
+cargo build --release
+
+# With original hand-written assembly (for benchmarking)
+cargo build --features asm --release
+
+# Run tests
+cargo test --release
+```
+
+### Feature Flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `bitdepth_8` | on | 8-bit pixel support |
+| `bitdepth_16` | on | 10/12-bit pixel support |
+| `unchecked` | off | Skip DisjointMut borrow tracking; enables frame threading and SSE2 msac on x86_64 |
+| `partial_asm` | off | ASM for entropy decoding (msac) and loopfilter only; safe SIMD everything else. Implies `unchecked` |
+| `c-ffi` | off | C API entry points (`dav1d_*` symbols). Implies `unchecked` |
+| `asm` | off | Full hand-written assembly. Implies `c-ffi` |
+
+Safety chain: `default` (`forbid(unsafe_code)`, tile threading) -> `unchecked` (frame threading) -> `c-ffi` -> `asm`. Each level relaxes the safety constraint.
+
+### Cross-Compilation
+
+```sh
+# aarch64
+RUSTFLAGS="-C linker=aarch64-linux-gnu-gcc" \
+  cargo build --target aarch64-unknown-linux-gnu --release
+
+# Verify aarch64 NEON compiles
+cargo check --target aarch64-unknown-linux-gnu
+```
+
+Supported targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `i686-unknown-linux-gnu`, `armv7-unknown-linux-gnueabihf`, `riscv64gc-unknown-linux-gnu`.
+
+## Image tech I maintain
+
+| | |
+|:--|:--|
+| **Codecs** ¹ | [zenjpeg] · [zenpng] · [zenwebp] · [zengif] · [zenavif] · [zenjxl] · [zenjxl-decoder] · [jxl-encoder] · [zenbitmaps] · [heic] · [zentiff] · [zenpdf] · [zensvg] · [zenjp2] · [zenraw] · [ultrahdr] |
+| Codec internals | [zenrav1e] · **rav1d-safe** · [zenravif] · [zenavif-parse] · [zenavif-serialize] |
+| Compression | [zenflate] · [zenzop] · [zenzstd] |
+| Processing | [zenresize] · [zenquant] · [zenblend] · [zenfilters] · [zensally] · [zentone] |
+| Pixels & color | [zenpixels] · [zenpixels-convert] · [linear-srgb] · [garb] · [zenyuv] |
+| Pipeline & framework | [zenpipe] · [zencodec] · [zencodecs] · [zenlayout] · [zennode] · [zenwasm] · [zentract] |
+| Metrics | [zensim] · [fast-ssim2] · [butteraugli] · [zenmetrics] · [resamplescope-rs] |
+| Pickers & ML | [zenanalyze] · [zenpredict] · [zenpicker] · [zenanalyze-api] |
+| Test corpora | [codec-corpus] · [imazen-26] |
+| Products | [Imageflow] image engine ([.NET][imageflow-dotnet] · [Node][imageflow-node] · [Go][imageflow-go]) · [Imageflow Server] · [ImageResizer] (C#) |
+
+<sub>¹ pure-Rust, `#![forbid(unsafe_code)]` codecs, as of 2026</sub>
+
+### General Rust awesomeness
+
+[zenbench] · [archmage] · [magetypes] · [enough] · [whereat] · [cargo-copter] · [zenutils]
+
+[Open source](https://www.imazen.io/open-source) · [@imazen](https://github.com/imazen) · [@lilith](https://github.com/lilith) · [lib.rs/~lilith](https://lib.rs/~lilith)
+
+[zenjpeg]: https://github.com/imazen/zenjpeg
+[zenpng]: https://github.com/imazen/zenpng
+[zenwebp]: https://github.com/imazen/zenwebp
+[zengif]: https://github.com/imazen/zengif
+[zenavif]: https://github.com/imazen/zenavif
+[zenjxl]: https://github.com/imazen/zenjxl
+[zenjxl-decoder]: https://github.com/imazen/zenjxl-decoder
+[jxl-encoder]: https://github.com/imazen/jxl-encoder
+[zenbitmaps]: https://github.com/imazen/zenbitmaps
+[heic]: https://github.com/imazen/heic
+[zentiff]: https://github.com/imazen/zenextras
+[zenpdf]: https://github.com/imazen/zenextras
+[zensvg]: https://github.com/imazen/zenextras
+[zenjp2]: https://github.com/imazen/zenextras
+[zenraw]: https://github.com/imazen/zenraw
+[ultrahdr]: https://github.com/imazen/ultrahdr
+[zenrav1e]: https://github.com/imazen/zenrav1e
+[zenravif]: https://github.com/imazen/cavif-rs
+[zenavif-parse]: https://github.com/imazen/zenavif
+[zenavif-serialize]: https://github.com/imazen/zenavif
+[zenflate]: https://github.com/imazen/zenflate
+[zenzop]: https://github.com/imazen/zenzop
+[zenzstd]: https://github.com/imazen/zenzstd
+[zenresize]: https://github.com/imazen/zenresize
+[zenquant]: https://github.com/imazen/zenquant
+[zenblend]: https://github.com/imazen/zenblend
+[zenfilters]: https://github.com/imazen/zenpipe
+[zensally]: https://github.com/imazen/zensally
+[zentone]: https://github.com/imazen/zentone
+[zenpixels]: https://github.com/imazen/zenpixels
+[zenpixels-convert]: https://github.com/imazen/zenpixels
+[linear-srgb]: https://github.com/imazen/linear-srgb
+[garb]: https://github.com/imazen/garb
+[zenyuv]: https://github.com/imazen/zenjpeg
+[zenpipe]: https://github.com/imazen/zenpipe
+[zencodec]: https://github.com/imazen/zencodec
+[zencodecs]: https://github.com/imazen/zenpipe
+[zenlayout]: https://github.com/imazen/zenpipe
+[zennode]: https://github.com/imazen/zennode
+[zenwasm]: https://github.com/imazen/zenwasm
+[zentract]: https://github.com/imazen/zentract
+[zensim]: https://github.com/imazen/zensim
+[fast-ssim2]: https://github.com/imazen/fast-ssim2
+[butteraugli]: https://github.com/imazen/butteraugli
+[zenmetrics]: https://github.com/imazen/zenmetrics
+[resamplescope-rs]: https://github.com/imazen/resamplescope-rs
+[zenanalyze]: https://github.com/imazen/zenanalyze
+[zenpredict]: https://github.com/imazen/zenanalyze
+[zenpicker]: https://github.com/imazen/zenanalyze
+[zenanalyze-api]: https://github.com/imazen/zenanalyze
+[codec-corpus]: https://github.com/imazen/codec-corpus
+[imazen-26]: https://github.com/imazen/imazen-26
+[zenbench]: https://github.com/imazen/zenbench
+[archmage]: https://github.com/imazen/archmage
+[magetypes]: https://github.com/imazen/archmage
+[enough]: https://github.com/imazen/enough
+[whereat]: https://github.com/lilith/whereat
+[cargo-copter]: https://github.com/imazen/cargo-copter
+[zenutils]: https://github.com/imazen/zenutils
+[Imageflow]: https://github.com/imazen/imageflow
+[Imageflow Server]: https://github.com/imazen/imageflow-dotnet-server
+[ImageResizer]: https://github.com/imazen/resizer
+[imageflow-dotnet]: https://github.com/imazen/imageflow-dotnet
+[imageflow-node]: https://github.com/imazen/imageflow-node
+[imageflow-go]: https://github.com/imazen/imageflow-go

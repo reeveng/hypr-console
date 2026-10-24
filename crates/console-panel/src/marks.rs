@@ -10,12 +10,16 @@
 //! surface of our own draws the text it was given, so what to draw instead of
 //! the letters is said here with the rest of the marks.
 //!
-//! `CANCEL` is the one word here that a person reads rather than a stylesheet.
+//! `CANCEL` is a word here that a person reads rather than a stylesheet.
 //! It used to be a pair, `Yes` and `No`, and they said nothing: a card asking
 //! whether to bring a machine to what it had been sent drew the same two words
 //! as one asking whether to throw a photograph away, so the button under the
 //! highlight could not be read on its own. Every other answer names what it
 //! does, and the one that undoes the asking is called what it is.
+//!
+//! `SHOW` and `HIDE` are read too: the button under a password, which turns
+//! the dots back into the letters typed so a mistake can be found before a
+//! router refuses it.
 
 pub const SHUT: &str = "\u{d7}";
 
@@ -32,6 +36,9 @@ pub const ELSE: &str = "\u{2026}";
 pub const HIDDEN: &str = "\u{25cf}";
 
 pub const CANCEL: &str = "Cancel";
+
+pub const SHOW: &str = "Show Password";
+pub const HIDE: &str = "Hide Password";
 
 #[cfg(test)]
 mod tests {

@@ -129,6 +129,7 @@ exit 0
 
 fn monitor(output: &str, mode: Size<u32>, screen: &Screen, scale: f64) -> Result<String, Never> {
     let Size { width: wide, height: tall } = mode;
+    let Ok(transform) = screen.transform.number();
 
     Ok(format!(
         "hl.monitor({{\n    \
@@ -136,9 +137,9 @@ fn monitor(output: &str, mode: Size<u32>, screen: &Screen, scale: f64) -> Result
          mode      = \"{wide}x{tall}@{}\",\n    \
          position  = \"auto\",\n    \
          scale     = {scale},\n    \
-         transform = {},\n\
+         transform = {transform},\n\
          }})",
-        screen.refresh, screen.transform
+        screen.refresh
     ))
 }
 
@@ -165,9 +166,11 @@ pub fn headless(screen: &Screen) -> Result<String, Never> {
 
 pub fn made_headless(screen: &Screen) -> Result<String, Never> {
     let (wide, tall) = (screen.mode.width, screen.mode.height);
+    let Ok(transform) = screen.transform.number();
+
     Ok(format!(
-        r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {} }})"#,
-        screen.refresh, screen.scale, screen.transform
+        r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {transform} }})"#,
+        screen.refresh, screen.scale
     ))
 }
 
@@ -232,7 +235,7 @@ mod tests {
         mode: console_core_geometry::Size { width: 2560, height: 1600 },
         refresh: 144,
         scale: 2.5,
-        transform: 1,
+        transform: console_screen::Transform::Degrees90,
     };
 
     #[test]

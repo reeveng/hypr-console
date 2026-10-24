@@ -304,14 +304,14 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindCommand {
-    Bind(KeyBinding),
+    Bound(KeyBinding),
     Unbind(KeyBinding),
 }
 
 impl BindCommand {
     pub fn command(&self) -> Result<String, Never> {
         match self {
-            BindCommand::Bind(one) => one.bind_command(),
+            BindCommand::Bound(one) => one.bind_command(),
             BindCommand::Unbind(one) => one.unbind_command(),
         }
     }
@@ -357,10 +357,10 @@ pub fn commands_to_send(wanted: &[KeyBinding], handed: &[KeyBinding], holding: &
 
         match holds {
             Holds::Once => {},
-            Holds::NotAtAll => sent.push(BindCommand::Bind(one.clone())),
+            Holds::NotAtAll => sent.push(BindCommand::Bound(one.clone())),
             Holds::Over => {
                 sent.push(BindCommand::Unbind(one.clone()));
-                sent.push(BindCommand::Bind(one.clone()));
+                sent.push(BindCommand::Bound(one.clone()));
             },
         }
     }
@@ -379,7 +379,7 @@ fn unasked(wanted: &[KeyBinding], handed: &[KeyBinding]) -> Result<Vec<BindComma
         )
     )]
     for one in wanted.iter().filter(|one| !handed.contains(one)) {
-        sent.push(BindCommand::Bind(one.clone()));
+        sent.push(BindCommand::Bound(one.clone()));
     }
 
     Ok(sent)
@@ -496,7 +496,7 @@ mod tests {
         Ok(sent
             .iter()
             .filter_map(|says| match says {
-                BindCommand::Bind(one) => Some(one.about.clone()),
+                BindCommand::Bound(one) => Some(one.about.clone()),
                 BindCommand::Unbind(_) => None,
             })
             .collect())
@@ -507,7 +507,7 @@ mod tests {
             .iter()
             .filter_map(|says| match says {
                 BindCommand::Unbind(one) => Some(one.about.clone()),
-                BindCommand::Bind(_) => None,
+                BindCommand::Bound(_) => None,
             })
             .collect())
     }
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(unbound, std::slice::from_ref(&twice.about));
         assert_eq!(bound, std::slice::from_ref(&twice.about));
 
-        let before_given: Vec<&BindCommand> = sent.iter().take_while(|says| **says != BindCommand::Bind(twice.clone())).collect();
+        let before_given: Vec<&BindCommand> = sent.iter().take_while(|says| **says != BindCommand::Bound(twice.clone())).collect();
 
         assert!(before_given.contains(&&BindCommand::Unbind(twice.clone())), "it goes back on after it comes off, not before");
 

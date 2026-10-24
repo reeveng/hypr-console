@@ -133,11 +133,12 @@ ours! {
     Volume, "console-volume";
 }
 
-pub const APPS: [InternalProgram; 5] = [
+pub const APPS: [InternalProgram; 6] = [
     InternalProgram::Books,
     InternalProgram::Downloads,
     InternalProgram::Files,
     InternalProgram::Music,
+    InternalProgram::Notes,
     InternalProgram::Viewer,
 ];
 

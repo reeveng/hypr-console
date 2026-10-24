@@ -106,7 +106,7 @@ fn decide(state: &Destination, event: &Event<NotificationsEvent>) -> Result<Tran
             Transition::new(Destination::List, vec![Effect::Run(clear), Effect::Custom(NotificationsEffect::Refresh)])
         }
 
-        Event::Opened | Event::Changed(_) | Event::Tick(_, _) | Event::Replied(_)
+        Event::Opened | Event::Modified(_) | Event::Tick(_, _) | Event::Replied(_)
         | Event::Chosen(_) | Event::Stopping => Transition::without_effects(*state),
     };
 

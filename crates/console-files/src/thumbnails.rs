@@ -5,27 +5,58 @@
 //! the cache, a picture is named for the address of the thing it is of, and one
 //! made before the thing last changed is out of date.
 //!
-//! Nothing here makes one. That is `files-thumbnails`, which runs off the panel:
-//! a folder of two hundred photographs takes seconds to work through and a
-//! panel that waited for it would show nothing at all until it was done.
+//! Nothing here runs over a folder. That is `files-thumbnails`, which runs off
+//! the panel: a folder of two hundred photographs takes seconds to work through
+//! and a panel that waited for it would show nothing at all until it was done.
+//! What is here is one picture made: a photograph or a drawing through
+//! `console-pictures`, and a film from three seconds in, because the first
+//! moment of a film is a black screen or a title more often than it is the film.
+//! A film shorter than that is drawn from its start.
 //!
-//! What it does do is say what the picture is of. The standard asks for two
+//! What it also does is say what the picture is of. The standard asks for two
 //! lines of text inside the PNG -- the address of the thing and when that thing
 //! last changed -- and they are how every other file manager decides whether
 //! what it found is still about the file it is looking at. gdk-pixbuf wrote
-//! them as it wrote the file; ffmpeg writes a PNG and nothing else, so they are
-//! put in here, as the one chunk the format was designed to carry and this
-//! tree can write: a length, a name, the bytes, and a CRC32 of the two.
+//! them as it wrote the file; `console-core-png-files` writes a picture and
+//! nothing else, so they are put in here, as the one chunk the format was
+//! designed to carry and this tree can write: a length, a name, the bytes, and a
+//! CRC32 of the two.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use console_concurrency::Cores;
+use console_films::{FilmError, open};
+use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::index;
+use console_core_png_files::{Picture, PngError, encoded};
+use console_pictures::{PictureError, decoded, fit_within};
 
 use console_core_checksums::{crc32, md5};
 
-pub const SIDE: i32 = 128;
+pub const SIDE: u32 = 128;
+
+const INTO_A_FILM: f64 = 3.0;
+
+#[derive(Debug)]
+pub enum ThumbnailError {
+    Unread(PictureError),
+    Unplayed(FilmError),
+    Unwritten(PngError),
+}
+
+impl std::fmt::Display for ThumbnailError {
+    fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThumbnailError::Unread(fault) => write!(to, "{fault}"),
+            ThumbnailError::Unplayed(fault) => write!(to, "{fault}"),
+            ThumbnailError::Unwritten(fault) => write!(to, "writing the picture down: {fault}"),
+        }
+    }
+}
+
+impl std::error::Error for ThumbnailError {}
 
 pub fn store(cache: &Path) -> Result<PathBuf, Never> {
     Ok(cache.join("thumbnails").join("normal"))
@@ -51,6 +82,60 @@ pub fn of(store: &Path, address: &str) -> Result<Option<PathBuf>, Never> {
     let digest = md5::of(address)?;
 
     Ok(Some(store.join(format!("{digest}.png"))))
+}
+
+pub fn drawn(thing: &Path, kind: &str) -> Result<Option<Vec<u8>>, ThumbnailError> {
+    let within = Size { width: SIDE, height: SIDE };
+
+    let into_it = match kind.starts_with("video/") {
+        true => into_a_film(thing, within),
+        false => Ok(None),
+    };
+
+    let into_it = into_it.map_err(ThumbnailError::Unplayed)?;
+
+    let picture = match into_it {
+        Some(picture) => Some(picture),
+        None => {
+            let read = decoded(thing, within).map_err(ThumbnailError::Unread)?;
+
+            read.map(|pixels| Picture { size: Size { width: pixels.width, height: pixels.height }, rgba: pixels.bytes.to_vec() })
+        },
+    };
+
+    match picture {
+        Some(picture) => encoded(&picture).map(Some).map_err(ThumbnailError::Unwritten),
+        None => Ok(None),
+    }
+}
+
+fn into_a_film(thing: &Path, within: Size<u32>) -> Result<Option<Picture>, FilmError> {
+    let opened = open(thing)?;
+
+    let film = match opened {
+        Some(film) => film,
+        None => return Ok(None),
+    };
+
+    let pictures = film.pictures(INTO_A_FILM)?;
+
+    let mut pictures = match pictures {
+        Some(pictures) => pictures,
+        None => return Ok(None),
+    };
+
+    let shown = pictures.next_picture()?;
+
+    let shown = match shown {
+        Some(shown) => shown,
+        None => return Ok(None),
+    };
+
+    let (Ok(had), Ok(one)) = (shown.size(), Cores::one());
+    let Ok(made) = fit_within(had, within);
+    let Ok(drawn) = shown.rgba_at(made, one);
+
+    Ok(Some(Picture { size: drawn.size, rgba: drawn.rgba }))
 }
 
 const HEAD: u32 = 8;
@@ -237,6 +322,65 @@ mod tests {
     fn a_file_that_is_not_a_png_is_left_alone() {
         assert_eq!(stamped(b"this is not a picture", Stamp { address: "file:///x", changed: "1" }), Ok(None));
         assert_eq!(stamped(&[], Stamp { address: "file:///x", changed: "1" }), Ok(None));
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Seen {
+        Red,
+        Green,
+        Neither,
+    }
+
+    fn drawn_from(file: (&str, &str)) -> Result<console_core_png_files::Picture, Box<dyn Error>> {
+        let (named, kind) = file;
+        let at = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(named);
+        let made = drawn(&at, kind)?;
+        let png = made.ok_or(format!("nothing was drawn of {named}"))?;
+        let picture = console_core_png_files::decoded(&png)?;
+
+        Ok(picture)
+    }
+
+    fn middle_of(picture: &console_core_png_files::Picture) -> Result<Seen, Box<dyn Error>> {
+        let across = u64::from(picture.size.width);
+        let row = u64::from(picture.size.height.saturating_div(2));
+        let Ok(pixel) = index(row.saturating_mul(across).saturating_add(across.saturating_div(2)));
+        let said = picture.rgba.as_chunks::<4>().0.get(pixel).ok_or("the middle is past the end of the picture")?;
+
+        Ok(match said {
+            [red, green, blue, u8::MAX] => match (*red > 200, *green > 100, *blue < 60) {
+                (true, false, true) => Seen::Red,
+                (false, true, true) => Seen::Green,
+                (_, _, _) => Seen::Neither,
+            },
+            _ => Seen::Neither,
+        })
+    }
+
+    #[test]
+    fn a_film_is_drawn_from_three_seconds_in_and_one_shorter_than_that_from_its_start() -> Result<(), Box<dyn Error>> {
+        let long = drawn_from(("console-films/tests/films/dark-then-green.h264.mp4", "video/mp4"))?;
+        let short = drawn_from(("console-films/tests/films/red-then-blue.h264.mp4", "video/mp4"))?;
+        let side = Size { width: SIDE, height: 85 };
+        let long_seen = middle_of(&long)?;
+        let short_seen = middle_of(&short)?;
+
+        assert_eq!((long.size, long_seen), (side, Seen::Green));
+        assert_eq!((short.size, short_seen), (side, Seen::Red));
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_photograph_is_drawn_no_wider_and_no_taller_than_the_store_keeps() -> Result<(), Box<dyn Error>> {
+        let photograph = drawn_from(("console-core-jpeg-files/tests/pictures/full.jpg", "image/jpeg"))?;
+        let measured = console_pictures::measure(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../console-core-jpeg-files/tests/pictures/full.jpg"))?;
+        let had = measured.ok_or("the photograph has no size")?;
+        let Ok(fitted) = fit_within(had, Size { width: SIDE, height: SIDE });
+
+        assert_eq!(photograph.size, fitted);
+
+        Ok(())
     }
 
     const CACHE: &str = "/home/ada/.cache";

@@ -188,7 +188,7 @@ fn decide(state: &Coming, event: &Event<ReturningEvent>) -> Result<Transition<Co
             }
         }
 
-        Event::Opened | Event::Changed(_) | Event::Replied(_) | Event::Chosen(_)
+        Event::Opened | Event::Modified(_) | Event::Replied(_) | Event::Chosen(_)
         | Event::Stopping => Transition::without_effects(held),
     };
 

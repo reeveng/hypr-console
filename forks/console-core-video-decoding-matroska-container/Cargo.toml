@@ -1,0 +1,17 @@
+[package]
+name = "console-core-video-decoding-matroska-container"
+description = "Clean-room Matroska (MKV) and WebM demuxer and muxer"
+version = "0.4.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.95"
+repository = "https://github.com/storytold/filmcraft"
+
+[lib]
+name = "console_core_video_decoding_matroska_container"
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints.rust]
+warnings = "allow"

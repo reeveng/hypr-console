@@ -1,0 +1,20 @@
+[package]
+edition = "2024"
+name = "console-core-portable-document-text"
+version = "0.4.0"
+description = "The words on a page of a portable document, each with the box it is drawn in"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/storytold/pdfcraft"
+
+[lib]
+name = "console_core_portable_document_text"
+path = "src/lib.rs"
+
+[dependencies.console-core-portable-document-rasterizer]
+path = "../console-core-portable-document-rasterizer"
+
+[dependencies.kurbo]
+version = "0.13"
+
+[lints.rust]
+warnings = "allow"

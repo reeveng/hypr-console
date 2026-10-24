@@ -98,7 +98,7 @@ impl Machine for Greeter {
 
                 Ok(GreeterState { greeting, ..state })
             }
-            (_, Event::Opened | Event::Changed(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping) => {
+            (_, Event::Opened | Event::Modified(_) | Event::Tick(..) | Event::Replied(_) | Event::Chosen(_) | Event::Stopping) => {
                 Ok(GreeterState { greeting, bar })
             }
         }

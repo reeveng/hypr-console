@@ -1,5 +1,9 @@
 //! Colors, and how far apart two of them are.
 //!
+//! Blends interpolate in Oklab with premultiplied alpha and clip to sRGB.
+//! A finite share is clamped to 0..=1; a nonfinite share is rejected.
+//! Readable ink chooses opaque black or white by the higher WCAG contrast.
+//!
 //! Every color on this desktop is declared as a hue and how much of it, and
 //! the lightness is worked out here rather than chosen: a color is told what
 //! it has to be readable against and comes back as the softest shade that
@@ -71,7 +75,7 @@ const TO_LAB: [[f64; 3]; 3] = [
     [0.0259040371, 0.7827717662, -0.8086757660],
 ];
 
-const FROM_LCH: [[f64; 2]; 3] = [
+const FROM_LAB: [[f64; 2]; 3] = [
     [0.3963377774, 0.2158037573],
     [-0.1055613458, -0.0638541728],
     [-0.0894841775, -1.2914855480],
@@ -112,8 +116,15 @@ pub struct Oklch {
     pub hue: f64,
 }
 
-impl Oklch {
-    pub fn of(color: Rgba) -> Result<Oklch, Never> {
+#[derive(Debug, Clone, Copy)]
+struct Oklab {
+    lightness: f64,
+    a: f64,
+    b: f64,
+}
+
+impl Oklab {
+    fn of(color: Rgba) -> Result<Self, Never> {
         let Ok(red) = to_linear(f64::from(color.red) / 255.0);
         let Ok(green) = to_linear(f64::from(color.green) / 255.0);
         let Ok(blue) = to_linear(f64::from(color.blue) / 255.0);
@@ -135,6 +146,30 @@ impl Oklch {
         }
 
         let [lightness, a, b] = lab;
+
+        Ok(Self { lightness, a, b })
+    }
+
+    fn rgb(self) -> Result<[f64; 3], Never> {
+        let cubed = FROM_LAB.map(|[on_a, on_b]| {
+            (self.lightness + on_a * self.a + on_b * self.b).powi(3)
+        });
+        let mut rgb = [0.0; 3];
+
+        for (channel, row) in rgb.iter_mut().zip(FROM_LMS) {
+            let mixed: f64 = row.iter().zip(&cubed).map(|(weight, cube)| weight * cube).sum();
+            let Ok(said) = to_srgb(mixed);
+
+            *channel = said;
+        }
+
+        Ok(rgb)
+    }
+}
+
+impl Oklch {
+    pub fn of(color: Rgba) -> Result<Oklch, Never> {
+        let Ok(Oklab { lightness, a, b }) = Oklab::of(color);
 
         Ok(Oklch {
             lightness,
@@ -187,6 +222,8 @@ impl std::error::Error for ParseError {}
 
 impl Rgba {
     pub const OPAQUE: u8 = 0xff;
+    pub const BLACK: Self = Self { red: 0, green: 0, blue: 0, alpha: Self::OPAQUE };
+    pub const WHITE: Self = Self { red: 255, green: 255, blue: 255, alpha: Self::OPAQUE };
 
     pub fn of(six: &str) -> Result<Rgba, ParseError> {
         let said = match six.strip_prefix('#') {
@@ -207,6 +244,34 @@ impl Rgba {
         let blue = band(&mut digits)?;
 
         Ok(Rgba { red, green, blue, alpha: Rgba::OPAQUE })
+    }
+
+    pub fn from_argb(color: u32) -> Result<Self, Never> {
+        let [alpha, red, green, blue] = color.to_be_bytes();
+
+        Ok(Self { red, green, blue, alpha })
+    }
+
+    pub fn argb(self) -> Result<u32, Never> {
+        Ok(u32::from_be_bytes([self.alpha, self.red, self.green, self.blue]))
+    }
+
+    pub fn luminance(self) -> Result<f64, Never> {
+        let Ok(red) = to_linear(f64::from(self.red) / 255.0);
+        let Ok(green) = to_linear(f64::from(self.green) / 255.0);
+        let Ok(blue) = to_linear(f64::from(self.blue) / 255.0);
+
+        Ok(0.2126 * red + 0.7152 * green + 0.0722 * blue)
+    }
+
+    pub fn readable_ink(self) -> Result<Self, Never> {
+        let Ok(luminance) = self.luminance();
+        let lit = luminance + 0.05;
+
+        Ok(match 1.05 / lit >= lit / 0.05 {
+            true => Self::WHITE,
+            false => Self::BLACK,
+        })
     }
 
     pub fn at(self, alpha: u8) -> Result<Rgba, Never> {
@@ -240,24 +305,66 @@ fn nibble(digit: char) -> Result<u8, ParseError> {
     }
 }
 
-pub fn oklch_to_rgb(color: Oklch) -> Result<[f64; 3], Never> {
-    let radians = color.hue.to_radians();
-    let (a, b) = (color.chroma * radians.cos(), color.chroma * radians.sin());
-    let cubed: Vec<f64> = FROM_LCH
-        .iter()
-        .map(|&[on_a, on_b]| (color.lightness + on_a * a + on_b * b).powf(3.0))
-        .collect();
-    let mut rgb = [0.0; 3];
+#[derive(Debug, Clone, Copy)]
+pub struct Blend {
+    pub front: Rgba,
+    pub back: Rgba,
+    pub share: f64,
+}
 
-    for (channel, row) in rgb.iter_mut().zip(FROM_LMS) {
-        let mixed: f64 = row.iter().zip(&cubed).map(|(weight, cube)| weight * cube).sum();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidShare;
 
-        let Ok(said) = to_srgb(mixed);
+impl fmt::Display for InvalidShare {
+    fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+        to.write_str("a color's share of a blend must be finite")
+    }
+}
 
-        *channel = said;
+impl std::error::Error for InvalidShare {}
+
+pub fn mix(blend: Blend) -> Result<Rgba, InvalidShare> {
+    match blend.share.is_finite() {
+        true => {},
+        false => return Err(InvalidShare),
     }
 
-    Ok(rgb)
+    let share = blend.share.clamp(0.0, 1.0);
+    let front = share * f64::from(blend.front.alpha) / 255.0;
+    let back = (1.0 - share) * f64::from(blend.back.alpha) / 255.0;
+    let alpha = front + back;
+
+    match alpha.total_cmp(&0.0).is_eq() {
+        true => return Ok(Rgba { red: 0, green: 0, blue: 0, alpha: 0 }),
+        false => {},
+    }
+
+    let Ok(a) = Oklab::of(blend.front);
+    let Ok(b) = Oklab::of(blend.back);
+    let mixed = Oklab {
+        lightness: (a.lightness * front + b.lightness * back) / alpha,
+        a: (a.a * front + b.a * back) / alpha,
+        b: (a.b * front + b.b * back) / alpha,
+    };
+    let Ok(rgb) = mixed.rgb();
+    let [red, green, blue] = rgb.map(|channel| {
+        let Ok(byte) = toward_zero_u8((channel.clamp(0.0, 1.0) * 255.0).round());
+
+        byte
+    });
+    let Ok(opacity) = toward_zero_u8((alpha * 255.0).round());
+
+    Ok(Rgba { red, green, blue, alpha: opacity })
+}
+
+pub fn oklch_to_rgb(color: Oklch) -> Result<[f64; 3], Never> {
+    let radians = color.hue.to_radians();
+
+    Oklab {
+        lightness: color.lightness,
+        a: color.chroma * radians.cos(),
+        b: color.chroma * radians.sin(),
+    }.rgb()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,13 +467,16 @@ fn channels(code: &str) -> Result<[f64; 3], Never> {
     Ok(bytes.map(|channel| f64::from(channel) / 255.0))
 }
 
-pub fn luminance(code: &str) -> Result<f64, Never> {
-    let Ok([red, green, blue]) = channels(code);
-    let Ok(red) = to_linear(red);
-    let Ok(green) = to_linear(green);
-    let Ok(blue) = to_linear(blue);
+fn rgba(code: &str) -> Result<Rgba, Never> {
+    let Ok([red, green, blue]) = bytes(code);
 
-    Ok(0.2126 * red + 0.7152 * green + 0.0722 * blue)
+    Ok(Rgba { red, green, blue, alpha: Rgba::OPAQUE })
+}
+
+pub fn luminance(code: &str) -> Result<f64, Never> {
+    let Ok(color) = rgba(code);
+
+    color.luminance()
 }
 
 pub fn contrast(ink: Ansi<'_>, ground: Ground<'_>) -> Result<f64, Never> {
@@ -579,23 +689,9 @@ pub fn darkest_clearing(
 }
 
 pub fn to_oklch(code: &str) -> Result<Oklch, Never> {
-    let Ok([red, green, blue]) = channels(code);
-    let Ok(red) = to_linear(red);
-    let Ok(green) = to_linear(green);
-    let Ok(blue) = to_linear(blue);
+    let Ok(color) = rgba(code);
 
-    let [long, medium, short] = TO_LMS.map(|[on_red, on_green, on_blue]| {
-        (on_red * red + on_green * green + on_blue * blue).powf(1.0 / 3.0)
-    });
-    let lightness = 0.2104542553 * long + 0.7936177850 * medium - 0.0040720468 * short;
-    let a = 1.9779984951 * long - 2.4285922050 * medium + 0.4505937099 * short;
-    let b = 0.0259040371 * long + 0.7827717662 * medium - 0.8086757660 * short;
-
-    Ok(Oklch {
-        lightness,
-        chroma: a.hypot(b),
-        hue: b.atan2(a).to_degrees().rem_euclid(360.0),
-    })
+    Oklch::of(color)
 }
 
 pub fn lift(code: &str, amount: f64) -> Result<String, Never> {
@@ -680,6 +776,60 @@ mod the_space {
         let Ok(oklch) = Oklch::of(color);
 
         assert!(oklch.chroma < 0.0001, "gray came out with a hue: {oklch:?}");
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod the_blends {
+    use super::*;
+    use std::error::Error;
+
+    #[test]
+    fn the_midpoint_follows_oklab() -> Result<(), Box<dyn Error>> {
+        for (front_hex, back_hex, expected_hex) in [
+            ("ffffff", "000000", "636363"),
+            ("ff0000", "0000ff", "8c53a2"),
+        ] {
+            let front = Rgba::of(front_hex)?;
+            let back = Rgba::of(back_hex)?;
+            let expected = Rgba::of(expected_hex)?;
+            let blended = mix(Blend { front, back, share: 0.5 })?;
+
+            assert_eq!(blended, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn an_invisible_color_does_not_tint_the_mix() -> Result<(), Box<dyn Error>> {
+        let red = Rgba::of("ff0000")?;
+        let Ok(front) = red.at(0);
+        let back = Rgba::of("0000ff")?;
+        let blended = mix(Blend { front, back, share: 0.5 })?;
+        let Ok(expected) = back.at(128);
+
+        assert_eq!(blended, expected);
+        let transparent = mix(Blend { front, back: front, share: 0.5 })?;
+
+        assert_eq!(transparent.alpha, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_share_is_bounded_and_must_be_finite() -> Result<(), Box<dyn Error>> {
+        for (share, expected) in [(-1.0, Rgba::WHITE), (2.0, Rgba::BLACK)] {
+            let blended = mix(Blend { front: Rgba::BLACK, back: Rgba::WHITE, share })?;
+
+            assert_eq!(blended, expected);
+        }
+
+        for share in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(mix(Blend { front: Rgba::BLACK, back: Rgba::WHITE, share }), Err(InvalidShare));
+        }
 
         Ok(())
     }

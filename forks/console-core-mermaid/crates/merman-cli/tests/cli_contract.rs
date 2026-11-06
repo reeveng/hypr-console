@@ -1,0 +1,1901 @@
+mod support;
+
+use assert_cmd::prelude::*;
+use serde_json::Value;
+use std::fs;
+use std::process::Command;
+use std::time::Duration;
+use support::{repo_root, run_with_stdin, run_with_stdin_in_dir};
+
+fn task_by_id<'a>(model: &'a Value, id: &str) -> &'a Value {
+    model["tasks"]
+        .as_array()
+        .expect("gantt tasks should be an array")
+        .iter()
+        .find(|task| task["id"].as_str() == Some(id))
+        .unwrap_or_else(|| panic!("missing Gantt task {id} in {model}"))
+}
+
+#[test]
+fn compiled_help_and_version_are_available() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+
+    for arg in ["--help", "-h"] {
+        let output = Command::new(exe).arg(arg).output().expect("run cli");
+        assert!(output.status.success(), "stderr: {:?}", output.stderr);
+
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+        assert!(stdout.contains("Usage:"), "unexpected help:\n{stdout}");
+        for command in [
+            "render",
+            "batch",
+            "mmdc",
+            "lint",
+            "fix",
+            "capabilities",
+            "detect",
+            "parse",
+        ] {
+            assert!(
+                stdout.contains(command),
+                "compiled help should expose {command}:\n{stdout}"
+            );
+        }
+        #[cfg(feature = "rustdoc")]
+        assert!(
+            stdout.contains("rustdoc"),
+            "compiled help should expose rustdoc:\n{stdout}"
+        );
+        #[cfg(not(feature = "rustdoc"))]
+        assert!(
+            !stdout.contains("rustdoc"),
+            "a build without the rustdoc feature must not advertise rustdoc:\n{stdout}"
+        );
+    }
+
+    let output = Command::new(exe)
+        .arg("--version")
+        .output()
+        .expect("run cli");
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert!(
+        output.stderr.is_empty(),
+        "explicit version output must stay on stdout: {:?}",
+        output.stderr
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert_eq!(
+        stdout,
+        format!("merman-cli {}\n", env!("CARGO_PKG_VERSION")),
+        "the version line is a machine-readable release contract"
+    );
+
+    for arg in ["--version", "-V"] {
+        let output = Command::new(exe)
+            .args(["mmdc", arg])
+            .output()
+            .expect("run mmdc version");
+        assert!(output.status.success(), "stderr: {:?}", output.stderr);
+        assert!(output.stderr.is_empty());
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+        assert!(
+            stdout.contains(env!("CARGO_PKG_VERSION")),
+            "mmdc compatibility command should inherit the Merman version:\n{stdout}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn informational_commands_do_not_require_a_live_working_directory() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    for args in [
+        vec!["--help"],
+        vec!["--version"],
+        vec!["capabilities", "--json"],
+        vec!["completion", "bash"],
+        vec!["lint-rules", "--format", "json"],
+    ] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let removed = tmp.path().join("removed-cwd");
+        fs::create_dir(&removed).expect("create cwd");
+        let output = Command::new("/bin/sh")
+            .args([
+                "-c",
+                "cd \"$REMOVED_CWD\" && rmdir \"$REMOVED_CWD\" && exec \"$MERMAN_EXE\" \"$@\"",
+                "merman-cli-info-test",
+            ])
+            .args(&args)
+            .env("REMOVED_CWD", &removed)
+            .env("MERMAN_EXE", exe)
+            .output()
+            .expect("run informational command from a removed cwd");
+        assert!(
+            output.status.success(),
+            "{args:?} should not inspect cwd: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !output.stdout.is_empty(),
+            "{args:?} should retain its stdout contract"
+        );
+    }
+}
+
+#[test]
+fn root_help_groups_commands_by_user_task() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    let output = Command::new(exe).arg("--help").output().expect("run cli");
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert!(
+        output.stderr.is_empty(),
+        "explicit help must stay on stdout: {:?}",
+        output.stderr
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    for heading in [
+        "Native rendering:",
+        "Analysis:",
+        "Compatibility:",
+        "Capabilities and tooling:",
+    ] {
+        assert!(
+            stdout.contains(heading),
+            "root help should group commands under `{heading}`:\n{stdout}"
+        );
+    }
+    #[cfg(feature = "rustdoc")]
+    assert!(
+        stdout.contains("Documentation:"),
+        "root help should group the compiled Rustdoc command:\n{stdout}"
+    );
+    #[cfg(not(feature = "rustdoc"))]
+    assert!(
+        !stdout.contains("Documentation:"),
+        "root help must omit an empty Documentation group:\n{stdout}"
+    );
+    for flag in ["--input", "--output", "--outputFormat", "--pdfFit"] {
+        assert!(
+            !stdout.contains(flag),
+            "root help must not advertise command-owned option {flag}:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn mmdc_help_owns_the_pinned_compatibility_options() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    let output = Command::new(exe)
+        .args(["mmdc", "--help"])
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert!(
+        output.stderr.is_empty(),
+        "explicit help must stay on stdout: {:?}",
+        output.stderr
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    for flag in [
+        "--input",
+        "--output",
+        "--outputFormat",
+        "--configFile",
+        "--cssFile",
+        "--pdfFit",
+        "--iconPacks",
+        "--iconPacksNamesAndUrls",
+        "--theme",
+        "--operation-timeout-ms",
+    ] {
+        assert!(
+            stdout.contains(flag),
+            "mmdc help should expose compatibility option {flag}:\n{stdout}"
+        );
+    }
+    assert!(
+        !stdout.contains("--presentation-profile") && !stdout.contains("merman-modern"),
+        "removed non-upstream presentation inputs must stay absent:\n{stdout}"
+    );
+    for removed in ["--theme-preset", "--theme-file", "--theme-design-file"] {
+        assert!(
+            !stdout.contains(removed),
+            "mmdc help must not advertise provisional native theme option {removed}:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn zero_operation_timeout_returns_structured_cancellation_without_output() {
+    for (args, input) in [
+        (
+            vec!["render", "-", "--operation-timeout-ms", "0"],
+            "flowchart LR\nA-->B\n",
+        ),
+        (
+            vec!["mmdc", "-i", "-", "-o", "-", "--operation-timeout-ms", "0"],
+            "flowchart LR\nA-->B\n",
+        ),
+        (
+            vec!["layout", "-", "--operation-timeout-ms", "0"],
+            "flowchart LR\nA-->B\n",
+        ),
+    ] {
+        let output = run_with_stdin(&args, input);
+        assert_eq!(support::exit_code(output.status), 1, "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?} wrote a partial payload");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            stderr.contains("operation cancelled during admission: deadline_exceeded"),
+            "unexpected cancellation for {args:?}:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn operation_deadline_interrupts_an_open_stdin_pipe() {
+    let output = support::run_before_stdin_close_in_dir(
+        &["render", "-", "--operation-timeout-ms", "20"],
+        None,
+        Duration::from_secs(2),
+    );
+
+    assert_eq!(support::exit_code(output.status), 1);
+    assert!(
+        output.stdout.is_empty(),
+        "deadline cancellation must not publish a payload"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("operation cancelled during admission: deadline_exceeded"),
+        "unexpected cancellation:\n{stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn sigint_requests_cooperative_cancellation_before_publication() {
+    use std::io::{BufRead, BufReader, Read};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Instant;
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output_path = tmp.path().join("out.svg");
+    let mut child = Command::new(assert_cmd::cargo_bin!("merman-cli"))
+        .arg("mmdc")
+        .arg("-o")
+        .arg(&output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn controlled CLI");
+
+    let stderr = child.stderr.take().expect("stderr pipe");
+    let (ready_sender, ready_receiver) = mpsc::channel();
+    let stderr_reader = thread::spawn(move || {
+        let mut reader = BufReader::new(stderr);
+        let mut text = String::new();
+        let first_line = reader.read_line(&mut text).map(|_| text.clone());
+        let _ = ready_sender.send(first_line);
+        let _ = reader.read_to_string(&mut text);
+        text
+    });
+
+    let first_line = match ready_receiver.recv_timeout(Duration::from_secs(2)) {
+        Ok(first_line) => first_line.expect("read readiness warning"),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stderr_reader.join();
+            panic!("CLI did not reach controlled input acquisition: {error}");
+        }
+    };
+    assert!(
+        first_line.contains("No input file specified"),
+        "unexpected readiness warning: {first_line:?}"
+    );
+
+    let child_pid = libc::pid_t::try_from(child.id()).expect("child pid should fit pid_t");
+    // SAFETY: `child_pid` names the live child process and SIGINT is a valid signal number.
+    let signal_result = unsafe { libc::kill(child_pid, libc::SIGINT) };
+    assert_eq!(signal_result, 0, "send SIGINT to controlled CLI");
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if child.try_wait().expect("poll controlled CLI").is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            child.kill().expect("kill blocked controlled CLI");
+            let _ = child.wait();
+            let stderr = stderr_reader.join().expect("join stderr reader");
+            panic!("SIGINT did not interrupt the open stdin pipe:\n{stderr}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let output = child.wait_with_output().expect("wait for controlled CLI");
+    let stderr = stderr_reader.join().expect("join stderr reader");
+    assert_eq!(support::exit_code(output.status), 1, "stderr:\n{stderr}");
+    assert!(output.stdout.is_empty(), "SIGINT must not emit a payload");
+    assert!(
+        !output_path.exists(),
+        "SIGINT must be observed before atomic publication"
+    );
+    assert!(
+        stderr.contains("operation cancelled during") && stderr.contains(": requested"),
+        "SIGINT must retain structured cancellation details:\n{stderr}"
+    );
+}
+
+#[test]
+fn batch_zero_deadline_precedes_numbered_preflight_and_preserves_existing_output() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let generated = tmp.path().join("generated");
+    fs::create_dir(&generated).expect("create existing output directory");
+    fs::write(generated.join("README.md"), "complete previous document")
+        .expect("write previous document");
+    fs::write(
+        generated.join(".merman-manifest.json"),
+        "complete previous manifest",
+    )
+    .expect("write previous manifest");
+    fs::create_dir(generated.join("README-1.svg")).expect("create invalid numbered output entry");
+
+    let output = support::run_with_stdin_in_dir(
+        &[
+            "batch",
+            "-",
+            "--stdin-file-name",
+            "README.md",
+            "--output-dir",
+            "generated",
+            "--operation-timeout-ms",
+            "0",
+        ],
+        "```mermaid\nflowchart LR\nA-->B\n```\n",
+        Some(tmp.path()),
+    );
+
+    assert_eq!(support::exit_code(output.status), 1);
+    assert!(output.stdout.is_empty(), "deadline must not write stdout");
+    assert_eq!(
+        fs::read_to_string(generated.join("README.md")).expect("read previous document"),
+        "complete previous document"
+    );
+    assert_eq!(
+        fs::read_to_string(generated.join(".merman-manifest.json"))
+            .expect("read previous manifest"),
+        "complete previous manifest"
+    );
+    assert!(generated.join("README-1.svg").is_dir());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("operation cancelled during admission: deadline_exceeded"),
+        "unexpected cancellation:\n{stderr}"
+    );
+}
+
+#[test]
+fn mmdc_theme_values_match_the_pinned_upstream_contract() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    for rejected in ["base", "not-an-upstream-theme"] {
+        let output = Command::new(exe)
+            .args(["mmdc", "-i", "-", "-o", "-", "--theme", rejected])
+            .output()
+            .expect("run cli");
+
+        assert_eq!(support::exit_code(output.status), 2);
+        assert!(output.stdout.is_empty(), "failure must not write a payload");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        for theme in ["default", "forest", "dark", "neutral"] {
+            assert!(
+                stderr.contains(theme),
+                "theme validation should list `{theme}`:\n{stderr}"
+            );
+        }
+        assert!(
+            stderr.contains(rejected),
+            "theme validation should identify the rejected value:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn mmdc_theme_flag_without_a_value_selects_the_official_default() {
+    for flag in ["-t", "--theme"] {
+        let output = run_with_stdin(
+            &["mmdc", flag, "-i", "-", "-o", "-"],
+            "flowchart LR\nA-->B\n",
+        );
+
+        assert!(
+            output.status.success(),
+            "{flag} without a value should select the official default theme: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("<svg"),
+            "mmdc should still emit SVG for {flag} without a value"
+        );
+    }
+}
+
+#[test]
+fn compatibility_commands_reject_native_theme_options_before_input_acquisition() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    for command in ["mmdc", "layout"] {
+        for (removed, value) in [
+            ("--theme-preset", "editor-dark"),
+            ("--theme-file", "theme.json"),
+            ("--theme-design-file", "theme-design-file.json"),
+        ] {
+            let args = if command == "mmdc" {
+                vec![command, "-i", "missing.mmd", removed, value]
+            } else {
+                vec![command, "missing.mmd", removed, value]
+            };
+            let output = Command::new(exe).args(&args).output().expect("run cli");
+
+            assert_eq!(support::exit_code(output.status), 2, "{args:?}");
+            assert!(output.stdout.is_empty(), "{args:?}");
+            let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+            assert!(
+                stderr.contains(removed) && !stderr.contains("missing.mmd:"),
+                "{command} must reject provisional native option during argument parsing:\n{stderr}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_theme_inputs_conflict_before_input_acquisition() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    for args in [
+        [
+            "render",
+            "missing.mmd",
+            "--theme-preset",
+            "editor-dark",
+            "--theme-file",
+            "missing-theme.json",
+        ],
+        [
+            "render",
+            "missing.mmd",
+            "--theme-file",
+            "missing-theme.json",
+            "--theme-design-file",
+            "missing-definition.json",
+        ],
+    ] {
+        let output = Command::new(exe).args(args).output().expect("run cli");
+
+        assert_eq!(support::exit_code(output.status), 2, "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            stderr.contains("cannot be used with") && !stderr.contains("missing.mmd:"),
+            "theme selector conflicts must precede input acquisition for {args:?}:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn mmdc_config_file_can_explicitly_override_the_official_theme_selector() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let config = tmp.path().join("mermaid.json");
+    fs::write(
+        &config,
+        r##"{
+  "theme": "base",
+  "themeVariables": {
+    "mainBkg": "#123456",
+    "nodeBorder": "#654321"
+  }
+}"##,
+    )
+    .expect("write config");
+    let path = config.to_string_lossy();
+    let output = run_with_stdin(
+        &[
+            "mmdc",
+            "-i",
+            "-",
+            "-o",
+            "-",
+            "--theme",
+            "dark",
+            "--configFile",
+            path.as_ref(),
+        ],
+        "flowchart LR\nA-->B\n",
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let svg = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(svg.contains("#123456"), "explicit config should win: {svg}");
+    assert!(svg.contains("#654321"), "explicit config should win: {svg}");
+}
+
+#[test]
+fn native_theme_values_match_the_compiled_runtime_catalog() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    let rejected = Command::new(exe)
+        .args(["render", "missing.mmd", "--theme", "not-a-runtime-theme"])
+        .output()
+        .expect("run cli");
+
+    assert_eq!(support::exit_code(rejected.status), 2);
+    assert!(
+        rejected.stdout.is_empty(),
+        "failure must not write a payload"
+    );
+    let stderr = String::from_utf8(rejected.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("not-a-runtime-theme") && !stderr.contains("missing.mmd:"),
+        "theme validation must precede input acquisition:\n{stderr}"
+    );
+    for theme in merman::supported_themes() {
+        assert!(
+            stderr.contains(theme),
+            "native theme validation should list `{theme}`:\n{stderr}"
+        );
+    }
+
+    let accepted = run_with_stdin(
+        &["render", "--theme", "redux", "-"],
+        "flowchart LR\nA-->B\n",
+    );
+    assert!(
+        accepted.status.success(),
+        "compiled runtime theme should be accepted: {}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+}
+
+#[test]
+fn native_theme_preset_values_match_the_compiled_runtime_catalog() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    let rejected = Command::new(exe)
+        .args([
+            "render",
+            "missing.mmd",
+            "--theme-preset",
+            "not-a-runtime-preset",
+        ])
+        .output()
+        .expect("run cli");
+
+    assert_eq!(support::exit_code(rejected.status), 2);
+    assert!(
+        rejected.stdout.is_empty(),
+        "failure must not write a payload"
+    );
+    let stderr = String::from_utf8(rejected.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("not-a-runtime-preset") && !stderr.contains("missing.mmd:"),
+        "theme preset validation must precede input acquisition:\n{stderr}"
+    );
+    for descriptor in merman::svg::theme_preset_descriptors() {
+        assert!(
+            stderr.contains(descriptor.id()),
+            "theme preset validation should list `{}`:\n{stderr}",
+            descriptor.id()
+        );
+    }
+
+    let accepted = run_with_stdin(
+        &[
+            "render",
+            "--theme-preset",
+            "editor-dark",
+            "--format",
+            "svg",
+            "-",
+        ],
+        "flowchart LR\nA-->B\n",
+    );
+    assert!(
+        accepted.status.success(),
+        "compiled theme preset should be accepted: {}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let svg = String::from_utf8(accepted.stdout).expect("stdout should be utf8");
+    assert!(
+        svg.contains("#111827") && svg.contains("#e5e7eb") && svg.contains("#94a3b8"),
+        "the preset should compile into typed visual theme inputs: {svg}"
+    );
+    let baseline = run_with_stdin(&["render", "--format", "svg", "-"], "flowchart LR\nA-->B\n");
+    assert!(baseline.status.success());
+    let baseline = String::from_utf8(baseline.stdout).expect("baseline SVG");
+    let node_looks = |svg: &str| {
+        roxmltree::Document::parse(svg)
+            .expect("valid SVG")
+            .descendants()
+            .filter(|node| {
+                node.attribute("class")
+                    .is_some_and(|classes| classes.split_whitespace().any(|class| class == "node"))
+            })
+            .map(|node| node.attribute("data-look").unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let baseline_looks = node_looks(&baseline);
+    assert!(!baseline_looks.is_empty());
+    assert_eq!(
+        node_looks(&svg),
+        baseline_looks,
+        "a visual preset must preserve the configured default look"
+    );
+}
+
+#[test]
+fn native_theme_file_uses_the_compiled_theme_contract() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    for preset in ["editor-dark", "cyberpunk"] {
+        let exported = merman_bindings_core::export_theme_preset_json(preset.as_bytes())
+            .expect("export editable recipe");
+        let selector = serde_json::to_vec(&serde_json::json!({"preset": preset})).unwrap();
+        let mut previous_svg = None;
+        for input in [selector.as_slice(), exported.as_slice()] {
+            fs::write(tmp.path().join("theme.json"), input).expect("write shared theme file");
+            let args = [
+                "render",
+                "--theme-file",
+                "theme.json",
+                "--format",
+                "svg",
+                "-",
+            ];
+            let output = run_with_stdin_in_dir(&args, "flowchart LR\nA-->B\n", Some(tmp.path()));
+            assert!(
+                output.status.success(),
+                "{preset} {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let svg = String::from_utf8(output.stdout).expect("stdout should be utf8");
+            if preset == "editor-dark" {
+                assert!(
+                    svg.contains("#111827") && svg.contains("#e5e7eb") && svg.contains("#94a3b8")
+                );
+            } else {
+                let document = roxmltree::Document::parse(&svg).expect("valid SVG");
+                assert_eq!(
+                    document
+                        .descendants()
+                        .filter(|node| {
+                            node.attribute("class") == Some("merman-theme-canvas-layer")
+                        })
+                        .count(),
+                    3,
+                    "the shared file retains the complete canvas"
+                );
+            }
+            if let Some(previous) = previous_svg {
+                assert_eq!(
+                    svg, previous,
+                    "{preset}: a fresh process needs no preset lookup for its saved recipe"
+                );
+            }
+            previous_svg = Some(svg);
+        }
+    }
+}
+
+#[test]
+fn edited_theme_recipe_preserves_scoped_paints_clear_and_source_ownership() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let exported = merman_bindings_core::export_theme_preset_json(b"cyberpunk")
+        .expect("export editable recipe");
+    let original: Value = serde_json::from_slice(&exported).expect("recipe JSON");
+    let source = "classDiagram\nclass Account {\n +String name\n}\nclass Owned\nAccount --> Owned : link\nstyle Owned fill:#334455,stroke:#778899,stroke-width:4px\n";
+
+    let baseline = run_with_stdin(&["render", "--format", "svg", "-"], source);
+    assert!(baseline.status.success());
+    let baseline = String::from_utf8(baseline.stdout).expect("baseline SVG");
+    let baseline_doc = roxmltree::Document::parse(&baseline).expect("valid baseline XML");
+    let compatibility_fill = baseline_doc
+        .descendants()
+        .find(|node| {
+            node.attribute("id")
+                .is_some_and(|id| id.contains("-classId-Account-"))
+        })
+        .expect("baseline Account")
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("path") && node.attribute("fill").is_some_and(|fill| fill != "none")
+        })
+        .and_then(|node| node.attribute("fill"))
+        .expect("baseline Account fill");
+
+    for (fill, expected) in [
+        (serde_json::json!("#22354d"), "#22354d"),
+        (Value::Null, compatibility_fill),
+        (serde_json::json!("transparent"), "transparent"),
+    ] {
+        let mut recipe = original.clone();
+        assert_eq!(recipe["kind"], "design");
+        let design = &mut recipe["design"];
+        design["canvas"]["base"] = serde_json::json!("#142535");
+        design["rules"].as_array_mut().expect("rules").extend([
+            serde_json::json!({"target":"node", "style":{"stroke":{"paint":"#fb7185"}}}),
+            serde_json::json!({"target":"node", "family":"class", "style":{"fill":fill}}),
+        ]);
+        fs::write(
+            tmp.path().join("custom.json"),
+            serde_json::to_vec(&recipe).unwrap(),
+        )
+        .expect("save editable recipe");
+        let output = run_with_stdin_in_dir(
+            &[
+                "render",
+                "--theme-file",
+                "custom.json",
+                "--format",
+                "svg",
+                "-",
+            ],
+            source,
+            Some(tmp.path()),
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let svg = String::from_utf8(output.stdout).expect("SVG");
+        let doc = roxmltree::Document::parse(&svg).expect("valid XML");
+        let canvas = doc
+            .descendants()
+            .find(|node| node.attribute("class") == Some("merman-theme-canvas-base"))
+            .expect("canvas base terminal");
+        assert_eq!(canvas.attribute("fill"), Some("#142535"));
+        for (name, fill, stroke) in [
+            ("Account", expected, "#fb7185"),
+            ("Owned", "#334455", "#778899"),
+        ] {
+            let node = doc
+                .descendants()
+                .find(|node| {
+                    node.attribute("id")
+                        .is_some_and(|id| id.contains(&format!("-classId-{name}-")))
+                })
+                .expect("class node terminal group");
+            assert!(
+                node.descendants().any(
+                    |child| child.has_tag_name("path") && child.attribute("fill") == Some(fill)
+                ),
+                "{name} fill: {svg}"
+            );
+            assert!(
+                node.descendants()
+                    .any(|child| child.has_tag_name("path")
+                        && child.attribute("stroke") == Some(stroke)),
+                "{name} stroke: {svg}"
+            );
+            if name == "Owned" {
+                assert!(
+                    node.descendants().any(|child| child.has_tag_name("path")
+                        && child.attribute("stroke") == Some(stroke)
+                        && child.attribute("stroke-width") == Some("4")),
+                    "source width: {svg}"
+                );
+            }
+        }
+    }
+
+    // The saved Class-specific rule must not recolor a different family.
+    let output = run_with_stdin_in_dir(
+        &[
+            "render",
+            "--theme-file",
+            "custom.json",
+            "--format",
+            "svg",
+            "-",
+        ],
+        "flowchart LR\nA[Account] --> B[Other]\n",
+        Some(tmp.path()),
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let svg = String::from_utf8(output.stdout).expect("SVG");
+    let doc = roxmltree::Document::parse(&svg).expect("valid XML");
+    let node = doc
+        .descendants()
+        .find(|node| node.attribute("data-id") == Some("A"))
+        .expect("Flowchart node terminal group");
+    assert!(
+        node.descendants().any(|child| {
+            child.attribute("fill") == Some("#051423")
+                || child
+                    .attribute("style")
+                    .is_some_and(|style| style.contains("fill:#051423"))
+        }),
+        "Class transparent fill must not replace Flowchart fill: {svg}"
+    );
+}
+
+#[test]
+fn native_theme_design_file_materializes_and_renders_without_an_intermediate_spec() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        tmp.path().join("midnight.json"),
+        br##"{
+            "tokens": {
+                "canvas": {"type":"color","value":"#0f172a"},
+                "surface": {"type":"color","value":"#60a5fa"},
+                "text": {"type":"color","value":"#e5e7eb"},
+                "border": {"type":"color","value":"#475569"},
+                "line": {"type":"color","value":"#94a3b8"}
+            },
+            "canvas": {"base":{"kind":"solid","color":{"ref":"canvas"}}},
+            "styles": {
+                "node": {"fill":{"kind":"solid","color":{"ref":"surface"}},"stroke":{"paint":{"kind":"solid","color":{"ref":"border"}}}},
+                "text": {"fill":{"kind":"solid","color":{"ref":"text"}}},
+                "edge": {"stroke":{"paint":{"kind":"solid","color":{"ref":"line"}}}}
+            }
+        }"##,
+    )
+    .expect("write shared theme design");
+
+    let args = [
+        "render",
+        "--theme-design-file",
+        "midnight.json",
+        "--format",
+        "svg",
+        "-",
+    ];
+    let output = run_with_stdin_in_dir(&args, "flowchart LR\nA-->B\n", Some(tmp.path()));
+    assert!(
+        output.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let svg = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        svg.contains("#0f172a")
+            && svg.contains("#e5e7eb")
+            && svg.contains("#475569")
+            && svg.contains("#94a3b8")
+            && svg.contains("#60a5fa"),
+        "native render should compose decode, materialization, compilation, and rendering: {svg}"
+    );
+}
+
+#[test]
+fn theme_file_obeys_the_compiler_encoded_input_budget() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        tmp.path().join("oversized-theme.json"),
+        vec![b' '; 2_097_153],
+    )
+    .expect("write oversized theme selection");
+    let output = run_with_stdin_in_dir(
+        &[
+            "render",
+            "--resource-profile",
+            "interactive",
+            "--theme-file",
+            "oversized-theme.json",
+            "--format",
+            "svg",
+            "-",
+        ],
+        "flowchart LR\nA-->B\n",
+        Some(tmp.path()),
+    );
+
+    assert_eq!(support::exit_code(output.status), 2);
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("max_theme_encoded_bytes"),
+        "theme-file limits should use the compiler-owned resource ID:\n{stderr}"
+    );
+}
+
+#[test]
+fn unbounded_theme_file_accepts_small_selection_without_panicking() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        tmp.path().join("theme.json"),
+        br#"{"preset":"editor-dark"}"#,
+    )
+    .expect("write theme selection");
+    let output = run_with_stdin_in_dir(
+        &[
+            "render",
+            "--resource-profile",
+            "unbounded-for-trusted-input",
+            "--theme-file",
+            "theme.json",
+            "--format",
+            "svg",
+            "-",
+        ],
+        "flowchart LR\nA-->B\n",
+        Some(tmp.path()),
+    );
+
+    assert!(
+        output.status.success(),
+        "unbounded theme files must retain the compiler hard cap without panicking: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn unbounded_theme_file_rejects_over_hard_cap_before_json_decoding() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("oversized-theme.json");
+    let file = fs::File::create(&path).expect("create oversized theme selection");
+    file.set_len(u64::try_from(merman::svg::MAX_THEME_ENCODED_BYTES_HARD_CAP).unwrap() + 1)
+        .expect("size sparse invalid JSON beyond the compiler hard cap");
+    let output = run_with_stdin_in_dir(
+        &[
+            "render",
+            "--resource-profile",
+            "unbounded-for-trusted-input",
+            "--theme-file",
+            "oversized-theme.json",
+            "--format",
+            "svg",
+            "-",
+        ],
+        "flowchart LR\nA-->B\n",
+        Some(tmp.path()),
+    );
+    assert_eq!(support::exit_code(output.status), 2);
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("max_theme_encoded_bytes"),
+        "the compiler hard cap must reject the invalid JSON before decoding:\n{stderr}"
+    );
+}
+
+#[test]
+fn theme_preset_composes_with_config_regardless_of_argument_order() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let config = tmp.path().join("mermaid.json");
+    fs::write(
+        &config,
+        r##"{
+  "theme": "base",
+  "look": "classic",
+  "flowchart": {"defaultRenderer": "dagre-wrapper"},
+  "themeVariables": {
+    "mainBkg": "#123456",
+    "nodeBorder": "#654321"
+  }
+}"##,
+    )
+    .expect("write config");
+    let path = config.to_string_lossy();
+    let source = "flowchart LR\nA-->|label|B\n";
+
+    let preset_first = run_with_stdin(
+        &[
+            "render",
+            "--theme-preset",
+            "editor-dark",
+            "--config-file",
+            path.as_ref(),
+            "--format",
+            "svg",
+            "-",
+        ],
+        source,
+    );
+    let config_first = run_with_stdin(
+        &[
+            "render",
+            "--config-file",
+            path.as_ref(),
+            "--theme-preset",
+            "editor-dark",
+            "--format",
+            "svg",
+            "-",
+        ],
+        source,
+    );
+
+    assert!(
+        preset_first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&preset_first.stderr)
+    );
+    assert!(
+        config_first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&config_first.stderr)
+    );
+    assert_eq!(preset_first.stdout, config_first.stdout);
+    let svg = String::from_utf8(preset_first.stdout).expect("stdout should be utf8");
+    assert!(svg.contains("#123456"), "explicit config should win: {svg}");
+    assert!(svg.contains("#654321"), "explicit config should win: {svg}");
+    let rendered_dom = svg
+        .split_once("</style>")
+        .map(|(_, dom)| dom)
+        .expect("SVG should contain a style block");
+    assert!(
+        !rendered_dom.contains(r#"data-look="neo""#),
+        "theme presets must not introduce a Mermaid look: {svg}"
+    );
+}
+
+#[test]
+fn native_render_rejects_options_for_a_different_output_kind() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = support::run_with_stdin_in_dir(
+        &[
+            "render",
+            "--format",
+            "svg",
+            "--pdf-filter-scale",
+            "2",
+            "missing.mmd",
+        ],
+        "",
+        Some(tmp.path()),
+    );
+
+    assert_eq!(support::exit_code(output.status), 2);
+    assert!(output.stdout.is_empty(), "failure must not write a payload");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--pdf-filter-scale") && stderr.contains("svg"),
+        "format-specific validation should explain the conflict before opening input:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("missing.mmd"),
+        "argument validation must precede input acquisition:\n{stderr}"
+    );
+}
+
+#[test]
+fn native_text_render_rejects_svg_and_network_only_options() {
+    let args = [
+        "render",
+        "missing.mmd",
+        "--format",
+        "ascii",
+        "--allow-network",
+    ];
+    let output = run_with_stdin(&args, "");
+    assert_eq!(support::exit_code(output.status), 2, "args: {args:?}");
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        !stderr.contains("missing.mmd"),
+        "irrelevant option rejection must precede input acquisition: {args:?}\n{stderr}"
+    );
+}
+
+#[test]
+fn invalid_render_configuration_precedes_primary_input_acquisition() {
+    const WIDTH_OUTSIDE_SUPPORTED_INTEGER_RANGE: &str = "18446744073709551616";
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let cases: &[(&str, &[&str], &str)] = &[
+        (
+            "boundary local midnight",
+            &[
+                "render",
+                "missing.mmd",
+                "--fixed-today=-2147483648-01-01",
+                "--fixed-local-offset-minutes",
+                "1439",
+            ],
+            "local datetime",
+        ),
+        (
+            "XYChart vertical plot height",
+            &[
+                "render",
+                "missing.mmd",
+                "--format",
+                "ascii",
+                "--xychart-vertical-plot-height",
+                "1",
+            ],
+            "at least 2",
+        ),
+        (
+            "XYChart horizontal plot width",
+            &[
+                "render",
+                "missing.mmd",
+                "--format",
+                "ascii",
+                "--xychart-horizontal-plot-width",
+                "1",
+            ],
+            "at least 2",
+        ),
+        (
+            "pdfFit viewport width",
+            &[
+                "mmdc",
+                "-i",
+                "missing.mmd",
+                "-o",
+                "out.pdf",
+                "--pdfFit",
+                "--width",
+                WIDTH_OUTSIDE_SUPPORTED_INTEGER_RANGE,
+            ],
+            "expected a positive integer",
+        ),
+    ];
+
+    for (label, args, expected) in cases {
+        let output = support::run_with_stdin_in_dir(args, "", Some(tmp.path()));
+        assert_eq!(
+            support::exit_code(output.status),
+            2,
+            "{label}: stderr: {:?}",
+            output.stderr
+        );
+        assert!(output.stdout.is_empty(), "{label}");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            stderr.contains(expected),
+            "{label} should report `{expected}` before opening input:\n{stderr}"
+        );
+        assert!(
+            !stderr.contains("missing.mmd"),
+            "{label} must precede missing input acquisition:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn invalid_render_configuration_does_not_wait_for_stdin() {
+    const WIDTH_OUTSIDE_SUPPORTED_INTEGER_RANGE: &str = "18446744073709551616";
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(tmp.path().join("puppeteer.json"), "{not json")
+        .expect("write invalid Puppeteer config");
+    let cases: &[(&str, &[&str], &str)] = &[
+        (
+            "boundary local midnight",
+            &[
+                "render",
+                "-",
+                "--fixed-today=-2147483648-01-01",
+                "--fixed-local-offset-minutes",
+                "1439",
+            ],
+            "local datetime",
+        ),
+        (
+            "XYChart dimensions",
+            &[
+                "render",
+                "-",
+                "--format",
+                "ascii",
+                "--xychart-vertical-plot-height",
+                "1",
+            ],
+            "at least 2",
+        ),
+        (
+            "Puppeteer configuration JSON",
+            &["mmdc", "-i", "-", "-o", "-", "-p", "puppeteer.json"],
+            "JSON error",
+        ),
+        (
+            "pdfFit viewport width",
+            &[
+                "mmdc",
+                "-i",
+                "-",
+                "-o",
+                "out.pdf",
+                "--pdfFit",
+                "--width",
+                WIDTH_OUTSIDE_SUPPORTED_INTEGER_RANGE,
+            ],
+            "expected a positive integer",
+        ),
+    ];
+
+    for (label, args, expected) in cases {
+        let output =
+            support::run_before_stdin_close_in_dir(args, Some(tmp.path()), Duration::from_secs(2));
+        assert_eq!(
+            support::exit_code(output.status),
+            2,
+            "{label}: stderr: {:?}",
+            output.stderr
+        );
+        assert!(output.stdout.is_empty(), "{label}");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            stderr.contains(expected),
+            "{label} should report `{expected}` before reading stdin:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn native_render_rejects_each_irrelevant_output_option_before_input_acquisition() {
+    let cases: &[(&str, &str, &[&str])] = &[
+        ("raster scale on SVG", "svg", &["--scale", "2"]),
+        (
+            "raster fit width on SVG",
+            "svg",
+            &["--raster-fit-width", "10"],
+        ),
+        (
+            "raster fit height on SVG",
+            "svg",
+            &["--raster-fit-height", "10"],
+        ),
+        (
+            "raster max width on SVG",
+            "svg",
+            &["--raster-max-width", "10"],
+        ),
+        (
+            "raster max height on SVG",
+            "svg",
+            &["--raster-max-height", "10"],
+        ),
+        (
+            "raster max pixels on SVG",
+            "svg",
+            &["--raster-max-pixels", "100"],
+        ),
+        ("unbounded raster on SVG", "svg", &["--raster-unbounded"]),
+        (
+            "PDF filter scale on SVG",
+            "svg",
+            &["--pdf-filter-scale", "2"],
+        ),
+        (
+            "PDF filter pixels on SVG",
+            "svg",
+            &["--pdf-max-filter-image-pixels", "100"],
+        ),
+        (
+            "unbounded PDF filters on SVG",
+            "svg",
+            &["--pdf-filter-images-unbounded"],
+        ),
+        (
+            "embedded image bytes on SVG",
+            "svg",
+            &["--embedded-image-max-bytes", "100"],
+        ),
+        (
+            "aggregate embedded bytes on SVG",
+            "svg",
+            &["--embedded-image-max-total-bytes", "100"],
+        ),
+        (
+            "embedded image pixels on SVG",
+            "svg",
+            &["--embedded-image-max-pixels", "100"],
+        ),
+        (
+            "aggregate embedded pixels on SVG",
+            "svg",
+            &["--embedded-image-max-total-pixels", "100"],
+        ),
+        (
+            "unbounded embedded images on SVG",
+            "svg",
+            &["--embedded-images-unbounded"],
+        ),
+        (
+            "sequence mirror on SVG",
+            "svg",
+            &["--sequence-mirror-actors"],
+        ),
+        (
+            "ASCII charset on SVG",
+            "svg",
+            &["--ascii-charset", "unicode"],
+        ),
+        (
+            "ASCII width profile on SVG",
+            "svg",
+            &["--ascii-width-profile", "cjk"],
+        ),
+        (
+            "ASCII direction on SVG",
+            "svg",
+            &["--ascii-direction", "left-right"],
+        ),
+        ("ASCII color on SVG", "svg", &["--ascii-color", "plain"]),
+        (
+            "XYChart height on SVG",
+            "svg",
+            &["--xychart-vertical-plot-height", "10"],
+        ),
+        (
+            "XYChart category width on SVG",
+            "svg",
+            &["--xychart-category-band-width", "10"],
+        ),
+        (
+            "XYChart plot width on SVG",
+            "svg",
+            &["--xychart-horizontal-plot-width", "10"],
+        ),
+        (
+            "ASCII grid limit on SVG",
+            "svg",
+            &["--ascii-max-grid-cells", "100"],
+        ),
+        ("SVG pipeline on PNG", "png", &["--svg-pipeline", "parity"]),
+        ("background on text", "ascii", &["--background", "white"]),
+        ("CSS on text", "ascii", &["--css-file", "missing.css"]),
+        (
+            "theme preset on text",
+            "ascii",
+            &["--theme-preset", "editor-dark"],
+        ),
+        (
+            "theme file on text",
+            "ascii",
+            &["--theme-file", "missing-theme.json"],
+        ),
+        (
+            "math renderer on text",
+            "ascii",
+            &["--math-renderer", "none"],
+        ),
+        ("container width on text", "ascii", &["--width", "100"]),
+        ("container height on text", "ascii", &["--height", "100"]),
+        ("SVG id on text", "ascii", &["--svg-id", "diagram"]),
+        (
+            "hand-drawn seed on text",
+            "ascii",
+            &["--hand-drawn-seed", "1"],
+        ),
+        (
+            "local icon pack on text",
+            "ascii",
+            &["--icon-pack", "missing.json"],
+        ),
+        (
+            "named icon source on text",
+            "ascii",
+            &["--icon-pack-source", "test#missing.json"],
+        ),
+        ("network icons on text", "ascii", &["--allow-network"]),
+        (
+            "private network icons on text",
+            "ascii",
+            &["--allow-network", "--allow-private-network"],
+        ),
+    ];
+
+    for (label, format, extra) in cases {
+        let mut args = vec!["render", "missing.mmd", "--format", *format];
+        args.extend_from_slice(extra);
+        let output = run_with_stdin(&args, "");
+        assert_eq!(
+            support::exit_code(output.status),
+            2,
+            "{label}: stderr: {:?}",
+            output.stderr
+        );
+        assert!(output.stdout.is_empty(), "{label}");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            !stderr.contains("missing.mmd") && !stderr.contains("missing.css"),
+            "{label} must fail before input acquisition:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn raw_svg_rejects_each_mermaid_only_option_before_input_acquisition() {
+    let cases: &[(&str, &[&str])] = &[
+        ("suppressed Mermaid errors", &["--suppress-errors"]),
+        ("Mermaid configuration", &["--config-file", "missing.json"]),
+        ("Mermaid theme", &["--theme", "dark"]),
+        ("native runtime", &["--runtime", "native"]),
+        ("system clock", &["--system-clock"]),
+        ("system timezone", &["--system-timezone"]),
+        ("system random", &["--system-random"]),
+        ("system timing", &["--system-timing"]),
+        ("fixed date", &["--fixed-today", "2026-07-28"]),
+        (
+            "fixed local offset",
+            &["--fixed-local-offset-minutes", "480"],
+        ),
+        ("theme preset", &["--theme-preset", "editor-dark"]),
+        ("theme file", &["--theme-file", "missing-theme.json"]),
+        ("math renderer", &["--math-renderer", "none"]),
+        ("container width", &["--width", "100"]),
+        ("container height", &["--height", "100"]),
+        ("SVG id", &["--svg-id", "diagram"]),
+        ("hand-drawn seed", &["--hand-drawn-seed", "1"]),
+        ("local icon pack", &["--icon-pack", "missing.json"]),
+        (
+            "named icon source",
+            &["--icon-pack-source", "test#missing.json"],
+        ),
+        ("network icons", &["--allow-network"]),
+        (
+            "private network icons",
+            &["--allow-network", "--allow-private-network"],
+        ),
+    ];
+
+    for (label, extra) in cases {
+        let mut args = vec!["render", "missing.svg", "--format", "png"];
+        args.extend_from_slice(extra);
+        let output = run_with_stdin(&args, "");
+        assert_eq!(
+            support::exit_code(output.status),
+            2,
+            "{label}: stderr: {:?}",
+            output.stderr
+        );
+        assert!(output.stdout.is_empty(), "{label}");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            !stderr.contains("missing.svg") && !stderr.contains("missing.json"),
+            "{label} must fail before input acquisition:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn analysis_commands_reject_irrelevant_output_and_input_options() {
+    for args in [
+        ["lint", "missing.mmd", "--format", "text", "--pretty"].as_slice(),
+        ["lint", "missing.mmd", "--stdin-file-name", "stdin.mmd"].as_slice(),
+        ["lint-rules", "--format", "text", "--pretty"].as_slice(),
+    ] {
+        let output = run_with_stdin(args, "");
+        assert_eq!(support::exit_code(output.status), 2, "args: {args:?}");
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(
+            !stderr.contains("doesn't exist") && !stderr.contains("I/O error"),
+            "argument rejection must precede input acquisition: {args:?}\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn mmdc_accepts_jobs_as_an_upstream_single_render_noop() {
+    let output = run_with_stdin(
+        &["mmdc", "-i", "-", "-o", "-", "--jobs", "2"],
+        "flowchart LR\nA-->B\n",
+    );
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.trim_start().starts_with("<svg"), "{stdout}");
+}
+
+#[test]
+fn native_render_rejects_markdown_inputs_in_favor_of_batch() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        tmp.path().join("input.md"),
+        "```mermaid\nflowchart LR\nA-->B\n```\n",
+    )
+    .expect("write Markdown");
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    let output = Command::new(exe)
+        .current_dir(tmp.path())
+        .args(["render", "input.md", "--output", "out.svg"])
+        .output()
+        .expect("run cli");
+
+    assert_eq!(support::exit_code(output.status), 2);
+    assert!(output.stdout.is_empty(), "failure must not write a payload");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("batch") && stderr.to_ascii_lowercase().contains("markdown"),
+        "native single rendering should direct Markdown users to batch:\n{stderr}"
+    );
+    assert!(!tmp.path().join("out.svg").exists());
+}
+
+#[test]
+fn developer_commands_reject_render_only_options() {
+    for args in [
+        ["detect", "--suppress-errors", "-"].as_slice(),
+        ["detect", "--config-file", "missing.json", "-"].as_slice(),
+        ["detect", "--theme", "dark", "-"].as_slice(),
+        ["detect", "--runtime", "deterministic", "-"].as_slice(),
+        ["detect", "--resource-limit", "max_css_bytes=1", "-"].as_slice(),
+        ["layout", "--svg-id", "diagram", "-"].as_slice(),
+        ["layout", "--hand-drawn-seed", "7", "-"].as_slice(),
+    ] {
+        let output = run_with_stdin(args, "flowchart LR\nA-->B\n");
+        assert_eq!(
+            support::exit_code(output.status),
+            2,
+            "irrelevant options must be usage errors: {args:?}"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "argument rejection must precede reading stdin: {args:?}"
+        );
+    }
+}
+
+#[test]
+fn developer_short_help_points_to_advanced_controls() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    for command in ["detect", "parse", "layout"] {
+        let output = Command::new(exe)
+            .args([command, "-h"])
+            .output()
+            .expect("run short help");
+        assert!(output.status.success(), "{command}: {:?}", output.stderr);
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+        assert!(
+            stdout.contains(&format!("merman-cli {command} --help")),
+            "{command} short help should expose the long-help path:\n{stdout}"
+        );
+        assert!(
+            !stdout.contains("--resource-limit"),
+            "{command} short help should hide resource controls:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn detect_still_handles_frontmatter_and_directives_without_configuration_flags() {
+    let source =
+        "---\ntitle: Directed\n---\n%%{ init: {\"theme\":\"dark\"} }%%\nflowchart LR\nA-->B\n";
+    let output = run_with_stdin(&["detect", "-"], source);
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("stdout should be utf8"),
+        "flowchart-v2\n"
+    );
+}
+
+#[test]
+fn compiled_capabilities_match_the_full_test_artifact() {
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    let output = Command::new(exe)
+        .args(["capabilities", "--json"])
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert!(
+        output.stderr.is_empty(),
+        "unexpected stderr: {:?}",
+        output.stderr
+    );
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("capabilities should be JSON");
+    assert_eq!(payload["schema_version"], 2);
+    assert_eq!(payload["cli_contract_version"], 6);
+    #[cfg(feature = "svg")]
+    {
+        assert_eq!(payload["theme_presets"]["schema_version"], 1);
+        assert!(
+            payload["theme_presets"]["presets"]
+                .as_array()
+                .is_some_and(|presets| !presets.is_empty()),
+            "SVG artifacts must expose preset discovery metadata"
+        );
+        let compiler = merman::svg::DiagramThemeCompiler::new().with_resource_policy(
+            merman::svg::ThemeResourcePolicy::for_profile(
+                merman::svg::CLI_DEFAULT_RESOURCE_PROFILE,
+            ),
+        );
+        assert_eq!(
+            payload["theme_presets"]["presets"],
+            serde_json::to_value(merman::svg::describe_theme_presets(&compiler)).unwrap(),
+            "spawned CLI preset metadata must match the production compiler projection"
+        );
+    }
+    #[cfg(not(feature = "svg"))]
+    assert!(
+        payload.get("theme_presets").is_none(),
+        "artifacts without SVG must omit preset discovery metadata"
+    );
+    assert_eq!(payload["package"]["name"], "merman-cli");
+    assert_eq!(payload["package"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        payload["compatibility"]["mermaid"],
+        merman::baseline::PINNED_MERMAID_BASELINE_VERSION
+    );
+    assert_eq!(
+        payload["compatibility"]["mmdc"],
+        merman::baseline::PINNED_MERMAID_CLI_VERSION
+    );
+    assert_eq!(payload["descriptor"]["schema_version"], 1);
+    assert!(
+        payload["descriptor"]["digest"]
+            .as_str()
+            .is_some_and(|digest| digest.starts_with("sha256:")),
+        "missing descriptor digest: {payload}"
+    );
+    let command_ids = payload["commands"]
+        .as_array()
+        .expect("commands should be an array")
+        .iter()
+        .map(|value| value.as_str().expect("command ids should be strings"))
+        .collect::<Vec<_>>();
+    assert!(
+        command_ids.windows(2).all(|pair| pair[0] < pair[1]),
+        "command ids must be sorted and unique: {command_ids:?}"
+    );
+    for command in ["batch", "capabilities", "completion", "mmdc", "render"] {
+        assert!(
+            command_ids.contains(&command),
+            "missing compiled command {command}: {payload}"
+        );
+    }
+    #[cfg(feature = "rustdoc")]
+    assert!(
+        command_ids.contains(&"rustdoc"),
+        "missing compiled rustdoc command"
+    );
+    #[cfg(not(feature = "rustdoc"))]
+    assert!(
+        !command_ids.contains(&"rustdoc"),
+        "a build without the rustdoc feature must not report rustdoc"
+    );
+
+    let capabilities = payload["capabilities"]
+        .as_array()
+        .expect("capabilities should be an array");
+    for id in [
+        "analysis",
+        "ascii",
+        "icons",
+        "jpeg",
+        "layout-cytoscape",
+        "layout-elk",
+        "markdown",
+        "network-icons",
+        "parallel-markdown",
+        "pdf",
+        "png",
+        "shell-completions",
+        "svg",
+    ] {
+        assert!(
+            capabilities
+                .iter()
+                .any(|capability| capability["id"].as_str() == Some(id)),
+            "missing compiled capability {id}: {payload}"
+        );
+    }
+
+    for (id, enabled) in [
+        ("math", cfg!(feature = "math")),
+        ("system-clock", cfg!(feature = "system-clock")),
+        ("system-random", cfg!(feature = "system-random")),
+        ("system-timezone", cfg!(feature = "system-timezone")),
+        ("system-timing", cfg!(feature = "system-timing")),
+    ] {
+        assert_eq!(
+            capabilities.iter().any(|capability| capability["id"] == id),
+            enabled,
+            "system adapter {id} must match the selected Cargo features"
+        );
+    }
+
+    let ascii = &payload["ascii"];
+    assert_eq!(ascii["schema_version"], 1);
+    assert_eq!(ascii["output_schema_version"], 3);
+    assert_eq!(
+        ascii["report"],
+        serde_json::json!({
+            "success_schema_version": 3,
+            "error_schema_version": 1,
+            "encoding": "plain",
+            "styled_output": false,
+            "success_stream": "output",
+            "error_stream": "stderr",
+        })
+    );
+
+    let families = ascii["families"]
+        .as_array()
+        .expect("ASCII families should be an array");
+    let family_ids = families
+        .iter()
+        .map(|family| family["family"].as_str().expect("ASCII family id"))
+        .collect::<Vec<_>>();
+    assert!(
+        family_ids.windows(2).all(|pair| pair[0] < pair[1]),
+        "ASCII family ids must be sorted and unique: {family_ids:?}"
+    );
+    for family_id in ["flowchart", "sequence", "swimlane"] {
+        let family = families
+            .iter()
+            .find(|family| family["family"] == family_id)
+            .unwrap_or_else(|| panic!("missing ASCII family {family_id}: {ascii}"));
+        assert_eq!(
+            family["layout_profiles"],
+            serde_json::json!(["canonical", "compact", "auto"])
+        );
+        assert_eq!(
+            family["width_profiles"],
+            serde_json::json!(["unicode", "cjk"])
+        );
+        assert_eq!(
+            family["encodings"],
+            serde_json::json!(["plain", "ansi16", "ansi256", "truecolor", "html"])
+        );
+        assert_eq!(family["fallback_encodings"], serde_json::json!(["plain"]));
+    }
+    let state = families
+        .iter()
+        .find(|family| family["family"] == "state")
+        .expect("missing ASCII State family");
+    assert_eq!(state["layout_profiles"], serde_json::json!(["canonical"]));
+
+    let mappings = ascii["detected_type_mappings"]
+        .as_array()
+        .expect("ASCII detected-type mappings should be an array");
+    assert!(mappings.iter().any(|mapping| {
+        mapping["detected_type"] == "flowchart-v2" && mapping["family"] == "flowchart"
+    }));
+    assert!(mappings.iter().any(|mapping| {
+        mapping["detected_type"] == "stateDiagram" && mapping["family"] == "state"
+    }));
+    assert!(mappings.iter().any(|mapping| {
+        mapping["detected_type"] == "swimlane" && mapping["family"] == "flowchart"
+    }));
+    for capability in merman::diagram_family_capabilities()
+        .iter()
+        .filter(|capability| capability.has_detector)
+    {
+        let family = capability
+            .render_model_kind
+            .unwrap_or(capability.family_id.as_str());
+        if !family_ids.contains(&family) {
+            continue;
+        }
+        assert!(
+            mappings.iter().any(|mapping| {
+                mapping["detected_type"] == capability.diagram_type && mapping["family"] == family
+            }),
+            "missing detector mapping {} -> {family}: {ascii}",
+            capability.diagram_type
+        );
+    }
+}
+
+#[test]
+fn compiled_system_adapters_do_not_change_the_deterministic_default() {
+    let output = run_with_stdin(
+        &["parse", "-"],
+        "gantt\n\
+         dateFormat YYYY-MM-DD\n\
+         section Demo\n\
+         Missing ref: id1,after missing,1d\n",
+    );
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    let model: Value = serde_json::from_slice(&output.stdout).expect("parse stdout should be JSON");
+    assert_eq!(
+        task_by_id(&model, "id1")["startTime"].as_i64(),
+        Some(0),
+        "compiling system adapters must not change the deterministic CLI default"
+    );
+}
+
+#[test]
+fn compatibility_export_renders_a_svg_file() {
+    let root = repo_root();
+    let fixture = root.join("fixtures").join("flowchart").join("basic.mmd");
+    assert!(fixture.exists(), "fixture missing: {}", fixture.display());
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let output = tmp.path().join("out.svg");
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    Command::new(exe)
+        .current_dir(&root)
+        .args([
+            "mmdc",
+            "-i",
+            fixture.to_string_lossy().as_ref(),
+            "-o",
+            output.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .success();
+
+    let svg = fs::read_to_string(output).expect("read svg");
+    assert!(svg.trim_start().starts_with("<svg"), "output is not SVG");
+    assert!(svg.contains("flowchart"), "expected rendered flowchart SVG");
+}
+
+#[test]
+fn compatibility_default_output_appends_svg_to_the_input_name() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    fs::write(tmp.path().join("input.mmd"), "flowchart LR\nA-->B\n").expect("write input");
+
+    let exe = assert_cmd::cargo_bin!("merman-cli");
+    Command::new(exe)
+        .current_dir(tmp.path())
+        .args(["mmdc", "-i", "input.mmd", "-q"])
+        .assert()
+        .success();
+
+    let output = tmp.path().join("input.mmd.svg");
+    assert!(
+        output.exists(),
+        "default mmdc output should append .svg to the input path"
+    );
+    let svg = fs::read_to_string(output).expect("read svg");
+    assert!(svg.trim_start().starts_with("<svg"));
+}
+
+#[test]
+fn developer_commands_keep_payload_only_stdout() {
+    let output = run_with_stdin(&["detect", "-"], "sequenceDiagram\nA->>B: Hello\n");
+
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert!(
+        output.stderr.is_empty(),
+        "unexpected stderr: {:?}",
+        output.stderr
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert_eq!(stdout.trim(), "sequence");
+}
+
+#[cfg(feature = "diagram-mindmap")]
+#[test]
+fn parse_exports_deep_managed_json_in_compact_and_pretty_modes() {
+    use std::fmt::Write as _;
+    let mut source = String::from("mindmap\nroot\n");
+    for depth in 1..=150 {
+        writeln!(source, "{}node{depth}", "  ".repeat(depth)).unwrap();
+    }
+    for meta in [false, true] {
+        for pretty in [false, true] {
+            let mut args = vec!["parse", "-"];
+            if meta {
+                args.push("--meta");
+            }
+            if pretty {
+                args.push("--pretty");
+            }
+            let output = run_with_stdin(&args, &source);
+            assert!(
+                output.status.success(),
+                "stderr={}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stdout.ends_with(b"\n"));
+            let text = String::from_utf8(output.stdout).unwrap();
+            assert!(text.contains("node150"));
+            if meta {
+                assert!(text.contains("\"meta\"") && text.contains("\"model\""));
+            }
+            if pretty {
+                assert!(text.contains("\n  \""));
+            }
+        }
+    }
+}

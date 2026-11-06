@@ -1,0 +1,99 @@
+//! Flowchart process rectangle.
+
+use crate::svg::parity::flowchart::escape_attr;
+use crate::svg::parity::{fmt, fmt_display};
+
+const HAND_DRAWN_ROUGHNESS: f32 = 0.7;
+const HAND_DRAWN_FILL_WEIGHT: f32 = 1.5;
+const HAND_DRAWN_HACHURE_GAP: f32 = 1.5;
+
+pub(in crate::svg::parity::flowchart::render::node) fn render_process_rectangle(
+    out: &mut impl crate::svg::parity::SvgOutput,
+    common: &super::super::FlowchartNodeRenderCommon<'_>,
+    details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
+) -> super::super::emission::FlowchartNodeShapeEmissionReceipt {
+    let width = common.layout_node.width.max(1.0);
+    let height = common.layout_node.height.max(1.0);
+    let rough_paths = if common.look_is_hand_drawn() {
+        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+            super::super::roughjs::roughjs_hachure_paths_for_rect(
+                -width / 2.0,
+                -height / 2.0,
+                width,
+                height,
+                common.stroke_width,
+                common.stroke_dasharray,
+                HAND_DRAWN_FILL_WEIGHT,
+                HAND_DRAWN_HACHURE_GAP,
+                HAND_DRAWN_ROUGHNESS,
+                common.work_meter,
+                common.hand_drawn_seed,
+            )
+        })
+    } else {
+        None
+    };
+
+    if let Some((fill_d, stroke_d)) = rough_paths {
+        let _ = write!(
+            out,
+            r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
+            escape_attr(common.rough_group_style),
+            escape_attr(&fill_d),
+            escape_attr(common.fill_color),
+            fmt_display(HAND_DRAWN_FILL_WEIGHT as f64),
+            escape_attr(&stroke_d),
+            escape_attr(common.stroke_color),
+            common.stroke_width,
+            escape_attr(common.stroke_dasharray),
+        );
+        return super::super::emission::FlowchartNodeShapeEmissionReceipt::hand_drawn_process();
+    }
+
+    // Keep Mermaid's square default while preserving explicit Neo configuration
+    // and the independently admitted typed/source geometry channels.
+    let radius = common
+        .typed_corner_radius
+        .or(common.configured_corner_radius);
+    let _ = write!(
+        out,
+        r#"<rect class="basic label-container"{} style="{}"#,
+        common.effect_filter_attr,
+        escape_attr(common.style),
+    );
+    common.write_effect_style(out);
+    common.write_rectangle_corner_style(out);
+    let _ = write!(
+        out,
+        r#"" x="{}" y="{}" width="{}" height="{}""#,
+        fmt(-width / 2.0),
+        fmt(-height / 2.0),
+        fmt(width),
+        fmt(height),
+    );
+    common.write_rectangle_radii(out, radius);
+    out.push_str(" />");
+    super::super::emission::FlowchartNodeShapeEmissionReceipt::classic_process(radius.is_some())
+        .with_effect_reach(common.effect_selected)
+}
+
+pub(super) fn advance_rough_geometry(common: &super::super::FlowchartNodeGeometry<'_>) {
+    if common.look_is_hand_drawn() {
+        let width = common.layout_node.width.max(1.0);
+        let height = common.layout_node.height.max(1.0);
+        let _ = super::super::roughjs::roughjs_prepare_hachure_paths_for_rect(
+            super::super::roughjs::RoughGeometryTarget::Query,
+            -width / 2.0,
+            -height / 2.0,
+            width,
+            height,
+            common.stroke_width,
+            common.stroke_dasharray,
+            HAND_DRAWN_FILL_WEIGHT,
+            HAND_DRAWN_HACHURE_GAP,
+            HAND_DRAWN_ROUGHNESS,
+            common.work_meter,
+            common.hand_drawn_seed,
+        );
+    }
+}

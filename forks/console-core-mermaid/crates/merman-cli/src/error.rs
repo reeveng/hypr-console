@@ -1,0 +1,672 @@
+use crate::input::InputReadError;
+#[cfg(feature = "ascii")]
+use serde::Serialize;
+use std::path::Path;
+#[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InputRole {
+    Primary,
+    Auxiliary,
+}
+
+#[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FileOperation {
+    Inspect,
+    InspectIdentity,
+    Canonicalize,
+    VerifyPublication,
+    #[cfg(feature = "fixes")]
+    VerifySourceSnapshot,
+    #[cfg(feature = "markdown")]
+    ReadDirectory,
+    #[cfg(feature = "markdown")]
+    CreateDirectory,
+    OpenAtomicStaging,
+    WriteAtomicStaging,
+    CommitAtomicReplacement,
+}
+
+#[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+impl std::fmt::Display for FileOperation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Inspect => "inspect",
+            Self::InspectIdentity => "inspect the file identity of",
+            Self::Canonicalize => "resolve",
+            Self::VerifyPublication => "verify the preflight identity of",
+            #[cfg(feature = "fixes")]
+            Self::VerifySourceSnapshot => "verify the acquired source snapshot of",
+            #[cfg(feature = "markdown")]
+            Self::ReadDirectory => "scan",
+            #[cfg(feature = "markdown")]
+            Self::CreateDirectory => "create the output directory",
+            Self::OpenAtomicStaging => "open an atomic staging file for",
+            Self::WriteAtomicStaging => "write the atomic staging file for",
+            Self::CommitAtomicReplacement => "atomically replace",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErrorCategory {
+    Success,
+    Content,
+    Usage,
+    Operational,
+}
+
+#[cfg(feature = "ascii")]
+impl ErrorCategory {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Content => "content",
+            Self::Usage => "usage",
+            Self::Operational => "operational",
+        }
+    }
+}
+
+#[cfg(feature = "ascii")]
+pub(crate) const ASCII_ERROR_REPORT_SCHEMA_VERSION: u16 = 1;
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Serialize)]
+pub(crate) struct AsciiErrorReport {
+    schema_version: u16,
+    kind: &'static str,
+    encoding: &'static str,
+    error: AsciiErrorReportBody,
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Serialize)]
+struct AsciiErrorReportBody {
+    code: String,
+    category: &'static str,
+    message: String,
+    details: AsciiErrorReportDetails,
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Default, Serialize)]
+struct AsciiErrorReportDetails {
+    span: Option<AsciiErrorReportSpan>,
+    span_kind: Option<&'static str>,
+    field: Option<String>,
+    diagram_type: Option<String>,
+    requested_max_width: Option<usize>,
+    actual_width: Option<usize>,
+    width_profile: Option<String>,
+    fallback_reason: Option<String>,
+    resource_limit: Option<AsciiErrorReportResourceLimit>,
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Serialize)]
+struct AsciiErrorReportSpan {
+    start: usize,
+    end: usize,
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Serialize)]
+struct AsciiErrorReportResourceLimit {
+    id: &'static str,
+    phase: &'static str,
+    actual: u64,
+    maximum: u64,
+    cause: &'static str,
+    profile: Option<&'static str>,
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug)]
+pub(crate) struct AsciiResourceError {
+    details: merman::render::ResourceLimitExceeded,
+    profile: merman::model::resources::ResourceProfile,
+}
+
+#[cfg(feature = "ascii")]
+impl std::fmt::Display for AsciiResourceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label =
+            if merman::ascii::AsciiResourceLimitId::from_stable_id(self.details.id).is_some() {
+                "ASCII resource limit"
+            } else {
+                "resource limit"
+            };
+        write!(
+            formatter,
+            "{label} `{}` exceeded during `{}`: actual {}, maximum {} (profile `{}`)",
+            self.details.id,
+            self.details.phase,
+            self.details.actual,
+            self.details.maximum,
+            self.profile.id(),
+        )?;
+        if self.details.cause == merman::render::ResourceLimitCause::ArithmeticOverflow {
+            write!(formatter, " (cause `{}`)", self.details.cause)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CliError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Diagnostic(merman::TerminalDiagnostic),
+    #[cfg(any(feature = "svg", feature = "ascii"))]
+    #[error("{0}")]
+    Render(merman::RenderError),
+    #[cfg(feature = "native-fonts")]
+    #[error(
+        "native font measurement budget (`native_font_measurements`) exhausted: actual={actual} maximum={maximum}\nhelp: simplify the diagram or retry with --font-max-measurements COUNT above {maximum}; actual is the first rejected probe, not the total required; render resource profiles do not change this limit",
+        actual = .0.actual,
+        maximum = .0.maximum
+    )]
+    NativeFontMeasurementLimit(merman::render::ResourceLimitExceeded),
+    #[cfg(feature = "ascii")]
+    #[error("{0}")]
+    Ascii(merman::ascii::AsciiDiagnostic),
+    #[cfg(feature = "ascii")]
+    #[error("{0}")]
+    AsciiResource(AsciiResourceError),
+    #[cfg(feature = "ascii")]
+    #[error(
+        "--ascii-report requires plain output; use `--ascii-color plain` or `--ascii-color auto`"
+    )]
+    AsciiReportRequiresPlain,
+    #[cfg(feature = "network-icons")]
+    #[error("{0}")]
+    Network(#[from] crate::network::NetworkError),
+    #[cfg(any(test, feature = "svg", feature = "ascii"))]
+    #[error("{0}")]
+    Resource(#[from] crate::resources::ResourceLedgerError),
+    #[cfg(feature = "markdown")]
+    #[error("{0}")]
+    Transaction(#[from] crate::transaction::TransactionError),
+    #[error("stdout closed before output finished")]
+    BrokenStdoutPipe,
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("failed to serialize JSON output: {0}")]
+    JsonOutput(serde_json::Error),
+    #[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+    #[error("failed to {operation} {path:?}: {source}")]
+    File {
+        operation: FileOperation,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to write {stream}: {source}")]
+    Stream {
+        stream: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("No Mermaid diagram detected")]
+    NoDiagram,
+    #[error("{error}")]
+    Input {
+        role: InputRole,
+        #[source]
+        error: InputReadError,
+    },
+    #[error("no input was provided to `{command}`")]
+    MissingInput { command: &'static str },
+    #[error("{0}")]
+    InvalidInput(String),
+    #[cfg(any(feature = "icons", feature = "rustdoc"))]
+    #[error("internal error: {0}")]
+    Internal(String),
+    #[cfg(feature = "rustdoc")]
+    #[error("invalid Rustdoc configuration {path:?} at {location}: {source}")]
+    RustdocConfig {
+        path: PathBuf,
+        location: String,
+        #[source]
+        source: Box<CliError>,
+    },
+    #[cfg(feature = "rustdoc")]
+    #[error("Rustdoc source {path:?} at line {line}, column {column}: {message}")]
+    RustdocContent {
+        path: PathBuf,
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    #[cfg(feature = "rustdoc")]
+    #[error("Rustdoc source {path:?} at line {line}, column {column}: {source}")]
+    RustdocInput {
+        path: PathBuf,
+        line: usize,
+        column: usize,
+        #[source]
+        source: Box<CliError>,
+    },
+    #[cfg(feature = "rustdoc")]
+    #[error("invalid Rustdoc receipt {path:?}: {reason}")]
+    RustdocReceipt { path: PathBuf, reason: String },
+    #[cfg(feature = "rustdoc")]
+    #[error("Rustdoc output is stale at {path:?}: {reason}")]
+    RustdocStale { path: PathBuf, reason: String },
+    #[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+    #[error("{0}")]
+    InvalidOutput(String),
+    #[cfg(feature = "fixes")]
+    #[error("refusing to overwrite concurrently modified source {path:?}: {reason}")]
+    ConcurrentModification { path: PathBuf, reason: String },
+    #[cfg(feature = "fixes")]
+    #[error("invalid diagnostic fix plan: {0}")]
+    InvalidFixPlan(String),
+    #[cfg(feature = "markdown")]
+    #[error("Markdown chart {index} at line {line}, column {column}: {source}")]
+    MarkdownChart {
+        index: u64,
+        line: usize,
+        column: usize,
+        #[source]
+        source: Box<CliError>,
+    },
+}
+
+impl From<merman::Error> for CliError {
+    fn from(error: merman::Error) -> Self {
+        Self::Diagnostic(merman::TerminalDiagnostic::from(error))
+    }
+}
+
+#[cfg(any(feature = "svg", feature = "ascii"))]
+impl From<merman::RenderError> for CliError {
+    fn from(error: merman::RenderError) -> Self {
+        match error {
+            merman::RenderError::NoDiagram => Self::NoDiagram,
+            merman::RenderError::Parse(error) => Self::Diagnostic(error),
+            #[cfg(feature = "native-fonts")]
+            merman::RenderError::ResourceLimitExceeded(limit)
+                if limit.id == "native_font_measurements"
+                    && limit.cause == merman::ResourceLimitCause::Ceiling =>
+            {
+                Self::NativeFontMeasurementLimit(limit)
+            }
+            other => Self::Render(other),
+        }
+    }
+}
+
+impl CliError {
+    #[cfg(feature = "ascii")]
+    pub(crate) fn ascii_resource(
+        details: merman::render::ResourceLimitExceeded,
+        profile: merman::model::resources::ResourceProfile,
+    ) -> Self {
+        Self::AsciiResource(AsciiResourceError { details, profile })
+    }
+
+    pub(crate) fn primary_input(error: InputReadError) -> Self {
+        Self::Input {
+            role: InputRole::Primary,
+            error,
+        }
+    }
+
+    pub(crate) fn auxiliary_input(error: InputReadError) -> Self {
+        Self::Input {
+            role: InputRole::Auxiliary,
+            error,
+        }
+    }
+
+    #[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+    pub(crate) fn file(
+        operation: FileOperation,
+        path: impl AsRef<Path>,
+        source: std::io::Error,
+    ) -> Self {
+        Self::File {
+            operation,
+            path: path.as_ref().to_path_buf(),
+            source,
+        }
+    }
+
+    pub(crate) fn stream(stream: &'static str, source: std::io::Error) -> Self {
+        if stream == "stdout" && source.kind() == std::io::ErrorKind::BrokenPipe {
+            Self::BrokenStdoutPipe
+        } else {
+            Self::Stream { stream, source }
+        }
+    }
+
+    pub(crate) fn json_output(error: serde_json::Error) -> Self {
+        if error.io_error_kind() == Some(std::io::ErrorKind::BrokenPipe) {
+            Self::BrokenStdoutPipe
+        } else {
+            Self::JsonOutput(error)
+        }
+    }
+
+    #[cfg(feature = "ascii")]
+    pub(crate) fn ascii_error_report(&self) -> AsciiErrorReport {
+        let mut code = match self.category() {
+            ErrorCategory::Success => "merman.cli.success",
+            ErrorCategory::Content => "merman.cli.content_error",
+            ErrorCategory::Usage => "merman.cli.invalid_request",
+            ErrorCategory::Operational => "merman.cli.operational_error",
+        }
+        .to_string();
+        let mut details = AsciiErrorReportDetails::default();
+
+        match self {
+            Self::Diagnostic(diagnostic) => {
+                let terminal = diagnostic.terminal_diagnostic_details();
+                code = terminal.code.clone();
+                details = AsciiErrorReportDetails::from_terminal(terminal);
+            }
+            Self::Ascii(diagnostic) => {
+                if let Some(terminal) = diagnostic.terminal_diagnostic_details() {
+                    code = terminal.code.clone();
+                    details = AsciiErrorReportDetails::from_terminal(terminal);
+                } else {
+                    code = "merman.ascii.render".to_string();
+                }
+            }
+            Self::AsciiResource(resource) => {
+                code = if merman::ascii::AsciiResourceLimitId::from_stable_id(resource.details.id)
+                    .is_some()
+                {
+                    "merman.ascii.resource_limit"
+                } else if merman::model::resources::InputResourceLimitId::from_stable_id(
+                    resource.details.id,
+                )
+                .is_some()
+                {
+                    "merman.input.resource_limit"
+                } else {
+                    "merman.render.resource_limit"
+                }
+                .to_string();
+                details.resource_limit = Some(AsciiErrorReportResourceLimit {
+                    id: resource.details.id,
+                    phase: resource.details.phase,
+                    actual: resource.details.actual,
+                    maximum: resource.details.maximum,
+                    cause: resource.details.cause.as_str(),
+                    profile: Some(resource.profile.id()),
+                });
+            }
+            Self::Input {
+                error:
+                    InputReadError::LimitExceeded {
+                        actual,
+                        limit,
+                        limit_id,
+                        profile,
+                        ..
+                    },
+                ..
+            } => {
+                code = "merman.input.resource_limit".to_string();
+                let actual = match actual {
+                    crate::input::ObservedSize::Exact(bytes)
+                    | crate::input::ObservedSize::AtLeast(bytes) => *bytes,
+                };
+                let phase =
+                    merman::model::resources::InputResourceLimitId::from_stable_id(limit_id)
+                        .map_or("input", |id| id.descriptor().phase.as_str());
+                details.resource_limit = Some(AsciiErrorReportResourceLimit {
+                    id: limit_id,
+                    phase,
+                    actual,
+                    maximum: *limit as u64,
+                    cause: "ceiling",
+                    profile: profile.map(merman::model::resources::ResourceProfile::id),
+                });
+            }
+            Self::AsciiReportRequiresPlain => {
+                code = "merman.cli.ascii_report.requires_plain".to_string();
+                details.field = Some("ascii_color".to_string());
+            }
+            Self::NoDiagram => {
+                code = "merman.parse.no_diagram_detected".to_string();
+            }
+            Self::MissingInput { .. } => {
+                code = "merman.cli.missing_input".to_string();
+                details.field = Some("input".to_string());
+            }
+            Self::InvalidInput(_) => {
+                code = "merman.cli.invalid_input".to_string();
+            }
+            _ => {}
+        }
+
+        AsciiErrorReport {
+            schema_version: ASCII_ERROR_REPORT_SCHEMA_VERSION,
+            kind: "ascii_error",
+            encoding: "plain",
+            error: AsciiErrorReportBody {
+                code,
+                category: self.category().as_str(),
+                message: merman::normalize_terminal_diagnostic(&self.to_string()),
+                details,
+            },
+        }
+    }
+
+    #[cfg(feature = "rustdoc")]
+    pub(crate) fn rustdoc_config(
+        path: impl AsRef<Path>,
+        location: impl Into<String>,
+        source: CliError,
+    ) -> Self {
+        Self::RustdocConfig {
+            path: path.as_ref().to_path_buf(),
+            location: location.into(),
+            source: Box::new(source),
+        }
+    }
+
+    #[cfg(feature = "rustdoc")]
+    pub(crate) fn rustdoc_content(
+        path: impl AsRef<Path>,
+        line: usize,
+        column: usize,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::RustdocContent {
+            path: path.as_ref().to_path_buf(),
+            line,
+            column,
+            message: message.into(),
+        }
+    }
+
+    #[cfg(feature = "rustdoc")]
+    pub(crate) fn rustdoc_input(
+        path: impl AsRef<Path>,
+        line: usize,
+        column: usize,
+        source: CliError,
+    ) -> Self {
+        Self::RustdocInput {
+            path: path.as_ref().to_path_buf(),
+            line,
+            column,
+            source: Box::new(source),
+        }
+    }
+
+    #[cfg(feature = "rustdoc")]
+    pub(crate) fn rustdoc_receipt(path: impl AsRef<Path>, reason: impl Into<String>) -> Self {
+        Self::RustdocReceipt {
+            path: path.as_ref().to_path_buf(),
+            reason: reason.into(),
+        }
+    }
+
+    #[cfg(feature = "rustdoc")]
+    pub(crate) fn rustdoc_stale(path: impl AsRef<Path>, reason: impl Into<String>) -> Self {
+        Self::RustdocStale {
+            path: path.as_ref().to_path_buf(),
+            reason: reason.into(),
+        }
+    }
+
+    #[cfg(feature = "markdown")]
+    pub(crate) fn markdown_chart(
+        index: u64,
+        location: crate::markdown::MarkdownFenceLocation,
+        source: CliError,
+    ) -> Self {
+        Self::MarkdownChart {
+            index,
+            line: location.line,
+            column: location.column,
+            source: Box::new(source),
+        }
+    }
+
+    pub(crate) fn exit_code(&self) -> ExitCode {
+        match self.category() {
+            ErrorCategory::Success => ExitCode::SUCCESS,
+            ErrorCategory::Content => ExitCode::from(1),
+            ErrorCategory::Usage => ExitCode::from(2),
+            ErrorCategory::Operational => ExitCode::from(3),
+        }
+    }
+
+    fn category(&self) -> ErrorCategory {
+        match self {
+            Self::InvalidInput(_) | Self::Json(_) | Self::MissingInput { .. } => {
+                ErrorCategory::Usage
+            }
+            #[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+            Self::InvalidOutput(_) => ErrorCategory::Usage,
+            Self::Io(_) | Self::JsonOutput(_) | Self::Stream { .. } => ErrorCategory::Operational,
+            #[cfg(any(feature = "icons", feature = "rustdoc"))]
+            Self::Internal(_) => ErrorCategory::Operational,
+            #[cfg(feature = "rustdoc")]
+            Self::RustdocConfig { source, .. } => source.category(),
+            #[cfg(feature = "rustdoc")]
+            Self::RustdocContent { .. } => ErrorCategory::Content,
+            #[cfg(feature = "rustdoc")]
+            Self::RustdocInput { source, .. } => source.category(),
+            #[cfg(feature = "rustdoc")]
+            Self::RustdocReceipt { .. } => ErrorCategory::Operational,
+            #[cfg(feature = "rustdoc")]
+            Self::RustdocStale { .. } => ErrorCategory::Content,
+            #[cfg(feature = "markdown")]
+            Self::Transaction(_) => ErrorCategory::Operational,
+            #[cfg(any(feature = "fixes", feature = "svg", feature = "ascii"))]
+            Self::File { .. } => ErrorCategory::Operational,
+            #[cfg(feature = "fixes")]
+            Self::ConcurrentModification { .. } => ErrorCategory::Operational,
+            #[cfg(feature = "fixes")]
+            Self::InvalidFixPlan(_) => ErrorCategory::Content,
+            #[cfg(feature = "markdown")]
+            Self::MarkdownChart { source, .. } => source.category(),
+            Self::Input { error, .. } if error.is_operational() => ErrorCategory::Operational,
+            #[cfg(feature = "network-icons")]
+            Self::Network(error) if error.is_operational() => ErrorCategory::Operational,
+            Self::Input {
+                role: InputRole::Primary,
+                error: InputReadError::LimitExceeded { .. } | InputReadError::InvalidUtf8 { .. },
+            } => ErrorCategory::Content,
+            Self::Input { .. } => ErrorCategory::Usage,
+            #[cfg(feature = "network-icons")]
+            Self::Network(_) => ErrorCategory::Usage,
+            Self::BrokenStdoutPipe => ErrorCategory::Success,
+            Self::Diagnostic(_) | Self::NoDiagram => ErrorCategory::Content,
+            #[cfg(feature = "ascii")]
+            Self::Ascii(_) | Self::AsciiResource(_) => ErrorCategory::Content,
+            #[cfg(feature = "ascii")]
+            Self::AsciiReportRequiresPlain => ErrorCategory::Usage,
+            #[cfg(any(test, feature = "svg", feature = "ascii"))]
+            Self::Resource(_) => ErrorCategory::Content,
+            #[cfg(any(feature = "svg", feature = "ascii"))]
+            Self::Render(_) => ErrorCategory::Content,
+            #[cfg(feature = "native-fonts")]
+            Self::NativeFontMeasurementLimit(_) => ErrorCategory::Content,
+        }
+    }
+
+    pub(crate) fn is_broken_stdout_pipe(&self) -> bool {
+        matches!(self, Self::BrokenStdoutPipe)
+    }
+
+    pub(crate) fn missing_input_command(&self) -> Option<&'static str> {
+        match self {
+            Self::MissingInput { command } => Some(command),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "ascii")]
+impl AsciiErrorReportDetails {
+    fn from_terminal(details: merman::TerminalDiagnosticDetails) -> Self {
+        Self {
+            span: details.span.map(|span| AsciiErrorReportSpan {
+                start: span.start,
+                end: span.end,
+            }),
+            span_kind: details.span_kind.map(|kind| match kind {
+                merman::ParseDiagnosticSpanKind::Exact => "exact",
+                merman::ParseDiagnosticSpanKind::InsertionPoint => "insertion_point",
+                merman::ParseDiagnosticSpanKind::Fallback => "fallback",
+            }),
+            field: details.field,
+            diagram_type: details.diagram_type,
+            requested_max_width: details.requested_max_width,
+            actual_width: details.actual_width,
+            width_profile: details.width_profile,
+            fallback_reason: details.fallback_reason,
+            resource_limit: None,
+        }
+    }
+}
+
+pub(crate) fn safe_path(path: impl AsRef<Path>) -> String {
+    format!("{:?}", path.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_paths_escape_terminal_control_characters() {
+        let rendered = safe_path(Path::new("line\nname\u{1b}[31m.svg"));
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains("\\n"));
+        assert!(rendered.contains("\\u{1b}"));
+    }
+
+    #[cfg(any(feature = "svg", feature = "ascii"))]
+    #[test]
+    fn parser_and_render_errors_use_terminal_safe_diagnostics() {
+        let parser_error = merman::Error::diagram_parse_fallback("flow\u{1b}", "bad\u{7}input");
+        let direct = CliError::from(parser_error);
+        let rendered = CliError::from(merman::RenderError::from(
+            merman::Error::diagram_parse_fallback("state\u{1b}", "bad\u{7}input"),
+        ));
+
+        for error in [direct, rendered] {
+            let message = error.to_string();
+            assert!(!message.contains('\u{1b}'));
+            assert!(!message.contains('\u{7}'));
+            assert!(message.contains("\\u{1B}"));
+            assert!(message.contains("\\u{7}"));
+            assert_eq!(error.category(), ErrorCategory::Content);
+        }
+    }
+}

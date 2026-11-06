@@ -1,0 +1,177 @@
+#[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+mod adapter;
+mod charset;
+mod draw;
+mod horizontal_label;
+#[cfg_attr(
+    not(feature = "all-diagrams"),
+    allow(
+        dead_code,
+        reason = "State and Flowchart use different shared graph model operations"
+    )
+)]
+mod label;
+mod layout;
+#[cfg_attr(
+    not(feature = "all-diagrams"),
+    allow(
+        dead_code,
+        reason = "State and Flowchart use different shared graph model operations"
+    )
+)]
+mod model;
+mod routing;
+mod shape;
+pub(crate) mod style;
+mod surface;
+mod topology;
+
+#[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+pub(crate) use adapter::from_flowchart_model_with_execution;
+#[cfg(test)]
+pub(crate) use draw::render_graph_with_execution;
+pub(crate) use draw::render_graph_with_resolved_policy_and_execution;
+#[cfg(feature = "diagram-state")]
+pub(crate) use label::{DeferredGraphLabelSectionPlan, DeferredGraphNodeLabelPlan};
+pub(crate) use model::{
+    AsciiGraph, GraphDirection, GraphNodeSemantics, GraphNodeSide, GraphNodeSideConstraint,
+};
+
+#[cfg(feature = "diagram-state")]
+pub(crate) use model::{
+    GraphEdgeAttrs, GraphEdgeMarker, GraphGroupKind, GraphGroupStyle, GraphNodeShape,
+    GraphNodeStyle,
+};
+
+#[cfg(test)]
+mod graph_golden {
+    use super::model::{AsciiGraph, GraphDirection};
+    use super::*;
+    use crate::operation::AsciiExecution;
+    use crate::{AsciiRenderOptions, AsciiResourcePolicy};
+    use merman_model::OperationControl;
+    use std::path::Path;
+
+    fn fixture_expected(directory: &str, name: &str) -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/testdata/mermaid-ascii")
+            .join(directory)
+            .join(name);
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
+            .replace("\r\n", "\n");
+        let (_, expected) = content
+            .split_once("\n---\n")
+            .unwrap_or_else(|| panic!("fixture missing separator: {}", path.display()));
+        expected.to_string()
+    }
+
+    #[test]
+    fn single_node_ascii_matches_upstream_golden() {
+        let mut graph = AsciiGraph::new(GraphDirection::LeftRight);
+        graph.add_node("A", "A");
+
+        let actual = render_graph_with_execution(
+            &graph,
+            &AsciiRenderOptions::ascii(),
+            AsciiExecution::new(&OperationControl::new(), &AsciiResourcePolicy::default()),
+        )
+        .unwrap();
+
+        assert_eq!(actual, fixture_expected("ascii", "single_node.txt"));
+    }
+
+    #[test]
+    fn single_node_unicode_matches_upstream_golden() {
+        let mut graph = AsciiGraph::new(GraphDirection::LeftRight);
+        graph.add_node("A", "A");
+
+        let actual = render_graph_with_execution(
+            &graph,
+            &AsciiRenderOptions::unicode(),
+            AsciiExecution::new(&OperationControl::new(), &AsciiResourcePolicy::default()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            actual,
+            fixture_expected("extended-chars", "single_node.txt")
+        );
+    }
+
+    #[test]
+    fn two_nodes_linked_ascii_matches_upstream_golden() {
+        let mut graph = AsciiGraph::new(GraphDirection::LeftRight);
+        graph.add_node("A", "A");
+        graph.add_node("B", "B");
+        graph.add_edge("A", "B");
+
+        let actual = render_graph_with_execution(
+            &graph,
+            &AsciiRenderOptions::ascii(),
+            AsciiExecution::new(&OperationControl::new(), &AsciiResourcePolicy::default()),
+        )
+        .unwrap();
+
+        assert_eq!(actual, fixture_expected("ascii", "two_nodes_linked.txt"));
+    }
+
+    #[test]
+    fn two_nodes_linked_unicode_matches_upstream_golden() {
+        let mut graph = AsciiGraph::new(GraphDirection::LeftRight);
+        graph.add_node("A", "A");
+        graph.add_node("B", "B");
+        graph.add_edge("A", "B");
+
+        let actual = render_graph_with_execution(
+            &graph,
+            &AsciiRenderOptions::unicode(),
+            AsciiExecution::new(&OperationControl::new(), &AsciiResourcePolicy::default()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            actual,
+            fixture_expected("extended-chars", "two_nodes_linked.txt")
+        );
+    }
+
+    #[test]
+    fn long_node_labels_ascii_match_upstream_golden() {
+        let mut graph = AsciiGraph::new(GraphDirection::LeftRight);
+        graph.add_node("LongerName1", "LongerName1");
+        graph.add_node("LongerName2", "LongerName2");
+        graph.add_edge("LongerName1", "LongerName2");
+
+        let actual = render_graph_with_execution(
+            &graph,
+            &AsciiRenderOptions::ascii(),
+            AsciiExecution::new(&OperationControl::new(), &AsciiResourcePolicy::default()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            actual,
+            fixture_expected("ascii", "two_nodes_longer_names.txt")
+        );
+    }
+
+    #[test]
+    fn top_down_chain_ascii_matches_upstream_golden() {
+        let mut graph = AsciiGraph::new(GraphDirection::TopDown);
+        graph.add_node("A", "A");
+        graph.add_node("B", "B");
+        graph.add_node("C", "C");
+        graph.add_edge("A", "B");
+        graph.add_edge("B", "C");
+
+        let actual = render_graph_with_execution(
+            &graph,
+            &AsciiRenderOptions::ascii(),
+            AsciiExecution::new(&OperationControl::new(), &AsciiResourcePolicy::default()),
+        )
+        .unwrap();
+
+        assert_eq!(actual, fixture_expected("ascii", "flowchart_tb_simple.txt"));
+    }
+}

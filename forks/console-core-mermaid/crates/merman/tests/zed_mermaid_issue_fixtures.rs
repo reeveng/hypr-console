@@ -1,0 +1,476 @@
+#![cfg(feature = "svg")]
+
+#[cfg(feature = "png")]
+use merman::PngRequest;
+use merman::model::MAX_DIAGRAM_NESTING_DEPTH;
+use merman::svg::{RenderResourcePolicy, RenderResourceProfile, SvgPipeline, SvgRenderOptions};
+use merman::{
+    OperationControl, ParseOptions, RenderOutput, RenderRequest, Renderer, SvgEnvironment,
+    SvgRequest,
+};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+const ZED_57389_SEQUENCE_LOOP_END: &str =
+    include_str!("../../../fixtures/zed_issues/zed_57389_sequence_loop_end.mmd");
+const ZED_57363_FLOWCHART_HYPHEN_EDGE_LABELS: &str =
+    include_str!("../../../fixtures/zed_issues/zed_57363_flowchart_hyphen_edge_labels.mmd");
+const ZED_57323_ER_ENTITY_STYLE_TEXT: &str =
+    include_str!("../../../fixtures/zed_issues/zed_57323_er_entity_style_text.mmd");
+const ZED_56767_FLOWCHART_FOREIGN_OBJECT_LABELS: &str =
+    include_str!("../../../fixtures/zed_issues/zed_56767_flowchart_foreign_object_labels.mmd");
+const ZED_51480_COMPLEX_FLOWCHART_CONNECTIONS: &str =
+    include_str!("../../../fixtures/zed_issues/zed_51480_complex_flowchart_connections.mmd");
+const ZED_51142_SEQUENCE_RECT_RGB: &str =
+    include_str!("../../../fixtures/zed_issues/zed_51142_sequence_rect_rgb.mmd");
+const ZED_50558_CLASS_INHERITANCE: &str =
+    include_str!("../../../fixtures/zed_issues/zed_50558_class_inheritance.mmd");
+const ZED_50243_GANTT_COMPACT_FRONTMATTER: &str =
+    include_str!("../../../fixtures/zed_issues/zed_50243_gantt_compact_frontmatter.mmd");
+const ZED_56199_FLOWCHART_PARTIAL_PARALLELOGRAM: &str =
+    include_str!("../../../fixtures/zed_issues/zed_56199_flowchart_partial_parallelogram.mmd");
+
+fn render_with_profile(
+    name: &str,
+    source: &str,
+    profile: RenderResourceProfile,
+    parse_options: ParseOptions,
+    pipeline: Option<SvgPipeline>,
+) -> Result<Option<String>, Box<merman::RenderError>> {
+    let policy = RenderResourcePolicy::for_profile(profile);
+    let renderer = Renderer::new()
+        .with_parse_options(parse_options)
+        .with_resource_policy(*policy.input_policy());
+    let output = renderer.render(RenderRequest::svg(
+        source,
+        OperationControl::new(),
+        SvgRequest {
+            environment: SvgEnvironment::deterministic().with_resource_policy(policy),
+            options: SvgRenderOptions {
+                diagram_id: Some(name.to_string()),
+                ..Default::default()
+            },
+            pipeline,
+            ..Default::default()
+        },
+    ))?;
+    let RenderOutput::Svg(svg) = output else {
+        unreachable!("SVG request must return SVG output")
+    };
+    Ok(svg.map(|svg| svg.into_parts().0))
+}
+
+fn render_resvg_safe(name: &str, source: &str) -> String {
+    render_with_profile(
+        name,
+        source,
+        RenderResourceProfile::Interactive,
+        ParseOptions::default(),
+        Some(SvgPipeline::resvg_safe()),
+    )
+    .unwrap_or_else(|err| panic!("{name}: render failed: {err}"))
+    .unwrap_or_else(|| panic!("{name}: no diagram detected"))
+}
+
+fn fallback_content<'a, 'input>(group: roxmltree::Node<'a, 'input>) -> roxmltree::Node<'a, 'input> {
+    let instance = group
+        .children()
+        .find(|node| node.has_tag_name("use"))
+        .expect("fallback instance must reference its isolated content");
+    let id = instance
+        .attribute("href")
+        .and_then(|href| href.strip_prefix('#'))
+        .expect("fallback use must have a local href");
+    let mut definitions = group
+        .document()
+        .descendants()
+        .filter(|node| node.attribute("id") == Some(id));
+    let content = definitions.next().expect("fallback href must resolve");
+    assert!(
+        definitions.next().is_none(),
+        "fallback content id must be unique"
+    );
+    assert!(
+        content.ancestors().any(|node| node.has_tag_name("defs")
+            && node.parent() == Some(group.document().root_element())),
+        "fallback content must live in root definitions"
+    );
+    content
+}
+
+fn fallback_text_style(svg: &str, label: &str) -> String {
+    let document = roxmltree::Document::parse(svg).expect("resvg-safe output should be XML");
+    document
+        .descendants()
+        .filter(|group| group.attribute("data-merman-foreignobject") == Some("fallback"))
+        .flat_map(|group| fallback_content(group).descendants())
+        .find(|node| {
+            node.has_tag_name("text") && node.text().is_some_and(|text| text.trim() == label)
+        })
+        .and_then(|node| node.attribute("style"))
+        .map(str::to_owned)
+        .unwrap_or_else(|| panic!("expected fallback text {label:?}: {svg}"))
+}
+
+fn deeply_nested_flowchart(depth: usize) -> String {
+    let mut lines = vec!["flowchart TD".to_string()];
+    for i in 0..depth {
+        lines.push(format!("subgraph n{i}"));
+    }
+    lines.push("leaf[leaf]".to_string());
+    for _ in 0..depth {
+        lines.push("end".to_string());
+    }
+    lines.join("\n")
+}
+
+#[test]
+fn zed_issue_fixtures_render_typed_resvg_safe() {
+    let cases: &[(&str, &str, &[&str])] = &[
+        (
+            "zed-57389",
+            ZED_57389_SEQUENCE_LOOP_END,
+            &["for each iteration", "Post loop"],
+        ),
+        (
+            "zed-57363",
+            ZED_57363_FLOWCHART_HYPHEN_EDGE_LABELS,
+            &["single-string-with-hyphens"],
+        ),
+        (
+            "zed-57323",
+            ZED_57323_ER_ENTITY_STYLE_TEXT,
+            &["EMPRESA", "empresa_id", "UNIDADE", "USUARIO", "employs"],
+        ),
+        (
+            "zed-56767",
+            ZED_56767_FLOWCHART_FOREIGN_OBJECT_LABELS,
+            &["Start", "feature/example-branch", "Open pull request"],
+        ),
+        (
+            "zed-51480",
+            ZED_51480_COMPLEX_FLOWCHART_CONNECTIONS,
+            &[
+                "Stage 1: MVP",
+                "Stage 2: Production",
+                "Versioned market",
+                "definitions",
+            ],
+        ),
+        (
+            "zed-51142",
+            ZED_51142_SEQUENCE_RECT_RGB,
+            &[
+                "Phase 1 - Startup",
+                "startup_reconcile()",
+                "filesystem timestamps",
+            ],
+        ),
+        (
+            "zed-50558",
+            ZED_50558_CLASS_INHERITANCE,
+            &["Animal", "Dog", "bark()"],
+        ),
+        (
+            "zed-50243",
+            ZED_50243_GANTT_COMPACT_FRONTMATTER,
+            &["MacOS 26 Tahoe", "x86 hardware"],
+        ),
+    ];
+
+    for (name, source, expected_labels) in cases {
+        let svg = render_resvg_safe(name, source);
+        assert!(svg.starts_with("<svg"), "{name}: expected SVG output");
+        assert!(
+            !svg.contains("<foreignObject"),
+            "{name}: resvg-safe output should not rely on foreignObject"
+        );
+        assert!(
+            !svg.contains("@keyframes") && !svg.contains(":root"),
+            "{name}: resvg-safe output should strip unsupported CSS constructs"
+        );
+        assert!(
+            !svg.contains("NaN") && !svg.contains("undefined"),
+            "{name}: output should not leak non-finite geometry"
+        );
+
+        let document = roxmltree::Document::parse(&svg).expect("resvg-safe output should be XML");
+        let wrapped_labels: Vec<_> = document
+            .descendants()
+            .filter(|node| node.attribute("data-merman-foreignobject") == Some("fallback"))
+            .map(|group| {
+                let rows: Vec<_> = fallback_content(group)
+                    .descendants()
+                    .filter(|node| node.has_tag_name("text"))
+                    .map(|node| node.text().unwrap_or(""))
+                    .collect();
+                (rows.concat(), rows.join(" "))
+            })
+            .collect();
+        for label in *expected_labels {
+            assert!(
+                svg.contains(label)
+                    || wrapped_labels
+                        .iter()
+                        .any(|(joined, spaced)| joined == label || spaced == label),
+                "{name}: expected rendered SVG to retain label {label:?} across its line boxes"
+            );
+        }
+    }
+}
+
+#[test]
+fn zed_sequence_rect_rgb_renders_as_background_rect() {
+    let svg = render_resvg_safe("zed-51142-rect", ZED_51142_SEQUENCE_RECT_RGB);
+
+    assert!(
+        svg.contains(r#"class="rect""#),
+        "expected sequence rect block to render as a rectangle element"
+    );
+    assert!(
+        svg.contains(r#"fill="rgb(240, 245, 255)""#),
+        "expected rect rgb payload to become the rectangle fill"
+    );
+    assert!(
+        !svg.contains(">rgb(240, 245, 255)<"),
+        "rect rgb payload must not be emitted as visible message text"
+    );
+}
+
+#[test]
+fn zed_flowchart_foreign_object_labels_have_text_fallbacks() {
+    let svg = render_resvg_safe(
+        "zed-56767-foreign-object",
+        ZED_56767_FLOWCHART_FOREIGN_OBJECT_LABELS,
+    );
+
+    assert!(
+        svg.contains(r#"data-merman-foreignobject="fallback""#),
+        "expected resvg-safe output to retain generated text fallback groups"
+    );
+    assert!(
+        svg.contains(">Prepare change</text>") || svg.contains(">Prepare change</tspan>"),
+        "expected a readable SVG text fallback for a flowchart node label"
+    );
+}
+
+#[test]
+fn zed_resvg_safe_flowchart_fallback_soft_wraps_html_node_labels() {
+    let svg = render_resvg_safe(
+        "zed-flowchart-html-wrap-fallback",
+        r#"flowchart LR
+    PDF[PDF Adapter<br/>PDFium first] --> Anchor[Anchor]
+    EPUB[Future EPUB Adapter<br/>WebSurface + CFI] --> Anchor
+    MOBI[Future MOBI/AZW Adapter<br/>extract/convert to HTML-like] --> EPUB
+
+    Anchor --> Note[Note]
+    Note --> Edge[Edge]
+    Edge --> Graph[NoteGraph]
+
+    Graph --> Reader[Reader Overlay]
+    Graph --> Digest[Digest / Outline]
+    Graph --> Map[Mindmap Projection]
+    Graph --> Review[Review Cards]
+    Graph --> Export[Markdown / HTML / Anki / XMind]
+
+    Storage[(SQLite + FTS + Oplog)] <--> Graph
+    Corpus[Corpus Benchmarks] --> PDF
+    Security[Import / WebSurface / Data Egress Gates] --> PDF
+    Security --> EPUB
+"#,
+    );
+
+    assert!(!svg.contains("<foreignObject"));
+    let document = roxmltree::Document::parse(&svg).expect("valid SVG XML");
+    let expected = "Import / WebSurface / Data Egress Gates";
+    let wrapped_security_label = document.descendants().find_map(|group| {
+        if !group.has_tag_name("g")
+            || group.attribute("data-merman-foreignobject") != Some("fallback")
+        {
+            return None;
+        }
+
+        let rows = fallback_content(group)
+            .descendants()
+            .filter(|node| node.has_tag_name("text"))
+            .map(|node| {
+                node.descendants()
+                    .filter(|descendant| descendant.is_text())
+                    .filter_map(|descendant| descendant.text())
+                    .flat_map(str::split_whitespace)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .filter(|row| !row.is_empty())
+            .collect::<Vec<_>>();
+        (rows.len() > 1 && rows.join(" ") == expected).then_some(rows)
+    });
+    assert!(
+        wrapped_security_label.is_some(),
+        "expected the Security fallback to preserve all text across multiple SVG rows: {svg}"
+    );
+}
+
+#[test]
+fn zed_class_generics_fallback_text_is_not_double_escaped() {
+    let svg = render_resvg_safe(
+        "zed-class-generics",
+        r#"classDiagram
+    class Shelter {
+        -List~Animal~ animals
+        +adopt(Animal a) bool
+    }"#,
+    );
+
+    assert!(
+        !svg.contains("&amp;lt;") && !svg.contains("&amp;gt;"),
+        "fallback text should not double-escape class generic markers: {svg}"
+    );
+    assert!(
+        svg.contains("List&lt;Animal"),
+        "expected class generic marker to remain readable in fallback text: {svg}"
+    );
+}
+
+#[test]
+fn issue_89_class_fallback_resolves_mermaid_typography_before_zed_css_injection() {
+    let svg = render_resvg_safe(
+        "issue-89-class-typography",
+        r#"classDiagram
+    class User {
+        +String id
+        +String name
+        +signIn()
+    }"#,
+    );
+
+    assert!(
+        !svg.contains("<foreignObject"),
+        "resvg-safe output must replace HTML labels before a host injects CSS: {svg}"
+    );
+    let user_style = fallback_text_style(&svg, "User");
+    let name_style = fallback_text_style(&svg, "+String name");
+    for (label, style) in [("User", user_style), ("+String name", name_style)] {
+        assert!(
+            style.contains("font-size: 14px") || style.contains("font-size:14px"),
+            "{label:?} must use Mermaid's pre-injection source typography, not a flattened 10px class rule: {style}"
+        );
+        assert!(
+            !style.contains("font-size: 10px") && !style.contains("font-size:10px"),
+            "{label:?} must not inherit the SVG-only class text selector: {style}"
+        );
+    }
+
+    let options = usvg::Options::default();
+    usvg::Tree::from_str(&svg, &options)
+        .unwrap_or_else(|error| panic!("issue #89 output must remain usvg-parseable: {error}"));
+}
+
+#[test]
+fn zed_deeply_nested_flowchart_respects_the_selected_resource_profile() {
+    let source = deeply_nested_flowchart(MAX_DIAGRAM_NESTING_DEPTH + 2);
+    let error = render_with_profile(
+        "zed-deep-flowchart-interactive",
+        &source,
+        RenderResourceProfile::Interactive,
+        ParseOptions::default(),
+        None,
+    )
+    .expect_err("the interactive profile must bound semantic nesting before layout");
+    assert!(
+        error.to_string().contains("max_model_nesting_depth"),
+        "{error}"
+    );
+
+    let svg = render_with_profile(
+        "zed-deep-flowchart-unbounded",
+        &source,
+        RenderResourceProfile::UnboundedForTrustedInput,
+        ParseOptions::default(),
+        None,
+    )
+    .expect("unbounded trusted rendering should accept the deep SVG tree")
+    .expect("flowchart should be detected");
+
+    assert!(svg.contains("<svg"));
+    assert!(!svg.contains(r#"aria-roledescription="error""#));
+}
+
+#[test]
+#[cfg(feature = "png")]
+fn zed_deeply_nested_flowchart_respects_default_raster_conversion_budget() {
+    // Semantic nesting does not imply equally deep SVG groups. Neo cluster shadows instead
+    // exceed the default aggregate filter budget during conversion preflight.
+    let source = format!(
+        "---\nconfig:\n  look: neo\n---\n{}",
+        deeply_nested_flowchart(MAX_DIAGRAM_NESTING_DEPTH + 2)
+    );
+    let policy = RenderResourcePolicy::for_profile(RenderResourceProfile::UnboundedForTrustedInput);
+    let error = Renderer::new()
+        .with_resource_policy(*policy.input_policy())
+        .render(RenderRequest::png(
+            &source,
+            OperationControl::new(),
+            PngRequest {
+                svg: SvgRequest {
+                    environment: SvgEnvironment::deterministic().with_resource_policy(policy),
+                    options: SvgRenderOptions {
+                        diagram_id: Some("zed-deep-flowchart-png".to_string()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                options: merman::svg::export::RasterOptions::default(),
+            },
+        ))
+        .expect_err("conversion must reject excessive cluster filters before rasterization");
+
+    let merman::RenderError::ResourceLimitExceeded(limit) = error else {
+        panic!("expected a structured conversion resource error: {error}");
+    };
+    assert_eq!(
+        limit.id,
+        merman::svg::export::MAX_TOTAL_SVG_CONVERSION_FILTER_PRIMITIVES_RESOURCE_LIMIT_ID
+    );
+    assert_eq!(limit.phase, "svg_conversion");
+    assert_eq!(
+        limit.maximum,
+        merman::svg::export::DEFAULT_MAX_TOTAL_FILTER_PRIMITIVES as u64
+    );
+    assert_eq!(limit.actual, limit.maximum + 1);
+    assert_eq!(limit.cause, merman::ResourceLimitCause::Ceiling);
+}
+
+#[test]
+fn zed_resvg_safe_output_drops_empty_rect_placeholders() {
+    let svg = render_resvg_safe("zed-empty-rects", "flowchart TD\n    A[Hello] --> B[World]");
+
+    assert!(
+        !svg.contains("<rect/>"),
+        "resvg-safe output should drop empty rect placeholders: {svg}"
+    );
+}
+
+#[test]
+fn zed_old_mermaid_rs_partial_parallelogram_stays_inside_result_boundary() {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        render_with_profile(
+            "zed-56199",
+            ZED_56199_FLOWCHART_PARTIAL_PARALLELOGRAM,
+            RenderResourceProfile::Interactive,
+            ParseOptions::lenient(),
+            Some(SvgPipeline::resvg_safe()),
+        )
+    }));
+
+    let svg = result
+        .expect("renderer must not panic on partially typed flowchart shapes")
+        .expect("lenient parser should return an error diagram instead of a render error")
+        .expect("lenient parser should still produce an SVG error diagram");
+
+    assert!(svg.contains(r#"aria-roledescription="error""#));
+    assert!(svg.contains("Syntax error in text"));
+    assert!(
+        !svg.contains("@keyframes") && !svg.contains(":root"),
+        "error diagrams should still pass through resvg-safe cleanup"
+    );
+}

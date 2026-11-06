@@ -1,0 +1,62 @@
+[workspace]
+# Load the Cargo workspace that owns the distributable binaries.
+members = ["cargo:crates/merman-cli"]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.34.0"
+# release.yml is derived from cargo-dist but keeps repository-owned permission and shell-safety
+# hardening that cargo-dist 0.34.0 cannot express.
+allow-dirty = ["ci"]
+# Distribute the two user-facing executables. Libraries are published to crates.io separately.
+packages = ["merman-cli", "merman-lsp"]
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# GitHub already publishes source archives for the immutable tag. Avoid cargo-dist's
+# second, package-selected source.tar.gz in this two-binary workspace.
+source-tarball = false
+# Keep archive names stable for cargo-binstall and downstream package manifests.
+unix-archive = ".tar.xz"
+windows-archive = ".zip"
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+# Which actions to run on pull requests
+pr-run-mode = "skip"
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+# Where to host releases
+hosting = "github"
+# Keep archive contents explicit so product verifiers can reject every undeclared file.
+auto-includes = false
+include = [
+    "CHANGELOG.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "THIRD_PARTY_NOTICES.md",
+    "THIRD_PARTY_LICENSES/",
+]
+
+# GNU binaries target Ubuntu 22.04's glibc 2.35; global jobs can use newer images.
+[dist.github-custom-runners]
+global = "ubuntu-24.04"
+aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15-intel"
+x86_64-unknown-linux-gnu = "ubuntu-22.04"
+x86_64-pc-windows-msvc = "windows-2025"
+
+# Declare the ARM64 Linux runner host explicitly so dist builds natively instead of inferring
+# a cross-compilation host from the runner label. Sub-tables must follow the plain entries.
+[dist.github-custom-runners.aarch64-unknown-linux-gnu]
+runner = "ubuntu-22.04-arm"
+host = "aarch64-unknown-linux-gnu"

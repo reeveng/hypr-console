@@ -1,0 +1,386 @@
+use serde_json::Value;
+use std::{
+    env,
+    ffi::OsString,
+    fs, io,
+    path::{Path, PathBuf},
+    process::{self, Command},
+};
+
+fn main() {
+    let args = match Args::parse(env::args_os().skip(1)) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("{message}");
+            print_usage();
+            process::exit(2);
+        }
+    };
+
+    if args.help {
+        print_usage();
+        return;
+    }
+
+    if let Err(error) = generate(args) {
+        eprintln!("failed to generate Python UniFFI package: {error}");
+        process::exit(1);
+    }
+}
+
+#[derive(Debug)]
+struct Args {
+    metadata_library: Option<PathBuf>,
+    cdylib: Option<PathBuf>,
+    package_dir: PathBuf,
+    help: bool,
+}
+
+impl Args {
+    fn parse(values: impl Iterator<Item = OsString>) -> Result<Self, String> {
+        let mut metadata_library = None;
+        let mut cdylib = None;
+        let mut package_dir = default_package_dir();
+        let mut help = false;
+        let mut values = values.peekable();
+
+        while let Some(value) = values.next() {
+            let Some(value) = value.to_str() else {
+                return Err("arguments must be valid Unicode paths".to_string());
+            };
+
+            match value {
+                "--metadata-library" => {
+                    metadata_library = Some(next_path(&mut values, "--metadata-library")?);
+                }
+                "--cdylib" => {
+                    cdylib = Some(next_path(&mut values, "--cdylib")?);
+                }
+                "--package-dir" => {
+                    package_dir = next_path(&mut values, "--package-dir")?;
+                }
+                "-h" | "--help" => {
+                    help = true;
+                }
+                other => return Err(format!("unknown argument: {other}")),
+            }
+        }
+
+        Ok(Self {
+            metadata_library,
+            cdylib,
+            package_dir,
+            help,
+        })
+    }
+}
+
+fn next_path(
+    values: &mut std::iter::Peekable<impl Iterator<Item = OsString>>,
+    flag: &str,
+) -> Result<PathBuf, String> {
+    values
+        .next()
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{flag} requires a path"))
+}
+
+fn generate(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let metadata_library = args
+        .metadata_library
+        .unwrap_or_else(default_metadata_library_path);
+    if !metadata_library.is_file() {
+        return Err(format!(
+            "metadata library not found at {}. Build an explicit merman-uniffi artifact profile first, or pass --metadata-library.",
+            metadata_library.display()
+        )
+        .into());
+    }
+    let cdylib = args.cdylib.unwrap_or_else(default_cdylib_path);
+    if !cdylib.is_file() {
+        return Err(format!(
+            "cdylib not found at {}. Build an explicit merman-uniffi artifact profile first, or pass --cdylib.",
+            cdylib.display()
+        )
+        .into());
+    }
+
+    let module_dir = args.package_dir.join("src").join("merman");
+    fs::create_dir_all(&module_dir)?;
+
+    uniffi::generate(uniffi::GenerateOptions {
+        languages: vec![uniffi::TargetLanguage::Python],
+        source: utf8_path(&metadata_library).into(),
+        out_dir: utf8_path(&module_dir).into(),
+        config_override: None,
+        format: false,
+        crate_filter: Some("merman_uniffi".to_string()),
+        metadata_no_deps: false,
+    })?;
+
+    ensure_init_file(&module_dir)?;
+
+    let cdylib_name = cdylib
+        .file_name()
+        .ok_or_else(|| format!("cdylib path has no file name: {}", cdylib.display()))?;
+    let copied_cdylib = module_dir.join(cdylib_name);
+    fs::copy(&cdylib, &copied_cdylib)?;
+
+    println!("generated Python UniFFI module in {}", module_dir.display());
+    println!("copied native library to {}", copied_cdylib.display());
+    Ok(())
+}
+
+fn ensure_init_file(module_dir: &Path) -> io::Result<()> {
+    fs::write(
+        module_dir.join("_binding_contract.py"),
+        PYTHON_BINDING_CONTRACT_MODULE,
+    )?;
+    fs::write(
+        module_dir.join("_runtime_catalog.py"),
+        PYTHON_RUNTIME_CATALOG_MODULE,
+    )?;
+    let legacy_runtime_contract = module_dir.join("_runtime_contract.py");
+    if legacy_runtime_contract.exists() {
+        fs::remove_file(legacy_runtime_contract)?;
+    }
+    // The package generator exclusively owns this package-local copy; xtask owns the template.
+    fs::write(
+        module_dir.join("_resource_options.py"),
+        python_resource_options_module()?,
+    )?;
+    fs::write(
+        module_dir.join("_text_measurement_protocol.py"),
+        merman_uniffi::MERMAN_UNIFFI_PYTHON_TEXT_MEASUREMENT_PROTOCOL_MODULE,
+    )?;
+
+    let expected_init = PYTHON_PACKAGE_INIT_MODULE;
+    let init = module_dir.join("__init__.py");
+    if !init.exists() {
+        fs::write(init, expected_init)?;
+        return Ok(());
+    }
+
+    let current = fs::read_to_string(&init)?;
+    if is_managed_init_file(&current) && current != expected_init {
+        fs::write(init, expected_init)?;
+    }
+
+    Ok(())
+}
+
+const PYTHON_PACKAGE_INIT_MARKER: &str = "# Generated by `cargo run -p merman-uniffi --example generate_python_package`; do not edit by hand.";
+const PYTHON_PACKAGE_INIT_MODULE: &str = include_str!("../python/package_init.py");
+const PYTHON_BINDING_CONTRACT_MODULE: &str = include_str!("../python/binding_contract.py");
+const PYTHON_RUNTIME_CATALOG_MODULE: &str = include_str!("../python/runtime_catalog.py");
+const PYTHON_RESOURCE_OPTIONS_MODULE: &str = include_str!("../python/resource_options.py");
+const PYTHON_RESOURCE_OPTIONS_TEMPLATE_MARKER: &str =
+    "# This file is @generated by `cargo run -p xtask -- gen-resource-contract`.\n";
+const PYTHON_RESOURCE_OPTIONS_PACKAGE_MARKER: &str = "# This file is @generated by `cargo run -p merman-uniffi --example generate_python_package` from `crates/merman-uniffi/python/resource_options.py`.\n";
+fn python_resource_options_module() -> io::Result<String> {
+    let body = PYTHON_RESOURCE_OPTIONS_MODULE
+        .strip_prefix(PYTHON_RESOURCE_OPTIONS_TEMPLATE_MARKER)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "canonical Python resource options template is missing its ownership marker",
+            )
+        })?;
+    Ok(format!("{PYTHON_RESOURCE_OPTIONS_PACKAGE_MARKER}{body}"))
+}
+
+fn is_managed_init_file(contents: &str) -> bool {
+    contents.contains(PYTHON_PACKAGE_INIT_MARKER)
+}
+
+fn default_package_dir() -> PathBuf {
+    workspace_root()
+        .join("platforms")
+        .join("python")
+        .join("merman")
+}
+
+fn default_metadata_library_path() -> PathBuf {
+    cargo_target_dir()
+        .unwrap_or_else(|_| workspace_root().join("target"))
+        .join("debug")
+        .join("libmerman_uniffi.rlib")
+}
+
+fn default_cdylib_path() -> PathBuf {
+    cargo_target_dir()
+        .unwrap_or_else(|_| workspace_root().join("target"))
+        .join("debug")
+        .join(cdylib_filename())
+}
+
+fn cargo_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let output = Command::new(cargo)
+        .current_dir(workspace_root())
+        .args(["metadata", "--format-version=1", "--no-deps"])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    let metadata: Value = serde_json::from_slice(&output.stdout)?;
+    let target_directory = metadata
+        .get("target_directory")
+        .and_then(Value::as_str)
+        .ok_or("cargo metadata target_directory missing")?;
+    Ok(PathBuf::from(target_directory))
+}
+
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("merman-uniffi should live under workspace/crates")
+        .to_path_buf()
+}
+
+fn cdylib_filename() -> &'static str {
+    if cfg!(windows) {
+        "merman_uniffi.dll"
+    } else if cfg!(target_os = "macos") {
+        "libmerman_uniffi.dylib"
+    } else {
+        "libmerman_uniffi.so"
+    }
+}
+
+fn utf8_path(path: &Path) -> String {
+    path.to_str()
+        .unwrap_or_else(|| panic!("path is not valid UTF-8: {}", path.display()))
+        .to_string()
+}
+
+fn print_usage() {
+    eprintln!(
+        "usage: cargo run -p merman-uniffi --no-default-features --features binding-generation --example generate_python_package -- [--metadata-library PATH] [--cdylib PATH] [--package-dir PATH]"
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arguments_separate_metadata_source_from_runtime_library() {
+        let args = Args::parse(
+            [
+                "--metadata-library",
+                "/tmp/libmerman_uniffi.rlib",
+                "--cdylib",
+                "/tmp/libmerman_uniffi.so",
+                "--package-dir",
+                "/tmp/merman-package",
+            ]
+            .into_iter()
+            .map(OsString::from),
+        )
+        .expect("parse generator arguments");
+
+        assert_eq!(
+            args.metadata_library,
+            Some(PathBuf::from("/tmp/libmerman_uniffi.rlib"))
+        );
+        assert_eq!(args.cdylib, Some(PathBuf::from("/tmp/libmerman_uniffi.so")));
+        assert_eq!(args.package_dir, PathBuf::from("/tmp/merman-package"));
+    }
+
+    #[test]
+    fn ensure_init_file_refreshes_owned_files() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let module_dir = temp.path().join("merman");
+        fs::create_dir_all(&module_dir).expect("create module dir");
+        fs::write(
+            module_dir.join("__init__.py"),
+            format!("{PYTHON_PACKAGE_INIT_MARKER}\nSTALE = True\n"),
+        )
+        .expect("write stale package shim");
+        fs::write(module_dir.join("_runtime_contract.py"), "legacy helper")
+            .expect("write legacy runtime helper");
+
+        ensure_init_file(&module_dir).expect("refresh owned files");
+
+        let init = fs::read_to_string(module_dir.join("__init__.py")).expect("read init file");
+        assert_eq!(init, PYTHON_PACKAGE_INIT_MODULE);
+        assert!(
+            !module_dir.join("_runtime_contract.py").exists(),
+            "generation must remove the obsolete split runtime helper"
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_binding_contract.py"))
+                .expect("read binding contract helper"),
+            PYTHON_BINDING_CONTRACT_MODULE
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_runtime_catalog.py"))
+                .expect("read runtime catalog helper"),
+            PYTHON_RUNTIME_CATALOG_MODULE
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_resource_options.py"))
+                .expect("read resource options helper"),
+            python_resource_options_module().expect("render package-local resource helper")
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_text_measurement_protocol.py"))
+                .expect("read text measurement helper"),
+            merman_uniffi::MERMAN_UNIFFI_PYTHON_TEXT_MEASUREMENT_PROTOCOL_MODULE
+        );
+    }
+
+    #[test]
+    fn ensure_init_file_preserves_custom_unmarked_shim() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let module_dir = temp.path().join("merman");
+        fs::create_dir_all(&module_dir).expect("create module dir");
+        let custom = "\"\"\"Custom package code.\"\"\"\nCUSTOM = True\n";
+        fs::write(module_dir.join("__init__.py"), custom).expect("write custom init");
+
+        ensure_init_file(&module_dir).expect("preserve custom init file");
+
+        let init = fs::read_to_string(module_dir.join("__init__.py")).expect("read init file");
+        assert_eq!(init, custom);
+    }
+
+    #[test]
+    fn checked_in_python_support_files_match_the_generator() {
+        let module_dir = workspace_root()
+            .join("platforms")
+            .join("python")
+            .join("merman")
+            .join("src")
+            .join("merman");
+        let init = fs::read_to_string(module_dir.join("__init__.py")).expect("read package shim");
+        assert_eq!(init, PYTHON_PACKAGE_INIT_MODULE);
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_binding_contract.py"))
+                .expect("read binding contract helper"),
+            PYTHON_BINDING_CONTRACT_MODULE
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_runtime_catalog.py"))
+                .expect("read runtime catalog helper"),
+            PYTHON_RUNTIME_CATALOG_MODULE
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_resource_options.py"))
+                .expect("read resource options helper"),
+            python_resource_options_module().expect("render package-local resource helper")
+        );
+        assert_eq!(
+            fs::read_to_string(module_dir.join("_text_measurement_protocol.py"))
+                .expect("read text measurement helper"),
+            merman_uniffi::MERMAN_UNIFFI_PYTHON_TEXT_MEASUREMENT_PROTOCOL_MODULE
+        );
+    }
+}

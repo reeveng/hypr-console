@@ -1,0 +1,291 @@
+# merman-ascii
+
+[![Crates.io](https://img.shields.io/crates/v/merman-ascii.svg)](https://crates.io/crates/merman-ascii) [![Documentation](https://docs.rs/merman-ascii/badge.svg)](https://docs.rs/merman-ascii) [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-59636e.svg)](https://github.com/Latias94/merman/blob/main/LICENSE-MIT)
+
+`merman-ascii` is the terminal/text rendering crate for [merman](https://github.com/Latias94/merman). It renders Mermaid typed models as stable ASCII or Unicode text output for terminals, logs, documentation pipelines, and environments where SVG is not the right output format.
+
+This crate consumes canonical and full data from `merman-model`. Its production dependencies do not include Mermaid source parsing. Applications can construct models directly or obtain them from `merman-core`.
+
+The host supplies width, charset, color mode, palette, and overflow policy. This crate does not probe
+terminal state or own a pager, cache, viewer, clipboard, or source-display policy. The
+[host integration recipes](../merman/examples/README.md#host-integration-recipes) show facade requests
+for terminal text and plain agent/log output without adding a host-policy abstraction.
+
+Display-cell width differs from byte length and Unicode character count. Keep the same width
+profile through wrapping, layout, extent reporting, and encoding. Color supplements glyphs,
+spacing, and semantic disclosure; it must not be the only carrier of a relationship or status.
+
+Terminal geometry uses `TerminalWidthProfile::Unicode` by default. Select
+`TerminalWidthProfile::Cjk` when the target terminal renders East Asian ambiguous characters as
+wide. Measurement, wrapping, truncation, placement, and output use the selected profile together;
+the character set only selects structural glyphs and does not change authored-text width policy.
+Because Unicode box-drawing and marker glyphs are East Asian Ambiguous, the CJK profile uses
+single-cell ASCII structure even when `AsciiCharset::Unicode` was requested. Authored Unicode text
+is preserved. This deterministic fallback prevents borders and routes from occupying two grid
+cells per structural token.
+
+`merman-ascii` has an empty default feature set. Select the positive `diagram-*` features for
+required families, or `all-diagrams` for the complete data and terminal-adapter surface.
+Each selector enables model data and this crate's local handler when one exists. It does not enable
+a source parser or system adapters. Model availability alone does not promise a terminal projection.
+
+> **Implementation crate:** applications that ingest source can select the `ascii` feature on the [`merman`](https://crates.io/crates/merman) facade. Direct model consumers pass a `merman_model::ParsedSemanticDiagram` to `AsciiRenderer::render_parsed` or `render_parsed_report`, or supply a borrowed `AsciiDiagram` with `AsciiSourceContext`. A full `merman_model::presentation::RenderSemanticModel` requires explicit projection into the borrowed inputs.
+
+This model renderer does not own a runtime-policy constructor, so it does not forward `system-*`
+features. Direct users construct `AsciiRenderer`, capture an `OperationContext` from their facade or
+host runtime policy, and pass that context together with the caller-owned `OperationControl` and
+`AsciiResourcePolicy` to `AsciiRenderer::render_model`. Deterministic and sandboxed applications
+should provide explicit operation values instead of enabling system adapters.
+
+This guide covers `merman-ascii 0.10.0-alpha.2`. When upgrading from `0.9.x`, migrate core model imports to `merman-model` using the [model/source guide](../../docs/migrations/model-source-boundaries.md). See the [host guide](../../docs/release/PREBUILT_PRODUCTS.md) for available versions and installation channels.
+
+## Quick Start
+
+Most applications should use the `merman` facade so parsing and text rendering stay in one operation. The facade owns source parsing, operation control, and target selection; this crate exposes only the typed-model backend seam.
+
+```toml
+[dependencies]
+merman = { version = "=0.10.0-alpha.2", default-features = false, features = ["all-diagrams", "ascii"] }
+```
+
+For a current-source checkout beside the application, select the required families explicitly:
+
+```toml
+[dependencies]
+merman = { path = "../merman/crates/merman", default-features = false, features = ["ascii", "diagram-flowchart", "diagram-gantt"] }
+```
+
+Depend on `merman-ascii` directly when the application owns a `merman_model::ParsedSemanticDiagram` for `AsciiRenderer::render_parsed` or `render_parsed_report`, or supplies a borrowed `AsciiDiagram` with `AsciiSourceContext`. Explicitly project a full `merman_model::presentation::RenderSemanticModel` into those borrowed inputs before rendering.
+
+## Supported Families
+
+ASCII support describes the quality of the terminal projection, not whether Merman can parse the Mermaid family. Query the runtime capability records when an application needs to populate an output picker.
+
+| Semantic coverage | Primary projection | Families | Output contract |
+| --- | --- | --- | --- |
+| Partial | Diagrammatic | Flowchart, Swimlane, Sequence, State, Class, ER, XYChart | Core semantics render with documented limits; every admitted family can opt into one complete typed structured fallback for a bounded viewport. |
+| Partial | Structured text | Gantt, GitGraph, Journey, Kanban, Mindmap, Packet, Timeline, TreeView | Ordered, readable reports or outlines instead of browser-oriented chart geometry; the same projection can be reflowed under an explicit viewport fallback policy. |
+
+Every selected logical model family has one capability record, including unsupported terminal
+projections. These records describe this crate's local adapters even when another dependency selects
+additional model data. The source facade intersects these capabilities with its actual parsers. Flowchart and Swimlane have
+separate rows and share their terminal implementation. `semantic_coverage`,
+`primary_projection`, and `structured_text_fallback` are independent; legacy `support_level` is
+derived from them. The same record exposes `layout_profiles`, `width_profiles`, `encodings`, and
+`fallback_encodings`, so a host can reject an unsupported combination before rendering. Compact and Auto
+layout selection are currently admitted only for Flowchart, Swimlane, and Sequence; every other supported family reports
+canonical layout only. All supported families admit Plain, ANSI16, ANSI256, TrueColor, and HTML
+primary output, while structured viewport fallback is Plain-only. Other Mermaid families return
+`AsciiError::UnsupportedDiagram` through the typed model path. The tracked [ASCII/Unicode support matrix](https://github.com/Latias94/merman/blob/main/docs/rendering/ASCII_SUPPORT_MATRIX.md) is the user-facing source of truth for exact limits. Family-specific engineering detail lives in [Flowchart](https://github.com/Latias94/merman/blob/main/crates/merman-ascii/FLOWCHART_SUPPORT.md), [Sequence](https://github.com/Latias94/merman/blob/main/crates/merman-ascii/SEQUENCE_SUPPORT.md), and [State](https://github.com/Latias94/merman/blob/main/crates/merman-ascii/STATE_SUPPORT.md) support notes.
+
+Detached model entrypoints identify a family by the model kind. Because Swimlane reuses the
+Flowchart model, a Swimlane-only consumer must pass the parser-owned value through `render_parsed`
+or `render_parsed_report`; this retains its logical language identity during admission. Enabling
+one graph language does not enable the other. Report `family` retains the existing model-kind
+identity; query `ascii_capabilities()` for logical language availability.
+
+The canonical report API is `AsciiRenderer::render_model_report` or
+`AsciiRenderer::render_parsed_report`. It returns the text together with the display-cell
+`primary_extent` and `emitted_extent`, projection, width profile, layout profile, requested bound,
+overflow outcome, fallback capability/attempt/reason state, trim state, and lossiness. The convenience
+`render_model`/`render_parsed` helpers project only the text. `OverflowPolicy::Fallback` never
+clips or ellipsizes authored values; it either returns a complete typed compatibility projection or
+`AsciiError::FallbackUnavailable`.
+
+`AsciiOutput::metadata()` is the canonical schema-3 transport payload for binding operation plans;
+`AsciiOutput::report()` adds the exact text projection for CLI report JSON. Schema 3 identifies the
+text `encoding`, requested/effective layout profiles, and whether Compact was attempted. CLI report mode is a machine channel: `auto` resolves to Plain there and
+an explicitly styled report request is rejected. Styled Rust and binding results remain supported
+and carry their exact encoding identity. Both projections are derived from the same measured
+candidate, so CLI, Rust, and bindings do not remeasure text or reconstruct enum and field names
+independently. Extent height counts logical content rows; a final line terminator does not create an
+extra row. The measured seam accounts for display cells, encoded bytes, grapheme limits, and the
+render-wide layout ledger once per emitted candidate. A Plain fallback candidate is checked
+incrementally in a detached candidate scope and admitted to the render-wide ledger only after it is
+complete and within the requested width. Styled fallback requests are rejected during capability
+preflight. Semantic fallback projection first applies typed-model complexity admission; Flowchart's
+typed JSON projection is serialized through a bounded, cancellation-aware writer before flattening,
+so a rejected candidate does not allocate an unbounded intermediate under a bounded resource
+profile.
+
+Flowchart node labels wrap before layout at a default width of 40 terminal display cells. Use
+`AsciiRenderOptions::with_flowchart_node_label_wrap_width` to tune that family-owned terminal
+policy. The value is not a CSS-pixel conversion of Mermaid's SVG `wrappingWidth`; the same
+grapheme-safe plan drives node measurement and final text materialization. The opt-in Compact
+profile resolves the Flowchart node-wrap default to 24 cells and horizontal rank gap from 5 to 3,
+and Sequence participant spacing from 5 to 3,
+unless the caller explicitly overrides the corresponding family option. These adjustments are
+resolved into family-local policies and do not affect State, Class, ER, XYChart, or structured-text
+families.
+
+Auto requires an explicit `AsciiViewportPolicy::with_max_width` and is admitted only for Flowchart
+and Sequence. It tries Canonical first, then Compact once on width overflow, selecting the narrower
+valid diagram (Canonical on ties). The existing `Allow`, `Error`, or `Fallback` policy applies to
+the selected candidate. A narrower diagram may be taller; Auto does not change direction or
+truncate labels. String-only renderer methods without a viewport reject Auto.
+
+`AsciiOutput::layout_profile` identifies the selected primary geometry, while
+`requested_layout_profile` and `compact_attempted` explain automatic selection. All attempts share
+one work budget and cancellation control. Retained candidate text counts toward storage admission.
+Use the spacing builders for explicit overrides, including a value equal to the default; direct
+assignment of a default-valued public field cannot record that intent.
+
+## Resource Policy
+
+`AsciiResourcePolicy` owns six typed limits: checked grid extent, deterministic layout work,
+aggregate logical document cells, actual encoded output bytes, bytes in one grapheme cluster, and
+semantic nesting depth. Facade users set `AsciiRequest::resources`; direct typed-model users pass
+the policy as the fourth argument to `AsciiRenderer::render_model`. Select a shared profile with
+`AsciiResourcePolicy::for_profile`, or tighten one limit with
+`AsciiResourcePolicy::with_limit(AsciiResourceLimitId, value)`. `UnboundedForTrustedInput` uses an
+explicit unbounded value rather than a numeric sentinel; arithmetic overflow and allocation
+failure remain fallible. `AsciiRenderOptions` contains presentation and family layout choices only,
+so copying options cannot implicitly copy or replace an operation's resource budget.
+
+Resource limits are hard errors. They never select a relation summary or another lower-fidelity
+projection. Plain, ANSI16, ANSI256, TrueColor, and HTML use the same logical document accounting,
+while `max_ascii_output_bytes` counts the actual bytes produced by each encoder.
+
+## Terminal Theme API
+
+`AsciiColorTheme::from_terminal_palette` derives terminal roles from a compact `AsciiTerminalPalette`: required `foreground` and `background`, plus optional `line`, `accent`, `muted`, `surface`, and `border` colors. The derived theme maps only terminal-meaningful roles such as text, borders, edge lines/arrows, sequence lifelines, and chart series colors. It does not import SVG CSS-variable semantics into text output. Explicit `AsciiColorTheme::with_role` calls still take precedence after derivation.
+
+`AsciiColorMode::Ansi16` is the terminal-native profile. Unstyled primary text remains at terminal
+Reset and sparse named ANSI accents mark renderer-owned structural roles, so the renderer does not
+guess whether the terminal background is light or dark. ANSI16 does not resolve semantic roles
+through the RGB theme; direct authored RGB colors are quantized separately. Use TrueColor when the
+host's RGB palette should control terminal role colors, or ANSI256 for an approximation. ANSI16
+changes encoding only: its stripped text and logical extent are identical to Plain for the same
+layout request.
+
+| Host intent | ASCII color mode | Palette behavior |
+| --- | --- | --- |
+| Plain logs or a machine text channel | `Plain` | No color escapes; viewport fallback is available |
+| Use the terminal's own palette | `Ansi16` | Primary text and most structural roles use Reset; emphasis uses named ANSI colors |
+| Apply a known host RGB palette | `TrueColor` | Semantic roles resolve through `AsciiColorTheme` |
+| Approximate a host RGB palette | `Ansi256` | Resolved RGB colors are mapped to the 256-color encoding |
+
+Named terminal colors and Reset do not guarantee contrast for an arbitrary user-customized
+terminal palette. Styled output accepts viewport `Allow` or `Error`; `Fallback` is Plain-only
+and an invalid styled/fallback combination is rejected even when the diagram would fit.
+
+SVG compiled diagram themes and terminal `AsciiTerminalPalette` are independent inputs. The host
+can map its own palette into both; selecting an SVG theme does not set terminal colors. SVG
+typography, CSS-oriented family variables, and terminal role encoding remain separate. See the
+[diagram theme guide](../../docs/rendering/custom-diagram-themes.md) and the executable
+[terminal palette example](../merman/examples/terminal_palette.rs).
+
+Bindings expose the same shape as `ascii.theme` in [Options JSON](../../docs/bindings/OPTIONS_JSON.md#ascii-options). Color values use the existing CSS color parser for opaque terminal colors; transparent colors are rejected rather than silently falling back.
+
+## XYChart ASCII Contract
+
+The XYChart renderer builds one typed `TerminalChartPlan` instead of rebuilding coordinates independently in each orientation. Every series consumes the model's `data` tuples as the source of truth for x/y coordinates; `values` is only a compatibility fallback for manually constructed legacy models that omit `data`. Parser-produced tuples derive their x coordinate from the typed band categories or from the linear axis domain and sample order, because Mermaid plot statements author an ordered value list rather than independent x/y pairs. Band axes resolve authored categories, linear axes map each model-owned numeric x coordinate through its explicit or inferred range, and negative, reversed, and degenerate value ranges remain deterministic. Data values use shortest-roundtrip formatting, while axis ticks use a separate scale-aware formatter so tiny ranges such as `0.001 --> 0.005` do not collapse into repeated labels.
+
+By default, vertical charts use a five-row value area and three-character category bands. `AsciiRenderOptions::with_xychart_vertical_plot_height` and `AsciiRenderOptions::with_xychart_category_band_width` adjust that compact policy. Multiple bar series divide each category into stable lanes instead of overwriting one another. Line series use their model-owned x coordinates and share a stair-step topology layer that is painted after bars so mixed plots remain visible; missing samples split paths instead of creating false connecting segments.
+
+Horizontal charts use a ten-character value axis by default; `AsciiRenderOptions::with_xychart_horizontal_plot_width` adjusts it. Multiple bar series receive independent rows per category, and horizontal line samples are connected rather than emitted as isolated points. Category labels come from the typed band axis when present; linear axes retain their typed numeric domain. The complete expanded plot extent is checked before row allocation.
+
+Charts with more than one series render a compact legend row before the plot. When a Mermaid plot statement includes a user-authored series title, the legend uses that typed model title; otherwise it falls back to stable terminal labels such as `Bar 1` and `Line 1`.
+
+The renderer consumes the typed XYChart display policy from `merman-core`. `xyChart.showTitle`, `xyChart.showDataLabel`, `xyChart.showDataLabelOutsideBar`, and `xyChart.xAxis/yAxis.showLabel/showTitle/showTick/showAxisLine` affect terminal output. Tick marks can render independently from axis lines. For a single bar series, data labels stay close to the bars and respect `showDataLabelOutsideBar`. For line and multi-series charts, `showDataLabel` emits injective `values:` rows with explicit series/sample indices, plot kind, title ownership, typed x coordinates, point labels, clipping state, and orphan labels. Every authored string is UTF-8 byte-length framed and quoted with terminal-safe escaping, so authored delimiters cannot forge renderer-owned fields. Multi-series identity, clipped samples, missing values, duplicate, normalized, alignment-changing, or over-wide categories, quantized point collisions, overlapping dense bars, same-row coordinate collisions, and insufficient grouped-bar lanes also trigger deterministic disclosure so semantic facts are not silently lost when terminal geometry is approximate.
+
+The public typed-model path accepts an empty orientation as the legacy vertical default and accepts `vertical` or `horizontal` case-insensitively. Other orientation strings and a Band y-axis return a precise `UnsupportedFeature` error instead of silently changing meaning. `accTitle` and `accDescr` remain browser/accessibility metadata and are intentionally omitted from terminal output.
+
+Header-only charts and typed plots with no terminal slots use an injective `xychart: empty` report instead of returning an empty document. The report preserves orientation, title, typed axes and categories, display policy, and any empty-series metadata through the same byte-length framing and resource limits as other StructuredText disclosures.
+
+## Node padding and graph spacing
+
+Flowchart, Swimlane, and State resolve node padding independently on each axis. The default is
+one cell on each side. Use `with_node_padding_y(0)` to remove the blank rows inside ordinary
+node frames while preserving the space for edges between ranks. Use `with_node_padding(0)` to
+remove padding on both axes, or combine `with_node_padding_x` and `with_node_padding_y`.
+Fixed State symbols retain their own dimensions.
+
+The existing `box_border_padding` field remains the scalar compatibility default. Explicit
+`node_padding_x` and `node_padding_y` overrides take precedence, including zero. Bindings accept
+both snake_case and camelCase spellings. Graph rank gaps are separate preferences:
+`with_graph_padding_x` and `with_graph_padding_y` preserve explicit values under Compact.
+Required frame gutters, label clearance, and valid arrow berths can increase these gaps.
+
+Sequence spacing is measured from participant names and messages before rows are painted.
+A message label occupies one interval between adjacent lifelines, including when its arrow
+crosses intermediate participants. Explicit `wrap:` messages retain their wrapping policy.
+
+Complete unwrapped labels can increase the required width and grid cell count. Resource ceilings
+remain unchanged: large offline diagrams can use the bounded `TrustedNative` resource profile;
+interactive callers can author explicit wrapping or select their own resource limits.
+
+## Relation Summary Diagnostics
+
+Class and ER diagrams fall back to readable `relations:` summary sections when a topology cannot be drawn as a deterministic terminal grid, when parallel lane ports cannot land on both endpoint box faces, or when route or overlay collision checks would damage a box. Simple Class relationships between sibling namespaces, a namespace and a root class, or nested sibling namespaces route through the nearest namespace facades; the authored member identity is disclosed independently with byte-length framing. Dense or colliding cross-namespace scenes still use the lossless summary. Default output hides the internal fallback reason to keep terminal text stable and user-facing. Enable `AsciiRenderOptions::with_relation_summary_diagnostics(true)` to add a muted diagnostic row such as `reason: crossing` directly under `relations:`. Possible reason keys are `crossing`, `route_collision`, and `overlay_collision`; port-fit failures are reported as `route_collision`. Resource limits always return `AsciiError::ResourceLimitExceeded` instead of selecting this summary path.
+
+## Direct Model API
+
+```rust,no_run
+use merman_ascii::{
+    AsciiOutputOutcome, AsciiRenderOptions, AsciiRenderer, AsciiResourcePolicy,
+    AsciiViewportPolicy, OverflowPolicy,
+};
+use merman_core::{OperationControl, ParseOptions, SemanticParser};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let parser = SemanticParser::new();
+    let control = OperationControl::new();
+    let context = parser.begin_operation()?;
+    let parsed = parser
+        .parse_diagram_with_options_controlled_in_context_sync(
+            "flowchart TD\nsubgraph one\nA((Start)) -- go --> B[(DB)]\nend",
+            ParseOptions::strict(),
+            &control,
+            &context,
+        )??
+        .expect("diagram detected");
+
+    let renderer = AsciiRenderer::new(AsciiRenderOptions::default())?;
+    let resources = AsciiResourcePolicy::default();
+    let report = renderer.render_parsed_report(
+        &parsed,
+        AsciiViewportPolicy::with_max_width(80).overflow(OverflowPolicy::Fallback),
+        &control,
+        &context,
+        resources,
+    )?;
+
+    assert!(matches!(
+        report.outcome,
+        AsciiOutputOutcome::Primary
+            | AsciiOutputOutcome::WideAllowed
+            | AsciiOutputOutcome::Fallback
+    ));
+    println!("{} ({}×{})", report.text, report.emitted_extent.width, report.emitted_extent.height);
+    Ok(())
+}
+```
+
+Enable matching `diagram-*` selectors on both crates. Canonical terminal rendering needs neither
+`presentation` nor `compat-json`; authored style precedence and complete fallback data come from
+the same family model. Parsing and output above share one control and runtime context.
+
+## Upstream Provenance
+
+The ASCII renderer work is based on and informed by MIT-licensed reference implementations:
+
+- [`AlexanderGrooff/mermaid-ascii`](https://github.com/AlexanderGrooff/mermaid-ascii)
+  - Source commit used for the initial port plan and copied fixtures: `6fffb8e2714acab2c4cb41c78894fabbc62cee56`
+  - Upstream license: MIT
+  - License copy: `LICENSES/mermaid-ascii-MIT.txt`
+  - Fixture source inventory: `tests/testdata/mermaid-ascii/README.md`
+- [`lukilabs/beautiful-mermaid`](https://github.com/lukilabs/beautiful-mermaid)
+  - Source commit used for reference planning: `2ac8bbbb060ca0a65a6a21f3200bd99b1587b488`
+  - Upstream license: MIT
+  - License copy: `LICENSES/beautiful-mermaid-MIT.txt`
+  - Intended use: reference algorithms, output ideas, and tests for class, ER, xychart, color, and multiline ASCII work.
+  - Promoted ideas are re-expressed as local semantic probes, including ampersand flowchart fan-in/fan-out, Class annotations and methods, ER attributes with identifying relationships, Sequence multi-message ordering, and XYChart multi-series value disclosure.
+
+The local `repo-ref/` directory is gitignored and is only a research reference. Any derived source, fixtures, or notices required for builds and releases must live in tracked paths in this crate. `merman-ascii` remains model-driven: reference parsers are not copied into this crate.
+
+## License
+
+`merman-ascii` follows the workspace license: `MIT OR Apache-2.0`.
+
+Ported algorithm work and copied fixtures derived from reference implementations preserve upstream MIT license notices in `LICENSES/`.

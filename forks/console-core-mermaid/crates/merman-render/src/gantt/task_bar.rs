@@ -1,0 +1,109 @@
+use merman_model::families::gantt::GanttRenderTask;
+
+use crate::diagram_theme::ThemeVariant;
+
+/// Canonical terminal state for one Gantt task bar.
+///
+/// Mermaid gives `active` precedence over `done`, then combines the selected state with `crit`.
+/// Milestone and vertical-marker geometry do not alter this paint state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum GanttTaskBarState {
+    Default,
+    Active,
+    Done,
+    Crit,
+    ActiveCrit,
+    DoneCrit,
+}
+
+impl GanttTaskBarState {
+    pub(super) const fn from_task(task: &GanttRenderTask) -> Self {
+        if task.semantic.active {
+            if task.semantic.crit {
+                Self::ActiveCrit
+            } else {
+                Self::Active
+            }
+        } else if task.semantic.done {
+            if task.semantic.crit {
+                Self::DoneCrit
+            } else {
+                Self::Done
+            }
+        } else if task.semantic.crit {
+            Self::Crit
+        } else {
+            Self::Default
+        }
+    }
+
+    pub(super) const fn theme_variant(self) -> ThemeVariant {
+        match self {
+            Self::Default => ThemeVariant::Default,
+            Self::Active | Self::ActiveCrit => ThemeVariant::Active,
+            Self::Done | Self::DoneCrit => ThemeVariant::Success,
+            Self::Crit => ThemeVariant::Error,
+        }
+    }
+
+    pub(super) const fn bar_class_prefix(self) -> &'static str {
+        match self {
+            Self::Default => "task",
+            Self::Active => "active",
+            Self::Done => "done",
+            Self::Crit => "crit",
+            Self::ActiveCrit => "activeCrit",
+            Self::DoneCrit => "doneCrit",
+        }
+    }
+
+    pub(super) const fn is_critical(self) -> bool {
+        matches!(self, Self::Crit | Self::ActiveCrit | Self::DoneCrit)
+    }
+
+    pub(super) const fn final_fill_path(self) -> &'static str {
+        match self {
+            Self::Default => "themeVariables.taskBkgColor",
+            Self::Active | Self::ActiveCrit => "themeVariables.activeTaskBkgColor",
+            Self::Done | Self::DoneCrit => "themeVariables.doneTaskBkgColor",
+            Self::Crit => "themeVariables.critBkgColor",
+        }
+    }
+
+    pub(super) const fn final_stroke_path(self) -> &'static str {
+        match self {
+            Self::Default => "themeVariables.taskBorderColor",
+            Self::Active => "themeVariables.activeTaskBorderColor",
+            Self::Done => "themeVariables.doneTaskBorderColor",
+            Self::ActiveCrit | Self::DoneCrit | Self::Crit => "themeVariables.critBorderColor",
+        }
+    }
+}
+
+// Mermaid labels retain every authored status class, unlike bars' active-first state.
+pub(super) fn label_state_classes(task: &GanttRenderTask, suffix: &str) -> String {
+    let mut classes = Vec::new();
+    if task.active {
+        classes.push(format!(
+            "{}{suffix}",
+            if task.crit {
+                "activeCritText"
+            } else {
+                "activeText"
+            }
+        ));
+    }
+    if task.done {
+        classes.push(format!(
+            "{}{suffix}",
+            if task.crit {
+                "doneCritText"
+            } else {
+                "doneText"
+            }
+        ));
+    } else if task.crit {
+        classes.push(format!("critText{suffix}"));
+    }
+    classes.join(" ")
+}

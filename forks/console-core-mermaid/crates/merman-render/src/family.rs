@@ -1,0 +1,4449 @@
+mod capability;
+mod direct_static_paint;
+mod evidence_support;
+mod inherited_font_stack;
+#[cfg(any(
+    feature = "diagram-block",
+    feature = "diagram-flowchart",
+    feature = "diagram-swimlane",
+    feature = "diagram-agentflow"
+))]
+mod label_background;
+pub(crate) mod native_typography;
+mod preparation;
+#[cfg(any(
+    feature = "diagram-treemap",
+    feature = "diagram-venn",
+    feature = "diagram-zenuml",
+    feature = "diagram-sequence",
+    feature = "diagram-git-graph"
+))]
+mod single_title_fill;
+#[cfg(any(
+    feature = "diagram-venn",
+    feature = "diagram-ishikawa",
+    feature = "diagram-railroad",
+    feature = "diagram-event-modeling"
+))]
+mod static_surface_paint;
+#[cfg(any(feature = "diagram-cynefin", feature = "diagram-wardley"))]
+mod terminal_paint;
+mod theme_diagnostics;
+
+#[cfg(any(
+    feature = "diagram-treemap",
+    feature = "diagram-venn",
+    feature = "diagram-zenuml",
+    feature = "diagram-sequence",
+    feature = "diagram-git-graph"
+))]
+pub(crate) use single_title_fill::SingleTitleFillPlan;
+#[cfg(any(
+    feature = "diagram-venn",
+    feature = "diagram-ishikawa",
+    feature = "diagram-railroad",
+    feature = "diagram-event-modeling"
+))]
+pub(crate) use static_surface_paint::StaticSurfacePaint;
+#[cfg(any(feature = "diagram-cynefin", feature = "diagram-wardley"))]
+pub(crate) use terminal_paint::{TerminalPaint, TerminalPaintPlan};
+pub use theme_diagnostics::ThemeDiagnostic;
+
+pub use capability::{RenderCapabilityPlan, plan_render, supports_diagram_type};
+#[doc(hidden)]
+pub use capability::{has_edge_geometry, validate_layout_options};
+pub(crate) use direct_static_paint::{
+    DirectStaticPaint, DirectStaticSelectorDomain, resolve_direct_static_fill,
+    resolve_direct_static_stroke,
+};
+pub(crate) use evidence_support::{
+    DirectPaintExpectation, DirectPaintTerminalLedger, TerminalVariantDomain,
+    UnsupportedTerminalDomain, reconcile_unsupported_terminal_domains,
+    resolved_style_property_for_facet, unsupported_residual_for_facet,
+};
+pub(crate) use inherited_font_stack::{
+    InheritedFontStackOutcome, InheritedFontStackPlan, InheritedTextRunFacts, InheritedTextRunSpec,
+    InheritedTextViewportFacts,
+};
+#[cfg(any(
+    feature = "diagram-block",
+    feature = "diagram-flowchart",
+    feature = "diagram-swimlane",
+    feature = "diagram-agentflow"
+))]
+pub(crate) use label_background::EdgeLabelBackgroundPlan;
+
+use crate::diagram_theme::{
+    FamilyThemeMechanismKey, ResolvedDiagramTheme, RootThemePlan, RootThemeReport,
+    SourceStyleChannel, SourceStyleOrigin, SourceStyleResidual, SourceStyleResidualReason,
+    ThemeCapability, ThemePortabilityRequirement, ThemeRecipeFingerprint,
+};
+use crate::environment::{RenderSession, RenderSessionReport};
+use crate::math::PreparedMathEvidenceLease;
+use crate::model::*;
+use crate::resources::ResourceLimitPhase;
+use crate::svg::{
+    FlowchartEdgeTraceCollector, ResvgCompatibleSvg, StandaloneSvgArtifact, SvgDebugOptions,
+    SvgPipeline, SvgPipelinePreset, SvgPostprocessExecution, SvgPostprocessMetadata,
+    SvgRenderOptions,
+};
+#[cfg(feature = "diagram-wardley")]
+use crate::wardley::WardleyDiagramLayout;
+use crate::{Error, LayoutExecution, LayoutOptions, RenderCapability, Result};
+use merman_model::ManagedJson;
+use merman_model::OperationPhase;
+use merman_model::families as diagrams;
+#[cfg(feature = "diagram-class")]
+use merman_model::families::class::ClassDiagram;
+use merman_model::family::DiagramFamilyId;
+use merman_model::presentation::PresentationContext;
+use merman_model::presentation::{
+    BuiltinRenderSemantic, PresentationDiagram, PresentationMetadata, RenderSemanticModel,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+/// Stable identity for a built-in typed render family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RenderFamilyKind {
+    Error,
+    Mindmap,
+    State,
+    Sequence,
+    Zenuml,
+    Flowchart,
+    Swimlane,
+    Architecture,
+    Class,
+    C4,
+    Cynefin,
+    Wardley,
+    Railroad,
+    Kanban,
+    Gantt,
+    Pie,
+    Packet,
+    Timeline,
+    Journey,
+    Requirement,
+    Sankey,
+    Radar,
+    Info,
+    Treemap,
+    Block,
+    Er,
+    QuadrantChart,
+    XyChart,
+    GitGraph,
+    TreeView,
+    Ishikawa,
+    EventModeling,
+    Venn,
+    Usecase,
+    Agentflow,
+}
+
+impl RenderFamilyKind {
+    fn from_family_id(family_id: DiagramFamilyId) -> Self {
+        match family_id {
+            DiagramFamilyId::MINDMAP => RenderFamilyKind::Mindmap,
+            DiagramFamilyId::STATE => RenderFamilyKind::State,
+            DiagramFamilyId::SEQUENCE => RenderFamilyKind::Sequence,
+            DiagramFamilyId::ZENUML => RenderFamilyKind::Zenuml,
+            DiagramFamilyId::FLOWCHART => RenderFamilyKind::Flowchart,
+            DiagramFamilyId::SWIMLANE => RenderFamilyKind::Swimlane,
+            DiagramFamilyId::ARCHITECTURE => RenderFamilyKind::Architecture,
+            DiagramFamilyId::CLASS => RenderFamilyKind::Class,
+            DiagramFamilyId::C4 => RenderFamilyKind::C4,
+            DiagramFamilyId::CYNEFIN => RenderFamilyKind::Cynefin,
+            DiagramFamilyId::WARDLEY => RenderFamilyKind::Wardley,
+            DiagramFamilyId::RAILROAD => RenderFamilyKind::Railroad,
+            DiagramFamilyId::KANBAN => RenderFamilyKind::Kanban,
+            DiagramFamilyId::GANTT => RenderFamilyKind::Gantt,
+            DiagramFamilyId::PIE => RenderFamilyKind::Pie,
+            DiagramFamilyId::PACKET => RenderFamilyKind::Packet,
+            DiagramFamilyId::TIMELINE => RenderFamilyKind::Timeline,
+            DiagramFamilyId::JOURNEY => RenderFamilyKind::Journey,
+            DiagramFamilyId::REQUIREMENT => RenderFamilyKind::Requirement,
+            DiagramFamilyId::SANKEY => RenderFamilyKind::Sankey,
+            DiagramFamilyId::RADAR => RenderFamilyKind::Radar,
+            DiagramFamilyId::INFO => RenderFamilyKind::Info,
+            DiagramFamilyId::TREEMAP => RenderFamilyKind::Treemap,
+            DiagramFamilyId::BLOCK => RenderFamilyKind::Block,
+            DiagramFamilyId::ER => RenderFamilyKind::Er,
+            DiagramFamilyId::QUADRANT_CHART => RenderFamilyKind::QuadrantChart,
+            DiagramFamilyId::XY_CHART => RenderFamilyKind::XyChart,
+            DiagramFamilyId::GIT_GRAPH => RenderFamilyKind::GitGraph,
+            DiagramFamilyId::TREE_VIEW => RenderFamilyKind::TreeView,
+            DiagramFamilyId::ISHIKAWA => RenderFamilyKind::Ishikawa,
+            DiagramFamilyId::EVENT_MODELING => RenderFamilyKind::EventModeling,
+            DiagramFamilyId::VENN => RenderFamilyKind::Venn,
+            DiagramFamilyId::USECASE => RenderFamilyKind::Usecase,
+            DiagramFamilyId::AGENTFLOW => RenderFamilyKind::Agentflow,
+            DiagramFamilyId::ERROR => RenderFamilyKind::Error,
+            _ => unreachable!("built-in artifact has a built-in family identity"),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Mindmap => "mindmap",
+            Self::State => "state",
+            Self::Sequence => "sequence",
+            Self::Zenuml => "zenuml",
+            Self::Flowchart => "flowchart",
+            Self::Swimlane => "swimlane",
+            Self::Architecture => "architecture",
+            Self::Class => "class",
+            Self::C4 => "c4",
+            Self::Cynefin => "cynefin",
+            Self::Wardley => "wardley",
+            Self::Railroad => "railroad",
+            Self::Kanban => "kanban",
+            Self::Gantt => "gantt",
+            Self::Pie => "pie",
+            Self::Packet => "packet",
+            Self::Timeline => "timeline",
+            Self::Journey => "journey",
+            Self::Requirement => "requirement",
+            Self::Sankey => "sankey",
+            Self::Radar => "radar",
+            Self::Info => "info",
+            Self::Treemap => "treemap",
+            Self::Block => "block",
+            Self::Er => "er",
+            Self::QuadrantChart => "quadrantChart",
+            Self::XyChart => "xychart",
+            Self::GitGraph => "gitGraph",
+            Self::TreeView => "treeView",
+            Self::Ishikawa => "ishikawa",
+            Self::EventModeling => "eventmodeling",
+            Self::Venn => "venn",
+            Self::Usecase => "usecase",
+            Self::Agentflow => "agentflow",
+        }
+    }
+}
+
+impl std::fmt::Display for RenderFamilyKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Evaluation state of a family-local style plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum FamilyStyleEvaluation {
+    /// The selected theme has no structured styles that apply to this family.
+    NotApplicable,
+    /// The family adapter evaluated every applicable structured style input.
+    Evaluated,
+    /// Structured style inputs apply, but this family has no complete adapter yet.
+    Unadapted,
+}
+
+/// Verification state derived from family evaluation and its retained residuals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum FamilyStyleVerification {
+    NotApplicable,
+    Verified,
+    Unverified,
+    Unadapted,
+    Incomplete,
+}
+
+/// Source channel that produced an unverified family style residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum FamilyStyleChannel {
+    Shape,
+    Label,
+    Stylesheet,
+}
+
+impl FamilyStyleChannel {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Shape => "shape",
+            Self::Label => "label",
+            Self::Stylesheet => "stylesheet",
+        }
+    }
+}
+
+impl std::fmt::Display for FamilyStyleChannel {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.id())
+    }
+}
+
+/// Source origin that produced an unverified family style residual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum FamilyStyleOrigin {
+    AssignedClass,
+    InlineStyle,
+    LabelStyle,
+    GeneratedClassCss,
+}
+
+impl FamilyStyleOrigin {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::AssignedClass => "assigned-class",
+            Self::InlineStyle => "inline-style",
+            Self::LabelStyle => "label-style",
+            Self::GeneratedClassCss => "generated-class-css",
+        }
+    }
+}
+
+impl std::fmt::Display for FamilyStyleOrigin {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.id())
+    }
+}
+
+/// Reason a family adapter could not prove one typed semantic mechanism.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum FamilyThemeResidualReason {
+    UnsupportedPaint,
+    UnsupportedTypography,
+    UnsupportedGeometry,
+    UnsupportedEffect,
+    UnsupportedOrdinalPalette,
+    OutputVisibilityFiltered,
+    OutputMutation,
+}
+
+impl FamilyThemeResidualReason {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::UnsupportedPaint => "unsupported-paint",
+            Self::UnsupportedTypography => "unsupported-typography",
+            Self::UnsupportedGeometry => "unsupported-geometry",
+            Self::UnsupportedEffect => "unsupported-effect",
+            Self::UnsupportedOrdinalPalette => "unsupported-ordinal-palette",
+            Self::OutputVisibilityFiltered => "output-visibility-filtered",
+            Self::OutputMutation => "output-mutation",
+        }
+    }
+}
+
+impl std::fmt::Display for FamilyThemeResidualReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.id())
+    }
+}
+
+/// Frozen evidence for one typed semantic mechanism not proven by the selected family adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FamilyThemeResidual {
+    key: FamilyThemeMechanismKey,
+    reason: FamilyThemeResidualReason,
+}
+
+impl FamilyThemeResidual {
+    pub(crate) const fn key(&self) -> &FamilyThemeMechanismKey {
+        &self.key
+    }
+
+    pub(crate) const fn reason(&self) -> FamilyThemeResidualReason {
+        self.reason
+    }
+}
+
+impl std::fmt::Display for FamilyThemeResidual {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} ({})", self.key, self.reason)
+    }
+}
+
+/// Reason a source style could not be verified by the family adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum FamilyStyleResidualReason {
+    InvalidDeclaration,
+    UnsupportedProperty,
+    InvalidValue,
+    UnsupportedSurface,
+}
+
+impl FamilyStyleResidualReason {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::InvalidDeclaration => "invalid-declaration",
+            Self::UnsupportedProperty => "unsupported-property",
+            Self::InvalidValue => "invalid-value",
+            Self::UnsupportedSurface => "unsupported-surface",
+        }
+    }
+}
+
+impl std::fmt::Display for FamilyStyleResidualReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.id())
+    }
+}
+
+/// Frozen evidence for one source style the family adapter could not verify as portable.
+///
+/// Fields are intentionally private: callers can inspect the stable evidence but cannot forge a
+/// renderer report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FamilyStyleResidual {
+    raw: std::sync::Arc<str>,
+    property: Option<std::sync::Arc<str>>,
+    owner_id: std::sync::Arc<str>,
+    class_id: Option<std::sync::Arc<str>>,
+    origin: FamilyStyleOrigin,
+    channel: FamilyStyleChannel,
+    assignment_ordinal: Option<usize>,
+    declaration_ordinal: usize,
+    reason: FamilyStyleResidualReason,
+}
+
+impl FamilyStyleResidual {
+    fn freeze(residual: &SourceStyleResidual) -> Self {
+        let provenance = residual.provenance();
+        Self {
+            raw: residual.raw_arc(),
+            property: residual.property_arc(),
+            owner_id: provenance.owner_id_arc(),
+            class_id: provenance.class_id_arc(),
+            origin: provenance.origin().into(),
+            channel: provenance.channel().into(),
+            assignment_ordinal: provenance.assignment_ordinal(),
+            declaration_ordinal: provenance.declaration_ordinal(),
+            reason: residual.reason().into(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+
+    pub fn property(&self) -> Option<&str> {
+        self.property.as_deref()
+    }
+
+    #[cfg(test)]
+    pub fn owner_id(&self) -> &str {
+        &self.owner_id
+    }
+
+    #[cfg(test)]
+    pub fn class_id(&self) -> Option<&str> {
+        self.class_id.as_deref()
+    }
+
+    #[cfg(test)]
+    pub const fn origin(&self) -> FamilyStyleOrigin {
+        self.origin
+    }
+
+    #[cfg(test)]
+    pub const fn channel(&self) -> FamilyStyleChannel {
+        self.channel
+    }
+
+    #[cfg(test)]
+    pub const fn assignment_ordinal(&self) -> Option<usize> {
+        self.assignment_ordinal
+    }
+
+    #[cfg(test)]
+    pub const fn declaration_ordinal(&self) -> usize {
+        self.declaration_ordinal
+    }
+
+    #[cfg(test)]
+    pub const fn reason(&self) -> FamilyStyleResidualReason {
+        self.reason
+    }
+}
+
+impl std::fmt::Display for FamilyStyleResidual {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} {} style on `{}`",
+            self.reason, self.channel, self.owner_id
+        )?;
+        if let Some(property) = self.property() {
+            write!(formatter, " for property `{property}`")?;
+        }
+        Ok(())
+    }
+}
+
+impl From<SourceStyleChannel> for FamilyStyleChannel {
+    fn from(channel: SourceStyleChannel) -> Self {
+        match channel {
+            SourceStyleChannel::Shape => Self::Shape,
+            SourceStyleChannel::Label => Self::Label,
+            SourceStyleChannel::Stylesheet => Self::Stylesheet,
+        }
+    }
+}
+
+impl From<SourceStyleOrigin> for FamilyStyleOrigin {
+    fn from(origin: SourceStyleOrigin) -> Self {
+        match origin {
+            SourceStyleOrigin::AssignedClass => Self::AssignedClass,
+            SourceStyleOrigin::InlineStyle => Self::InlineStyle,
+            SourceStyleOrigin::LabelStyle => Self::LabelStyle,
+            SourceStyleOrigin::GeneratedClassCss => Self::GeneratedClassCss,
+        }
+    }
+}
+
+impl From<SourceStyleResidualReason> for FamilyStyleResidualReason {
+    fn from(reason: SourceStyleResidualReason) -> Self {
+        match reason {
+            SourceStyleResidualReason::InvalidDeclaration => Self::InvalidDeclaration,
+            SourceStyleResidualReason::UnsupportedProperty => Self::UnsupportedProperty,
+            SourceStyleResidualReason::InvalidValue => Self::InvalidValue,
+            SourceStyleResidualReason::UnsupportedSurface => Self::UnsupportedSurface,
+        }
+    }
+}
+
+/// Frozen family-local style evidence retained through SVG postprocessing and completion.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct FamilyStyleReport {
+    family_id: DiagramFamilyId,
+    evaluation: FamilyStyleEvaluation,
+    output_mutated: bool,
+    theme_required: Option<Arc<[FamilyThemeMechanismKey]>>,
+    theme_coverage_complete: bool,
+    theme_applied: Vec<FamilyThemeMechanismKey>,
+    native_filter_receipt: Option<crate::__private::NativeSvgFilterReceipt>,
+    #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+    architecture_text_receipt: Option<crate::__private::ArchitectureTextReceipt>,
+    theme_not_applicable: Vec<FamilyThemeMechanismKey>,
+    theme_residuals: Vec<FamilyThemeResidual>,
+    mermaid_compatibility_residual_count: usize,
+    residuals: Vec<FamilyStyleResidual>,
+}
+
+impl std::fmt::Debug for FamilyStyleReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut report = f.debug_struct("FamilyStyleReport");
+        report
+            .field("family_id", &self.family_id)
+            .field("evaluation", &self.evaluation)
+            .field("output_mutated", &self.output_mutated)
+            .field(
+                "theme_required",
+                &self.theme_required.as_deref().unwrap_or(&[]),
+            )
+            .field("theme_applied", &self.theme_applied)
+            .field("native_filter_receipt", &self.native_filter_receipt);
+        #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+        report.field("architecture_text_receipt", &self.architecture_text_receipt);
+        report
+            .field("theme_not_applicable", &self.theme_not_applicable)
+            .field("theme_residuals", &self.theme_residuals)
+            .field(
+                "mermaid_compatibility_residual_count",
+                &self.mermaid_compatibility_residual_count,
+            )
+            .field("residuals", &self.residuals)
+            .finish()
+    }
+}
+
+/// Borrowed classification shared by temporary admission and the frozen family report.
+struct FamilyStyleView<'a> {
+    family_id: DiagramFamilyId,
+    evaluation: FamilyStyleEvaluation,
+    output_mutated: bool,
+    theme_required: &'a [FamilyThemeMechanismKey],
+    theme_coverage_complete: bool,
+    theme_applied: &'a [FamilyThemeMechanismKey],
+    theme_not_applicable: &'a [FamilyThemeMechanismKey],
+    theme_residuals: &'a [FamilyThemeResidual],
+    mermaid_compatibility_residual_count: usize,
+    source_residual_count: usize,
+}
+
+impl FamilyStyleView<'_> {
+    pub fn theme_coverage_complete(&self) -> bool {
+        self.theme_coverage_complete
+    }
+
+    pub fn verification(&self) -> FamilyStyleVerification {
+        if self.output_mutated {
+            return FamilyStyleVerification::Unverified;
+        }
+        if self.mermaid_compatibility_residual_count != 0 {
+            return FamilyStyleVerification::Unverified;
+        }
+        if self.source_residual_count != 0 {
+            return FamilyStyleVerification::Unverified;
+        }
+        match self.evaluation {
+            FamilyStyleEvaluation::NotApplicable => FamilyStyleVerification::NotApplicable,
+            FamilyStyleEvaluation::Unadapted => FamilyStyleVerification::Unadapted,
+            FamilyStyleEvaluation::Evaluated if !self.theme_coverage_complete() => {
+                FamilyStyleVerification::Incomplete
+            }
+            FamilyStyleEvaluation::Evaluated
+                if self.theme_residuals.is_empty() && self.source_residual_count == 0 =>
+            {
+                FamilyStyleVerification::Verified
+            }
+            FamilyStyleEvaluation::Evaluated => FamilyStyleVerification::Unverified,
+        }
+    }
+
+    fn ensure_portable(&self) -> Result<()> {
+        if self.output_mutated {
+            return Err(Error::UnverifiedFamilyOutputMutation {
+                family_id: self.family_id,
+            });
+        }
+        self.ensure_compatibility_portable()?;
+        match self.verification() {
+            FamilyStyleVerification::NotApplicable | FamilyStyleVerification::Verified => Ok(()),
+            FamilyStyleVerification::Unadapted => Err(Error::UnadaptedFamilyTheme {
+                family_id: self.family_id,
+            }),
+            FamilyStyleVerification::Incomplete => Err(Error::IncompleteFamilyTheme {
+                family_id: self.family_id,
+                required_count: self.theme_required.len(),
+                accounted_count: self.theme_applied.len()
+                    + self.theme_not_applicable.len()
+                    + self.theme_residuals.len(),
+            }),
+            FamilyStyleVerification::Unverified => {
+                if !self.theme_residuals.is_empty() {
+                    return Err(Error::UnverifiedFamilyTheme {
+                        family_id: self.family_id,
+                        residual_count: self.theme_residuals.len(),
+                    });
+                }
+                debug_assert!(self.source_residual_count != 0);
+                Err(Error::UnverifiedFamilyStyle {
+                    family_id: self.family_id,
+                    residual_count: self.source_residual_count,
+                })
+            }
+        }
+    }
+
+    fn ensure_portable_before_terminal_evidence(&self) -> Result<()> {
+        if self.output_mutated {
+            return Err(Error::UnverifiedFamilyOutputMutation {
+                family_id: self.family_id,
+            });
+        }
+        self.ensure_compatibility_portable()?;
+        match self.verification() {
+            FamilyStyleVerification::NotApplicable
+            | FamilyStyleVerification::Verified
+            | FamilyStyleVerification::Incomplete
+            | FamilyStyleVerification::Unadapted => Ok(()),
+            FamilyStyleVerification::Unverified => {
+                if !self.theme_residuals.is_empty() {
+                    return Err(Error::UnverifiedFamilyTheme {
+                        family_id: self.family_id,
+                        residual_count: self.theme_residuals.len(),
+                    });
+                }
+                debug_assert!(self.source_residual_count != 0);
+                Err(Error::UnverifiedFamilyStyle {
+                    family_id: self.family_id,
+                    residual_count: self.source_residual_count,
+                })
+            }
+        }
+    }
+
+    fn ensure_compatibility_portable(&self) -> Result<()> {
+        if self.mermaid_compatibility_residual_count != 0 {
+            return Err(Error::MermaidThemeCompatibility {
+                family_id: self.family_id,
+                residual_count: self.mermaid_compatibility_residual_count,
+            });
+        }
+        Ok(())
+    }
+}
+
+impl FamilyStyleReport {
+    pub(crate) fn evidence_summary(&self) -> crate::__private::FamilyEvidenceSummary {
+        let accounted_count =
+            self.theme_applied.len() + self.theme_not_applicable.len() + self.theme_residuals.len();
+        crate::__private::FamilyEvidenceSummary::new(
+            crate::__private::FamilyEvidenceStatus::from_verification(self.verification()),
+            self.theme_required.as_deref().unwrap_or(&[]).len(),
+            accounted_count,
+            self.theme_applied.len(),
+            self.theme_not_applicable.len(),
+            self.theme_residuals.len(),
+            self.residuals.len(),
+            self.mermaid_compatibility_residual_count,
+            self.output_mutated,
+        )
+    }
+
+    fn from_plan(plan: ResolvedFamilyStylePlan) -> Self {
+        let mut residuals = Vec::new();
+        let evaluation = match &plan.payload {
+            FamilyStylePayload::NotApplicable => FamilyStyleEvaluation::NotApplicable,
+            FamilyStylePayload::Unadapted => FamilyStyleEvaluation::Unadapted,
+            FamilyStylePayload::Evaluated => FamilyStyleEvaluation::Evaluated,
+            #[cfg(feature = "diagram-state")]
+            FamilyStylePayload::State(state) => {
+                for residual in state.residuals() {
+                    let residual = FamilyStyleResidual::freeze(residual);
+                    if !residuals.contains(&residual) {
+                        residuals.push(residual);
+                    }
+                }
+                FamilyStyleEvaluation::Evaluated
+            }
+        };
+        for residual in &plan.source_style_residuals {
+            let residual = FamilyStyleResidual::freeze(residual);
+            if !residuals.contains(&residual) {
+                residuals.push(residual);
+            }
+        }
+        Self {
+            family_id: plan.family_id,
+            evaluation,
+            output_mutated: plan.output_mutated,
+            theme_required: plan.theme_evidence.shared_required_mechanisms(),
+            theme_coverage_complete: plan.theme_evidence.coverage_complete(),
+            theme_applied: plan.theme_evidence.outcomes.applied,
+            native_filter_receipt: plan.native_filter_receipt,
+            #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+            architecture_text_receipt: plan.architecture_text_receipt,
+            theme_not_applicable: plan.theme_evidence.outcomes.not_applicable,
+            theme_residuals: plan.theme_evidence.outcomes.residuals,
+            mermaid_compatibility_residual_count: plan.mermaid_compatibility_residual_count,
+            residuals,
+        }
+    }
+
+    fn invalidate_for_output_mutation(mut self) -> Self {
+        self.output_mutated = true;
+        for key in std::mem::take(&mut self.theme_applied) {
+            if !self
+                .theme_residuals
+                .iter()
+                .any(|residual| residual.key == key)
+            {
+                self.theme_residuals.push(FamilyThemeResidual {
+                    key,
+                    reason: FamilyThemeResidualReason::OutputMutation,
+                });
+            }
+        }
+        self.native_filter_receipt = None;
+        #[cfg(all(
+            merman_internal_theme_acceptance,
+            feature = "layout-cytoscape",
+            feature = "diagram-architecture"
+        ))]
+        {
+            self.architecture_text_receipt = None;
+        }
+        self
+    }
+
+    pub const fn family_id(&self) -> DiagramFamilyId {
+        self.family_id
+    }
+
+    #[cfg(test)]
+    pub const fn evaluation(&self) -> FamilyStyleEvaluation {
+        self.evaluation
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn output_mutated(&self) -> bool {
+        self.output_mutated
+    }
+
+    #[cfg(test)]
+    pub fn residuals(&self) -> &[FamilyStyleResidual] {
+        &self.residuals
+    }
+
+    /// Returns typed mechanisms the family adapter explicitly emitted or consumed.
+    #[cfg(test)]
+    pub fn theme_applied_mechanisms(&self) -> &[FamilyThemeMechanismKey] {
+        &self.theme_applied
+    }
+
+    pub(crate) const fn native_filter_receipt(
+        &self,
+    ) -> Option<crate::__private::NativeSvgFilterReceipt> {
+        self.native_filter_receipt
+    }
+
+    #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+    pub(crate) fn architecture_text_receipt(
+        &self,
+    ) -> Option<&crate::__private::ArchitectureTextReceipt> {
+        self.architecture_text_receipt.as_ref()
+    }
+
+    /// Returns recipe mechanisms evaluated against this document but not selected by any rendered
+    /// target, variant, or ordinal.
+    #[cfg(test)]
+    pub fn theme_not_applicable_mechanisms(&self) -> &[FamilyThemeMechanismKey] {
+        &self.theme_not_applicable
+    }
+
+    /// Returns typed semantic mechanisms that remain outside this adapter's proof boundary.
+    #[cfg(test)]
+    pub fn theme_residuals(&self) -> &[FamilyThemeResidual] {
+        &self.theme_residuals
+    }
+
+    fn view(&self) -> FamilyStyleView<'_> {
+        FamilyStyleView {
+            family_id: self.family_id,
+            evaluation: self.evaluation,
+            output_mutated: self.output_mutated,
+            theme_required: self.theme_required.as_deref().unwrap_or(&[]),
+            theme_coverage_complete: self.theme_coverage_complete,
+            theme_applied: &self.theme_applied,
+            theme_not_applicable: &self.theme_not_applicable,
+            theme_residuals: &self.theme_residuals,
+            mermaid_compatibility_residual_count: self.mermaid_compatibility_residual_count,
+            source_residual_count: self.residuals.len(),
+        }
+    }
+
+    pub fn theme_coverage_complete(&self) -> bool {
+        self.view().theme_coverage_complete()
+    }
+
+    pub fn verification(&self) -> FamilyStyleVerification {
+        self.view().verification()
+    }
+
+    #[cfg(any(test, merman_internal_theme_acceptance))]
+    pub fn is_verified(&self) -> bool {
+        self.verification() == FamilyStyleVerification::Verified
+    }
+
+    fn ensure_portable(&self) -> Result<()> {
+        self.view().ensure_portable()
+    }
+}
+
+/// Frozen family identity and operation evidence captured after SVG work completes.
+///
+/// The recipe fingerprint identifies selected visual intent and retained resources only. Host
+/// admission and family evaluation remain separate structured reports; the fingerprint does not
+/// claim that any semantic target was applied or emitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FamilyRenderReport {
+    theme_diagnostics: Box<[ThemeDiagnostic]>,
+    root_theme: RootThemeReport,
+    style: FamilyStyleReport,
+    session: RenderSessionReport,
+    materialized_theme: Option<merman_model::config::MermaidThemeId>,
+}
+
+impl FamilyRenderReport {
+    fn freeze(
+        root_theme: RootThemeReport,
+        style: FamilyStyleReport,
+        session: RenderSession,
+        materialized_theme: Option<merman_model::config::MermaidThemeId>,
+    ) -> Self {
+        let theme_diagnostics = theme_diagnostics::project(&root_theme, &style, session.theme());
+        Self {
+            theme_diagnostics,
+            root_theme,
+            style,
+            session: session.report(),
+            materialized_theme,
+        }
+    }
+
+    /// User explanations captured after rendering and postprocessing, separate from admission.
+    pub fn theme_diagnostics(&self) -> &[ThemeDiagnostic] {
+        &self.theme_diagnostics
+    }
+
+    pub const fn materialized_theme(&self) -> Option<merman_model::config::MermaidThemeId> {
+        self.materialized_theme
+    }
+
+    pub(crate) fn into_session_and_theme_diagnostics(
+        self,
+    ) -> (RenderSessionReport, Box<[ThemeDiagnostic]>) {
+        (self.session, self.theme_diagnostics)
+    }
+
+    pub fn family_kind(&self) -> RenderFamilyKind {
+        RenderFamilyKind::from_family_id(self.family_id())
+    }
+
+    pub const fn family_id(&self) -> DiagramFamilyId {
+        self.style.family_id()
+    }
+
+    #[cfg(any(test, merman_internal_theme_acceptance))]
+    pub(crate) const fn style_report(&self) -> &FamilyStyleReport {
+        &self.style
+    }
+
+    pub(crate) const fn root_theme_report(&self) -> &RootThemeReport {
+        &self.root_theme
+    }
+
+    pub(crate) const fn native_filter_receipt(
+        &self,
+    ) -> Option<crate::__private::NativeSvgFilterReceipt> {
+        self.style.native_filter_receipt()
+    }
+
+    #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+    pub(crate) fn architecture_text_receipt(
+        &self,
+    ) -> Option<&crate::__private::ArchitectureTextReceipt> {
+        self.style.architecture_text_receipt()
+    }
+
+    pub(crate) fn evidence_summary(&self) -> crate::__private::FamilyEvidenceSummary {
+        self.style.evidence_summary()
+    }
+
+    pub fn theme_recipe_fingerprint(&self) -> Option<ThemeRecipeFingerprint> {
+        self.session.theme_recipe_fingerprint()
+    }
+
+    pub const fn session_report(&self) -> &RenderSessionReport {
+        &self.session
+    }
+}
+
+struct FamilyRenderContext {
+    root_theme: Arc<RootThemePlan>,
+    style_plan: ResolvedFamilyStylePlan,
+    session: RenderSession,
+}
+
+/// The operation's checked owner of actual family outcomes.
+#[derive(Debug, Default)]
+pub(crate) struct FamilyThemeEvidence {
+    program: Option<Arc<crate::diagram_theme::FamilyThemeProgram>>,
+    outcomes: FamilyThemeOutcomes,
+}
+
+impl FamilyThemeEvidence {
+    pub(crate) fn from_theme(theme: Option<&ResolvedDiagramTheme>) -> Self {
+        Self {
+            program: theme.map(ResolvedDiagramTheme::family_program_owner),
+            outcomes: FamilyThemeOutcomes::default(),
+        }
+    }
+
+    fn not_applicable(theme: Option<&ResolvedDiagramTheme>) -> bool {
+        theme.is_none_or(|theme| !theme.has_family_mechanism_routes())
+    }
+
+    pub(crate) fn required_mechanisms(&self) -> &[FamilyThemeMechanismKey] {
+        self.program
+            .as_ref()
+            .map_or(&[], |program| program.requested_mechanisms())
+    }
+
+    fn shared_required_mechanisms(&self) -> Option<Arc<[FamilyThemeMechanismKey]>> {
+        self.program
+            .as_ref()
+            .and_then(|program| program.shared_requested_mechanisms())
+    }
+
+    fn accepts(&self, key: &FamilyThemeMechanismKey) -> bool {
+        self.program
+            .as_ref()
+            .is_some_and(|program| program.contains_requested_mechanism(key))
+            && !self.outcomes.accounted_index.contains(key)
+    }
+
+    pub(crate) fn mark_applied_with_capabilities(
+        &mut self,
+        key: FamilyThemeMechanismKey,
+        capabilities: impl IntoIterator<Item = ThemeCapability>,
+    ) {
+        if self.accepts(&key) {
+            self.outcomes
+                .mark_applied_with_capabilities(key, capabilities);
+        }
+    }
+
+    pub(crate) fn mark_not_applicable(&mut self, key: FamilyThemeMechanismKey) {
+        if self.accepts(&key) {
+            self.outcomes.mark_not_applicable(key);
+        }
+    }
+
+    pub(crate) fn mark_residual(
+        &mut self,
+        key: FamilyThemeMechanismKey,
+        reason: FamilyThemeResidualReason,
+    ) {
+        if self.accepts(&key) {
+            self.outcomes.mark_residual(key, reason);
+        }
+    }
+
+    pub(crate) fn merge_borrowed(&mut self, other: &FamilyThemeOutcomes) {
+        for key in &other.applied {
+            if self.accepts(key) {
+                self.outcomes.mark_applied_with_capabilities(
+                    key.clone(),
+                    other
+                        .applied_capabilities
+                        .get(key)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
+            }
+        }
+        for key in &other.not_applicable {
+            if self.accepts(key) {
+                self.outcomes.mark_not_applicable(key.clone());
+            }
+        }
+        for residual in &other.residuals {
+            if self.accepts(&residual.key) {
+                self.outcomes
+                    .mark_residual(residual.key.clone(), residual.reason);
+            }
+        }
+    }
+
+    pub(crate) fn merge_accounted_from(&mut self, mut other: FamilyThemeOutcomes) {
+        for key in other.applied {
+            let capabilities = other.applied_capabilities.remove(&key).unwrap_or_default();
+            self.mark_applied_with_capabilities(key, capabilities);
+        }
+        for key in other.not_applicable {
+            self.mark_not_applicable(key);
+        }
+        for residual in other.residuals {
+            self.mark_residual(residual.key, residual.reason);
+        }
+    }
+
+    fn clear_outcomes(&mut self) {
+        self.outcomes = FamilyThemeOutcomes::default();
+    }
+
+    fn coverage_complete(&self) -> bool {
+        self.outcomes.accounted_index.len() == self.required_mechanisms().len()
+    }
+
+    fn mark_state_output_visibility_filtered(&mut self, debug: &SvgDebugOptions) {
+        self.outcomes.mark_state_output_visibility_filtered(debug);
+    }
+    fn mark_output_mutated(&mut self) {
+        self.outcomes.mark_output_mutated();
+    }
+    fn mark_effect_emission_unverified(&mut self) {
+        self.outcomes.mark_effect_emission_unverified();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn applied(&self) -> &[FamilyThemeMechanismKey] {
+        &self.outcomes.applied
+    }
+    #[cfg(test)]
+    pub(crate) fn not_applicable_mechanisms(&self) -> &[FamilyThemeMechanismKey] {
+        &self.outcomes.not_applicable
+    }
+    #[cfg(test)]
+    pub(crate) fn residuals(&self) -> &[FamilyThemeResidual] {
+        &self.outcomes.residuals
+    }
+    #[cfg(test)]
+    pub(crate) fn applied_capabilities(&self) -> BTreeSet<ThemeCapability> {
+        self.outcomes.applied_capabilities()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FamilyThemeOutcomes {
+    accounted_index: BTreeSet<FamilyThemeMechanismKey>,
+    applied: Vec<FamilyThemeMechanismKey>,
+    applied_capabilities: BTreeMap<FamilyThemeMechanismKey, BTreeSet<ThemeCapability>>,
+    not_applicable: Vec<FamilyThemeMechanismKey>,
+    residuals: Vec<FamilyThemeResidual>,
+}
+
+impl FamilyThemeOutcomes {
+    pub(crate) fn mark_applied_with_capabilities(
+        &mut self,
+        key: FamilyThemeMechanismKey,
+        capabilities: impl IntoIterator<Item = ThemeCapability>,
+    ) {
+        if self.accounted_index.insert(key.clone()) {
+            let capabilities = capabilities.into_iter().collect::<BTreeSet<_>>();
+            if !capabilities.is_empty() {
+                self.applied_capabilities.insert(key.clone(), capabilities);
+            }
+            self.applied.push(key);
+        }
+    }
+
+    pub(crate) fn mark_not_applicable(&mut self, key: FamilyThemeMechanismKey) {
+        if self.accounted_index.insert(key.clone()) {
+            self.not_applicable.push(key);
+        }
+    }
+
+    pub(crate) fn mark_residual(
+        &mut self,
+        key: FamilyThemeMechanismKey,
+        reason: FamilyThemeResidualReason,
+    ) {
+        if self.accounted_index.insert(key.clone()) {
+            self.residuals.push(FamilyThemeResidual { key, reason });
+        }
+    }
+
+    fn mark_output_visibility_filtered(&mut self) {
+        self.move_applied_to_residual(FamilyThemeResidualReason::OutputVisibilityFiltered);
+    }
+
+    fn mark_state_output_visibility_filtered(&mut self, debug: &SvgDebugOptions) {
+        if !debug.include_nodes {
+            self.mark_output_visibility_filtered();
+            return;
+        }
+        if debug.include_edges {
+            return;
+        }
+        self.move_applied_to_residual_where(
+            FamilyThemeResidualReason::OutputVisibilityFiltered,
+            |key| {
+                matches!(
+                    key,
+                    FamilyThemeMechanismKey::Rule {
+                        target: crate::diagram_theme::ThemeTarget::Transition
+                            | crate::diagram_theme::ThemeTarget::TransitionLabel
+                            | crate::diagram_theme::ThemeTarget::TransitionMarker
+                            | crate::diagram_theme::ThemeTarget::TransitionLabelBackground,
+                        ..
+                    } | FamilyThemeMechanismKey::OrdinalPalette {
+                        target: crate::diagram_theme::ThemeTarget::Transition
+                            | crate::diagram_theme::ThemeTarget::TransitionLabel
+                            | crate::diagram_theme::ThemeTarget::TransitionMarker
+                            | crate::diagram_theme::ThemeTarget::TransitionLabelBackground,
+                    } | FamilyThemeMechanismKey::EffectBinding {
+                        target: crate::diagram_theme::ThemeTarget::Transition
+                            | crate::diagram_theme::ThemeTarget::TransitionLabel
+                            | crate::diagram_theme::ThemeTarget::TransitionMarker
+                            | crate::diagram_theme::ThemeTarget::TransitionLabelBackground,
+                        ..
+                    }
+                )
+            },
+        );
+    }
+
+    fn mark_output_mutated(&mut self) {
+        self.move_applied_to_residual(FamilyThemeResidualReason::OutputMutation);
+    }
+
+    fn mark_effect_emission_unverified(&mut self) {
+        let effect_keys = self
+            .applied_capabilities
+            .iter()
+            .filter(|(_, capabilities)| {
+                capabilities.contains(&ThemeCapability::Shadow)
+                    || capabilities.contains(&ThemeCapability::SvgFilter)
+            })
+            .map(|(key, _)| key.clone())
+            .collect::<BTreeSet<_>>();
+        self.move_applied_to_residual_where(FamilyThemeResidualReason::UnsupportedEffect, |key| {
+            effect_keys.contains(key)
+        });
+    }
+
+    fn move_applied_to_residual(&mut self, reason: FamilyThemeResidualReason) {
+        self.move_applied_to_residual_where(reason, |_| true);
+    }
+
+    fn move_applied_to_residual_where(
+        &mut self,
+        reason: FamilyThemeResidualReason,
+        mut should_move: impl FnMut(&FamilyThemeMechanismKey) -> bool,
+    ) {
+        for key in std::mem::take(&mut self.applied) {
+            if !should_move(&key) {
+                self.applied.push(key);
+                continue;
+            }
+            self.applied_capabilities.remove(&key);
+            if !self.residuals.iter().any(|residual| residual.key == key) {
+                self.residuals.push(FamilyThemeResidual { key, reason });
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn applied_capabilities(&self) -> BTreeSet<ThemeCapability> {
+        self.applied_capabilities
+            .values()
+            .flat_map(|capabilities| capabilities.iter().copied())
+            .collect()
+    }
+
+    pub(crate) fn merge_accounted_from(&mut self, mut other: Self) {
+        for key in other.applied {
+            let capabilities = other.applied_capabilities.remove(&key).unwrap_or_default();
+            self.mark_applied_with_capabilities(key, capabilities);
+        }
+        for key in other.not_applicable {
+            self.mark_not_applicable(key);
+        }
+        for residual in other.residuals {
+            self.mark_residual(residual.key, residual.reason);
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn applied(&self) -> &[FamilyThemeMechanismKey] {
+        &self.applied
+    }
+
+    pub(crate) fn not_applicable_mechanisms(&self) -> &[FamilyThemeMechanismKey] {
+        &self.not_applicable
+    }
+
+    pub(crate) fn residuals(&self) -> &[FamilyThemeResidual] {
+        &self.residuals
+    }
+}
+
+#[derive(Debug)]
+enum FamilyStylePayload {
+    NotApplicable,
+    Unadapted,
+    Evaluated,
+    #[cfg(feature = "diagram-state")]
+    State(Box<crate::state::StateStylePlan>),
+}
+
+#[derive(Debug)]
+pub(crate) struct ResolvedFamilyStylePlan {
+    family_id: DiagramFamilyId,
+    resolved_theme: Option<Box<ResolvedDiagramTheme>>,
+    theme_evidence: FamilyThemeEvidence,
+    source_style_residuals: Vec<SourceStyleResidual>,
+    native_filter_receipt: Option<crate::__private::NativeSvgFilterReceipt>,
+    #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+    architecture_text_receipt: Option<crate::__private::ArchitectureTextReceipt>,
+    output_mutated: bool,
+    mermaid_compatibility_residual_count: usize,
+    payload: FamilyStylePayload,
+}
+
+impl ResolvedFamilyStylePlan {
+    fn new(session: &RenderSession, family_id: DiagramFamilyId) -> Self {
+        let resolved_theme = session
+            .theme()
+            .map(|theme| Box::new(theme.resolve(family_id)));
+        let theme_evidence = FamilyThemeEvidence::from_theme(resolved_theme.as_deref());
+        let payload = if !FamilyThemeEvidence::not_applicable(resolved_theme.as_deref()) {
+            FamilyStylePayload::Unadapted
+        } else {
+            FamilyStylePayload::NotApplicable
+        };
+        Self {
+            family_id,
+            resolved_theme,
+            theme_evidence,
+            source_style_residuals: Vec::new(),
+            native_filter_receipt: None,
+            #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+            architecture_text_receipt: None,
+            output_mutated: false,
+            mermaid_compatibility_residual_count: 0,
+            payload,
+        }
+    }
+
+    #[cfg(feature = "diagram-state")]
+    fn adapt_state(
+        &mut self,
+        model: &merman_model::families::state::StateDiagramRenderModel,
+        effective_config: &merman_model::presentation::PresentationConfig,
+        title: Option<&str>,
+        effective_theme_resource_policy: Arc<crate::diagram_theme::ThemeResourcePolicy>,
+        work_meter: &crate::resources::OperationWorkMeter,
+    ) -> Result<()> {
+        debug_assert_eq!(self.family_id, DiagramFamilyId::STATE);
+        let plan = crate::state::StateStylePlan::resolve_with_config(
+            model,
+            effective_config,
+            self.resolved_theme.as_deref(),
+            effective_theme_resource_policy,
+            title,
+            work_meter,
+        )?;
+        self.theme_evidence.clear_outcomes();
+        self.theme_evidence
+            .merge_borrowed(plan.planned_theme_outcomes());
+        self.payload = FamilyStylePayload::State(Box::new(plan));
+        Ok(())
+    }
+
+    fn observe_compatibility(
+        &mut self,
+        metadata: &merman_model::presentation::PresentationMetadata,
+    ) {
+        self.mermaid_compatibility_residual_count = metadata
+            .effective_config
+            .theme_compatibility()
+            .mermaid_residual_count();
+        #[cfg(feature = "diagram-packet")]
+        if self.family_id == DiagramFamilyId::PACKET
+            && self.mermaid_compatibility_residual_count != 0
+            && self.resolved_theme.is_some()
+        {
+            let evidence = metadata.effective_config.theme_compatibility().clone();
+            let deferred = crate::packet::deferred_mermaid_compatibility_consumptions(
+                self.resolved_theme.as_deref(),
+                &metadata.effective_config,
+                &evidence,
+            );
+            self.mermaid_compatibility_residual_count = evidence
+                .reconcile_mermaid_consumptions(deferred.iter())
+                .remaining_field_count();
+        }
+    }
+
+    fn reconcile_packet_mermaid_compatibility(
+        &mut self,
+        evidence: &merman_model::presentation::ThemeCompatibilityEvidence,
+        consumptions: &[merman_model::presentation::ThemeCompatibilityFieldConsumption],
+    ) {
+        debug_assert_eq!(self.family_id, DiagramFamilyId::PACKET);
+        self.mermaid_compatibility_residual_count = evidence
+            .reconcile_mermaid_consumptions(consumptions.iter())
+            .remaining_field_count();
+    }
+
+    fn merge_accounted_terminal_evidence(
+        &mut self,
+        expected_family: DiagramFamilyId,
+        evidence: FamilyThemeOutcomes,
+    ) {
+        debug_assert_eq!(self.family_id, expected_family);
+        self.theme_evidence.merge_accounted_from(evidence);
+        self.payload = if FamilyThemeEvidence::not_applicable(self.resolved_theme.as_deref()) {
+            FamilyStylePayload::NotApplicable
+        } else {
+            FamilyStylePayload::Evaluated
+        };
+    }
+
+    #[cfg(all(merman_internal_theme_acceptance, feature = "layout-cytoscape"))]
+    fn record_architecture_text_receipt(
+        &mut self,
+        receipt: Option<crate::__private::ArchitectureTextReceipt>,
+    ) {
+        debug_assert_eq!(self.family_id, DiagramFamilyId::ARCHITECTURE);
+        self.architecture_text_receipt = receipt;
+    }
+
+    fn reconcile_effect_evidence(
+        &mut self,
+        emitted: Option<crate::__private::NativeSvgFilterReceipt>,
+        expected_application_count: usize,
+    ) {
+        let effect_capabilities_applied = self
+            .theme_evidence
+            .outcomes
+            .applied_capabilities
+            .values()
+            .flatten()
+            .any(|capability| {
+                matches!(
+                    capability,
+                    ThemeCapability::Shadow | ThemeCapability::SvgFilter
+                )
+            });
+        if !effect_capabilities_applied {
+            self.native_filter_receipt = None;
+            return;
+        }
+
+        if emitted.is_some_and(|receipt| {
+            usize::try_from(receipt.filter_count()).ok() == Some(expected_application_count)
+                && receipt.filter_count() == receipt.reference_count()
+        }) {
+            self.native_filter_receipt = emitted;
+            return;
+        }
+
+        self.native_filter_receipt = None;
+        self.theme_evidence.mark_effect_emission_unverified();
+    }
+
+    #[cfg(feature = "diagram-state")]
+    fn reconcile_state_terminal_evidence(&mut self) {
+        debug_assert_eq!(self.family_id, DiagramFamilyId::STATE);
+        if let FamilyStylePayload::State(state) = &self.payload {
+            self.theme_evidence.clear_outcomes();
+            state.record_theme_evidence(&mut self.theme_evidence);
+        }
+    }
+
+    fn observe_output_visibility(&mut self, debug: &SvgDebugOptions) {
+        if self.family_id == DiagramFamilyId::STATE {
+            self.theme_evidence
+                .mark_state_output_visibility_filtered(debug);
+        }
+    }
+
+    fn invalidate_for_output_mutation(&mut self) {
+        self.output_mutated = true;
+        self.native_filter_receipt = None;
+        #[cfg(all(
+            merman_internal_theme_acceptance,
+            feature = "layout-cytoscape",
+            feature = "diagram-architecture"
+        ))]
+        {
+            self.architecture_text_receipt = None;
+        }
+        self.theme_evidence.mark_output_mutated();
+    }
+
+    fn view(&self) -> FamilyStyleView<'_> {
+        let (evaluation, state_residuals): (FamilyStyleEvaluation, &[SourceStyleResidual]) =
+            match &self.payload {
+                FamilyStylePayload::NotApplicable => (FamilyStyleEvaluation::NotApplicable, &[]),
+                FamilyStylePayload::Unadapted => (FamilyStyleEvaluation::Unadapted, &[]),
+                FamilyStylePayload::Evaluated => (FamilyStyleEvaluation::Evaluated, &[]),
+                #[cfg(feature = "diagram-state")]
+                FamilyStylePayload::State(state) => {
+                    (FamilyStyleEvaluation::Evaluated, state.residuals())
+                }
+            };
+        let residuals = state_residuals.iter().chain(&self.source_style_residuals);
+        let source_residual_count = residuals
+            .clone()
+            .enumerate()
+            .filter(|(index, residual)| {
+                !residuals
+                    .clone()
+                    .take(*index)
+                    .any(|earlier| earlier == *residual)
+            })
+            .count();
+        FamilyStyleView {
+            family_id: self.family_id,
+            evaluation,
+            output_mutated: self.output_mutated,
+            theme_required: self.theme_evidence.required_mechanisms(),
+            theme_coverage_complete: self.theme_evidence.coverage_complete(),
+            theme_applied: &self.theme_evidence.outcomes.applied,
+            theme_not_applicable: &self.theme_evidence.outcomes.not_applicable,
+            theme_residuals: &self.theme_evidence.outcomes.residuals,
+            mermaid_compatibility_residual_count: self.mermaid_compatibility_residual_count,
+            source_residual_count,
+        }
+    }
+
+    fn ensure_portable(&self, portability: ThemePortabilityRequirement) -> Result<()> {
+        if portability != ThemePortabilityRequirement::RequirePortable {
+            return Ok(());
+        }
+
+        self.view().ensure_portable()
+    }
+
+    fn ensure_portable_before_svg(&self, portability: ThemePortabilityRequirement) -> Result<()> {
+        if portability != ThemePortabilityRequirement::RequirePortable {
+            return Ok(());
+        }
+        let waits_for_svg_evidence = matches!(
+            self.family_id,
+            DiagramFamilyId::STATE
+                | DiagramFamilyId::AGENTFLOW
+                | DiagramFamilyId::USECASE
+                | DiagramFamilyId::FLOWCHART
+                | DiagramFamilyId::SWIMLANE
+                | DiagramFamilyId::MINDMAP
+                | DiagramFamilyId::SEQUENCE
+                | DiagramFamilyId::CLASS
+                | DiagramFamilyId::KANBAN
+                | DiagramFamilyId::GANTT
+                | DiagramFamilyId::PIE
+                | DiagramFamilyId::TIMELINE
+                | DiagramFamilyId::TREE_VIEW
+                | DiagramFamilyId::JOURNEY
+                | DiagramFamilyId::QUADRANT_CHART
+                | DiagramFamilyId::XY_CHART
+                | DiagramFamilyId::RADAR
+                | DiagramFamilyId::TREEMAP
+                | DiagramFamilyId::REQUIREMENT
+                | DiagramFamilyId::PACKET
+                | DiagramFamilyId::SANKEY
+                | DiagramFamilyId::BLOCK
+                | DiagramFamilyId::RAILROAD
+                | DiagramFamilyId::INFO
+                | DiagramFamilyId::ERROR
+                | DiagramFamilyId::CYNEFIN
+                | DiagramFamilyId::WARDLEY
+                | DiagramFamilyId::GIT_GRAPH
+                | DiagramFamilyId::C4
+                | DiagramFamilyId::ER
+                | DiagramFamilyId::VENN
+                | DiagramFamilyId::ZENUML
+                | DiagramFamilyId::EVENT_MODELING
+                | DiagramFamilyId::ISHIKAWA
+                | DiagramFamilyId::ARCHITECTURE
+        ) && self
+            .resolved_theme
+            .as_deref()
+            .is_some_and(ResolvedDiagramTheme::has_family_mechanism_routes);
+        let report = self.view();
+        if waits_for_svg_evidence {
+            report.ensure_portable_before_terminal_evidence()
+        } else {
+            report.ensure_portable()
+        }
+    }
+
+    pub(crate) const fn family_id(&self) -> DiagramFamilyId {
+        self.family_id
+    }
+
+    pub(crate) fn resolved_theme(&self) -> Option<&ResolvedDiagramTheme> {
+        self.resolved_theme.as_deref()
+    }
+
+    #[cfg(feature = "diagram-state")]
+    pub(crate) fn state(&self) -> Option<&crate::state::StateStylePlan> {
+        match &self.payload {
+            #[cfg(feature = "diagram-state")]
+            FamilyStylePayload::State(plan) => Some(plan),
+            FamilyStylePayload::NotApplicable
+            | FamilyStylePayload::Unadapted
+            | FamilyStylePayload::Evaluated => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct FamilyExecutionView<'a> {
+    family_id: DiagramFamilyId,
+    session: &'a RenderSession,
+    root_theme: Option<&'a RootThemePlan>,
+    style_plan: Option<&'a ResolvedFamilyStylePlan>,
+}
+
+impl<'a> FamilyExecutionView<'a> {
+    fn new(
+        session: &'a RenderSession,
+        root_theme: &'a RootThemePlan,
+        style_plan: &'a ResolvedFamilyStylePlan,
+    ) -> Self {
+        let execution = Self {
+            family_id: style_plan.family_id(),
+            session,
+            root_theme: Some(root_theme),
+            style_plan: Some(style_plan),
+        };
+        debug_assert_eq!(
+            execution.resolved_theme().is_some(),
+            session.theme_recipe_fingerprint().is_some(),
+            "family theme plan presence must match the render session"
+        );
+        debug_assert_eq!(
+            execution
+                .resolved_theme()
+                .map(ResolvedDiagramTheme::family_id),
+            session
+                .theme_recipe_fingerprint()
+                .map(|_| style_plan.family_id()),
+            "family theme plan must match the planned render family"
+        );
+        execution
+    }
+
+    pub(crate) const fn family_id(self) -> DiagramFamilyId {
+        self.family_id
+    }
+
+    pub(crate) const fn session(self) -> &'a RenderSession {
+        self.session
+    }
+
+    pub(crate) const fn root_theme_plan(self) -> Option<&'a RootThemePlan> {
+        self.root_theme
+    }
+
+    pub(crate) fn resolved_theme(self) -> Option<&'a ResolvedDiagramTheme> {
+        match self.style_plan {
+            Some(plan) => plan.resolved_theme(),
+            None => None,
+        }
+    }
+
+    pub(crate) const fn style_plan(self) -> Option<&'a ResolvedFamilyStylePlan> {
+        self.style_plan
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(session: &'a RenderSession, family_id: DiagramFamilyId) -> Self {
+        Self {
+            family_id,
+            session,
+            root_theme: None,
+            style_plan: None,
+        }
+    }
+}
+
+impl FamilyRenderContext {
+    fn resolve(session: RenderSession, family_id: DiagramFamilyId) -> Self {
+        let root_theme = RootThemePlan::from_theme(session.theme());
+        let style_plan = ResolvedFamilyStylePlan::new(&session, family_id);
+        Self {
+            root_theme,
+            style_plan,
+            session,
+        }
+    }
+
+    const fn family_id(&self) -> DiagramFamilyId {
+        self.style_plan.family_id()
+    }
+
+    const fn session(&self) -> &RenderSession {
+        &self.session
+    }
+
+    fn execution(&self) -> FamilyExecutionView<'_> {
+        FamilyExecutionView::new(&self.session, &self.root_theme, &self.style_plan)
+    }
+
+    #[cfg(feature = "diagram-state")]
+    fn adapt_state(
+        &mut self,
+        model: &merman_model::families::state::StateDiagramRenderModel,
+        effective_config: &merman_model::presentation::PresentationConfig,
+        title: Option<&str>,
+    ) -> Result<()> {
+        let effective_theme_resource_policy = self.session.effective_theme_resource_policy();
+        self.style_plan.adapt_state(
+            model,
+            effective_config,
+            title,
+            effective_theme_resource_policy,
+            self.session.work_meter().as_ref(),
+        )
+    }
+
+    fn observe_compatibility(
+        &mut self,
+        metadata: &merman_model::presentation::PresentationMetadata,
+    ) {
+        self.style_plan.observe_compatibility(metadata);
+    }
+
+    fn observe_output_visibility(&mut self, debug: &SvgDebugOptions) {
+        self.style_plan.observe_output_visibility(debug);
+    }
+
+    #[cfg(feature = "diagram-state")]
+    fn reconcile_state_terminal_evidence(&mut self) {
+        self.style_plan.reconcile_state_terminal_evidence();
+    }
+
+    fn invalidate_for_output_mutation(&mut self) {
+        self.style_plan.invalidate_for_output_mutation();
+    }
+
+    fn merge_accounted_terminal_evidence(
+        &mut self,
+        expected_family: DiagramFamilyId,
+        evidence: FamilyThemeOutcomes,
+    ) {
+        self.style_plan
+            .merge_accounted_terminal_evidence(expected_family, evidence);
+    }
+
+    fn reconcile_packet_mermaid_compatibility(
+        &mut self,
+        evidence: &merman_model::presentation::ThemeCompatibilityEvidence,
+        consumptions: &[merman_model::presentation::ThemeCompatibilityFieldConsumption],
+    ) {
+        self.style_plan
+            .reconcile_packet_mermaid_compatibility(evidence, consumptions);
+    }
+
+    fn ensure_portable(&self) -> Result<()> {
+        let portability = self.session.portability_requirement();
+        self.style_plan.ensure_portable(portability)
+    }
+
+    fn ensure_portable_before_svg(&self) -> Result<()> {
+        let portability = self.session.portability_requirement();
+        self.style_plan.ensure_portable_before_svg(portability)
+    }
+
+    fn into_session_and_style_report(self) -> (RenderSession, FamilyStyleReport) {
+        let style_report = FamilyStyleReport::from_plan(self.style_plan);
+        (self.session, style_report)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct FamilyPair<S, L> {
+    semantic: S,
+    layout: L,
+}
+
+impl<S: std::ops::Deref, L> FamilyPair<S, L> {
+    fn new(semantic: S, layout: L) -> Self {
+        Self { semantic, layout }
+    }
+
+    pub(crate) fn semantic(&self) -> &S::Target {
+        &self.semantic
+    }
+
+    pub(crate) fn layout(&self) -> &L {
+        &self.layout
+    }
+}
+
+impl<S: std::ops::Deref, L> FamilyPair<S, L>
+where
+    S::Target: BuiltinRenderSemantic,
+{
+    fn compatibility_json(
+        &self,
+        metadata: &PresentationMetadata,
+        output_context: &PresentationContext,
+        control: &merman_model::OperationControl,
+    ) -> Result<ManagedJson> {
+        self.semantic
+            .compatibility_json_with_context_controlled(metadata, output_context, control)?
+            .map_err(Error::SemanticProjection)
+    }
+}
+
+#[derive(Debug)]
+#[cfg(any(
+    feature = "diagram-flowchart",
+    feature = "diagram-swimlane",
+    feature = "diagram-agentflow"
+))]
+pub(crate) struct FlowchartFamilyArtifact<'parsed, L> {
+    pair: FamilyPair<std::borrow::Cow<'parsed, diagrams::flowchart::FlowchartModel>, L>,
+    render_context: std::borrow::Cow<'parsed, diagrams::flowchart::FlowchartRenderContext>,
+    edge_style_plan: crate::svg::FlowchartEdgeStylePlan,
+    edge_theme: crate::flowchart::FlowchartEdgeThemeStyle,
+    prepared_theme: crate::flowchart::FlowchartPreparedTheme,
+    prepared_nodes: crate::svg::FlowchartPreparedNodes,
+    render_config: crate::svg::FlowchartRenderConfig,
+    svg_label_sidecar: crate::flowchart::FlowchartSvgLabelSidecar,
+    theme_evidence: crate::flowchart::FlowchartThemeEvidenceRecorder,
+    effect_evidence: crate::diagram_theme::SvgShadowEvidenceRecorder,
+    expected_effect_applications: std::cell::Cell<usize>,
+}
+
+#[cfg(any(
+    feature = "diagram-flowchart",
+    feature = "diagram-swimlane",
+    feature = "diagram-agentflow"
+))]
+impl<'parsed, L> FlowchartFamilyArtifact<'parsed, L> {
+    pub(crate) const fn render_config(&self) -> &crate::svg::FlowchartRenderConfig {
+        &self.render_config
+    }
+
+    pub(crate) const fn prepared_nodes(&self) -> &crate::svg::FlowchartPreparedNodes {
+        &self.prepared_nodes
+    }
+
+    pub(crate) fn prepared_theme(&self) -> &crate::flowchart::FlowchartPreparedTheme {
+        &self.prepared_theme
+    }
+
+    pub(crate) const fn effect_evidence(&self) -> &crate::diagram_theme::SvgShadowEvidenceRecorder {
+        &self.effect_evidence
+    }
+
+    pub(crate) const fn expected_effect_applications(&self) -> &std::cell::Cell<usize> {
+        &self.expected_effect_applications
+    }
+
+    pub(crate) fn pair(
+        &self,
+    ) -> &FamilyPair<std::borrow::Cow<'parsed, diagrams::flowchart::FlowchartModel>, L> {
+        &self.pair
+    }
+
+    pub(crate) fn render_context(&self) -> &diagrams::flowchart::FlowchartRenderContext {
+        &self.render_context
+    }
+
+    pub(crate) const fn edge_style_plan(&self) -> &crate::svg::FlowchartEdgeStylePlan {
+        &self.edge_style_plan
+    }
+
+    pub(crate) const fn edge_theme(&self) -> &crate::flowchart::FlowchartEdgeThemeStyle {
+        &self.edge_theme
+    }
+
+    pub(crate) fn svg_label_sidecar(&self) -> &crate::flowchart::FlowchartSvgLabelSidecar {
+        &self.svg_label_sidecar
+    }
+
+    pub(crate) const fn theme_evidence(&self) -> &crate::flowchart::FlowchartThemeEvidenceRecorder {
+        &self.theme_evidence
+    }
+}
+
+#[cfg(any(
+    feature = "diagram-flowchart",
+    feature = "diagram-swimlane",
+    feature = "diagram-agentflow"
+))]
+fn flowchart_artifact_theme_evidence<L>(
+    artifact: &FlowchartFamilyArtifact<'_, L>,
+    theme: Option<&ResolvedDiagramTheme>,
+    evidence: &mut FamilyThemeEvidence,
+) -> Vec<SourceStyleResidual> {
+    artifact
+        .prepared_theme()
+        .text_surface
+        .record_evidence(evidence);
+    let source_residuals = artifact.theme_evidence().record_into(theme, evidence);
+    if let Some(base_typography) = artifact.svg_label_sidecar().base_typography() {
+        base_typography.record_evidence(theme, evidence);
+    }
+    source_residuals
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-class")]
+pub(crate) struct ClassFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed ClassDiagram, ClassDiagramLayout>,
+    prepared_labels: crate::class::ClassPreparedLabels,
+    relation_theme: crate::class::ClassRelationThemePlan,
+    typography_theme: crate::class::ClassTextThemePlan,
+    render_config: crate::class::ClassRenderConfig,
+    node_visual_plan: crate::class::ClassNodeVisualPlan,
+    theme_evidence: crate::class::ClassThemeEvidenceRecorder,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-c4")]
+pub(crate) struct C4FamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::c4::C4DiagramModel, C4DiagramLayout>,
+    cluster_theme: crate::c4::C4ClusterThemePlan,
+    typography_theme: crate::c4::C4TypographyThemePlan,
+    text_paint: crate::c4::C4TextPaintPlan,
+}
+
+#[cfg(feature = "diagram-c4")]
+impl<'parsed> C4FamilyArtifact<'parsed> {
+    pub(crate) const fn text_paint(&self) -> &crate::c4::C4TextPaintPlan {
+        &self.text_paint
+    }
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::c4::C4DiagramModel, C4DiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn cluster_theme(&self) -> &crate::c4::C4ClusterThemePlan {
+        &self.cluster_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::c4::C4TypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[cfg(feature = "diagram-class")]
+impl<'parsed> ClassFamilyArtifact<'parsed> {
+    pub(crate) const fn prepared_labels(&self) -> &crate::class::ClassPreparedLabels {
+        &self.prepared_labels
+    }
+
+    pub(crate) const fn render_config(&self) -> &crate::class::ClassRenderConfig {
+        &self.render_config
+    }
+
+    pub(crate) const fn node_visual_plan(&self) -> &crate::class::ClassNodeVisualPlan {
+        &self.node_visual_plan
+    }
+
+    pub(crate) const fn pair(&self) -> &FamilyPair<&'parsed ClassDiagram, ClassDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn relation_theme(&self) -> &crate::class::ClassRelationThemePlan {
+        &self.relation_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::class::ClassTextThemePlan {
+        &self.typography_theme
+    }
+
+    pub(crate) const fn theme_evidence(&self) -> &crate::class::ClassThemeEvidenceRecorder {
+        &self.theme_evidence
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-gantt")]
+pub(crate) struct GanttFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::gantt::GanttDiagramRenderModel, GanttDiagramLayout>,
+    task_theme: crate::gantt::GanttTaskTheme,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-pie")]
+pub(crate) struct PieFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::pie::PieDiagramModel, PieDiagramLayout>,
+    theme: crate::pie::PieThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-timeline")]
+pub(crate) struct TimelineFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::timeline::TimelineDiagramModel, TimelineDiagramLayout>,
+    event_theme: crate::timeline::TimelineEventTheme,
+    typography_theme: crate::timeline::TimelineTypographyThemePlan,
+    text_paint: crate::timeline::TimelineTextPaintPlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-journey")]
+pub(crate) struct JourneyFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::journey::JourneyDiagramModel, JourneyDiagramLayout>,
+    task_theme: crate::journey::JourneyTaskTheme,
+    text_paint: crate::journey::JourneyTextPaintPlan,
+    typography_theme: crate::journey::JourneyTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-journey")]
+impl<'parsed> JourneyFamilyArtifact<'parsed> {
+    pub(crate) const fn text_paint(&self) -> &crate::journey::JourneyTextPaintPlan {
+        &self.text_paint
+    }
+
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::journey::JourneyDiagramModel, JourneyDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn task_theme(&self) -> &crate::journey::JourneyTaskTheme {
+        &self.task_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::journey::JourneyTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-quadrant-chart")]
+pub(crate) struct QuadrantChartFamilyArtifact<'parsed> {
+    pair: FamilyPair<
+        &'parsed diagrams::quadrant_chart::QuadrantChartDiagramModel,
+        QuadrantChartDiagramLayout,
+    >,
+    point_theme: crate::quadrantchart::QuadrantChartPointThemePlan,
+    text_paint: crate::quadrantchart::QuadrantChartPaintPlan,
+}
+
+#[cfg(feature = "diagram-quadrant-chart")]
+impl<'parsed> QuadrantChartFamilyArtifact<'parsed> {
+    pub(crate) const fn text_paint(&self) -> &crate::quadrantchart::QuadrantChartPaintPlan {
+        &self.text_paint
+    }
+
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<
+        &'parsed diagrams::quadrant_chart::QuadrantChartDiagramModel,
+        QuadrantChartDiagramLayout,
+    > {
+        &self.pair
+    }
+
+    pub(crate) const fn point_theme(&self) -> &crate::quadrantchart::QuadrantChartPointThemePlan {
+        &self.point_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-xychart")]
+pub(crate) struct XyChartFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::xy_chart::XyChartDiagramRenderModel, XyChartDiagramLayout>,
+    series_paint: crate::xychart::XyChartSeriesPaintPlan,
+    typography_theme: crate::xychart::XyChartTypographyThemePlan,
+    paint_theme: crate::xychart::XyChartPaintPlan,
+    effect_evidence: crate::diagram_theme::SvgShadowEvidenceRecorder,
+    expected_effect_applications: std::sync::OnceLock<usize>,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-radar")]
+pub(crate) struct RadarFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::radar::RadarDiagramModel, RadarDiagramLayout>,
+    series_paint: crate::radar::RadarSeriesPaintPlan,
+    title_theme: crate::radar::RadarTitleThemePlan,
+    axis_paint: crate::radar::RadarAxisPaintPlan,
+    text_paint: crate::radar::RadarTextPaintPlan,
+    typography_theme: crate::radar::RadarTypographyThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-sankey")]
+pub(crate) struct SankeyFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::sankey::SankeyDiagramModel, SankeyDiagramLayout>,
+    node_palette: crate::sankey::SankeyNodePalettePlan,
+    typography_theme: crate::sankey::SankeyTypographyThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-venn")]
+pub(crate) struct VennFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::venn::VennDiagramModel, VennDiagramLayout>,
+    title_theme: crate::venn::VennTitleThemePlan,
+    typography_theme: crate::venn::VennTypographyThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-zenuml")]
+pub(crate) struct ZenumlFamilyArtifact<'parsed> {
+    pair: FamilyPair<
+        &'parsed diagrams::zenuml::ZenumlDiagramModel,
+        crate::zenuml::ZenumlDiagramLayout,
+    >,
+    theme_plan: crate::zenuml::ZenumlThemePlan,
+}
+
+#[cfg(feature = "diagram-zenuml")]
+impl<'parsed> ZenumlFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<
+        &'parsed diagrams::zenuml::ZenumlDiagramModel,
+        crate::zenuml::ZenumlDiagramLayout,
+    > {
+        &self.pair
+    }
+
+    pub(crate) const fn theme_plan(&self) -> &crate::zenuml::ZenumlThemePlan {
+        &self.theme_plan
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-event-modeling")]
+pub(crate) struct EventModelingFamilyArtifact<'parsed> {
+    pair: FamilyPair<
+        &'parsed diagrams::event_modeling::EventModelingDiagramModel,
+        EventModelingDiagramLayout,
+    >,
+    text_theme: crate::eventmodeling::EventModelingTextThemePlan,
+    prepared_labels: crate::eventmodeling::EventModelingPreparedLabels,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-ishikawa")]
+pub(crate) struct IshikawaFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::ishikawa::IshikawaDiagramModel, IshikawaDiagramLayout>,
+    text_theme: crate::ishikawa::IshikawaTextThemePlan,
+}
+
+#[cfg(feature = "diagram-ishikawa")]
+impl<'parsed> IshikawaFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::ishikawa::IshikawaDiagramModel, IshikawaDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn text_theme(&self) -> &crate::ishikawa::IshikawaTextThemePlan {
+        &self.text_theme
+    }
+}
+
+#[cfg(feature = "diagram-event-modeling")]
+impl<'parsed> EventModelingFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<
+        &'parsed diagrams::event_modeling::EventModelingDiagramModel,
+        EventModelingDiagramLayout,
+    > {
+        &self.pair
+    }
+
+    pub(crate) const fn prepared_labels(
+        &self,
+    ) -> &crate::eventmodeling::EventModelingPreparedLabels {
+        &self.prepared_labels
+    }
+
+    pub(crate) const fn text_theme(&self) -> &crate::eventmodeling::EventModelingTextThemePlan {
+        &self.text_theme
+    }
+}
+
+#[cfg(feature = "diagram-venn")]
+impl<'parsed> VennFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::venn::VennDiagramModel, VennDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn title_theme(&self) -> &crate::venn::VennTitleThemePlan {
+        &self.title_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::venn::VennTypographyThemePlan {
+        &self.typography_theme
+    }
+
+    fn record_theme_evidence(&self, evidence: &mut FamilyThemeEvidence) {
+        self.title_theme.record_evidence(evidence);
+        self.typography_theme.record_evidence(evidence);
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-block")]
+pub(crate) struct BlockFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::block::BlockDiagramRenderModel, BlockDiagramLayout>,
+    prepared_labels: crate::block::BlockPreparedLabels,
+    node_paint_theme: crate::block::BlockNodePaintThemePlan,
+    node_label_paint_theme: crate::block::BlockNodeLabelPaintPlan,
+    edge_paint_theme: crate::block::BlockEdgePaintPlan,
+    marker_paint_theme: crate::block::BlockMarkerPaintPlan,
+    label_background_theme: crate::block::BlockLabelBackgroundPlan,
+    typography_theme: crate::block::BlockTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-block")]
+impl<'parsed> BlockFamilyArtifact<'parsed> {
+    pub(crate) const fn prepared_labels(&self) -> &crate::block::BlockPreparedLabels {
+        &self.prepared_labels
+    }
+
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::block::BlockDiagramRenderModel, BlockDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn node_paint_theme(&self) -> &crate::block::BlockNodePaintThemePlan {
+        &self.node_paint_theme
+    }
+
+    pub(crate) const fn node_label_paint_theme(&self) -> &crate::block::BlockNodeLabelPaintPlan {
+        &self.node_label_paint_theme
+    }
+
+    pub(crate) const fn edge_paint_theme(&self) -> &crate::block::BlockEdgePaintPlan {
+        &self.edge_paint_theme
+    }
+
+    pub(crate) const fn marker_paint_theme(&self) -> &crate::block::BlockMarkerPaintPlan {
+        &self.marker_paint_theme
+    }
+
+    pub(crate) const fn label_background_theme(&self) -> &crate::block::BlockLabelBackgroundPlan {
+        &self.label_background_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::block::BlockTypographyThemePlan {
+        &self.typography_theme
+    }
+
+    fn record_theme_evidence(&self, evidence: &mut FamilyThemeEvidence) {
+        self.node_paint_theme.record_evidence(evidence);
+        self.node_label_paint_theme.record_evidence(evidence);
+        self.edge_paint_theme.record_evidence(evidence);
+        self.marker_paint_theme.record_evidence(evidence);
+        if self.label_background_theme.requested() {
+            self.label_background_theme.record_evidence(evidence);
+        }
+        self.typography_theme.record_evidence(evidence);
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-railroad")]
+pub(crate) struct RailroadFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::railroad::RailroadDiagramModel, RailroadDiagramLayout>,
+    typography_theme: crate::railroad::RailroadTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-railroad")]
+impl<'parsed> RailroadFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::railroad::RailroadDiagramModel, RailroadDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::railroad::RailroadTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ErrorFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::error::ErrorDiagramModel, ErrorDiagramLayout>,
+    typography_theme: crate::error::ErrorTypographyThemePlan,
+}
+
+impl<'parsed> ErrorFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::error::ErrorDiagramModel, ErrorDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::error::ErrorTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-info")]
+pub(crate) struct InfoFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::info::InfoDiagramModel, InfoDiagramLayout>,
+    typography_theme: crate::info::InfoTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-info")]
+impl<'parsed> InfoFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::info::InfoDiagramModel, InfoDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::info::InfoTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-cynefin")]
+pub(crate) struct CynefinFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::cynefin::CynefinDiagramModel, CynefinDiagramLayout>,
+    typography_theme: crate::cynefin::CynefinTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-cynefin")]
+impl<'parsed> CynefinFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::cynefin::CynefinDiagramModel, CynefinDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::cynefin::CynefinTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-wardley")]
+pub(crate) struct WardleyFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::wardley::WardleyDiagramModel, WardleyDiagramLayout>,
+    typography_theme: crate::wardley::WardleyTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-wardley")]
+impl<'parsed> WardleyFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::wardley::WardleyDiagramModel, WardleyDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::wardley::WardleyTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[cfg(feature = "diagram-sankey")]
+impl<'parsed> SankeyFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::sankey::SankeyDiagramModel, SankeyDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn node_palette(&self) -> &crate::sankey::SankeyNodePalettePlan {
+        &self.node_palette
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::sankey::SankeyTypographyThemePlan {
+        &self.typography_theme
+    }
+
+    fn record_theme_evidence(&self, evidence: &mut FamilyThemeEvidence) {
+        self.node_palette.record_evidence(evidence);
+        self.typography_theme.record_evidence(evidence);
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-git-graph")]
+pub(crate) struct GitGraphFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::git_graph::GitGraphDiagramModel, GitGraphDiagramLayout>,
+    node_palette: crate::gitgraph::GitGraphNodePalettePlan,
+    static_paint: crate::gitgraph::GitGraphStaticPaintPlan,
+    typography_theme: crate::gitgraph::GitGraphTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-git-graph")]
+impl<'parsed> GitGraphFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::git_graph::GitGraphDiagramModel, GitGraphDiagramLayout>
+    {
+        &self.pair
+    }
+
+    pub(crate) const fn node_palette(&self) -> &crate::gitgraph::GitGraphNodePalettePlan {
+        &self.node_palette
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::gitgraph::GitGraphTypographyThemePlan {
+        &self.typography_theme
+    }
+
+    pub(crate) const fn static_paint(&self) -> &crate::gitgraph::GitGraphStaticPaintPlan {
+        &self.static_paint
+    }
+
+    fn record_theme_evidence(&self, evidence: &mut FamilyThemeEvidence) {
+        self.node_palette.record_evidence(evidence);
+        self.node_palette.text_paint().record_evidence(evidence);
+        self.static_paint.record_evidence(evidence);
+        self.typography_theme.record_evidence(evidence);
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-treemap")]
+pub(crate) struct TreemapFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::treemap::TreemapDiagramRenderModel, TreemapDiagramLayout>,
+    title_theme: crate::treemap::TreemapTitleThemePlan,
+    typography_theme: crate::treemap::TreemapTypographyThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-requirement")]
+pub(crate) struct RequirementFamilyArtifact<'parsed> {
+    pair: FamilyPair<
+        &'parsed diagrams::requirement::RequirementDiagramModel,
+        crate::requirement::RequirementPreparedArtifact,
+    >,
+    paint_theme: crate::requirement::RequirementPaintThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-packet")]
+pub(crate) struct PacketFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::packet::PacketDiagramModel, PacketDiagramLayout>,
+    typography_theme: crate::packet::PacketTypographyThemePlan,
+}
+
+#[cfg(feature = "diagram-packet")]
+impl<'parsed> PacketFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::packet::PacketDiagramModel, PacketDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::packet::PacketTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[cfg(feature = "diagram-requirement")]
+impl<'parsed> RequirementFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<
+        &'parsed diagrams::requirement::RequirementDiagramModel,
+        crate::requirement::RequirementPreparedArtifact,
+    > {
+        &self.pair
+    }
+
+    pub(crate) const fn paint_theme(&self) -> &crate::requirement::RequirementPaintThemePlan {
+        &self.paint_theme
+    }
+}
+
+#[cfg(feature = "diagram-treemap")]
+impl<'parsed> TreemapFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::treemap::TreemapDiagramRenderModel, TreemapDiagramLayout>
+    {
+        &self.pair
+    }
+
+    pub(crate) const fn title_theme(&self) -> &crate::treemap::TreemapTitleThemePlan {
+        &self.title_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::treemap::TreemapTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[cfg(feature = "diagram-radar")]
+impl<'parsed> RadarFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::radar::RadarDiagramModel, RadarDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn series_paint(&self) -> &crate::radar::RadarSeriesPaintPlan {
+        &self.series_paint
+    }
+
+    pub(crate) const fn text_paint(&self) -> &crate::radar::RadarTextPaintPlan {
+        &self.text_paint
+    }
+
+    pub(crate) const fn axis_paint(&self) -> &crate::radar::RadarAxisPaintPlan {
+        &self.axis_paint
+    }
+
+    pub(crate) const fn title_theme(&self) -> &crate::radar::RadarTitleThemePlan {
+        &self.title_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::radar::RadarTypographyThemePlan {
+        &self.typography_theme
+    }
+
+    fn record_theme_evidence(&self, evidence: &mut FamilyThemeEvidence) {
+        self.series_paint.record_evidence(evidence);
+        self.title_theme.record_evidence(&self.text_paint, evidence);
+        self.axis_paint.record_evidence(evidence);
+        self.text_paint.record_evidence(evidence);
+        self.typography_theme.record_evidence(evidence);
+    }
+}
+
+#[cfg(feature = "diagram-xychart")]
+impl<'parsed> XyChartFamilyArtifact<'parsed> {
+    pub(crate) fn effect_evidence(&self) -> &crate::diagram_theme::SvgShadowEvidenceRecorder {
+        &self.effect_evidence
+    }
+    pub(crate) fn expected_effect_applications(&self) -> &std::sync::OnceLock<usize> {
+        &self.expected_effect_applications
+    }
+
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::xy_chart::XyChartDiagramRenderModel, XyChartDiagramLayout>
+    {
+        &self.pair
+    }
+
+    pub(crate) const fn series_paint(&self) -> &crate::xychart::XyChartSeriesPaintPlan {
+        &self.series_paint
+    }
+
+    pub(crate) const fn paint_theme(&self) -> &crate::xychart::XyChartPaintPlan {
+        &self.paint_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::xychart::XyChartTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-tree-view")]
+pub(crate) struct TreeViewFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::tree_view::TreeViewDiagramModel, TreeViewDiagramLayout>,
+    theme: crate::tree_view::TreeViewThemePlan,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-mindmap")]
+pub(crate) struct MindmapFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::mindmap::MindmapDiagramRenderModel, MindmapDiagramLayout>,
+    node_palette: crate::mindmap::MindmapNodePalettePlan,
+    prepared_labels: crate::mindmap::MindmapPreparedLabels,
+}
+
+#[cfg(feature = "diagram-mindmap")]
+impl<'parsed> MindmapFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::mindmap::MindmapDiagramRenderModel, MindmapDiagramLayout>
+    {
+        &self.pair
+    }
+
+    pub(crate) const fn node_palette(&self) -> &crate::mindmap::MindmapNodePalettePlan {
+        &self.node_palette
+    }
+
+    pub(crate) const fn prepared_labels(&self) -> &crate::mindmap::MindmapPreparedLabels {
+        &self.prepared_labels
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-er")]
+pub(crate) struct ErFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::er::ErDiagramModel, ErDiagramLayout>,
+    entity_theme: crate::er::ErEntityThemePlan,
+}
+
+#[cfg(feature = "diagram-er")]
+impl<'parsed> ErFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::er::ErDiagramModel, ErDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn entity_theme(&self) -> &crate::er::ErEntityThemePlan {
+        &self.entity_theme
+    }
+}
+
+#[cfg(feature = "diagram-pie")]
+impl<'parsed> PieFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::pie::PieDiagramModel, PieDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn theme(&self) -> &crate::pie::PieThemePlan {
+        &self.theme
+    }
+}
+
+#[cfg(feature = "diagram-timeline")]
+impl<'parsed> TimelineFamilyArtifact<'parsed> {
+    pub(crate) const fn text_paint(&self) -> &crate::timeline::TimelineTextPaintPlan {
+        &self.text_paint
+    }
+
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::timeline::TimelineDiagramModel, TimelineDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn event_theme(&self) -> &crate::timeline::TimelineEventTheme {
+        &self.event_theme
+    }
+
+    pub(crate) const fn typography_theme(&self) -> &crate::timeline::TimelineTypographyThemePlan {
+        &self.typography_theme
+    }
+}
+
+#[cfg(feature = "diagram-tree-view")]
+impl<'parsed> TreeViewFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::tree_view::TreeViewDiagramModel, TreeViewDiagramLayout>
+    {
+        &self.pair
+    }
+
+    pub(crate) const fn theme(&self) -> &crate::tree_view::TreeViewThemePlan {
+        &self.theme
+    }
+}
+
+#[cfg(feature = "diagram-gantt")]
+impl<'parsed> GanttFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::gantt::GanttDiagramRenderModel, GanttDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn task_theme(&self) -> &crate::gantt::GanttTaskTheme {
+        &self.task_theme
+    }
+}
+
+#[derive(Debug)]
+#[cfg(feature = "diagram-state")]
+pub(crate) struct StateFamilyArtifact<'parsed> {
+    pair: FamilyPair<&'parsed diagrams::state::StateDiagramRenderModel, StateDiagramLayout>,
+    label_sidecar: crate::state::StateLabelSidecar,
+    effect_evidence: crate::diagram_theme::SvgShadowEvidenceRecorder,
+}
+
+#[cfg(feature = "diagram-state")]
+impl<'parsed> StateFamilyArtifact<'parsed> {
+    pub(crate) fn pair(
+        &self,
+    ) -> &FamilyPair<&'parsed diagrams::state::StateDiagramRenderModel, StateDiagramLayout> {
+        &self.pair
+    }
+
+    pub(crate) const fn label_sidecar(&self) -> &crate::state::StateLabelSidecar {
+        &self.label_sidecar
+    }
+
+    pub(crate) const fn effect_evidence(&self) -> &crate::diagram_theme::SvgShadowEvidenceRecorder {
+        &self.effect_evidence
+    }
+}
+
+#[cfg(feature = "layout-cytoscape")]
+#[derive(Debug)]
+#[cfg(feature = "diagram-architecture")]
+pub(crate) struct ArchitectureFamilyArtifact<'parsed> {
+    pair: FamilyPair<
+        &'parsed diagrams::architecture::ArchitectureDiagramModel,
+        ArchitectureDiagramLayout,
+    >,
+    group_theme: crate::architecture::ArchitectureGroupThemePlan,
+}
+
+#[cfg(feature = "layout-cytoscape")]
+#[cfg(feature = "diagram-architecture")]
+impl<'parsed> ArchitectureFamilyArtifact<'parsed> {
+    pub(crate) const fn pair(
+        &self,
+    ) -> &FamilyPair<
+        &'parsed diagrams::architecture::ArchitectureDiagramModel,
+        ArchitectureDiagramLayout,
+    > {
+        &self.pair
+    }
+
+    pub(crate) const fn group_theme(&self) -> &crate::architecture::ArchitectureGroupThemePlan {
+        &self.group_theme
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum BuiltinFamilyArtifact<'parsed> {
+    #[cfg(feature = "diagram-agentflow")]
+    Agentflow {
+        semantic: &'parsed diagrams::agentflow::AgentflowDiagramRenderModel,
+        flow: Box<FlowchartFamilyArtifact<'parsed, FlowchartLayout>>,
+    },
+    Error(Box<ErrorFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-mindmap")]
+    Mindmap(Box<MindmapFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-state")]
+    State(Box<StateFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-sequence")]
+    Sequence(
+        Box<
+            FamilyPair<
+                &'parsed diagrams::sequence::SequenceDiagramModel,
+                crate::sequence::SequencePreparedArtifact,
+            >,
+        >,
+    ),
+    #[cfg(feature = "diagram-zenuml")]
+    Zenuml(Box<ZenumlFamilyArtifact<'parsed>>),
+    #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    Flowchart(Box<FlowchartFamilyArtifact<'parsed, FlowchartLayout>>),
+    #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    Swimlane(Box<FlowchartFamilyArtifact<'parsed, SwimlaneLayout>>),
+    #[cfg(feature = "layout-cytoscape")]
+    #[cfg(feature = "diagram-architecture")]
+    Architecture(Box<ArchitectureFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-class")]
+    Class(Box<ClassFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-c4")]
+    C4(Box<C4FamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-cynefin")]
+    Cynefin(Box<CynefinFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-wardley")]
+    Wardley(Box<WardleyFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-railroad")]
+    Railroad(Box<RailroadFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-kanban")]
+    Kanban(
+        Box<
+            FamilyPair<
+                &'parsed diagrams::kanban::KanbanDiagramRenderModel,
+                crate::kanban::KanbanPreparedArtifact,
+            >,
+        >,
+    ),
+    #[cfg(feature = "diagram-gantt")]
+    Gantt(Box<GanttFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-pie")]
+    Pie(Box<PieFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-packet")]
+    Packet(Box<PacketFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-timeline")]
+    Timeline(Box<TimelineFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-journey")]
+    Journey(Box<JourneyFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-requirement")]
+    Requirement(Box<RequirementFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-sankey")]
+    Sankey(Box<SankeyFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-radar")]
+    Radar(Box<RadarFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-info")]
+    Info(Box<InfoFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-treemap")]
+    Treemap(Box<TreemapFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-block")]
+    Block(Box<BlockFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-er")]
+    Er(Box<ErFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-quadrant-chart")]
+    QuadrantChart(Box<QuadrantChartFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-xychart")]
+    XyChart(Box<XyChartFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-git-graph")]
+    GitGraph(Box<GitGraphFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-tree-view")]
+    TreeView(Box<TreeViewFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-ishikawa")]
+    Ishikawa(Box<IshikawaFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-event-modeling")]
+    EventModeling(Box<EventModelingFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-venn")]
+    Venn(Box<VennFamilyArtifact<'parsed>>),
+    #[cfg(feature = "diagram-usecase")]
+    Usecase(
+        Box<
+            FamilyPair<
+                &'parsed diagrams::usecase::UsecaseDiagramModel,
+                crate::usecase::UsecasePreparedArtifact,
+            >,
+        >,
+    ),
+}
+
+#[derive(serde::Serialize)]
+enum LayoutProjection<'a> {
+    #[cfg(feature = "diagram-agentflow")]
+    AgentflowDiagram(&'a FlowchartLayout),
+    #[cfg(feature = "diagram-block")]
+    BlockDiagram(&'a BlockDiagramLayout),
+    #[cfg(feature = "diagram-requirement")]
+    RequirementDiagram(&'a RequirementDiagramLayout),
+    #[cfg(feature = "layout-cytoscape")]
+    #[cfg(feature = "diagram-architecture")]
+    ArchitectureDiagram(&'a ArchitectureDiagramLayout),
+    #[cfg(feature = "diagram-mindmap")]
+    MindmapDiagram(&'a MindmapDiagramLayout),
+    #[cfg(feature = "diagram-sankey")]
+    SankeyDiagram(&'a SankeyDiagramLayout),
+    #[cfg(feature = "diagram-radar")]
+    RadarDiagram(&'a RadarDiagramLayout),
+    #[cfg(feature = "diagram-treemap")]
+    TreemapDiagram(&'a TreemapDiagramLayout),
+    #[cfg(feature = "diagram-venn")]
+    VennDiagram(&'a VennDiagramLayout),
+    #[cfg(feature = "diagram-usecase")]
+    UsecaseDiagram(&'a crate::usecase::UsecaseDiagramLayout),
+    #[cfg(feature = "diagram-xychart")]
+    XyChartDiagram(&'a XyChartDiagramLayout),
+    #[cfg(feature = "diagram-quadrant-chart")]
+    QuadrantChartDiagram(&'a QuadrantChartDiagramLayout),
+    #[serde(rename = "FlowchartV2")]
+    #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    Flowchart(&'a FlowchartLayout),
+    #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    SwimlaneDiagram(&'a SwimlaneLayout),
+    #[serde(rename = "StateDiagramV2")]
+    #[cfg(feature = "diagram-state")]
+    StateDiagram(&'a StateDiagramLayout),
+    #[serde(rename = "ClassDiagramV2")]
+    #[cfg(feature = "diagram-class")]
+    ClassDiagram(&'a ClassDiagramLayout),
+    #[cfg(feature = "diagram-er")]
+    ErDiagram(&'a ErDiagramLayout),
+    #[cfg(feature = "diagram-sequence")]
+    SequenceDiagram(&'a SequenceDiagramLayout),
+    #[cfg(feature = "diagram-zenuml")]
+    ZenumlDiagram(&'a crate::zenuml::ZenumlDiagramLayout),
+    #[cfg(feature = "diagram-info")]
+    InfoDiagram(&'a InfoDiagramLayout),
+    #[cfg(feature = "diagram-packet")]
+    PacketDiagram(&'a PacketDiagramLayout),
+    #[cfg(feature = "diagram-timeline")]
+    TimelineDiagram(&'a TimelineDiagramLayout),
+    #[cfg(feature = "diagram-pie")]
+    PieDiagram(&'a PieDiagramLayout),
+    #[cfg(feature = "diagram-journey")]
+    JourneyDiagram(&'a JourneyDiagramLayout),
+    #[cfg(feature = "diagram-kanban")]
+    KanbanDiagram(&'a KanbanDiagramLayout),
+    #[cfg(feature = "diagram-git-graph")]
+    GitGraphDiagram(&'a GitGraphDiagramLayout),
+    #[cfg(feature = "diagram-tree-view")]
+    TreeViewDiagram(&'a TreeViewDiagramLayout),
+    #[cfg(feature = "diagram-ishikawa")]
+    IshikawaDiagram(&'a IshikawaDiagramLayout),
+    #[cfg(feature = "diagram-event-modeling")]
+    EventModelingDiagram(&'a EventModelingDiagramLayout),
+    #[cfg(feature = "diagram-cynefin")]
+    CynefinDiagram(&'a CynefinDiagramLayout),
+    #[cfg(feature = "diagram-wardley")]
+    WardleyDiagram(&'a WardleyDiagramLayout),
+    #[cfg(feature = "diagram-railroad")]
+    RailroadDiagram(&'a RailroadDiagramLayout),
+    #[cfg(feature = "diagram-gantt")]
+    GanttDiagram(&'a GanttDiagramLayout),
+    #[cfg(feature = "diagram-c4")]
+    C4Diagram(&'a C4DiagramLayout),
+    ErrorDiagram(&'a ErrorDiagramLayout),
+}
+
+impl BuiltinFamilyArtifact<'_> {
+    pub fn family_id(&self) -> DiagramFamilyId {
+        match self {
+            Self::Error(_) => DiagramFamilyId::ERROR,
+            #[cfg(feature = "diagram-mindmap")]
+            Self::Mindmap(_) => DiagramFamilyId::MINDMAP,
+            #[cfg(feature = "diagram-state")]
+            Self::State(_) => DiagramFamilyId::STATE,
+            #[cfg(feature = "diagram-sequence")]
+            Self::Sequence(_) => DiagramFamilyId::SEQUENCE,
+            #[cfg(feature = "diagram-zenuml")]
+            Self::Zenuml(_) => DiagramFamilyId::ZENUML,
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Flowchart(_) => DiagramFamilyId::FLOWCHART,
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Swimlane(_) => DiagramFamilyId::SWIMLANE,
+            #[cfg(feature = "layout-cytoscape")]
+            #[cfg(feature = "diagram-architecture")]
+            Self::Architecture(_) => DiagramFamilyId::ARCHITECTURE,
+            #[cfg(feature = "diagram-class")]
+            Self::Class(_) => DiagramFamilyId::CLASS,
+            #[cfg(feature = "diagram-c4")]
+            Self::C4(_) => DiagramFamilyId::C4,
+            #[cfg(feature = "diagram-cynefin")]
+            Self::Cynefin(_) => DiagramFamilyId::CYNEFIN,
+            #[cfg(feature = "diagram-wardley")]
+            Self::Wardley(_) => DiagramFamilyId::WARDLEY,
+            #[cfg(feature = "diagram-railroad")]
+            Self::Railroad(_) => DiagramFamilyId::RAILROAD,
+            #[cfg(feature = "diagram-kanban")]
+            Self::Kanban(_) => DiagramFamilyId::KANBAN,
+            #[cfg(feature = "diagram-gantt")]
+            Self::Gantt(_) => DiagramFamilyId::GANTT,
+            #[cfg(feature = "diagram-pie")]
+            Self::Pie(_) => DiagramFamilyId::PIE,
+            #[cfg(feature = "diagram-packet")]
+            Self::Packet(_) => DiagramFamilyId::PACKET,
+            #[cfg(feature = "diagram-timeline")]
+            Self::Timeline(_) => DiagramFamilyId::TIMELINE,
+            #[cfg(feature = "diagram-journey")]
+            Self::Journey(_) => DiagramFamilyId::JOURNEY,
+            #[cfg(feature = "diagram-requirement")]
+            Self::Requirement(_) => DiagramFamilyId::REQUIREMENT,
+            #[cfg(feature = "diagram-sankey")]
+            Self::Sankey(_) => DiagramFamilyId::SANKEY,
+            #[cfg(feature = "diagram-radar")]
+            Self::Radar(_) => DiagramFamilyId::RADAR,
+            #[cfg(feature = "diagram-info")]
+            Self::Info(_) => DiagramFamilyId::INFO,
+            #[cfg(feature = "diagram-treemap")]
+            Self::Treemap(_) => DiagramFamilyId::TREEMAP,
+            #[cfg(feature = "diagram-block")]
+            Self::Block(_) => DiagramFamilyId::BLOCK,
+            #[cfg(feature = "diagram-er")]
+            Self::Er(_) => DiagramFamilyId::ER,
+            #[cfg(feature = "diagram-quadrant-chart")]
+            Self::QuadrantChart(_) => DiagramFamilyId::QUADRANT_CHART,
+            #[cfg(feature = "diagram-xychart")]
+            Self::XyChart(_) => DiagramFamilyId::XY_CHART,
+            #[cfg(feature = "diagram-git-graph")]
+            Self::GitGraph(_) => DiagramFamilyId::GIT_GRAPH,
+            #[cfg(feature = "diagram-tree-view")]
+            Self::TreeView(_) => DiagramFamilyId::TREE_VIEW,
+            #[cfg(feature = "diagram-ishikawa")]
+            Self::Ishikawa(_) => DiagramFamilyId::ISHIKAWA,
+            #[cfg(feature = "diagram-event-modeling")]
+            Self::EventModeling(_) => DiagramFamilyId::EVENT_MODELING,
+            #[cfg(feature = "diagram-venn")]
+            Self::Venn(_) => DiagramFamilyId::VENN,
+            #[cfg(feature = "diagram-agentflow")]
+            Self::Agentflow { .. } => DiagramFamilyId::AGENTFLOW,
+            #[cfg(feature = "diagram-usecase")]
+            Self::Usecase(_) => DiagramFamilyId::USECASE,
+        }
+    }
+
+    fn prepared_math_evidence(&self) -> PreparedMathEvidenceLease {
+        match self {
+            #[cfg(feature = "diagram-agentflow")]
+            Self::Agentflow { flow, .. } => flow.svg_label_sidecar().prepared_math_evidence(),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Flowchart(artifact) => artifact.svg_label_sidecar().prepared_math_evidence(),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Swimlane(artifact) => artifact.svg_label_sidecar().prepared_math_evidence(),
+            #[cfg(feature = "diagram-sequence")]
+            Self::Sequence(artifact) => artifact.layout.math_sidecar().prepared_math_evidence(),
+            _ => PreparedMathEvidenceLease::default(),
+        }
+    }
+
+    fn merge_theme_evidence(&self, context: &mut FamilyRenderContext) -> Result<()> {
+        let session = &context.session;
+        let style_plan = &mut context.style_plan;
+        let theme = style_plan.resolved_theme.as_deref();
+        let evidence = &mut style_plan.theme_evidence;
+        match self {
+            #[cfg(feature = "diagram-agentflow")]
+            Self::Agentflow { flow, .. } => {
+                evidence.clear_outcomes();
+                style_plan.source_style_residuals =
+                    flowchart_artifact_theme_evidence(flow, theme, evidence);
+                style_plan.payload = if FamilyThemeEvidence::not_applicable(theme)
+                    && style_plan.source_style_residuals.is_empty()
+                {
+                    FamilyStylePayload::NotApplicable
+                } else {
+                    FamilyStylePayload::Evaluated
+                };
+                return Ok(());
+            }
+            #[cfg(feature = "diagram-usecase")]
+            Self::Usecase(pair) => pair.layout().record_theme_evidence(evidence),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Flowchart(artifact) => {
+                evidence.clear_outcomes();
+                style_plan.source_style_residuals =
+                    flowchart_artifact_theme_evidence(artifact, theme, evidence);
+                style_plan.payload = if FamilyThemeEvidence::not_applicable(theme)
+                    && style_plan.source_style_residuals.is_empty()
+                {
+                    FamilyStylePayload::NotApplicable
+                } else {
+                    FamilyStylePayload::Evaluated
+                };
+                return Ok(());
+            }
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Swimlane(artifact) => {
+                evidence.clear_outcomes();
+                style_plan.source_style_residuals =
+                    flowchart_artifact_theme_evidence(artifact, theme, evidence);
+                style_plan.payload = if FamilyThemeEvidence::not_applicable(theme)
+                    && style_plan.source_style_residuals.is_empty()
+                {
+                    FamilyStylePayload::NotApplicable
+                } else {
+                    FamilyStylePayload::Evaluated
+                };
+                return Ok(());
+            }
+            #[cfg(feature = "diagram-sequence")]
+            Self::Sequence(pair) => {
+                pair.layout()
+                    .theme_evidence()
+                    .record_unsupported_text_emission(
+                        theme,
+                        pair.layout().diagram_title().is_some(),
+                        session.work_meter().as_ref(),
+                    )?;
+                evidence.clear_outcomes();
+                pair.layout().theme_evidence().record_into(theme, evidence);
+            }
+            // State reconciles its terminal and filter receipts in the output finalizer.
+            #[cfg(feature = "diagram-state")]
+            Self::State(_) => return Ok(()),
+            #[cfg(feature = "diagram-class")]
+            Self::Class(artifact) => {
+                style_plan.source_style_residuals =
+                    crate::class::ClassTextThemePlan::root_dependent_source_residuals(
+                        artifact.pair().semantic(),
+                        artifact.render_config().diagram_use_html_labels,
+                        session.work_meter().control(),
+                    )?;
+                let outcomes = artifact.theme_evidence().finish(
+                    theme,
+                    artifact.relation_theme(),
+                    session.work_meter().as_ref(),
+                )?;
+                evidence.merge_accounted_from(outcomes);
+                artifact.typography_theme().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-gantt")]
+            Self::Gantt(artifact) => artifact.task_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-kanban")]
+            Self::Kanban(pair) => {
+                pair.layout().task_theme().record_evidence(evidence);
+                pair.layout().text_paint().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-pie")]
+            Self::Pie(artifact) => artifact.theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-timeline")]
+            Self::Timeline(artifact) => {
+                artifact.event_theme().record_evidence(evidence);
+                artifact.typography_theme().record_evidence(evidence);
+                artifact.text_paint().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-journey")]
+            Self::Journey(artifact) => {
+                artifact.task_theme().record_evidence(evidence);
+                artifact.text_paint().record_evidence(evidence);
+                artifact.typography_theme().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-quadrant-chart")]
+            Self::QuadrantChart(artifact) => {
+                artifact.point_theme().record_evidence(evidence);
+                artifact.text_paint().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-xychart")]
+            Self::XyChart(artifact) => {
+                artifact.series_paint().record_evidence(evidence);
+                artifact.typography_theme().record_evidence(evidence);
+                artifact.paint_theme().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-radar")]
+            Self::Radar(artifact) => artifact.record_theme_evidence(evidence),
+            #[cfg(feature = "diagram-sankey")]
+            Self::Sankey(artifact) => artifact.record_theme_evidence(evidence),
+            #[cfg(feature = "diagram-block")]
+            Self::Block(artifact) => artifact.record_theme_evidence(evidence),
+            #[cfg(feature = "diagram-railroad")]
+            Self::Railroad(artifact) => artifact.typography_theme().record_evidence(evidence),
+            Self::Error(artifact) => artifact.typography_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-info")]
+            Self::Info(artifact) => artifact.typography_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-cynefin")]
+            Self::Cynefin(artifact) => artifact.typography_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-wardley")]
+            Self::Wardley(artifact) => artifact.typography_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-treemap")]
+            Self::Treemap(artifact) => {
+                artifact.title_theme().record_evidence(evidence);
+                artifact.typography_theme().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-requirement")]
+            Self::Requirement(artifact) => artifact.paint_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-packet")]
+            Self::Packet(_) => return Ok(()),
+            #[cfg(feature = "diagram-c4")]
+            Self::C4(artifact) => {
+                artifact.cluster_theme().record_evidence(evidence);
+                artifact.typography_theme().record_evidence(evidence);
+                artifact.text_paint().record_evidence(evidence);
+            }
+            #[cfg(feature = "diagram-er")]
+            Self::Er(artifact) => artifact.entity_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-git-graph")]
+            Self::GitGraph(artifact) => artifact.record_theme_evidence(evidence),
+            #[cfg(feature = "diagram-mindmap")]
+            Self::Mindmap(artifact) => artifact.node_palette().record_evidence(evidence),
+            #[cfg(feature = "diagram-tree-view")]
+            Self::TreeView(artifact) => artifact.theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-venn")]
+            Self::Venn(artifact) => artifact.record_theme_evidence(evidence),
+            #[cfg(feature = "diagram-zenuml")]
+            Self::Zenuml(artifact) => artifact.theme_plan().record_evidence(evidence),
+            #[cfg(feature = "diagram-event-modeling")]
+            Self::EventModeling(artifact) => artifact.text_theme().record_evidence(evidence),
+            #[cfg(feature = "diagram-ishikawa")]
+            Self::Ishikawa(artifact) => artifact.text_theme().record_evidence(evidence),
+            #[cfg(all(feature = "layout-cytoscape", feature = "diagram-architecture"))]
+            Self::Architecture(_) => {}
+        }
+        style_plan.payload = if FamilyThemeEvidence::not_applicable(theme) {
+            FamilyStylePayload::NotApplicable
+        } else {
+            FamilyStylePayload::Evaluated
+        };
+        Ok(())
+    }
+
+    fn compatibility_json(
+        &self,
+        metadata: &PresentationMetadata,
+        output_context: &PresentationContext,
+        control: &merman_model::OperationControl,
+    ) -> Result<ManagedJson> {
+        let control = control.for_phase(OperationPhase::Semantic);
+        control.checkpoint()?;
+        match self {
+            #[cfg(feature = "diagram-agentflow")]
+            Self::Agentflow { semantic, .. } => semantic
+                .compatibility_json_with_context_controlled(metadata, output_context, &control)?
+                .map_err(Error::SemanticProjection),
+            Self::Error(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-mindmap")]
+            Self::Mindmap(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-state")]
+            Self::State(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-sequence")]
+            Self::Sequence(pair) => pair.compatibility_json(metadata, output_context, &control),
+            #[cfg(feature = "diagram-zenuml")]
+            Self::Zenuml(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Flowchart(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Swimlane(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "layout-cytoscape")]
+            #[cfg(feature = "diagram-architecture")]
+            Self::Architecture(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-class")]
+            Self::Class(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-c4")]
+            Self::C4(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-cynefin")]
+            Self::Cynefin(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-wardley")]
+            Self::Wardley(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-railroad")]
+            Self::Railroad(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-kanban")]
+            Self::Kanban(pair) => pair.compatibility_json(metadata, output_context, &control),
+            #[cfg(feature = "diagram-gantt")]
+            Self::Gantt(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-pie")]
+            Self::Pie(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-packet")]
+            Self::Packet(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-timeline")]
+            Self::Timeline(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-journey")]
+            Self::Journey(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-requirement")]
+            Self::Requirement(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-sankey")]
+            Self::Sankey(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-radar")]
+            Self::Radar(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-info")]
+            Self::Info(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-treemap")]
+            Self::Treemap(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-block")]
+            Self::Block(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-er")]
+            Self::Er(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-quadrant-chart")]
+            Self::QuadrantChart(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-xychart")]
+            Self::XyChart(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-git-graph")]
+            Self::GitGraph(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-tree-view")]
+            Self::TreeView(artifact) => {
+                artifact
+                    .pair
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-ishikawa")]
+            Self::Ishikawa(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-event-modeling")]
+            Self::EventModeling(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-venn")]
+            Self::Venn(artifact) => {
+                artifact
+                    .pair()
+                    .compatibility_json(metadata, output_context, &control)
+            }
+            #[cfg(feature = "diagram-usecase")]
+            Self::Usecase(pair) => pair.compatibility_json(metadata, output_context, &control),
+        }
+    }
+
+    fn layout_projection(&self) -> LayoutProjection<'_> {
+        match self {
+            #[cfg(feature = "diagram-agentflow")]
+            Self::Agentflow { flow, .. } => LayoutProjection::AgentflowDiagram(flow.pair.layout()),
+            Self::Error(artifact) => LayoutProjection::ErrorDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-mindmap")]
+            Self::Mindmap(artifact) => LayoutProjection::MindmapDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-state")]
+            Self::State(artifact) => LayoutProjection::StateDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-sequence")]
+            Self::Sequence(pair) => LayoutProjection::SequenceDiagram(pair.layout().layout()),
+            #[cfg(feature = "diagram-zenuml")]
+            Self::Zenuml(artifact) => LayoutProjection::ZenumlDiagram(artifact.pair().layout()),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Flowchart(artifact) => LayoutProjection::Flowchart(artifact.pair.layout()),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            Self::Swimlane(artifact) => LayoutProjection::SwimlaneDiagram(artifact.pair.layout()),
+            #[cfg(feature = "layout-cytoscape")]
+            #[cfg(feature = "diagram-architecture")]
+            Self::Architecture(artifact) => {
+                LayoutProjection::ArchitectureDiagram(artifact.pair.layout())
+            }
+            #[cfg(feature = "diagram-class")]
+            Self::Class(artifact) => LayoutProjection::ClassDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-c4")]
+            Self::C4(artifact) => LayoutProjection::C4Diagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-cynefin")]
+            Self::Cynefin(artifact) => LayoutProjection::CynefinDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-wardley")]
+            Self::Wardley(artifact) => LayoutProjection::WardleyDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-railroad")]
+            Self::Railroad(artifact) => LayoutProjection::RailroadDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-kanban")]
+            Self::Kanban(pair) => LayoutProjection::KanbanDiagram(pair.layout().layout()),
+            #[cfg(feature = "diagram-gantt")]
+            Self::Gantt(artifact) => LayoutProjection::GanttDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-pie")]
+            Self::Pie(artifact) => LayoutProjection::PieDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-packet")]
+            Self::Packet(artifact) => LayoutProjection::PacketDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-timeline")]
+            Self::Timeline(artifact) => LayoutProjection::TimelineDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-journey")]
+            Self::Journey(artifact) => LayoutProjection::JourneyDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-requirement")]
+            Self::Requirement(artifact) => {
+                LayoutProjection::RequirementDiagram(artifact.pair.layout().layout())
+            }
+            #[cfg(feature = "diagram-sankey")]
+            Self::Sankey(artifact) => LayoutProjection::SankeyDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-radar")]
+            Self::Radar(artifact) => LayoutProjection::RadarDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-info")]
+            Self::Info(artifact) => LayoutProjection::InfoDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-treemap")]
+            Self::Treemap(artifact) => LayoutProjection::TreemapDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-block")]
+            Self::Block(artifact) => LayoutProjection::BlockDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-er")]
+            Self::Er(artifact) => LayoutProjection::ErDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-quadrant-chart")]
+            Self::QuadrantChart(artifact) => {
+                LayoutProjection::QuadrantChartDiagram(artifact.pair.layout())
+            }
+            #[cfg(feature = "diagram-xychart")]
+            Self::XyChart(artifact) => LayoutProjection::XyChartDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-git-graph")]
+            Self::GitGraph(artifact) => LayoutProjection::GitGraphDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-tree-view")]
+            Self::TreeView(artifact) => LayoutProjection::TreeViewDiagram(artifact.pair.layout()),
+            #[cfg(feature = "diagram-ishikawa")]
+            Self::Ishikawa(artifact) => LayoutProjection::IshikawaDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-event-modeling")]
+            Self::EventModeling(artifact) => {
+                LayoutProjection::EventModelingDiagram(artifact.pair().layout())
+            }
+            #[cfg(feature = "diagram-venn")]
+            Self::Venn(artifact) => LayoutProjection::VennDiagram(artifact.pair().layout()),
+            #[cfg(feature = "diagram-usecase")]
+            Self::Usecase(pair) => LayoutProjection::UsecaseDiagram(pair.layout().layout()),
+        }
+    }
+}
+
+pub struct FamilyRenderArtifact<'parsed> {
+    metadata: &'parsed PresentationMetadata,
+    output_context: &'parsed PresentationContext,
+    family: BuiltinFamilyArtifact<'parsed>,
+    required_capabilities: Vec<RenderCapability>,
+    context: FamilyRenderContext,
+}
+
+/// Owned projection of the Gantt time scale used by comparison tooling.
+///
+/// The projection deliberately hides the full family layout. Its inverse uses the same rounded
+/// pixel mapping as the renderer, so coordinates that fall between representable task times return
+/// `None` instead of inventing a timestamp.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GanttTimeAxisDiagnostics {
+    min_ms: i64,
+    max_ms: i64,
+    left_x: f64,
+    drawable_width: f64,
+}
+
+impl GanttTimeAxisDiagnostics {
+    #[cfg(feature = "diagram-gantt")]
+    fn from_layout(layout: &GanttDiagramLayout) -> Option<Self> {
+        let min_ms = layout.tasks.iter().map(|task| task.start_ms).min()?;
+        let max_ms = layout.tasks.iter().map(|task| task.end_ms).max()?;
+        if max_ms <= min_ms {
+            return None;
+        }
+
+        let left_x = layout.left_padding;
+        let drawable_width = (layout.width - layout.left_padding - layout.right_padding).max(1.0);
+        if !left_x.is_finite() || !drawable_width.is_finite() {
+            return None;
+        }
+
+        Some(Self {
+            min_ms,
+            max_ms,
+            left_x,
+            drawable_width,
+        })
+    }
+
+    /// Resolves an exact rendered x coordinate back to a Unix timestamp in milliseconds.
+    pub fn unix_millis_at_rendered_x(&self, target_x: f64) -> Option<i64> {
+        if !target_x.is_finite() {
+            return None;
+        }
+
+        let span_ms = (i128::from(self.max_ms) - i128::from(self.min_ms)) as f64;
+        let scaled_x = target_x - self.left_x;
+        if !span_ms.is_finite() || !scaled_x.is_finite() {
+            return None;
+        }
+
+        let estimate = self.min_ms as f64 + span_ms * (scaled_x / self.drawable_width);
+        if !estimate.is_finite() {
+            return None;
+        }
+
+        let mut lo = estimate.round() as i64;
+        let mut hi = lo;
+        let mut step = 1_i64;
+        for _ in 0..80 {
+            if self.rendered_x(lo)? <= target_x {
+                break;
+            }
+            hi = lo;
+            lo = lo.saturating_sub(step);
+            step = step.saturating_mul(2);
+        }
+
+        step = 1;
+        for _ in 0..80 {
+            if self.rendered_x(hi)? >= target_x {
+                break;
+            }
+            lo = hi;
+            hi = hi.saturating_add(step);
+            step = step.saturating_mul(2);
+        }
+
+        let lo_x = self.rendered_x(lo)?;
+        let hi_x = self.rendered_x(hi)?;
+        if !(lo_x <= target_x && target_x <= hi_x) {
+            return None;
+        }
+
+        while lo < hi {
+            let half_distance = ((i128::from(hi) - i128::from(lo)) / 2) as i64;
+            let mid = lo + half_distance;
+            if self.rendered_x(mid)? < target_x {
+                lo = mid.saturating_add(1);
+            } else {
+                hi = mid;
+            }
+        }
+
+        (self.rendered_x(lo)? == target_x).then_some(lo)
+    }
+
+    fn rendered_x(&self, unix_millis: i64) -> Option<f64> {
+        let offset_ms = (i128::from(unix_millis) - i128::from(self.min_ms)) as f64;
+        let span_ms = (i128::from(self.max_ms) - i128::from(self.min_ms)) as f64;
+        let x = self.left_x + (offset_ms / span_ms * self.drawable_width).round();
+        x.is_finite().then_some(x)
+    }
+}
+
+/// A completed family SVG produced by the canonical typed render operation.
+///
+/// Root completion evidence is private to the renderer and cannot be named by callers:
+///
+/// ```compile_fail
+/// use merman_render::svg::RootedSvg;
+/// ```
+///
+/// A raw string cannot be substituted for a completed family SVG:
+///
+/// ```compile_fail
+/// use merman_render::family::RenderedFamilySvg;
+///
+/// let forged: RenderedFamilySvg = String::from("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+/// ```
+pub struct RenderedFamilySvg {
+    layout_adaptation: Option<crate::LayoutAdaptationObservation>,
+    svg: String,
+    prepared_math_evidence: PreparedMathEvidenceLease,
+    prepared_math_evidence_valid: bool,
+    root_theme: RootThemeReport,
+    style_report: FamilyStyleReport,
+    metadata: PresentationMetadata,
+    required_capabilities: Vec<RenderCapability>,
+    session: RenderSession,
+}
+
+/// Opaque output paired with the family report frozen after all requested SVG work.
+///
+/// The live [`RenderSession`] remains in pre-completion SVG types so pipelines can record their
+/// measurements. Converting to this type replaces that mutable session with [`RenderSessionReport`].
+/// Completion therefore exposes no route for recording more measurements:
+///
+/// ```compile_fail
+/// use merman_render::family::FamilyRenderCompletion;
+///
+/// fn measure_after_completion(completion: FamilyRenderCompletion<String>) {
+///     let _ = completion.session();
+/// }
+/// ```
+///
+/// An output and a report from separate renders cannot be assembled into a completion:
+///
+/// ```compile_fail
+/// use merman_render::family::{FamilyRenderCompletion, FamilyRenderReport};
+/// use merman_render::svg::ResvgCompatibleSvg;
+///
+/// fn rebind(output: ResvgCompatibleSvg, report: FamilyRenderReport) {
+///     let _ = FamilyRenderCompletion { output, report };
+/// }
+/// ```
+#[must_use = "completed render output and its frozen report should be consumed together"]
+pub struct FamilyRenderCompletion<T> {
+    layout_adaptation: Option<crate::LayoutAdaptationObservation>,
+    output: T,
+    report: FamilyRenderReport,
+}
+
+impl<T> FamilyRenderCompletion<T> {
+    /// Placement observations retained independently of theme and admission reports.
+    pub const fn layout_adaptation(&self) -> Option<crate::LayoutAdaptationObservation> {
+        self.layout_adaptation
+    }
+
+    pub const fn output(&self) -> &T {
+        &self.output
+    }
+
+    pub const fn report(&self) -> &FamilyRenderReport {
+        &self.report
+    }
+
+    pub fn into_output_and_report(self) -> (T, FamilyRenderReport) {
+        (self.output, self.report)
+    }
+}
+
+impl RenderedFamilySvg {
+    pub fn svg(&self) -> &str {
+        &self.svg
+    }
+
+    pub fn metadata(&self) -> &PresentationMetadata {
+        &self.metadata
+    }
+
+    pub fn family_kind(&self) -> RenderFamilyKind {
+        RenderFamilyKind::from_family_id(self.family_id())
+    }
+
+    pub fn family_id(&self) -> DiagramFamilyId {
+        self.style_report.family_id()
+    }
+
+    /// Returns the optional capabilities admitted during this artifact's preparation.
+    pub fn required_capabilities(&self) -> &[RenderCapability] {
+        &self.required_capabilities
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn style_report(&self) -> &FamilyStyleReport {
+        &self.style_report
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn root_theme_report(&self) -> &RootThemeReport {
+        &self.root_theme
+    }
+
+    /// Applies an output pipeline while retaining the renderer-owned family capability.
+    pub fn apply_pipeline(self, pipeline: &SvgPipeline) -> Result<Self> {
+        self.apply_pipeline_with_portability(pipeline, true)
+    }
+
+    fn apply_pipeline_with_portability(
+        mut self,
+        pipeline: &SvgPipeline,
+        enforce_portability: bool,
+    ) -> Result<Self> {
+        self.session.checkpoint(OperationPhase::Postprocess)?;
+        let output_metadata = self.output_metadata()?;
+        let requires_prepared_math_projection = pipeline.requires_prepared_math_projection();
+        let preserves_prepared_math = self.prepared_math_evidence_valid
+            && pipeline.preserves_prepared_math_evidence(output_metadata.family_id());
+        let supplies_prepared_math = self.prepared_math_evidence_valid
+            && (preserves_prepared_math || requires_prepared_math_projection);
+        let source_svg = std::mem::take(&mut self.svg);
+        let processed_svg = pipeline.process_generated_with_metadata_and_math_evidence(
+            source_svg,
+            &output_metadata,
+            &self.session,
+            supplies_prepared_math.then_some(&self.prepared_math_evidence),
+        )?;
+        self.svg = processed_svg;
+        if !preserves_prepared_math {
+            self.prepared_math_evidence_valid = false;
+        }
+        self.session.work_meter().preflight_svg_byte_count(
+            self.svg.len(),
+            ResourceLimitPhase::SvgPostprocess,
+            OperationPhase::Postprocess,
+        )?;
+        if !pipeline.preserves_typed_theme_evidence(output_metadata.family_id()) {
+            self.root_theme = self.root_theme.invalidate_for_output_mutation();
+            self.style_report = self.style_report.invalidate_for_output_mutation();
+        }
+        if enforce_portability {
+            ensure_root_theme_portable(&self.root_theme, self.session.portability_requirement())?;
+            if self.session.portability_requirement()
+                == ThemePortabilityRequirement::RequirePortable
+            {
+                self.style_report.ensure_portable()?;
+            }
+        }
+        self.session.checkpoint(OperationPhase::Postprocess)?;
+        Ok(self)
+    }
+
+    /// Finalizes the typed family output for resvg/raster consumption.
+    pub fn finalize_resvg(self, pipeline: &SvgPipeline) -> Result<RenderedResvgCompatibleSvg> {
+        self.finalize_resvg_with_portability(pipeline, true)
+    }
+
+    pub(crate) fn finalize_resvg_for_target_admission(
+        self,
+        pipeline: &SvgPipeline,
+    ) -> Result<RenderedResvgCompatibleSvg> {
+        self.finalize_resvg_with_portability(pipeline, false)
+    }
+
+    fn finalize_resvg_with_portability(
+        self,
+        pipeline: &SvgPipeline,
+        enforce_portability: bool,
+    ) -> Result<RenderedResvgCompatibleSvg> {
+        self.session.checkpoint(OperationPhase::Export)?;
+        let portability = self.session.portability_requirement();
+        let output_metadata = self.output_metadata()?;
+        let prepared_math_evidence_valid = self.prepared_math_evidence_valid
+            && pipeline.preserves_prepared_math_evidence(output_metadata.family_id());
+        if !self.prepared_math_evidence.is_empty() && !prepared_math_evidence_valid {
+            return Err(Error::svg_postprocess(
+                "prepared-math-terminal-receipt",
+                "renderer-owned prepared-math evidence was invalidated before native projection",
+            ));
+        }
+        let prepared_math_evidence = if prepared_math_evidence_valid {
+            self.prepared_math_evidence
+        } else {
+            PreparedMathEvidenceLease::default()
+        };
+        let svg = pipeline.process_owned_resvg_compatible_with_metadata_and_evidence(
+            self.svg,
+            &output_metadata,
+            &self.session,
+            prepared_math_evidence,
+            prepared_math_evidence_valid,
+        )?;
+        self.session.work_meter().preflight_svg_byte_count(
+            svg.as_str().len(),
+            ResourceLimitPhase::SvgPostprocess,
+            OperationPhase::Export,
+        )?;
+        let preserves_typed_theme_evidence =
+            pipeline.preserves_typed_theme_evidence(output_metadata.family_id());
+        let root_theme = if preserves_typed_theme_evidence {
+            self.root_theme
+        } else {
+            self.root_theme.invalidate_for_output_mutation()
+        };
+        let style_report = if preserves_typed_theme_evidence {
+            self.style_report
+        } else {
+            self.style_report.invalidate_for_output_mutation()
+        };
+        if enforce_portability {
+            ensure_root_theme_portable(&root_theme, portability)?;
+            if portability == ThemePortabilityRequirement::RequirePortable {
+                style_report.ensure_portable()?;
+            }
+        }
+        self.session.checkpoint(OperationPhase::Export)?;
+        Ok(RenderedResvgCompatibleSvg {
+            layout_adaptation: self.layout_adaptation,
+            svg,
+            root_theme,
+            style_report,
+            session: self.session,
+            materialized_theme: self.metadata.effective_config.materialized_theme(),
+        })
+    }
+
+    /// Completes the exact artifact selected for the standalone SVG target.
+    ///
+    /// Resvg-safe output retains the full renderer-owned terminal capability. Other pipelines
+    /// preserve their exact bytes; native compatibility is observed only when portability is
+    /// required. Best-effort output still enforces resource budgets and cancellation.
+    pub fn finalize_standalone(
+        self,
+        pipeline: Option<&SvgPipeline>,
+    ) -> Result<RenderedStandaloneSvg> {
+        self.finalize_standalone_with_portability(pipeline, true)
+    }
+
+    pub(crate) fn finalize_standalone_for_target_admission(
+        self,
+        pipeline: Option<&SvgPipeline>,
+    ) -> Result<RenderedStandaloneSvg> {
+        self.finalize_standalone_with_portability(pipeline, false)
+    }
+
+    fn finalize_standalone_with_portability(
+        self,
+        pipeline: Option<&SvgPipeline>,
+        enforce_portability: bool,
+    ) -> Result<RenderedStandaloneSvg> {
+        match pipeline {
+            Some(pipeline) if pipeline.preset() == SvgPipelinePreset::ResvgSafe => {
+                let finalized =
+                    self.finalize_resvg_with_portability(pipeline, enforce_portability)?;
+                Ok(finalized.into_standalone())
+            }
+            Some(pipeline) => self
+                .apply_pipeline_with_portability(pipeline, enforce_portability)?
+                .finalize_exact_standalone(pipeline),
+            None => {
+                let pipeline = SvgPipeline::parity();
+                self.finalize_exact_standalone(&pipeline)
+            }
+        }
+    }
+
+    fn finalize_exact_standalone(self, pipeline: &SvgPipeline) -> Result<RenderedStandaloneSvg> {
+        self.session.checkpoint(OperationPhase::Postprocess)?;
+        let artifact = StandaloneSvgArtifact::finalize_exact(self.svg, pipeline, &self.session)?;
+        self.session.checkpoint(OperationPhase::Postprocess)?;
+        Ok(RenderedStandaloneSvg {
+            layout_adaptation: self.layout_adaptation,
+            artifact,
+            root_theme: self.root_theme,
+            style_report: self.style_report,
+            session: self.session,
+            materialized_theme: self.metadata.effective_config.materialized_theme(),
+        })
+    }
+
+    fn output_metadata(&self) -> Result<SvgPostprocessMetadata> {
+        let metadata = SvgPostprocessMetadata::from_svg_with_execution(
+            &self.svg,
+            SvgPostprocessExecution::new(&self.session),
+        )?;
+        Ok(metadata
+            .with_family_id(self.family_id())
+            .with_diagram_type(self.metadata.diagram_type.clone())
+            .with_optional_diagram_title(self.metadata.title.clone()))
+    }
+
+    pub fn into_completion(self) -> FamilyRenderCompletion<String> {
+        let Self {
+            svg,
+            prepared_math_evidence: _,
+            prepared_math_evidence_valid: _,
+            root_theme,
+            style_report,
+            session,
+            metadata,
+            required_capabilities: _,
+            layout_adaptation,
+        } = self;
+        FamilyRenderCompletion {
+            layout_adaptation,
+            output: svg,
+            report: FamilyRenderReport::freeze(
+                root_theme,
+                style_report,
+                session,
+                metadata.effective_config.materialized_theme(),
+            ),
+        }
+    }
+}
+
+/// Renderer-owned family output after the terminal resvg compatibility finalizer.
+pub struct RenderedResvgCompatibleSvg {
+    layout_adaptation: Option<crate::LayoutAdaptationObservation>,
+    svg: ResvgCompatibleSvg,
+    root_theme: RootThemeReport,
+    style_report: FamilyStyleReport,
+    session: RenderSession,
+    materialized_theme: Option<merman_model::config::MermaidThemeId>,
+}
+
+impl RenderedResvgCompatibleSvg {
+    pub fn svg(&self) -> &ResvgCompatibleSvg {
+        &self.svg
+    }
+
+    pub fn family_kind(&self) -> RenderFamilyKind {
+        RenderFamilyKind::from_family_id(self.family_id())
+    }
+
+    pub const fn family_id(&self) -> DiagramFamilyId {
+        self.style_report.family_id()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn style_report(&self) -> &FamilyStyleReport {
+        &self.style_report
+    }
+
+    pub fn into_completion(self) -> FamilyRenderCompletion<ResvgCompatibleSvg> {
+        FamilyRenderCompletion {
+            layout_adaptation: self.layout_adaptation,
+            output: self.svg,
+            report: FamilyRenderReport::freeze(
+                self.root_theme,
+                self.style_report,
+                self.session,
+                self.materialized_theme,
+            ),
+        }
+    }
+
+    fn into_standalone(self) -> RenderedStandaloneSvg {
+        RenderedStandaloneSvg {
+            layout_adaptation: self.layout_adaptation,
+            artifact: StandaloneSvgArtifact::from_resvg_compatible(self.svg),
+            root_theme: self.root_theme,
+            style_report: self.style_report,
+            session: self.session,
+            materialized_theme: self.materialized_theme,
+        }
+    }
+}
+
+/// Renderer-owned family output paired with the exact standalone SVG terminal artifact.
+pub struct RenderedStandaloneSvg {
+    layout_adaptation: Option<crate::LayoutAdaptationObservation>,
+    artifact: StandaloneSvgArtifact,
+    root_theme: RootThemeReport,
+    style_report: FamilyStyleReport,
+    session: RenderSession,
+    materialized_theme: Option<merman_model::config::MermaidThemeId>,
+}
+
+impl RenderedStandaloneSvg {
+    pub(crate) fn admission_summary(
+        &self,
+    ) -> (
+        crate::__private::RootEvidenceSummary,
+        crate::__private::FamilyEvidenceSummary,
+        bool,
+    ) {
+        (
+            crate::__private::RootEvidenceSummary::from_root(&self.root_theme),
+            self.style_report.evidence_summary(),
+            self.session.has_host_measurements(),
+        )
+    }
+
+    pub fn artifact(&self) -> &StandaloneSvgArtifact {
+        &self.artifact
+    }
+
+    pub fn family_kind(&self) -> RenderFamilyKind {
+        RenderFamilyKind::from_family_id(self.family_id())
+    }
+
+    pub const fn family_id(&self) -> DiagramFamilyId {
+        self.style_report.family_id()
+    }
+
+    /// Returns the SVG bytes without materializing a completion report.
+    pub fn into_string(self) -> String {
+        self.artifact.into_string()
+    }
+
+    pub fn into_completion(self) -> FamilyRenderCompletion<StandaloneSvgArtifact> {
+        FamilyRenderCompletion {
+            layout_adaptation: self.layout_adaptation,
+            output: self.artifact,
+            report: FamilyRenderReport::freeze(
+                self.root_theme,
+                self.style_report,
+                self.session,
+                self.materialized_theme,
+            ),
+        }
+    }
+}
+
+impl<'parsed> FamilyRenderArtifact<'parsed> {
+    /// Width observations from the family placement that produced this artifact.
+    pub fn layout_adaptation(&self) -> Option<crate::LayoutAdaptationObservation> {
+        match &self.family {
+            #[cfg(feature = "diagram-kanban")]
+            BuiltinFamilyArtifact::Kanban(pair) => pair.layout().layout_adaptation(),
+            _ => None,
+        }
+    }
+
+    fn new(
+        parsed: &'parsed PresentationDiagram,
+        family: BuiltinFamilyArtifact<'parsed>,
+        context: FamilyRenderContext,
+    ) -> Result<Self> {
+        let actual_family = family.family_id();
+        let expected_family = context.family_id();
+        if actual_family != expected_family {
+            return Err(Error::InvalidModel {
+                message: format!(
+                    "planned render family {expected_family} produced {actual_family} artifact"
+                ),
+            });
+        }
+
+        Ok(Self {
+            metadata: parsed.metadata(),
+            output_context: parsed.render_context(),
+            family,
+            required_capabilities: Vec::new(),
+            context,
+        })
+    }
+
+    pub fn metadata(&self) -> &PresentationMetadata {
+        self.metadata
+    }
+
+    pub fn family_kind(&self) -> RenderFamilyKind {
+        RenderFamilyKind::from_family_id(self.family_id())
+    }
+
+    pub fn family_id(&self) -> DiagramFamilyId {
+        self.family.family_id()
+    }
+
+    pub fn gantt_time_axis_diagnostics(&self) -> Option<GanttTimeAxisDiagnostics> {
+        match &self.family {
+            #[cfg(feature = "diagram-gantt")]
+            BuiltinFamilyArtifact::Gantt(artifact) => {
+                GanttTimeAxisDiagnostics::from_layout(artifact.pair().layout())
+            }
+            _ => None,
+        }
+    }
+
+    /// Projects the semantic/layout envelope from this artifact's paired family owners.
+    ///
+    /// Callers cannot inject an unrelated semantic payload into the envelope.
+    ///
+    /// ```compile_fail,E0599
+    /// fn inject(
+    ///     artifact: &merman_render::family::FamilyRenderArtifact,
+    ///     semantic: merman_model::ManagedJson,
+    /// ) {
+    ///     let _ = artifact.layout_json_with_compatibility_json(semantic);
+    /// }
+    /// ```
+    pub fn layout_json(&self) -> Result<ManagedJson> {
+        self.context.session().checkpoint(OperationPhase::Emit)?;
+        let semantic = self.family.compatibility_json(
+            self.metadata,
+            self.output_context,
+            self.context.session().work_meter().control(),
+        )?;
+        self.assemble_layout_json(semantic)
+    }
+
+    fn assemble_layout_json(&self, semantic: ManagedJson) -> Result<ManagedJson> {
+        let layout = serde_json::to_value(self.family.layout_projection())?;
+
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "diagram_type".to_string(),
+            serde_json::Value::String(self.metadata.diagram_type.clone()),
+        );
+        metadata.insert(
+            "title".to_string(),
+            self.metadata
+                .title
+                .as_ref()
+                .map_or(serde_json::Value::Null, |title| {
+                    serde_json::Value::String(title.clone())
+                }),
+        );
+        metadata.insert(
+            "config".to_string(),
+            ManagedJson::from(self.metadata.config.as_value()).into_unmanaged_value(),
+        );
+        metadata.insert(
+            "effective_config".to_string(),
+            ManagedJson::from(self.metadata.effective_config.as_value()).into_unmanaged_value(),
+        );
+
+        if let Some(observation) = self.layout_adaptation() {
+            metadata.insert(
+                "layout_adaptation".to_owned(),
+                serde_json::to_value(observation)?,
+            );
+        }
+        let mut projection = serde_json::Map::new();
+        projection.insert("meta".to_string(), serde_json::Value::Object(metadata));
+        projection.insert("semantic".to_string(), semantic.into_unmanaged_value());
+        projection.insert("layout".to_string(), layout);
+        let projection = ManagedJson::from(serde_json::Value::Object(projection));
+        self.context.session().checkpoint(OperationPhase::Emit)?;
+        Ok(projection)
+    }
+
+    /// Returns occurrence-ordered edge paint geometry without serializing SVG.
+    ///
+    /// Points refine the layout routes with endpoint clipping and line hops. Labels use the
+    /// same prepared positioning decisions as SVG; no SVG byte budget is consumed.
+    pub fn edge_geometry_json(self) -> Result<Vec<crate::model::EdgePaintGeometry>> {
+        self.context.session().checkpoint(OperationPhase::Layout)?;
+        if self.context.session().portability_requirement()
+            == ThemePortabilityRequirement::RequirePortable
+        {
+            return Err(Error::PortabilityUnavailableForTarget {
+                target: "edge-geometry-json",
+            });
+        }
+        #[cfg(feature = "diagram-agentflow")]
+        let projected_metadata = if matches!(&self.family, BuiltinFamilyArtifact::Agentflow { .. })
+        {
+            let mut metadata = self.metadata.clone();
+            metadata.effective_config = project_agentflow_flowchart_config(
+                &metadata.effective_config,
+                self.context.session().work_meter().control(),
+            )?;
+            Some(metadata)
+        } else {
+            None
+        };
+        #[cfg(feature = "diagram-agentflow")]
+        let metadata = projected_metadata.as_ref().unwrap_or(self.metadata);
+        #[cfg(not(feature = "diagram-agentflow"))]
+        let metadata = self.metadata;
+        let geometry = crate::svg::edge_geometry_family_artifact(
+            &self.family,
+            metadata,
+            self.context.execution(),
+        )?;
+        self.context.session().checkpoint(OperationPhase::Emit)?;
+        Ok(geometry)
+    }
+
+    pub fn render_svg(
+        self,
+        options: &SvgRenderOptions,
+        debug: &SvgDebugOptions,
+    ) -> Result<RenderedFamilySvg> {
+        self.context.session().checkpoint(OperationPhase::Emit)?;
+        let trace_stage = debug.flowchart_edge_trace().map(|(edge_id, destination)| {
+            let staging = FlowchartEdgeTraceCollector::default();
+            let staged_debug = debug
+                .clone()
+                .with_flowchart_edge_trace(edge_id.to_owned(), staging.clone());
+            (destination.clone(), staging, staged_debug)
+        });
+        let render_debug = trace_stage
+            .as_ref()
+            .map_or(debug, |(_, _, staged_debug)| staged_debug);
+        let mut rendered = render_family_artifact_svg(&self, options, render_debug)?;
+        admit_rendered_svg_output(self.context.session(), rendered.as_str())?;
+        self.context.session().checkpoint(OperationPhase::Emit)?;
+        let filter_receipt = match &self.family {
+            #[cfg(feature = "diagram-usecase")]
+            BuiltinFamilyArtifact::Usecase(pair) => Some((
+                pair.layout().effect_evidence().finish(),
+                pair.layout().expected_effect_applications(),
+            )),
+            #[cfg(feature = "diagram-agentflow")]
+            BuiltinFamilyArtifact::Agentflow { flow, .. } => Some((
+                flow.effect_evidence().finish(),
+                flow.expected_effect_applications().get(),
+            )),
+            #[cfg(feature = "diagram-sequence")]
+            BuiltinFamilyArtifact::Sequence(artifact) => Some((
+                artifact.layout.effect_evidence().finish(),
+                artifact.layout.expected_effect_applications().get(),
+            )),
+            #[cfg(feature = "diagram-state")]
+            BuiltinFamilyArtifact::State(artifact) => Some((
+                artifact.effect_evidence().finish(),
+                self.context
+                    .style_plan
+                    .state()
+                    .map(crate::state::StateStylePlan::expected_native_filter_application_count)
+                    .unwrap_or(0),
+            )),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            BuiltinFamilyArtifact::Flowchart(artifact) => Some((
+                artifact.effect_evidence().finish(),
+                artifact.expected_effect_applications().get(),
+            )),
+            #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+            BuiltinFamilyArtifact::Swimlane(artifact) => Some((
+                artifact.effect_evidence().finish(),
+                artifact.expected_effect_applications().get(),
+            )),
+            #[cfg(feature = "diagram-xychart")]
+            BuiltinFamilyArtifact::XyChart(artifact) => Some((
+                artifact.effect_evidence().finish(),
+                artifact
+                    .expected_effect_applications()
+                    .get()
+                    .copied()
+                    .unwrap_or(0),
+            )),
+            _ => None,
+        };
+        let layout_adaptation = self.layout_adaptation();
+        let prepared_math_evidence = self.family.prepared_math_evidence();
+        let Self {
+            metadata,
+            family,
+            required_capabilities,
+            mut context,
+            output_context: _,
+        } = self;
+        family.merge_theme_evidence(&mut context)?;
+        if let Some(evidence) = rendered.take_family_theme_evidence() {
+            context.merge_accounted_terminal_evidence(context.family_id(), evidence);
+        }
+        #[cfg(feature = "diagram-packet")]
+        if let Some(outcome) = rendered.take_packet_theme_outcome() {
+            if metadata
+                .effective_config
+                .theme_compatibility()
+                .mermaid_residual_count()
+                != 0
+            {
+                let evidence = metadata.effective_config.theme_compatibility().clone();
+                let consumptions = outcome.compatibility_consumptions(&evidence);
+                context.reconcile_packet_mermaid_compatibility(&evidence, &consumptions);
+            }
+            context.merge_accounted_terminal_evidence(DiagramFamilyId::PACKET, outcome.evidence);
+        }
+        #[cfg(all(
+            merman_internal_theme_acceptance,
+            feature = "diagram-architecture",
+            feature = "layout-cytoscape"
+        ))]
+        if context.family_id() == DiagramFamilyId::ARCHITECTURE {
+            context
+                .style_plan
+                .record_architecture_text_receipt(rendered.take_architecture_text_receipt());
+        }
+
+        #[cfg(feature = "diagram-state")]
+        if context.family_id() == DiagramFamilyId::STATE {
+            context.reconcile_state_terminal_evidence();
+        }
+        context.observe_output_visibility(debug);
+        if let Some((emitted, expected)) = filter_receipt {
+            context
+                .style_plan
+                .reconcile_effect_evidence(emitted, expected);
+        }
+        let (svg, root_theme, preserves_typed_theme_evidence) = rendered.into_parts();
+        if !preserves_typed_theme_evidence {
+            context.invalidate_for_output_mutation();
+        }
+        context.ensure_portable()?;
+        let (session, style_report) = context.into_session_and_style_report();
+        ensure_root_theme_portable(&root_theme, session.portability_requirement())?;
+        session.checkpoint(OperationPhase::Emit)?;
+
+        if let Some((destination, staging, _)) = trace_stage {
+            for trace in staging.drain() {
+                destination.record(trace);
+            }
+        }
+
+        Ok(RenderedFamilySvg {
+            layout_adaptation,
+            svg,
+            prepared_math_evidence,
+            prepared_math_evidence_valid: true,
+            root_theme,
+            style_report,
+            metadata: metadata.clone(),
+            required_capabilities,
+            session,
+        })
+    }
+}
+
+fn admit_rendered_svg_output(session: &RenderSession, svg: &str) -> Result<()> {
+    // Termination wins over the final output ceiling when both become observable during emit.
+    session.checkpoint(OperationPhase::Emit)?;
+    session.work_meter().preflight_svg_byte_count(
+        svg.len(),
+        ResourceLimitPhase::SvgOutput,
+        OperationPhase::Emit,
+    )?;
+    Ok(())
+}
+
+#[inline(never)]
+fn render_family_artifact_svg(
+    artifact: &FamilyRenderArtifact,
+    request: &SvgRenderOptions,
+    debug: &SvgDebugOptions,
+) -> Result<crate::svg::RootThemeAppliedSvg> {
+    let options = crate::svg::normalize_svg_render_options(request, artifact.context.session())?;
+    let execution = artifact.context.execution();
+    #[cfg(feature = "diagram-agentflow")]
+    // Agentflow is adapted to the Flowchart renderer, while Mermaid's config namespace remains
+    // `agentflow`. Keep the public metadata untouched and project only the renderer input.
+    let projected_metadata = if matches!(&artifact.family, BuiltinFamilyArtifact::Agentflow { .. })
+    {
+        let mut metadata = artifact.metadata.clone();
+        metadata.effective_config = project_agentflow_flowchart_config(
+            &metadata.effective_config,
+            artifact.context.session().work_meter().control(),
+        )?;
+        Some(metadata)
+    } else {
+        None
+    };
+    #[cfg(feature = "diagram-agentflow")]
+    let metadata = projected_metadata.as_ref().unwrap_or(artifact.metadata);
+    #[cfg(not(feature = "diagram-agentflow"))]
+    let metadata = &artifact.metadata;
+
+    #[cfg(all(feature = "layout-cytoscape", feature = "diagram-architecture"))]
+    if let BuiltinFamilyArtifact::Architecture(architecture) = &artifact.family {
+        return crate::svg::render_architecture_family_artifact(
+            architecture,
+            &metadata.effective_config,
+            execution,
+            &options,
+            debug,
+        );
+    }
+    crate::svg::render_builtin_family_artifact(
+        &artifact.family,
+        metadata,
+        execution,
+        &options,
+        debug,
+    )
+}
+
+#[cfg(feature = "diagram-agentflow")]
+fn project_agentflow_flowchart_config(
+    config: &merman_model::presentation::PresentationConfig,
+    control: &merman_model::OperationControl,
+) -> Result<merman_model::presentation::PresentationConfig> {
+    let mut projected = config.as_config().clone();
+    let root = config.as_value();
+    let agentflow = root.get("agentflow").unwrap_or(&serde_json::Value::Null);
+    // Agentflow's renderer owns the root viewport. Defaults here mirror its `??`
+    // expressions; normal MermaidEngine configuration already includes schema defaults.
+    // Overwrite even absent family values so unrelated Flowchart settings cannot leak in.
+    for (key, fallback) in [
+        ("diagramPadding", serde_json::json!(8)),
+        ("useMaxWidth", serde_json::json!(true)),
+        ("titleTopMargin", serde_json::json!(0)),
+    ] {
+        let value = agentflow.get(key).filter(|value| !value.is_null());
+        projected.set_value(
+            &format!("flowchart.{key}"),
+            value
+                .map(merman_model::json::clone_value_nonrecursive)
+                .unwrap_or(fallback),
+        );
+    }
+    // Dagre takes a truthy root override before the renderer's family spacing.
+    // Mermaid's ELK adapter ignores all three configuration namespaces for spacing.
+    // Our shared adapter reads Flowchart settings, so keep its default spacing for ELK.
+    // Resolve registration first: an unavailable ELK loader executes Dagre instead.
+    let uses_dagre = crate::layout_backend::resolve_graph_layout(root).backend
+        == crate::layout_backend::GraphLayoutBackend::Dagre;
+    for key in ["nodeSpacing", "rankSpacing"] {
+        let value = uses_dagre
+            .then(|| {
+                root.get(key)
+                    .filter(|value| crate::config::json_value_is_truthy(value))
+                    .or_else(|| {
+                        agentflow
+                            .get(key)
+                            .filter(|value| crate::config::json_value_is_truthy(value))
+                    })
+            })
+            .flatten();
+        projected.set_value(
+            &format!("flowchart.{key}"),
+            value
+                .map(merman_model::json::clone_value_nonrecursive)
+                .unwrap_or_else(|| serde_json::json!(50)),
+        );
+    }
+    // AgentflowDB assigns these values to each node before the shared shape helpers
+    // read them. Node-specific values precede Flowchart configuration; only a falsy
+    // wrappingWidth falls through via labelHelper's JavaScript `||` expression.
+    for key in ["minNodeWidth", "wrappingWidth"] {
+        if let Some(value) = agentflow.get(key) {
+            if key == "wrappingWidth" && !crate::config::json_value_is_truthy(value) {
+                continue;
+            }
+            projected.set_value(
+                &format!("flowchart.{key}"),
+                merman_model::json::clone_value_nonrecursive(value),
+            );
+        }
+    }
+    let evidence = config.theme_compatibility();
+    let parts = merman_model::presentation::FrozenPresentationConfigParts::new(projected)
+        .with_explicit_config_paths(Arc::clone(config.shared_explicit_config_paths()))
+        .with_theme_compatibility(
+            evidence.recipe().cloned(),
+            Arc::clone(evidence.shared_fields()),
+        )
+        .with_palette_paint_authority(config.palette_paint_authority())
+        .with_family_paint_inputs(config.family_paint_inputs());
+    // Existing render admission excludes config. This construction policy validates derived data
+    // without recharging the request's model limits or declaring source authority.
+    let construction_policy = merman_model::resources::InputResourcePolicy::for_profile(
+        merman_model::resources::ResourceProfile::UnboundedForTrustedInput,
+    );
+    merman_model::presentation::PresentationConfig::try_from_frozen_parts_controlled(
+        parts,
+        &construction_policy,
+        control,
+    )?
+    .map_err(Error::from)
+}
+
+fn ensure_root_theme_portable(
+    report: &RootThemeReport,
+    portability: ThemePortabilityRequirement,
+) -> Result<()> {
+    if portability != ThemePortabilityRequirement::RequirePortable {
+        return Ok(());
+    }
+    let verification = report.verification();
+    if matches!(
+        verification,
+        crate::diagram_theme::RootThemeVerification::NotApplicable
+            | crate::diagram_theme::RootThemeVerification::Verified
+    ) {
+        return Ok(());
+    }
+    Err(Error::RejectedRootTheme {
+        verification,
+        residual_count: report.residual_count(),
+    })
+}
+
+/// Prepares one family-owned typed semantic model for layout and SVG rendering.
+///
+/// Compatibility JSON is deliberately not accepted by this interface:
+///
+/// ```compile_fail
+/// use merman_render::{LayoutOptions, environment::RenderEnvironment};
+///
+/// let session = RenderEnvironment::deterministic().begin_session().unwrap();
+/// let raw_json = serde_json::json!({ "type": "flowchart-v2" });
+/// let _ = merman_render::family::prepare(raw_json, &LayoutOptions::default(), session);
+/// ```
+///
+/// Family semantic/layout pairing is private and therefore cannot be assembled independently:
+///
+/// ```compile_fail
+/// use merman_render::family::FamilyPair;
+/// ```
+pub fn prepare<'parsed>(
+    parsed: &'parsed PresentationDiagram,
+    options: &LayoutOptions,
+    session: RenderSession,
+) -> Result<FamilyRenderArtifact<'parsed>> {
+    prepare_with_svg_label_preparation(parsed, options, session, FlowchartSvgLabelPreparation(true))
+}
+
+#[derive(Clone, Copy)]
+struct FlowchartSvgLabelPreparation(bool);
+
+fn prepare_with_svg_label_preparation<'parsed>(
+    parsed: &'parsed PresentationDiagram,
+    options: &LayoutOptions,
+    session: RenderSession,
+    svg_label_preparation: FlowchartSvgLabelPreparation,
+) -> Result<FamilyRenderArtifact<'parsed>> {
+    session.checkpoint(OperationPhase::Layout)?;
+    validate_layout_options(parsed, options)?;
+    let plan = plan_render(parsed, &session)?;
+    plan.ensure_available()?;
+    let required_capabilities = plan.required_capabilities().to_vec();
+    let expected_family = plan.family_id();
+    let context = FamilyRenderContext::resolve(session, expected_family);
+    // Keep the heterogeneous router's debug-build caller slots out of the Dagre and FCoSE
+    // preparation chains. Share the completion path so each route needs only one artifact slot.
+    let mut artifact = match expected_family {
+        #[cfg(feature = "diagram-class")]
+        DiagramFamilyId::CLASS => preparation::prepare_class_render(parsed, options, context),
+        #[cfg(all(feature = "diagram-architecture", feature = "layout-cytoscape"))]
+        DiagramFamilyId::ARCHITECTURE => {
+            preparation::prepare_architecture_render(parsed, options, context)
+        }
+        _ => preparation::prepare_non_class_render(parsed, options, context, svg_label_preparation),
+    }?;
+    artifact.required_capabilities = required_capabilities;
+    artifact
+        .context
+        .session()
+        .checkpoint(OperationPhase::Layout)?;
+    Ok(artifact)
+}
+
+#[cfg(all(test, feature = "all-diagrams"))]
+mod tests;

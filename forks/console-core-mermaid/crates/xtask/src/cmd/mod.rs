@@ -1,0 +1,129 @@
+pub(crate) mod admission;
+pub(crate) mod artifact_profiles;
+pub(crate) mod audit;
+pub(crate) mod binding_contract;
+pub(crate) mod capability_surface;
+pub(crate) mod compare;
+pub(crate) mod cypress_collector;
+pub(crate) mod cypress_corpus;
+pub(crate) mod debug;
+pub(crate) mod default_config;
+pub(crate) mod editor_analysis_config;
+pub(crate) mod editor_language_contract;
+pub(crate) mod editor_rename_policy;
+pub(crate) mod feature_matrix;
+pub(crate) mod fixtures;
+pub(crate) mod flowchart_elk_corpus;
+pub(crate) mod generate;
+pub(crate) mod import;
+pub(crate) mod lalrpop_parsers;
+pub(crate) mod mermaid_reference;
+pub(crate) mod native_abi;
+pub(crate) mod parser_differential;
+pub(crate) mod paths;
+pub(crate) mod playground_ascii_capabilities;
+pub(crate) mod playground_catalog;
+pub(crate) mod profile_budget;
+pub(crate) mod resource_contract;
+pub(crate) mod snapshots;
+pub(crate) mod text_measurement;
+pub(crate) mod theme_snapshot;
+pub(crate) mod timestamps;
+pub(crate) mod typst_artifact;
+pub(crate) mod typst_package;
+pub(crate) mod typst_plugin_smoke;
+pub(crate) mod typst_profiles;
+pub(crate) mod upstream_mmd_corpus;
+pub(crate) mod upstream_svg_policy;
+pub(crate) mod upstream_svg_provenance;
+pub(crate) mod upstream_svg_support;
+pub(crate) mod verify;
+pub(crate) mod wasm_build_lock;
+pub(crate) mod wasm_module_surface;
+pub(crate) mod wasm_size_matrix;
+pub(crate) mod web_catalog;
+
+use crate::XtaskError;
+use serde_json::{Map as JsonMap, Value as JsonValue};
+use std::fs;
+use std::path::Path;
+
+pub(crate) use crate::generated::mermaid_reference::*;
+pub(crate) use admission::*;
+pub(crate) use artifact_profiles::*;
+pub(crate) use audit::*;
+pub(crate) use binding_contract::*;
+pub(crate) use capability_surface::*;
+pub(crate) use compare::*;
+pub(crate) use cypress_collector::*;
+pub(crate) use cypress_corpus::*;
+pub(crate) use debug::*;
+pub(crate) use default_config::*;
+pub(crate) use editor_language_contract::{
+    gen_editor_language_contract, verify_editor_language_contract,
+    verify_editor_language_contract_artifacts,
+};
+pub(crate) use feature_matrix::*;
+pub(crate) use fixtures::*;
+pub(crate) use flowchart_elk_corpus::*;
+pub(crate) use generate::*;
+pub(crate) use import::*;
+pub(crate) use lalrpop_parsers::*;
+pub(crate) use mermaid_reference::*;
+pub(crate) use native_abi::*;
+pub(crate) use paths::*;
+pub(crate) use playground_ascii_capabilities::*;
+pub(crate) use playground_catalog::*;
+pub(crate) use profile_budget::*;
+pub(crate) use resource_contract::*;
+pub(crate) use snapshots::*;
+pub(crate) use text_measurement::*;
+pub(crate) use theme_snapshot::*;
+pub(crate) use typst_package::*;
+pub(crate) use typst_profiles::*;
+pub(crate) use upstream_mmd_corpus::*;
+pub(crate) use upstream_svg_policy::*;
+pub(crate) use upstream_svg_provenance::*;
+pub(crate) use upstream_svg_support::*;
+pub(crate) use verify::*;
+pub(crate) use wasm_size_matrix::*;
+pub(crate) use web_catalog::*;
+
+fn sort_json_value_keys(value: &mut JsonValue) {
+    match value {
+        JsonValue::Object(object) => {
+            for child in object.values_mut() {
+                sort_json_value_keys(child);
+            }
+            let mut sorted = JsonMap::new();
+            let mut keys = object.keys().cloned().collect::<Vec<_>>();
+            keys.sort();
+            for key in keys {
+                if let Some(child) = object.remove(&key) {
+                    sorted.insert(key, child);
+                }
+            }
+            *object = sorted;
+        }
+        JsonValue::Array(values) => {
+            for value in values {
+                sort_json_value_keys(value);
+            }
+        }
+        JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => {}
+    }
+}
+
+fn write_pretty_json(path: &Path, value: &JsonValue) -> Result<(), XtaskError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|source| XtaskError::WriteFile {
+        path: parent.display().to_string(),
+        source,
+    })?;
+    let mut output = serde_json::to_string_pretty(value)?;
+    output.push('\n');
+    fs::write(path, output).map_err(|source| XtaskError::WriteFile {
+        path: path.display().to_string(),
+        source,
+    })
+}

@@ -1,0 +1,600 @@
+[package]
+name = "console-core-mermaid-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CLI to parse/layout/render Mermaid diagrams to SVG/PNG/JPG/PDF/ASCII/Unicode (headless)."
+documentation = "https://docs.rs/merman-cli"
+readme = "README.md"
+keywords = ["mermaid", "diagrams", "svg", "cli", "headless"]
+categories = ["command-line-utilities", "visualization"]
+exclude = ["tests/**"]
+
+[package.metadata.dist]
+auto-includes = false
+default-features = false
+include = [
+    "../../CHANGELOG.md",
+    "../../LICENSE-APACHE",
+    "../../LICENSE-MIT",
+    "../../THIRD_PARTY_NOTICES.md",
+    "../../THIRD_PARTY_LICENSES/",
+    "README.md",
+    "assets/completions/",
+    "assets/man/",
+]
+features = [
+    "all-diagrams",
+    "analysis",
+    "ascii",
+    "fixes",
+    "icons",
+    "jpeg",
+    "layout-cytoscape",
+    "layout-elk",
+    "markdown",
+    "math",
+    "native-fonts",
+    "network-icons",
+    "parallel-markdown",
+    "pdf",
+    "png",
+    "rustdoc",
+    "shell-completions",
+    "svg",
+    "system-clock",
+    "system-fonts",
+    "system-random",
+    "system-timezone",
+    "system-timing",
+]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "txz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+disabled-strategies = ["quick-install"]
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.merman]
+artifact-profile-required = true
+
+[features]
+fixes = ["analysis", "dep:atomic-write-file", "dep:same-file", "dep:sha2", "dep:similar", "merman-analysis/fixes"]
+# Diagram selection is independent of output formats and optional layout engines.
+all-diagrams = [
+    "diagram-agentflow",
+    "diagram-architecture",
+    "diagram-block",
+    "diagram-c4",
+    "diagram-class",
+    "diagram-cynefin",
+    "diagram-er",
+    "diagram-event-modeling",
+    "diagram-flowchart",
+    "diagram-gantt",
+    "diagram-git-graph",
+    "diagram-info",
+    "diagram-ishikawa",
+    "diagram-journey",
+    "diagram-kanban",
+    "diagram-mindmap",
+    "diagram-packet",
+    "diagram-pie",
+    "diagram-quadrant-chart",
+    "diagram-radar",
+    "diagram-railroad",
+    "diagram-requirement",
+    "diagram-sankey",
+    "diagram-sequence",
+    "diagram-state",
+    "diagram-swimlane",
+    "diagram-timeline",
+    "diagram-tree-view",
+    "diagram-treemap",
+    "diagram-usecase",
+    "diagram-venn",
+    "diagram-wardley",
+    "diagram-xychart",
+    "diagram-zenuml",
+]
+diagram-architecture = [
+    "merman/diagram-architecture",
+    "merman-analysis?/diagram-architecture",
+    "merman-bindings-core?/diagram-architecture",
+    "merman-render?/diagram-architecture",
+]
+diagram-block = [
+    "merman/diagram-block",
+    "merman-analysis?/diagram-block",
+    "merman-bindings-core?/diagram-block",
+    "merman-render?/diagram-block",
+]
+diagram-c4 = [
+    "merman/diagram-c4",
+    "merman-analysis?/diagram-c4",
+    "merman-bindings-core?/diagram-c4",
+    "merman-render?/diagram-c4",
+]
+diagram-class = [
+    "merman/diagram-class",
+    "merman-analysis?/diagram-class",
+    "merman-bindings-core?/diagram-class",
+    "merman-render?/diagram-class",
+]
+diagram-cynefin = [
+    "merman/diagram-cynefin",
+    "merman-analysis?/diagram-cynefin",
+    "merman-bindings-core?/diagram-cynefin",
+    "merman-render?/diagram-cynefin",
+]
+diagram-er = [
+    "merman/diagram-er",
+    "merman-analysis?/diagram-er",
+    "merman-bindings-core?/diagram-er",
+    "merman-render?/diagram-er",
+]
+diagram-event-modeling = [
+    "merman/diagram-event-modeling",
+    "merman-analysis?/diagram-event-modeling",
+    "merman-bindings-core?/diagram-event-modeling",
+    "merman-render?/diagram-event-modeling",
+]
+diagram-agentflow = [
+    "merman/diagram-agentflow",
+    "merman-analysis?/diagram-agentflow",
+    "merman-bindings-core?/diagram-agentflow",
+    "merman-render?/diagram-agentflow",
+]
+diagram-usecase = [
+    "merman/diagram-usecase",
+    "merman-analysis?/diagram-usecase",
+    "merman-bindings-core?/diagram-usecase",
+    "merman-render?/diagram-usecase",
+]
+diagram-flowchart = [
+    "merman/diagram-flowchart",
+    "merman-analysis?/diagram-flowchart",
+    "merman-bindings-core?/diagram-flowchart",
+    "merman-render?/diagram-flowchart",
+]
+diagram-gantt = [
+    "merman/diagram-gantt",
+    "merman-analysis?/diagram-gantt",
+    "merman-bindings-core?/diagram-gantt",
+    "merman-render?/diagram-gantt",
+]
+diagram-git-graph = [
+    "merman/diagram-git-graph",
+    "merman-analysis?/diagram-git-graph",
+    "merman-bindings-core?/diagram-git-graph",
+    "merman-render?/diagram-git-graph",
+]
+diagram-info = [
+    "merman/diagram-info",
+    "merman-analysis?/diagram-info",
+    "merman-bindings-core?/diagram-info",
+    "merman-render?/diagram-info",
+]
+diagram-ishikawa = [
+    "merman/diagram-ishikawa",
+    "merman-analysis?/diagram-ishikawa",
+    "merman-bindings-core?/diagram-ishikawa",
+    "merman-render?/diagram-ishikawa",
+]
+diagram-journey = [
+    "merman/diagram-journey",
+    "merman-analysis?/diagram-journey",
+    "merman-bindings-core?/diagram-journey",
+    "merman-render?/diagram-journey",
+]
+diagram-kanban = [
+    "merman/diagram-kanban",
+    "merman-analysis?/diagram-kanban",
+    "merman-bindings-core?/diagram-kanban",
+    "merman-render?/diagram-kanban",
+]
+diagram-mindmap = [
+    "merman/diagram-mindmap",
+    "merman-analysis?/diagram-mindmap",
+    "merman-bindings-core?/diagram-mindmap",
+    "merman-render?/diagram-mindmap",
+]
+diagram-packet = [
+    "merman/diagram-packet",
+    "merman-analysis?/diagram-packet",
+    "merman-bindings-core?/diagram-packet",
+    "merman-render?/diagram-packet",
+]
+diagram-pie = [
+    "merman/diagram-pie",
+    "merman-analysis?/diagram-pie",
+    "merman-bindings-core?/diagram-pie",
+    "merman-render?/diagram-pie",
+]
+diagram-quadrant-chart = [
+    "merman/diagram-quadrant-chart",
+    "merman-analysis?/diagram-quadrant-chart",
+    "merman-bindings-core?/diagram-quadrant-chart",
+    "merman-render?/diagram-quadrant-chart",
+]
+diagram-radar = [
+    "merman/diagram-radar",
+    "merman-analysis?/diagram-radar",
+    "merman-bindings-core?/diagram-radar",
+    "merman-render?/diagram-radar",
+]
+diagram-railroad = [
+    "merman/diagram-railroad",
+    "merman-analysis?/diagram-railroad",
+    "merman-bindings-core?/diagram-railroad",
+    "merman-render?/diagram-railroad",
+]
+diagram-requirement = [
+    "merman/diagram-requirement",
+    "merman-analysis?/diagram-requirement",
+    "merman-bindings-core?/diagram-requirement",
+    "merman-render?/diagram-requirement",
+]
+diagram-sankey = [
+    "merman/diagram-sankey",
+    "merman-analysis?/diagram-sankey",
+    "merman-bindings-core?/diagram-sankey",
+    "merman-render?/diagram-sankey",
+]
+diagram-sequence = [
+    "merman/diagram-sequence",
+    "merman-analysis?/diagram-sequence",
+    "merman-bindings-core?/diagram-sequence",
+    "merman-render?/diagram-sequence",
+]
+diagram-state = [
+    "merman/diagram-state",
+    "merman-analysis?/diagram-state",
+    "merman-bindings-core?/diagram-state",
+    "merman-render?/diagram-state",
+]
+diagram-swimlane = [
+    "merman/diagram-swimlane",
+    "merman-analysis?/diagram-swimlane",
+    "merman-bindings-core?/diagram-swimlane",
+    "merman-render?/diagram-swimlane",
+]
+diagram-timeline = [
+    "merman/diagram-timeline",
+    "merman-analysis?/diagram-timeline",
+    "merman-bindings-core?/diagram-timeline",
+    "merman-render?/diagram-timeline",
+]
+diagram-tree-view = [
+    "merman/diagram-tree-view",
+    "merman-analysis?/diagram-tree-view",
+    "merman-bindings-core?/diagram-tree-view",
+    "merman-render?/diagram-tree-view",
+]
+diagram-treemap = [
+    "merman/diagram-treemap",
+    "merman-analysis?/diagram-treemap",
+    "merman-bindings-core?/diagram-treemap",
+    "merman-render?/diagram-treemap",
+]
+diagram-venn = [
+    "merman/diagram-venn",
+    "merman-analysis?/diagram-venn",
+    "merman-bindings-core?/diagram-venn",
+    "merman-render?/diagram-venn",
+]
+diagram-wardley = [
+    "merman/diagram-wardley",
+    "merman-analysis?/diagram-wardley",
+    "merman-bindings-core?/diagram-wardley",
+    "merman-render?/diagram-wardley",
+]
+diagram-xychart = [
+    "merman/diagram-xychart",
+    "merman-analysis?/diagram-xychart",
+    "merman-bindings-core?/diagram-xychart",
+    "merman-render?/diagram-xychart",
+]
+diagram-zenuml = [
+    "merman/diagram-zenuml",
+    "merman-analysis?/diagram-zenuml",
+    "merman-bindings-core?/diagram-zenuml",
+    "merman-render?/diagram-zenuml",
+]
+default = [
+    "all-diagrams",
+    "analysis",
+    "ascii",
+    "fixes",
+    "icons",
+    "jpeg",
+    "layout-cytoscape",
+    "layout-elk",
+    "markdown",
+    "native-fonts",
+    "network-icons",
+    "parallel-markdown",
+    "pdf",
+    "png",
+    "rustdoc",
+    "shell-completions",
+    "svg",
+    "system-clock",
+    "system-fonts",
+    "system-random",
+    "system-timezone",
+    "system-timing",
+]
+
+# Public leaves describe observable CLI capabilities. Keep them additive: exact
+# absence claims belong to a `default-features = false` artifact profile.
+analysis = ["dep:merman-analysis"]
+svg = [
+    "dep:atomic-write-file",
+    "dep:ctrlc",
+    "dep:merman-bindings-core",
+    "dep:same-file",
+    "merman/svg",
+]
+native-fonts = ["svg", "merman/native-fonts"]
+system-fonts = ["native-fonts", "merman/system-fonts"]
+experimental-system-font-query = ["system-fonts", "merman/experimental-system-font-query"]
+ascii = ["dep:atomic-write-file", "dep:ctrlc", "dep:same-file", "merman/ascii"]
+# Native CLI codecs retain host font discovery; library codecs do not select it.
+png = ["svg", "dep:merman-render", "merman/png", "system-fonts"]
+jpeg = ["svg", "dep:merman-render", "merman/jpeg", "system-fonts"]
+pdf = ["svg", "dep:merman-render", "merman/pdf", "system-fonts"]
+layout-cytoscape = ["svg", "merman/layout-cytoscape"]
+layout-elk = ["svg", "merman/layout-elk"]
+math = ["svg", "merman/math"]
+system-clock = ["merman/system-clock", "merman-analysis?/system-clock"]
+system-timezone = ["merman/system-timezone", "merman-analysis?/system-timezone"]
+system-random = ["merman/system-random", "merman-analysis?/system-random"]
+system-timing = ["merman/system-timing", "merman-analysis?/system-timing"]
+
+# Tool leaves own both their user-visible surface and their direct dependency.
+icons = ["svg", "dep:url"]
+markdown = [
+    "dep:sha2",
+    "dep:roxmltree",
+    "svg",
+    "dep:atomic-write-file",
+    "dep:rustix",
+    "dep:same-file",
+    "dep:unicode-normalization",
+    "dep:windows-sys",
+]
+network-icons = ["icons", "dep:hickory-resolver", "dep:reqwest", "dep:tokio"]
+parallel-markdown = ["markdown", "dep:rayon"]
+rustdoc = [
+    "dep:merman-doc",
+    "markdown",
+    "layout-cytoscape",
+    "dep:merman-render",
+    "dep:sha2",
+    "dep:toml",
+]
+shell-completions = ["dep:clap_complete"]
+
+
+[dependencies]
+atomic-write-file = { workspace = true, optional = true }
+merman-bindings-core = { workspace = true, optional = true, default-features = false, features = ["svg"] }
+clap.workspace = true
+clap_complete = { workspace = true, optional = true }
+ctrlc = { workspace = true, optional = true }
+hickory-resolver = { workspace = true, optional = true }
+merman = { workspace = true, default-features = false, features = ["compat-json"] }
+merman-analysis = { workspace = true, optional = true, default-features = false }
+merman-render = { workspace = true, optional = true }
+merman-doc = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+roxmltree = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+same-file = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+similar = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio = { workspace = true, optional = true, features = ["rt", "time"] }
+toml = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+unicode-normalization = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, optional = true }
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+clap_mangen.workspace = true
+merman-ascii-test-contracts = { package = "console-core-mermaid-ascii-test-contracts", path = "../merman-ascii-test-contracts" }
+merman-render.workspace = true
+png.workspace = true
+roxmltree.workspace = true
+tempfile = "3.27.0"
+toml = { workspace = true, features = ["display"] }
+usvg = { workspace = true, features = ["text"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[[test]]
+name = "cli_native_contract"
+required-features = [
+    "analysis",
+    "svg",
+    "ascii",
+    "png",
+    "jpeg",
+    "pdf",
+    "layout-cytoscape",
+    "layout-elk",
+    "math",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+    "shell-completions",
+    "system-clock",
+    "system-timezone",
+    "system-random",
+    "system-timing",
+]
+
+[[test]]
+name = "distribution_assets"
+required-features = [
+    "analysis",
+    "svg",
+    "ascii",
+    "png",
+    "jpeg",
+    "pdf",
+    "layout-cytoscape",
+    "layout-elk",
+    "math",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+    "rustdoc",
+    "shell-completions",
+    "system-clock",
+    "system-timezone",
+    "system-random",
+    "system-timing",
+]
+
+[[test]]
+name = "cli_analysis_contract"
+required-features = ["analysis", "svg"]
+
+[[test]]
+name = "cli_output_contract"
+required-features = ["png", "pdf", "shell-completions"]
+
+[[test]]
+name = "mmdc_contract"
+required-features = [
+    "svg",
+    "png",
+    "pdf",
+    "layout-cytoscape",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+]
+
+[[test]]
+name = "cli_contract"
+required-features = [
+    "analysis",
+    "fixes",
+    "svg",
+    "ascii",
+    "png",
+    "jpeg",
+    "pdf",
+    "layout-cytoscape",
+    "layout-elk",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+    "shell-completions",
+]
+
+[[test]]
+name = "process_contract"
+required-features = [
+    "analysis",
+    "svg",
+    "ascii",
+    "png",
+    "jpeg",
+    "pdf",
+    "layout-cytoscape",
+    "layout-elk",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+    "shell-completions",
+]
+
+[[test]]
+name = "resource_limits"
+required-features = [
+    "analysis",
+    "svg",
+    "png",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+]
+
+[[test]]
+name = "output_integrity"
+required-features = [
+    "analysis",
+    "fixes",
+    "svg",
+    "icons",
+    "markdown",
+    "network-icons",
+    "parallel-markdown",
+]
+
+[[test]]
+name = "ascii_smoke"
+required-features = ["ascii"]
+
+[[test]]
+name = "svg_smoke"
+required-features = ["svg"]
+
+[[test]]
+name = "fix_cli"
+required-features = ["fixes"]
+
+[[test]]
+name = "markdown_scanner"
+required-features = ["markdown"]
+
+[[test]]
+name = "jpeg_smoke"
+required-features = ["jpeg"]
+
+[[test]]
+name = "pdf_smoke"
+required-features = ["pdf"]
+
+[[test]]
+name = "png_smoke"
+required-features = ["png"]
+
+[[test]]
+name = "ratex_math"
+required-features = ["math"]
+
+[[test]]
+name = "rustdoc_cli"
+required-features = ["rustdoc"]
+
+[[test]]
+name = "rustdoc_package"
+required-features = ["rustdoc"]

@@ -1,0 +1,58 @@
+target/
+.build/
+/node_modules/
+/platforms/web/node_modules/
+/platforms/web/dist/
+/platforms/web/pkg/
+/platforms/web/src/package-entries/
+/platforms/web/packages/*/artifacts/
+/platforms/web/packages/*/dist/
+/platforms/web/packages/*/LICENSE
+/platforms/web/packages/*/THIRD_PARTY_LICENSES/
+/platforms/web/packages/*/THIRD_PARTY_NOTICES.md
+/playground/node_modules/
+/playground/tests/node_modules/
+/playground/dist/
+/playground/.runtime/
+/playground/public/opaque-realm/
+/playground/playwright-report/
+/playground/test-results/
+/playground/*.tsbuildinfo
+/playground/vite.config.d.ts
+/playground/vite.config.js
+/package-lock.json
+/package.json
+/repo-ref/*
+/tools/mermaid-cli/node_modules
+/tools/mermaid-cli/.cache
+/tools/vscode-extension/.vscode-test/
+/distribution/tree-sitter-mermaid/.tree-sitter/
+/distribution/tree-sitter-mermaid/build/
+/distribution/tree-sitter-mermaid/node_modules/
+/distribution/tree-sitter-mermaid/scripts/header-oracle/node_modules/
+/distribution/tree-sitter-mermaid/tree-sitter-mermaid-*.tgz
+/dist/
+/fuzz/artifacts/
+/fuzz/corpus/
+/fuzz/coverage/
+/fuzz/target/
+**/.kotlin/
+**/.merman.lock
+**/.merman.transaction/
+
+# Local npm tarballs used for upstream layout source inspection (do not commit)
+/cose-base-*.tgz
+/cytoscape-fcose-*.tgz
+/layout-base-*.tgz
+
+# Upstream docs example fixtures.
+#
+# These are generated via `xtask import-upstream-docs --filter examples --with-baselines` and are
+# part of the tracked fixture corpus.
+/fixtures/upstream-svgs/**/_failures.txt
+/fixtures/upstream-svgs/.xtask-upstream-svg-staging/
+
+__pycache__/
+# Local deferred fixtures (kept for investigation; not part of the committed fixture corpus).
+/fixtures/_deferred/
+/.worktrees/

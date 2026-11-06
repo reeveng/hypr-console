@@ -1,0 +1,60 @@
+[package]
+name = "console-core-mermaid-tools"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+base64.workspace = true
+brotli.workspace = true
+cssparser.workspace = true
+flate2.workspace = true
+fs2.workspace = true
+futures = { workspace = true, features = ["executor"] }
+lalrpop.workspace = true
+merman = { package = "console-core-mermaid", path = "../merman", default-features = false, features = ["all-diagrams", "svg", "compat-json"] }
+merman-analysis = { workspace = true, features = ["all-diagrams"] }
+merman-bindings-core = { workspace = true, features = [
+    "all-diagrams",
+    "analysis",
+    "ascii",
+    "fixes",
+    "jpeg",
+    "layout-cytoscape",
+    "layout-elk",
+    "math",
+    "native-runtime",
+    "pdf",
+    "png",
+    "svg",
+] }
+merman-core = { package = "console-core-mermaid-syntax", path = "../merman-core", features = ["all-diagrams", "system-clock", "system-timezone", "presentation", "compat-json", "editor-facts"] }
+merman-fixture-render-context = { package = "console-core-mermaid-fixture-render-context", path = "../merman-fixture-render-context" }
+merman-render = { package = "console-core-mermaid-renderer", path = "../merman-render", features = [
+    "all-diagrams",
+    "layout-cytoscape",
+    "layout-elk",
+] }
+merman-typst-plugin = { package = "console-core-mermaid-typst-plugin", path = "../merman-typst-plugin", default-features = false, features = ["all-diagrams"] }
+regex.workspace = true
+roxmltree.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-saphyr = { workspace = true, features = ["deserialize", "serialize"] }
+svgtypes.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tempfile = "3.27.0"
+toml.workspace = true
+wasmi.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }

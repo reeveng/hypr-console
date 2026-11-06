@@ -1,0 +1,8567 @@
+type FamilyFixture = (
+    merman_model::presentation::PresentationDiagram,
+    merman_render::LayoutOptions,
+    merman_render::environment::RenderSession,
+);
+
+mod common;
+
+use merman_core::{MermaidEngine, ParseOptions};
+
+use merman_render::LayoutOptions;
+use merman_render::diagram_theme::{
+    CanvasPaint, DiagramEffectSet, DiagramTheme, DiagramThemeCompiler, DiagramThemeSpec,
+    EffectBinding, EffectGraph, EffectInput, EffectPrimitive, FontStack, FontStyle, InsetsPx,
+    LineHeight, MermaidThemeCompatibility, OrdinalPalette, OrdinalSelector, Specified,
+    TextStylePatch, ThemeColorValue, ThemeEffectPatch, ThemeGeometryPatch,
+    ThemePortabilityRequirement, ThemeResourceLimitId, ThemeResourcePolicy, ThemeRule,
+    ThemeRuleSet, ThemeStylePatch, ThemeTarget, ThemeTextStyle, ThemeVariant, TypographySpec,
+};
+
+use merman_render::environment::{
+    MeasurementProfileId, RenderEnvironment, TextMeasurementPolicy, TextMeasurementProfile,
+    TextMeasurementProfileIdentity,
+};
+use merman_render::family;
+use merman_render::resources::{
+    RenderResourcePolicy, ResourceLimitCause, ResourceLimitId, ResourceLimitPhase,
+};
+use merman_render::svg::{SvgDebugOptions, SvgPipeline, SvgRenderOptions};
+use merman_render::text::{
+    DeterministicTextMeasurer, TextMeasurer, TextMetrics, TextStyle, WrapMode,
+};
+
+// These fixtures exercise the classic terminal contract; Mermaid 12 defaults are tested separately.
+fn classic_engine() -> MermaidEngine {
+    MermaidEngine::new().with_site_config(
+        merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+            "theme": "default",
+            "look": "classic",
+            "layout": "dagre"
+        })),
+    )
+}
+
+// Typed adapter fixtures select their Mermaid baseline through the recipe, leaving
+// external configuration free to own only the properties each case authors.
+fn classic_typed_engine() -> MermaidEngine {
+    MermaidEngine::new().with_site_config(
+        merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+            "look": "classic",
+            "layout": "dagre"
+        })),
+    )
+}
+
+fn state_theme_spec_with_theme(theme: &str) -> DiagramThemeSpec {
+    DiagramThemeSpec::new().with_mermaid_compatibility(
+        MermaidThemeCompatibility::default()
+            .with_theme(theme)
+            .expect("valid State fixture theme"),
+    )
+}
+
+fn state_theme_spec() -> DiagramThemeSpec {
+    state_theme_spec_with_theme("default")
+}
+
+fn state_edge_data_points(svg: &str, edge_id: &str) -> Vec<merman_render::model::LayoutPoint> {
+    use base64::Engine as _;
+
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG XML");
+    let encoded = document
+        .descendants()
+        .find(|node| node.has_tag_name("path") && node.attribute("data-id") == Some(edge_id))
+        .and_then(|node| node.attribute("data-points"))
+        .unwrap_or_else(|| panic!("missing data-points for State edge {edge_id}"));
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .expect("base64 State edge points");
+    serde_json::from_slice(&decoded).expect("JSON State edge points")
+}
+
+fn state_edge_label_position(svg: &str, edge_id: &str) -> (f64, f64) {
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG XML");
+    let label = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("data-id") == Some(edge_id)
+                && node
+                    .attribute("class")
+                    .is_some_and(|classes| classes.split_whitespace().any(|class| class == "label"))
+        })
+        .unwrap_or_else(|| panic!("missing State edge label {edge_id}"));
+    let transform = label
+        .parent()
+        .and_then(|node| node.attribute("transform"))
+        .unwrap_or_else(|| panic!("missing outer transform for State edge label {edge_id}"));
+    let components = transform
+        .strip_prefix("translate(")
+        .and_then(|value| value.strip_suffix(')'))
+        .and_then(|value| value.split_once(','))
+        .unwrap_or_else(|| panic!("invalid State edge label transform: {transform}"));
+    (
+        components.0.trim().parse().expect("numeric label x"),
+        components.1.trim().parse().expect("numeric label y"),
+    )
+}
+
+fn svg_view_box(svg: &str) -> [f64; 4] {
+    let document = roxmltree::Document::parse(svg).expect("valid SVG XML");
+    let values = document
+        .root_element()
+        .attribute("viewBox")
+        .expect("root viewBox")
+        .split_whitespace()
+        .map(|value| value.parse::<f64>().expect("numeric viewBox component"))
+        .collect::<Vec<_>>();
+    values.try_into().expect("four-component viewBox")
+}
+
+fn assert_state_rough_path_pair(
+    container: roxmltree::Node<'_, '_>,
+    pair_class: Option<&str>,
+    expected_fill: &str,
+    expected_stroke: &str,
+    expected_stroke_width: &str,
+) {
+    let pair = pair_class.map_or_else(
+        || {
+            if container
+                .children()
+                .filter(|node| node.has_tag_name("path"))
+                .count()
+                == 2
+            {
+                container
+            } else {
+                container
+                    .children()
+                    .find(|node| {
+                        node.has_tag_name("g")
+                            && node
+                                .children()
+                                .filter(|child| child.has_tag_name("path"))
+                                .count()
+                                == 2
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing direct State rough path pair under id={:?} class={:?}",
+                            container.attribute("id"),
+                            container.attribute("class")
+                        )
+                    })
+            }
+        },
+        |class| {
+            container
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("g")
+                        && node.attribute("class").is_some_and(|classes| {
+                            classes
+                                .split_ascii_whitespace()
+                                .any(|candidate| candidate == class)
+                        })
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing State rough path pair {class} under id={:?} class={:?}",
+                        container.attribute("id"),
+                        container.attribute("class")
+                    )
+                })
+        },
+    );
+    let paths = pair
+        .children()
+        .filter(|node| node.has_tag_name("path"))
+        .collect::<Vec<_>>();
+    let [fill_path, stroke_path] = paths.as_slice() else {
+        panic!("expected exactly two direct State rough paths under {pair_class:?}");
+    };
+
+    assert_eq!(fill_path.attribute("fill"), Some(expected_fill));
+    assert_eq!(fill_path.attribute("stroke"), Some("none"));
+    assert_eq!(stroke_path.attribute("fill"), Some("none"));
+    assert_eq!(stroke_path.attribute("stroke"), Some(expected_stroke));
+    assert_eq!(
+        stroke_path.attribute("stroke-width"),
+        Some(expected_stroke_width)
+    );
+}
+
+fn state_diagram_title_x(svg: &str) -> f64 {
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG XML");
+    document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("text") && node.attribute("class") == Some("statediagramTitleText")
+        })
+        .and_then(|node| node.attribute("x"))
+        .expect("State diagram title x")
+        .parse()
+        .expect("numeric State diagram title x")
+}
+
+fn state_effect_filter_regions(svg: &str) -> Vec<(f64, f64, [f64; 4])> {
+    let document = roxmltree::Document::parse(svg).expect("valid themed State SVG XML");
+    let mut regions = document
+        .descendants()
+        .filter(|node| {
+            node.has_tag_name("rect")
+                && node.attribute("class") == Some("basic label-container")
+                && node.attribute("filter").is_some()
+        })
+        .map(|rect| {
+            let filter_id = rect
+                .attribute("filter")
+                .and_then(|value| value.strip_prefix("url(#"))
+                .and_then(|value| value.strip_suffix(')'))
+                .expect("State rect typed filter reference");
+            let filter = document
+                .descendants()
+                .find(|node| node.has_tag_name("filter") && node.attribute("id") == Some(filter_id))
+                .expect("referenced State filter definition");
+            let parse = |node: roxmltree::Node<'_, '_>, name: &str| {
+                node.attribute(name)
+                    .unwrap_or_else(|| panic!("missing {name} on {}", node.tag_name().name()))
+                    .parse::<f64>()
+                    .unwrap_or_else(|_| panic!("numeric {name} on {}", node.tag_name().name()))
+            };
+            (
+                parse(rect, "width"),
+                parse(rect, "height"),
+                [
+                    parse(filter, "x"),
+                    parse(filter, "y"),
+                    parse(filter, "width"),
+                    parse(filter, "height"),
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    regions.sort_by(|left, right| left.0.total_cmp(&right.0));
+    regions
+}
+
+fn state_hard_shadow_theme(offset_x: f32, offset_y: f32, stroke_width: f32) -> DiagramTheme {
+    state_hard_shadow_theme_with(
+        DiagramThemeCompiler::new(),
+        offset_x,
+        offset_y,
+        Some(
+            ThemeStylePatch::default()
+                .with_stroke_width(stroke_width)
+                .expect("valid State stroke width"),
+        ),
+    )
+}
+
+fn state_hard_shadow_theme_with(
+    compiler: DiagramThemeCompiler,
+    offset_x: f32,
+    offset_y: f32,
+    style: Option<ThemeStylePatch>,
+) -> DiagramTheme {
+    state_drop_shadow_theme_with(
+        compiler,
+        "state-hard-shadow",
+        offset_x,
+        offset_y,
+        0.0,
+        style,
+    )
+}
+
+fn state_drop_shadow_theme_with(
+    compiler: DiagramThemeCompiler,
+    effect_id: &str,
+    offset_x: f32,
+    offset_y: f32,
+    blur_radius: f32,
+    style: Option<ThemeStylePatch>,
+) -> DiagramTheme {
+    let graph = EffectGraph::new(
+        effect_id,
+        [EffectPrimitive::DropShadow {
+            input: EffectInput::SourceGraphic,
+            offset_x,
+            offset_y,
+            blur_radius,
+            spread: 0.0,
+            color: ThemeColorValue::parse("#111827").expect("valid shadow color"),
+        }],
+    )
+    .expect("valid bounded drop-shadow graph");
+    let effects = DiagramEffectSet::default()
+        .with_graph(graph)
+        .expect("unique effect graph")
+        .with_binding(
+            EffectBinding::new(ThemeTarget::State, effect_id).expect("valid State effect binding"),
+        )
+        .expect("unique State effect binding");
+    let mut spec = DiagramThemeSpec::new().with_effects(effects);
+    if let Some(style) = style {
+        spec = spec.with_styles(
+            ThemeRuleSet::default().with_rule(ThemeRule::new(ThemeTarget::State, style)),
+        );
+    }
+    compiler
+        .compile(spec)
+        .expect("compile State drop-shadow theme")
+}
+
+fn assert_filter_region_matches_outsets(
+    width: f64,
+    height: f64,
+    region: [f64; 4],
+    expected: [f64; 4],
+) {
+    let actual = [
+        -region[1] * height,
+        (region[0] + region[2] - 1.0) * width,
+        (region[1] + region[3] - 1.0) * height,
+        -region[0] * width,
+    ];
+    for (actual, expected) in actual.into_iter().zip(expected) {
+        assert!(
+            actual >= expected - 1.0e-5 && actual <= expected + 1.0e-3,
+            "expected outset {expected}, got {actual} from region {region:?}"
+        );
+    }
+}
+
+fn render_state_svg_from_text(text: &str) -> String {
+    render_state_svg_from_text_with_engine(classic_engine(), text)
+}
+
+#[test]
+fn state_invalid_later_source_width_preserves_the_emitted_class_winner() {
+    let svg = render_state_svg_from_text(
+        "stateDiagram-v2\nstate \"Ready\" as Ready\nclassDef wide stroke-width:20px\nclass Ready wide\nstyle Ready stroke-width:99px junk\n",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+    let state = document
+        .descendants()
+        .find(|node| node.has_tag_name("g") && node.attribute("id") == Some("merman-state-Ready-0"))
+        .unwrap_or_else(|| panic!("Ready state terminal: {svg}"));
+    let shape = state
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("rect") && node.attribute("class") == Some("basic label-container")
+        })
+        .expect("Ready state shape");
+    let style = shape.attribute("style").expect("source shape style");
+    assert!(
+        style
+            .split(';')
+            .any(|declaration| declaration.trim() == "stroke-width:20px !important"),
+        "the valid class width must reach the shape: {style}"
+    );
+    assert!(
+        !style.contains("99px"),
+        "invalid inline width must not reach the shape: {style}"
+    );
+}
+
+fn render_state_layout_and_svg_from_text_in_environment(
+    text: &str,
+    environment: &RenderEnvironment,
+) -> (merman_render::model::StateDiagramLayout, String) {
+    let session = environment.begin_session().expect("begin State session");
+    let parsed = classic_engine()
+        .parse_diagram_for_render_model_sync(text, ParseOptions::default())
+        .expect("parse State source")
+        .expect("detect State diagram")
+        .into_presentation();
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .expect("prepare State artifact");
+    let projection = artifact.layout_json().expect("State layout projection");
+    let layout = serde_json::from_value(projection["layout"]["StateDiagramV2"].clone())
+        .expect("typed State layout");
+    let svg = artifact
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .expect("render State artifact")
+        .svg()
+        .to_string();
+    (layout, svg)
+}
+
+fn render_state_svg_from_text_with_engine(engine: MermaidEngine, text: &str) -> String {
+    let session = RenderEnvironment::deterministic().begin_session().unwrap();
+    let parsed = engine
+        .parse_diagram_for_render_model_sync(text, ParseOptions::default())
+        .expect("parse ok")
+        .expect("diagram detected")
+        .into_presentation();
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .expect("prepare State artifact");
+
+    artifact
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .expect("render State artifact")
+        .svg()
+        .to_string()
+}
+
+fn try_render_state_svg_with_resource_policy(
+    text: &str,
+    resource_policy: RenderResourcePolicy,
+) -> merman_render::Result<String> {
+    let session = RenderEnvironment::deterministic()
+        .with_resource_policy(resource_policy)
+        .begin_session()
+        .expect("begin State resource-bound session");
+    let parsed = classic_engine()
+        .parse_diagram_for_render_model_sync(text, ParseOptions::default())
+        .expect("parse State resource-bound fixture")
+        .expect("detect State resource-bound fixture")
+        .into_presentation();
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)?;
+    let rendered =
+        artifact.render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())?;
+    Ok(rendered.svg().to_owned())
+}
+
+#[test]
+fn state_family_svg_accepts_exact_max_svg_bytes_and_rejects_one_byte_less() {
+    let source = "stateDiagram-v2\n[*] --> Ready\nReady --> Done: advance\nDone --> [*]\n";
+    let baseline = try_render_state_svg_with_resource_policy(
+        source,
+        RenderResourcePolicy::unbounded_for_trusted_input(),
+    )
+    .expect("render the unbounded State baseline");
+    let exact_bytes = baseline.len();
+    assert!(exact_bytes > 1, "State fixture must emit a non-empty SVG");
+
+    let exact_policy = RenderResourcePolicy::unbounded_for_trusted_input()
+        .with_limit(ResourceLimitId::MaxSvgBytes, exact_bytes)
+        .expect("valid exact State SVG byte ceiling");
+    let exact = try_render_state_svg_with_resource_policy(source, exact_policy)
+        .expect("the exact State family SVG byte ceiling must succeed");
+    assert_eq!(exact.as_bytes(), baseline.as_bytes());
+
+    let below_exact = exact_bytes - 1;
+    let below_policy = RenderResourcePolicy::unbounded_for_trusted_input()
+        .with_limit(ResourceLimitId::MaxSvgBytes, below_exact)
+        .expect("valid below-exact State SVG byte ceiling");
+    let error = try_render_state_svg_with_resource_policy(source, below_policy)
+        .expect_err("one byte below the State family SVG size must fail");
+    let merman_render::Error::ResourceLimitExceeded(limit) = error else {
+        panic!("expected State MaxSvgBytes rejection, got {error}");
+    };
+    assert_eq!(limit.cause, ResourceLimitCause::Ceiling);
+    assert_eq!(limit.phase, ResourceLimitPhase::SvgOutput);
+    assert_eq!(limit.limit, ResourceLimitId::MaxSvgBytes.as_str());
+    assert_eq!(limit.max, below_exact);
+    assert!(limit.actual > limit.max);
+    assert!(limit.explicit_overrides.iter().any(|resource_override| {
+        resource_override.id == ResourceLimitId::MaxSvgBytes
+            && resource_override.value == below_exact
+    }));
+}
+
+fn render_state_svg_from_text_with_theme(text: &str, theme: &DiagramTheme) -> String {
+    render_state_svg_from_text_with_theme_in_environment(
+        text,
+        theme,
+        &RenderEnvironment::deterministic(),
+    )
+}
+
+fn render_state_svg_from_text_with_theme_in_environment(
+    text: &str,
+    theme: &DiagramTheme,
+    environment: &RenderEnvironment,
+) -> String {
+    render_state_svg_from_text_with_theme_and_engine_in_environment(
+        text,
+        theme,
+        classic_typed_engine(),
+        environment,
+    )
+}
+
+fn render_classic_state_svg_from_text_with_theme(text: &str, theme: &DiagramTheme) -> String {
+    render_classic_state_svg_from_text_with_theme_in_environment(
+        text,
+        theme,
+        &RenderEnvironment::deterministic(),
+    )
+}
+
+fn render_classic_state_svg_from_text_with_theme_in_environment(
+    text: &str,
+    theme: &DiagramTheme,
+    environment: &RenderEnvironment,
+) -> String {
+    render_state_svg_from_text_with_theme_and_engine_in_environment(
+        text,
+        theme,
+        classic_engine(),
+        environment,
+    )
+}
+
+fn render_state_svg_from_text_with_theme_and_engine_in_environment(
+    text: &str,
+    theme: &DiagramTheme,
+    engine: MermaidEngine,
+    environment: &RenderEnvironment,
+) -> String {
+    let (fixture_parsed_1, fixture_layout_1, fixture_session_1) =
+        prepare_state_artifact_from_text_with_theme_in_environment(
+            text,
+            theme,
+            engine,
+            environment,
+        );
+    family::prepare(&fixture_parsed_1, &fixture_layout_1, fixture_session_1)
+        .expect("prepare family fixture")
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .expect("render themed State artifact")
+        .svg()
+        .to_owned()
+}
+
+fn prepare_state_artifact_from_text_with_theme_in_environment(
+    text: &str,
+    theme: &DiagramTheme,
+    engine: MermaidEngine,
+    environment: &RenderEnvironment,
+) -> FamilyFixture {
+    let session = environment.begin_session_with_theme(theme).unwrap();
+    let parsed = common::install_parse_compatibility(theme, engine)
+        .parse_diagram_for_render_model_sync(text, ParseOptions::default())
+        .expect("parse ok")
+        .expect("diagram detected")
+        .into_presentation();
+    (parsed, LayoutOptions::default(), session)
+}
+
+fn render_state_public_and_native_svg_from_text_with_theme_in_environment(
+    text: &str,
+    theme: &DiagramTheme,
+    environment: &RenderEnvironment,
+) -> (String, String) {
+    let (fixture_parsed_2, fixture_layout_2, fixture_session_2) =
+        prepare_state_artifact_from_text_with_theme_in_environment(
+            text,
+            theme,
+            classic_typed_engine(),
+            environment,
+        );
+    let rendered = family::prepare(&fixture_parsed_2, &fixture_layout_2, fixture_session_2)
+        .expect("prepare family fixture")
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .expect("render themed State artifact");
+    let public_svg = rendered.svg().to_owned();
+    let rendered = rendered
+        .finalize_resvg(&SvgPipeline::resvg_safe())
+        .expect("seal themed State SVG");
+    let native_svg = rendered.svg().as_str().to_owned();
+    (public_svg, native_svg)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StateThemeEvidenceCounts {
+    required: usize,
+    accounted: usize,
+    applied: usize,
+    not_applicable: usize,
+    residual: usize,
+}
+
+fn render_strict_state_svg_with_theme_and_config(
+    theme: &DiagramTheme,
+    source: &str,
+    config: serde_json::Value,
+    origin: &str,
+) -> (String, StateThemeEvidenceCounts) {
+    let (engine, source) = match origin {
+        "site" => (
+            classic_typed_engine().with_site_config(
+                merman_core::presentation::SourcePresentationConfig::from_value(config),
+            ),
+            source.to_string(),
+        ),
+        "source" => (
+            classic_typed_engine().with_site_config(
+                merman_core::presentation::SourcePresentationConfig::from_value(
+                    serde_json::json!({"secure": []}),
+                ),
+            ),
+            {
+                let directive = format!(
+                    "%%{{init: {}}}%%\n",
+                    serde_json::to_string(&config).expect("serialize State source config")
+                );
+                source.strip_prefix("---\n").map_or_else(
+                    || format!("{directive}{source}"),
+                    |frontmatter_body| {
+                        frontmatter_body.find("\n---\n").map_or_else(
+                            || format!("{directive}{source}"),
+                            |closing_offset| {
+                                let split = 4 + closing_offset + "\n---\n".len();
+                                format!("{}{directive}{}", &source[..split], &source[split..])
+                            },
+                        )
+                    },
+                )
+            },
+        ),
+        other => panic!("unsupported State config origin {other}"),
+    };
+    let parsed = common::install_parse_compatibility(theme, engine)
+        .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+        .unwrap_or_else(|error| panic!("parse strict {origin} State source: {error}"))
+        .unwrap_or_else(|| panic!("detect strict {origin} State source"))
+        .into_presentation();
+    // Raw recipe compatibility remains an escape hatch. These cases verify typed
+    // family terminals and exact family evidence independently of that residual.
+    let session = RenderEnvironment::deterministic()
+        .with_theme_portability_requirement(ThemePortabilityRequirement::BestEffort)
+        .begin_session_with_theme(theme)
+        .unwrap_or_else(|error| panic!("begin strict {origin} State session: {error}"));
+    let rendered = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .unwrap_or_else(|error| panic!("prepare strict {origin} State artifact: {error}"))
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .unwrap_or_else(|error| panic!("render strict {origin} State artifact: {error}"));
+    let svg = rendered.svg().to_string();
+    let completion = rendered.into_completion();
+    let evidence = merman_render::__private::family_evidence(completion.report());
+    let counts = StateThemeEvidenceCounts {
+        required: evidence.required_count(),
+        accounted: evidence.accounted_count(),
+        applied: evidence.applied_count(),
+        not_applicable: evidence.not_applicable_count(),
+        residual: evidence.theme_residual_count(),
+    };
+    (svg, counts)
+}
+
+#[test]
+fn state_empty_html_labels_do_not_consume_text_theme_rules() {
+    for label in ["<br/>", "<span></span>", "<span> </span>"] {
+        for (target, source) in [
+            (
+                ThemeTarget::StateLabel,
+                format!("stateDiagram-v2\nstate \"{label}\" as Empty\n"),
+            ),
+            (
+                ThemeTarget::TransitionLabel,
+                format!("stateDiagram-v2\nA --> B: {label}\n"),
+            ),
+        ] {
+            for ordinal in [None, Some(1)] {
+                let mut rule = ThemeRule::new(
+                    target,
+                    ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+                );
+                if let Some(ordinal) = ordinal {
+                    rule = rule.with_ordinal(OrdinalSelector::exact(ordinal).unwrap());
+                }
+                let theme = DiagramThemeCompiler::new()
+                    .compile(
+                        DiagramThemeSpec::new()
+                            .with_styles(ThemeRuleSet::default().with_rule(rule)),
+                    )
+                    .unwrap();
+                let (_, evidence) = render_strict_state_svg_with_theme_and_config(
+                    &theme,
+                    &source,
+                    serde_json::json!({"htmlLabels": true, "look": "classic"}),
+                    "site",
+                );
+                assert_eq!(
+                    evidence,
+                    StateThemeEvidenceCounts {
+                        required: 1,
+                        accounted: 1,
+                        applied: 0,
+                        not_applicable: 1,
+                        residual: 0,
+                    },
+                    "{target:?}/{label}/{ordinal:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn state_text_theme_ordinals_skip_empty_html_labels() {
+    for (target, source) in [
+        (
+            ThemeTarget::StateLabel,
+            "stateDiagram-v2\nstate \"<br/>\" as Empty\nstate \"Visible\" as Full\n",
+        ),
+        (
+            ThemeTarget::TransitionLabel,
+            "stateDiagram-v2\nA --> B: <br/>\nB --> C: Visible\n",
+        ),
+    ] {
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                DiagramThemeSpec::new().with_styles(
+                    ThemeRuleSet::default().with_rule(
+                        ThemeRule::new(
+                            target,
+                            ThemeStylePatch::default()
+                                .with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+                        )
+                        .with_ordinal(OrdinalSelector::exact(1).unwrap()),
+                    ),
+                ),
+            )
+            .unwrap();
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            source,
+            serde_json::json!({"htmlLabels": true, "look": "classic"}),
+            "site",
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid State HTML-label SVG");
+        let visible = document
+            .descendants()
+            .find(|node| node.has_tag_name("p") && node.text() == Some("Visible"))
+            .expect("visible HTML label");
+        assert!(
+            visible.ancestors().any(|node| {
+                node.attribute("style").is_some_and(|style| {
+                    style.split(';').any(|declaration| {
+                        declaration
+                            .split_once(':')
+                            .is_some_and(|(property, value)| {
+                                property.trim() == "color"
+                                    && value.trim().trim_end_matches("!important").trim()
+                                        == "#b316cd"
+                            })
+                    })
+                })
+            }),
+            "{target:?}: first text ordinal must style the visible label"
+        );
+        assert_eq!(evidence.applied, 1);
+        assert_eq!(evidence.residual, 0);
+    }
+}
+
+#[test]
+fn state_empty_html_labels_do_not_consume_palettes_or_base_font_stack() {
+    for label in ["<br/>", "<span></span>", "<span> </span>"] {
+        for (target, source) in [
+            (
+                ThemeTarget::StateLabel,
+                format!("stateDiagram-v2\nstate \"{label}\" as Empty\n"),
+            ),
+            (
+                ThemeTarget::TransitionLabel,
+                format!("stateDiagram-v2\nA --> B: {label}\n"),
+            ),
+        ] {
+            let mut specs = vec![DiagramThemeSpec::new().with_styles(
+                ThemeRuleSet::default().with_ordinal_palette(
+                    target,
+                    OrdinalPalette::new([ThemeColorValue::parse("#b316cd").unwrap()]).unwrap(),
+                ),
+            )];
+            if target == ThemeTarget::StateLabel {
+                specs.push(
+                    DiagramThemeSpec::new().with_typography(
+                        TypographySpec::default().with_family_style(
+                            merman_render::DiagramFamilyId::STATE,
+                            ThemeTextStyle::default()
+                                .with_font_stack(FontStack::single("monospace").unwrap()),
+                        ),
+                    ),
+                );
+            }
+            for spec in specs {
+                let theme = DiagramThemeCompiler::new().compile(spec).unwrap();
+                let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                    &theme,
+                    &source,
+                    serde_json::json!({"htmlLabels": true, "look": "classic"}),
+                    "site",
+                );
+                roxmltree::Document::parse(&svg).expect("valid empty-label State SVG");
+                assert_eq!(
+                    evidence,
+                    StateThemeEvidenceCounts {
+                        required: 1,
+                        accounted: 1,
+                        applied: 0,
+                        not_applicable: 1,
+                        residual: 0,
+                    },
+                    "{target:?}/{label}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn state_empty_html_composite_headers_keep_their_geometry_ordinals() {
+    let source =
+        "stateDiagram-v2\nstate \"<br/>\" as Empty {\nA\n}\nstate \"Visible\" as Full {\nB\n}\n";
+    for ordinal in [None, Some(1), Some(2)] {
+        let mut header = ThemeRule::new(
+            ThemeTarget::CompositeHeader,
+            ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+        );
+        if let Some(ordinal) = ordinal {
+            header = header.with_ordinal(OrdinalSelector::exact(ordinal).unwrap());
+        }
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                DiagramThemeSpec::new().with_styles(
+                    ThemeRuleSet::default().with_rule(header).with_rule(
+                        ThemeRule::new(
+                            ThemeTarget::CompositeLabel,
+                            ThemeStylePatch::default()
+                                .with_fill(CanvasPaint::solid("#12ab34").unwrap()),
+                        )
+                        .with_ordinal(OrdinalSelector::exact(1).unwrap()),
+                    ),
+                ),
+            )
+            .unwrap();
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            source,
+            serde_json::json!({"htmlLabels": true, "look": "classic"}),
+            "site",
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid State composite SVG");
+        for (id, position) in [("Empty", 1), ("Full", 2)] {
+            let cluster = document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute("data-id") == Some(id))
+                .expect("State cluster");
+            let header = cluster
+                .descendants()
+                .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("outer"))
+                .expect("header rectangle exists even without visible text");
+            assert_eq!(
+                header
+                    .attribute("style")
+                    .unwrap_or_default()
+                    .contains("#b316cd"),
+                ordinal.is_none_or(|ordinal| ordinal == position),
+                "{id}/{ordinal:?}"
+            );
+            let label = cluster
+                .children()
+                .find(|node| node.attribute("class") == Some("cluster-label"))
+                .expect("composite label terminal");
+            assert_eq!(
+                label
+                    .attribute("style")
+                    .unwrap_or_default()
+                    .contains("#12ab34"),
+                id == "Full",
+                "text ordinal skips the empty header: {id}/{ordinal:?}"
+            );
+        }
+        assert_eq!(evidence.required, 2);
+        assert_eq!(evidence.applied, 2);
+        assert_eq!(evidence.residual, 0);
+    }
+}
+
+#[test]
+fn state_empty_html_geometry_consumes_base_font_size_without_text_properties() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new()
+                .with_typography(
+                    TypographySpec::default().with_family_style(
+                        merman_render::DiagramFamilyId::STATE,
+                        ThemeTextStyle::default()
+                            .with_font_stack(FontStack::single("monospace").unwrap())
+                            .with_font_size_px(30.0)
+                            .unwrap(),
+                    ),
+                )
+                .with_styles(
+                    ThemeRuleSet::default()
+                        .with_rule(ThemeRule::new(
+                            ThemeTarget::StateLabel,
+                            ThemeStylePatch::default()
+                                .with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+                        ))
+                        .with_ordinal_palette(
+                            ThemeTarget::StateLabel,
+                            OrdinalPalette::new([ThemeColorValue::parse("#b316cd").unwrap()])
+                                .unwrap(),
+                        ),
+                ),
+        )
+        .unwrap();
+    for (label, line_count) in [
+        ("<img src=x>", 1.0),
+        ("<br/>", 1.0),
+        ("<br/><br/>", 2.0),
+        ("<span></span>", 1.0),
+        ("<span> </span>", 1.0),
+    ] {
+        let source = format!("stateDiagram-v2\nstate \"{label}\" as Empty\n");
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            &source,
+            serde_json::json!({"htmlLabels": true, "look": "classic"}),
+            "site",
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid empty HTML State SVG");
+        let geometry = document
+            .descendants()
+            .find(|node| node.has_tag_name("foreignObject"))
+            .expect("HTML geometry terminal");
+        let height: f64 = geometry.attribute("height").unwrap().parse().unwrap();
+        assert_eq!(height, 30.0 * 1.5 * line_count, "{label}");
+        if let Some(image) = geometry.descendants().find(|node| node.has_tag_name("img")) {
+            let style = image.attribute("style").expect("normalized image size");
+            assert!(style.contains("min-width: 150px;"), "{style}");
+            assert!(style.contains("max-width: 150px;"), "{style}");
+        }
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 4,
+                accounted: 4,
+                applied: 1,
+                not_applicable: 3,
+                residual: 0,
+            },
+            "{label}: only numeric size has a consumer"
+        );
+    }
+}
+
+#[test]
+fn state_empty_html_geometry_keeps_base_line_height_residual_with_applied_font_size() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_typography(
+                TypographySpec::default().with_family_style(
+                    merman_render::DiagramFamilyId::STATE,
+                    ThemeTextStyle::default()
+                        .with_font_size_px(30.0)
+                        .unwrap()
+                        .with_line_height(LineHeight::Multiplier(4.0))
+                        .unwrap(),
+                ),
+            ),
+        )
+        .unwrap();
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        "stateDiagram-v2\nstate \"<br/>\" as Empty\n",
+        serde_json::json!({"htmlLabels": true, "look": "classic"}),
+        "site",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid empty HTML State SVG");
+    let geometry = document
+        .descendants()
+        .find(|node| node.has_tag_name("foreignObject"))
+        .expect("retained empty HTML line box");
+    let height: f64 = geometry.attribute("height").unwrap().parse().unwrap();
+    assert_eq!(
+        height, 45.0,
+        "the writer still uses its fixed 1.5 line height"
+    );
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 2,
+            accounted: 2,
+            applied: 1,
+            not_applicable: 0,
+            residual: 1,
+        },
+        "applied base font size must not retire the unsupported base line height"
+    );
+}
+
+#[test]
+fn state_empty_html_transition_geometry_consumes_only_font_size() {
+    let mut rules = ThemeRuleSet::default()
+        .with_ordinal_palette(
+            ThemeTarget::TransitionLabel,
+            OrdinalPalette::new([ThemeColorValue::parse("#b316cd").unwrap()]).unwrap(),
+        )
+        .with_rule(ThemeRule::new(
+            ThemeTarget::TransitionLabel,
+            ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+        ));
+    for typography in [
+        TextStylePatch {
+            font_size_px: Specified::Value(30.0),
+            ..TextStylePatch::default()
+        },
+        TextStylePatch {
+            font_stack: Specified::Value(FontStack::single("monospace").unwrap()),
+            ..TextStylePatch::default()
+        },
+    ] {
+        rules = rules.with_rule(ThemeRule::new(
+            ThemeTarget::TransitionLabel,
+            ThemeStylePatch {
+                typography,
+                ..ThemeStylePatch::default()
+            },
+        ));
+    }
+    let theme = DiagramThemeCompiler::new()
+        .compile(DiagramThemeSpec::new().with_styles(rules))
+        .unwrap();
+    for (label, lines) in [
+        ("<br/><br/>", 2.0),
+        ("<span></span>", 1.0),
+        ("<img src=x>", 1.0),
+    ] {
+        let source = format!("stateDiagram-v2\nA --> B: {label}\n");
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            &source,
+            serde_json::json!({"htmlLabels": true, "look": "classic"}),
+            "site",
+        );
+        assert_eq!(
+            state_edge_label_foreign_object_height(&svg, "edge0"),
+            45.0 * lines
+        );
+        assert_eq!(evidence.required, 4);
+        assert_eq!(evidence.applied, 1);
+        assert_eq!(evidence.not_applicable, 3);
+        assert_eq!(evidence.residual, 0, "{label}");
+    }
+}
+
+#[test]
+fn state_html_geometry_consumes_static_font_size_and_clear_falls_back_to_base() {
+    for label in ["<img src=x>", "<br/><br/>", "Visible"] {
+        for (target, specified, preceding_value) in [
+            (ThemeTarget::Text, Specified::Value(30.0), false),
+            (ThemeTarget::StateLabel, Specified::Value(30.0), false),
+            (ThemeTarget::StateLabel, Specified::Clear, false),
+            (ThemeTarget::StateLabel, Specified::Clear, true),
+        ] {
+            let mut rules = ThemeRuleSet::default();
+            if preceding_value {
+                rules = rules.with_rule(ThemeRule::new(
+                    ThemeTarget::Text,
+                    ThemeStylePatch {
+                        typography: TextStylePatch {
+                            font_size_px: Specified::Value(30.0),
+                            ..TextStylePatch::default()
+                        },
+                        ..ThemeStylePatch::default()
+                    },
+                ));
+            }
+            let clear = matches!(specified, Specified::Clear);
+            rules = rules.with_rule(ThemeRule::new(
+                target,
+                ThemeStylePatch {
+                    typography: TextStylePatch {
+                        font_size_px: specified,
+                        ..TextStylePatch::default()
+                    },
+                    ..ThemeStylePatch::default()
+                },
+            ));
+            let theme = DiagramThemeCompiler::new()
+                .compile(
+                    DiagramThemeSpec::new()
+                        .with_typography(TypographySpec::default().with_family_style(
+                            merman_render::DiagramFamilyId::STATE,
+                            ThemeTextStyle::default().with_font_size_px(22.0).unwrap(),
+                        ))
+                        .with_styles(rules),
+                )
+                .unwrap();
+            let source = format!("stateDiagram-v2\nstate \"{label}\" as Sample\n");
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                &source,
+                serde_json::json!({"htmlLabels": true, "look": "classic"}),
+                "site",
+            );
+            let document = roxmltree::Document::parse(&svg).expect("valid State font-size SVG");
+            let geometry = document
+                .descendants()
+                .find(|node| node.has_tag_name("foreignObject"))
+                .unwrap();
+            let expected_size = if clear { 22.0 } else { 30.0 };
+            let lines = if label == "<br/><br/>" { 2.0 } else { 1.0 };
+            let height: f64 = geometry.attribute("height").unwrap().parse().unwrap();
+            assert_eq!(height, expected_size * 1.5 * lines, "{label}/{target:?}");
+            if let Some(image) = geometry.descendants().find(|node| node.has_tag_name("img")) {
+                assert!(
+                    image
+                        .attribute("style")
+                        .unwrap()
+                        .contains(&format!("min-width: {}px;", expected_size * 5.0))
+                );
+            }
+            assert_eq!(evidence.required, 2 + usize::from(preceding_value));
+            assert_eq!(evidence.accounted, evidence.required);
+            assert_eq!(evidence.applied, if clear { 2 } else { 1 });
+            assert_eq!(
+                evidence.not_applicable,
+                usize::from(!clear || preceding_value)
+            );
+            assert_eq!(evidence.residual, 0, "{label}/{target:?}/{clear}");
+        }
+    }
+}
+
+#[test]
+fn state_html_geometry_font_size_yields_to_config_and_source_owners() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new()
+                .with_typography(TypographySpec::default().with_family_style(
+                    merman_render::DiagramFamilyId::STATE,
+                    ThemeTextStyle::default().with_font_size_px(22.0).unwrap(),
+                ))
+                .with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::StateLabel,
+                    ThemeStylePatch {
+                        typography: TextStylePatch {
+                            font_size_px: Specified::Value(30.0),
+                            ..TextStylePatch::default()
+                        },
+                        ..ThemeStylePatch::default()
+                    },
+                ))),
+        )
+        .unwrap();
+    for (origin, config_size, source_style) in [
+        ("site", true, ""),
+        ("source", true, ""),
+        ("site", false, "style Image font-size:18px\n"),
+        (
+            "site",
+            false,
+            "classDef sized font-size:18px\nclass Image sized\n",
+        ),
+    ] {
+        let source = format!("stateDiagram-v2\nstate \"<img src=x>\" as Image\n{source_style}");
+        let mut config = serde_json::json!({"htmlLabels": true, "look": "classic"});
+        if config_size {
+            config["fontSize"] = serde_json::json!(18);
+        }
+        let (svg, evidence) =
+            render_strict_state_svg_with_theme_and_config(&theme, &source, config, origin);
+        let document = roxmltree::Document::parse(&svg).expect("valid owned State font-size SVG");
+        let image = document
+            .descendants()
+            .find(|node| node.has_tag_name("img"))
+            .unwrap();
+        let style = image.attribute("style").unwrap();
+        assert!(
+            style.contains("min-width: 90px;"),
+            "{origin}/{source_style}: {style}"
+        );
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 2,
+                accounted: 2,
+                applied: 0,
+                not_applicable: 2,
+                residual: 0,
+            },
+            "{origin}/{source_style}"
+        );
+    }
+}
+
+#[test]
+fn state_empty_html_geometry_keeps_unsupported_siblings_without_text_consumers() {
+    let shadow = EffectGraph::new(
+        "shadow",
+        [EffectPrimitive::DropShadow {
+            input: EffectInput::SourceGraphic,
+            offset_x: 2.0,
+            offset_y: 2.0,
+            blur_radius: 0.0,
+            spread: 0.0,
+            color: ThemeColorValue::parse("#111827").unwrap(),
+        }],
+    )
+    .unwrap();
+    let effects = DiagramEffectSet::default().with_graph(shadow).unwrap();
+    for label in ["<img src=x>", "<br/>", "<span></span>"] {
+        for font_size in [
+            Specified::Unspecified,
+            Specified::Value(30.0),
+            Specified::Clear,
+        ] {
+            for sibling in [
+                "radius",
+                "padding",
+                "effect",
+                "clear-effect",
+                "line-height",
+                "clear-line-height",
+            ] {
+                let mut patch =
+                    ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap());
+                patch.typography = TextStylePatch {
+                    font_size_px: font_size.clone(),
+                    font_stack: Specified::Value(FontStack::single("monospace").unwrap()),
+                    ..TextStylePatch::default()
+                };
+                match sibling {
+                    "radius" => patch.geometry.radius = Specified::Value(8.0),
+                    "padding" => patch = patch.with_padding(InsetsPx::all(8.0)),
+                    "effect" => patch = patch.with_effect("shadow").unwrap(),
+                    "clear-effect" => patch.effects.effect = Specified::Clear,
+                    "line-height" => {
+                        patch.typography.line_height =
+                            Specified::Value(LineHeight::Multiplier(4.0));
+                    }
+                    "clear-line-height" => patch.typography.line_height = Specified::Clear,
+                    _ => unreachable!(),
+                }
+                let theme = DiagramThemeCompiler::new()
+                    .compile(
+                        DiagramThemeSpec::new()
+                            .with_effects(effects.clone())
+                            .with_styles(
+                                ThemeRuleSet::default()
+                                    .with_rule(ThemeRule::new(ThemeTarget::StateLabel, patch)),
+                            ),
+                    )
+                    .unwrap();
+                let source = format!("stateDiagram-v2\nstate \"{label}\" as Empty\n");
+                let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                    &theme,
+                    &source,
+                    serde_json::json!({"htmlLabels": true, "look": "classic"}),
+                    "site",
+                );
+                let document = roxmltree::Document::parse(&svg).expect("valid State HTML SVG");
+                if matches!(font_size, Specified::Value(_)) {
+                    let geometry = document
+                        .descendants()
+                        .find(|node| node.has_tag_name("foreignObject"))
+                        .expect("retained HTML geometry");
+                    let height: f64 = geometry.attribute("height").unwrap().parse().unwrap();
+                    assert_eq!(height, 45.0, "{label}/{sibling}");
+                    if let Some(image) =
+                        geometry.descendants().find(|node| node.has_tag_name("img"))
+                    {
+                        assert!(
+                            image
+                                .attribute("style")
+                                .unwrap()
+                                .contains("min-width: 150px;")
+                        );
+                    }
+                }
+                assert_eq!(
+                    evidence,
+                    StateThemeEvidenceCounts {
+                        required: 1,
+                        accounted: 1,
+                        applied: 0,
+                        not_applicable: 0,
+                        residual: 1,
+                    },
+                    "{label}/{font_size:?}/{sibling}: geometry cannot retire unsupported siblings"
+                );
+            }
+        }
+    }
+
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(
+                ThemeRuleSet::default()
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::StateLabel,
+                        ThemeStylePatch {
+                            typography: TextStylePatch {
+                                font_size_px: Specified::Value(30.0),
+                                ..TextStylePatch::default()
+                            },
+                            ..ThemeStylePatch::default()
+                        },
+                    ))
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::StateLabel,
+                        ThemeStylePatch::default().with_padding(InsetsPx::all(8.0)),
+                    )),
+            ),
+        )
+        .unwrap();
+    let (_, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        "stateDiagram-v2\nstate \"<img src=x>\" as Empty\n",
+        serde_json::json!({"htmlLabels": true, "look": "classic"}),
+        "site",
+    );
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 2,
+            accounted: 2,
+            applied: 1,
+            not_applicable: 0,
+            residual: 1,
+        },
+        "each winner retains its own rule origin"
+    );
+}
+
+#[test]
+fn state_structural_node_class_owns_direct_shape_paints() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(
+                ThemeRuleSet::default()
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::State,
+                        ThemeStylePatch::default()
+                            .with_fill(CanvasPaint::solid("#b316cd").unwrap())
+                            .with_stroke(CanvasPaint::solid("#be123c").unwrap())
+                            .with_stroke_width(3.0)
+                            .unwrap(),
+                    ))
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::StateLabel,
+                        ThemeStylePatch::default()
+                            .with_fill(CanvasPaint::solid("#12ab34").unwrap()),
+                    )),
+            ),
+        )
+        .unwrap();
+    for html_labels in [false, true] {
+        for look in ["classic", "neo"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                "stateDiagram-v2\nstate \"Ready\" as Ready\nclassDef node fill:#aabbcc,stroke:#2255dd,stroke-width:5px\n",
+                serde_json::json!({"htmlLabels": html_labels, "look": look}),
+                "site",
+            );
+            let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+            let shape = document
+                .descendants()
+                .find(|node| node.attribute("class") == Some("basic label-container"))
+                .expect("ordinary State body");
+            let style = shape.attribute("style").unwrap();
+            for declaration in [
+                "fill:#aabbcc !important",
+                "stroke:#2255dd !important",
+                "stroke-width:5px !important",
+            ] {
+                assert!(style.contains(declaration), "{html_labels}/{look}: {style}");
+            }
+            assert!(!style.contains("#b316cd"), "{style}");
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 2,
+                    accounted: 2,
+                    applied: 1,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{html_labels}/{look}: shape ownership must not retire label paint"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_structural_node_color_owns_native_tspans_only() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::StateLabel,
+                ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+            ))),
+        )
+        .unwrap();
+    for html_labels in [false, true] {
+        for inline_source in [false, true] {
+            let source = format!(
+                "stateDiagram-v2\nstate \"Ready\" as Ready\nclassDef node color:#223344,color:#aabbcc,COLOR:#445566\n{}",
+                if inline_source {
+                    "style Ready color:#2255dd\n"
+                } else {
+                    ""
+                }
+            );
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                &source,
+                serde_json::json!({"htmlLabels": html_labels, "look": "classic"}),
+                "site",
+            );
+            let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+            let text = document
+                .descendants()
+                .find(|node| {
+                    node.attribute("class")
+                        == Some(if html_labels {
+                            "nodeLabel markdown-node-label"
+                        } else {
+                            "text-inner-tspan"
+                        })
+                })
+                .expect("State text terminal");
+            let style = text.attribute("style").unwrap();
+            let expected = match (html_labels, inline_source) {
+                (true, false) => "color:#b316cd !important",
+                (false, false) => "fill:#aabbcc !important",
+                (true, true) => "color:#2255dd !important",
+                (false, true) => "fill:#2255dd !important",
+            };
+            assert!(
+                style.contains(expected),
+                "{html_labels}/{inline_source}: {style}"
+            );
+            let applied = html_labels && !inline_source;
+            if !applied {
+                assert!(!style.contains("#b316cd"), "{style}");
+            }
+            assert!(state_svg_stylesheet(&svg).contains(" .node tspan{fill:"));
+            assert_eq!(evidence.required, 1);
+            assert_eq!(evidence.accounted, 1);
+            assert_eq!(evidence.applied, usize::from(applied));
+            assert_eq!(evidence.not_applicable, usize::from(!applied));
+            assert_eq!(evidence.residual, 0);
+        }
+    }
+}
+
+#[test]
+fn state_structural_node_html_fonts_share_measurement_and_source_ownership() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::StateLabel,
+                ThemeStylePatch {
+                    typography: TextStylePatch {
+                        font_stack: Specified::Value(FontStack::single("serif").unwrap()),
+                        font_size_px: Specified::Value(30.0),
+                        font_weight: Specified::Value(400),
+                        font_style: Specified::Value(FontStyle::Normal),
+                        ..TextStylePatch::default()
+                    },
+                    ..ThemeStylePatch::default()
+                },
+            ))),
+        )
+        .unwrap();
+    let fonts = "font-family:monospace,font-size:18px,font-weight:700,font-style:italic";
+    for label in ["AVAV", "<img src=x>"] {
+        let config = serde_json::json!({"htmlLabels": true, "look": "classic", "state": {"minNodeWidth": 0}});
+        let source =
+            format!("stateDiagram-v2\nstate \"{label}\" as Ready\nclassDef node {fonts}\n");
+        let (svg, evidence) =
+            render_strict_state_svg_with_theme_and_config(&theme, &source, config.clone(), "site");
+        let (reference, _) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            &format!("stateDiagram-v2\nstate \"{label}\" as Ready\nstyle Ready {fonts}\n"),
+            config,
+            "site",
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+        let reference =
+            roxmltree::Document::parse(&reference).expect("valid source-style reference");
+        let geometry = document
+            .descendants()
+            .find(|node| node.has_tag_name("foreignObject"))
+            .unwrap();
+        let expected_geometry = reference
+            .descendants()
+            .find(|node| node.has_tag_name("foreignObject"))
+            .unwrap();
+        assert_eq!(
+            geometry.attribute("width"),
+            expected_geometry.attribute("width"),
+            "{label}"
+        );
+        assert_eq!(
+            geometry.attribute("height"),
+            expected_geometry.attribute("height"),
+            "{label}"
+        );
+        assert_eq!(geometry.attribute("height"), Some("27"), "{label}");
+        let span = geometry
+            .descendants()
+            .find(|node| node.has_tag_name("span"))
+            .unwrap();
+        let style = span.attribute("style").unwrap();
+        for declaration in [
+            "font-family:monospace !important",
+            "font-size:18px !important",
+            "font-weight:700 !important",
+            "font-style:italic !important",
+        ] {
+            assert!(style.contains(declaration), "{label}: {style}");
+        }
+        if let Some(image) = geometry.descendants().find(|node| node.has_tag_name("img")) {
+            assert!(
+                image
+                    .attribute("style")
+                    .unwrap()
+                    .contains("min-width: 90px;")
+            );
+        }
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 1,
+                accounted: 1,
+                applied: 0,
+                not_applicable: 1,
+                residual: 0
+            },
+            "{label}"
+        );
+    }
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        &format!("stateDiagram-v2\nstate \"AVAV\" as Ready\nclassDef node {fonts}\n"),
+        serde_json::json!({"htmlLabels": false, "look": "classic"}),
+        "site",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+    let word = document
+        .descendants()
+        .find(|node| node.attribute("class") == Some("text-inner-tspan"))
+        .unwrap();
+    let style = word.attribute("style").unwrap();
+    assert!(style.contains("font-size:30px !important"), "{style}");
+    assert!(!style.contains("font-size:18px"), "{style}");
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 1,
+            accounted: 1,
+            applied: 1,
+            not_applicable: 0,
+            residual: 0
+        }
+    );
+}
+
+#[test]
+fn state_structural_node_class_respects_stylesheet_order_and_inline_source() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::State,
+                ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+            ))),
+        )
+        .unwrap();
+    for html_labels in [false, true] {
+        for classes in [
+            "classDef node fill:#aabbcc\nclassDef explicit fill:#2255dd\n",
+            "classDef explicit fill:#aabbcc\nclassDef node fill:#2255dd\n",
+        ] {
+            for inline_source in [false, true] {
+                let source = format!(
+                    "stateDiagram-v2\nstate \"Ready\" as Ready\n{classes}class Ready explicit\n{}",
+                    if inline_source {
+                        "style Ready fill:#112233\n"
+                    } else {
+                        ""
+                    }
+                );
+                let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                    &theme,
+                    &source,
+                    serde_json::json!({"htmlLabels": html_labels, "look": "classic"}),
+                    "site",
+                );
+                let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+                let shape = document
+                    .descendants()
+                    .find(|node| node.attribute("class") == Some("basic label-container"))
+                    .unwrap();
+                let style = shape.attribute("style").unwrap();
+                let expected = if inline_source {
+                    "fill:#112233 !important"
+                } else {
+                    "fill:#2255dd !important"
+                };
+                assert!(style.contains(expected), "{source}: {style}");
+                assert_eq!(
+                    evidence,
+                    StateThemeEvidenceCounts {
+                        required: 1,
+                        accounted: 1,
+                        applied: 0,
+                        not_applicable: 1,
+                        residual: 0
+                    }
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn state_structural_node_class_does_not_own_composite_body() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Composite,
+                ThemeStylePatch::default().with_fill(CanvasPaint::solid("#b316cd").unwrap()),
+            ))),
+        )
+        .unwrap();
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        "stateDiagram-v2\nstate Group {\nReady\n}\nclassDef node fill:#aabbcc\n",
+        serde_json::json!({"htmlLabels": true, "look": "classic"}),
+        "site",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid composite State SVG");
+    let cluster = document
+        .descendants()
+        .find(|node| node.attribute("data-id") == Some("Group"))
+        .unwrap();
+    let body = cluster
+        .children()
+        .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("inner"))
+        .expect("composite body");
+    assert!(
+        body.attribute("style")
+            .unwrap()
+            .contains("fill:#b316cd !important")
+    );
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 1,
+            accounted: 1,
+            applied: 1,
+            not_applicable: 0,
+            residual: 0
+        }
+    );
+}
+
+#[test]
+fn state_effect_clear_suppresses_bindings_on_non_filter_node_surfaces() {
+    let empty_theme = DiagramThemeCompiler::new()
+        .compile(state_theme_spec())
+        .unwrap();
+    for (target, source) in [
+        (
+            ThemeTarget::Note,
+            "stateDiagram-v2\nstate Ready\nnote right of Ready: Details\n",
+        ),
+        (
+            ThemeTarget::Composite,
+            "stateDiagram-v2\nstate Group {\nstate Inner\n}\n",
+        ),
+        (
+            ThemeTarget::SpecialState,
+            "stateDiagram-v2\n[*] --> Ready\n",
+        ),
+    ] {
+        let graph = EffectGraph::new(
+            "shadow",
+            [EffectPrimitive::DropShadow {
+                input: EffectInput::SourceGraphic,
+                offset_x: 2.0,
+                offset_y: 2.0,
+                blur_radius: 0.0,
+                spread: 0.0,
+                color: ThemeColorValue::parse("#111827").unwrap(),
+            }],
+        )
+        .unwrap();
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec()
+                    .with_effects(
+                        DiagramEffectSet::default()
+                            .with_graph(graph)
+                            .unwrap()
+                            .with_binding(EffectBinding::new(target, "shadow").unwrap())
+                            .unwrap(),
+                    )
+                    .with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                        target,
+                        ThemeStylePatch {
+                            effects: ThemeEffectPatch {
+                                effect: Specified::Clear,
+                            },
+                            ..ThemeStylePatch::default()
+                        },
+                    ))),
+            )
+            .unwrap();
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            source,
+            serde_json::json!({}),
+            "site",
+        );
+        let (baseline, _) = render_strict_state_svg_with_theme_and_config(
+            &empty_theme,
+            source,
+            serde_json::json!({}),
+            "site",
+        );
+        assert_eq!(
+            svg, baseline,
+            "{target:?} Clear must preserve the unmodified SVG"
+        );
+        assert_eq!(evidence.required, 2, "{target:?}");
+        assert_eq!(evidence.accounted, 2, "{target:?}");
+        assert_eq!(evidence.applied, 1, "{target:?}");
+        assert_eq!(evidence.not_applicable, 1, "{target:?}");
+        assert_eq!(evidence.residual, 0, "{target:?}");
+    }
+}
+
+fn state_terminal_owner_config_for_origin(
+    mut config: serde_json::Value,
+    origin: &str,
+) -> serde_json::Value {
+    if origin != "source" {
+        return config;
+    }
+
+    // `theme-base` does not admit `stateBorder` as a source-authored variable. The State writer
+    // resolves that terminal through `stateBorder -> nodeBorder`, so the source witness must own
+    // the surviving fallback while the site witness continues to exercise the preferred path.
+    let theme = config
+        .get("theme")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let Some(theme_variables) = config
+        .get_mut("themeVariables")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return config;
+    };
+    let Some(state_border) = theme_variables.remove("stateBorder") else {
+        return config;
+    };
+
+    assert_eq!(
+        theme.as_deref(),
+        Some("base"),
+        "the State source-owner fallback witness is specific to theme-base"
+    );
+    assert!(
+        theme_variables
+            .insert("nodeBorder".to_string(), state_border)
+            .is_none(),
+        "the State source-owner fixture must select exactly one border fallback"
+    );
+    config
+}
+
+fn state_note_radius_theme(radius: Specified<f32>) -> DiagramTheme {
+    DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Note,
+                ThemeStylePatch {
+                    geometry: ThemeGeometryPatch { radius },
+                    ..ThemeStylePatch::default()
+                },
+            ))),
+        )
+        .expect("compile State note radius theme")
+}
+
+fn state_transition_label_font_size_theme(font_size_px: f32) -> DiagramTheme {
+    DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::TransitionLabel,
+                ThemeStylePatch {
+                    typography: TextStylePatch {
+                        font_size_px: Specified::Value(font_size_px),
+                        ..TextStylePatch::default()
+                    },
+                    ..ThemeStylePatch::default()
+                },
+            ))),
+        )
+        .expect("compile State transition-label font-size theme")
+}
+
+fn state_note_rough_paths(svg: &str) -> Vec<String> {
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG XML");
+    let note_label = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("class").is_some_and(|classes| {
+                    classes.split_whitespace().any(|class| class == "noteLabel")
+                })
+        })
+        .expect("State note label group");
+    let note_node = note_label.parent().expect("State note node group");
+    note_node
+        .children()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("class").is_some_and(|classes| {
+                    classes
+                        .split_whitespace()
+                        .any(|class| class == "outer-path")
+                })
+        })
+        .expect("State note outer path group")
+        .children()
+        .filter(|node| node.has_tag_name("path"))
+        .map(|node| {
+            node.attribute("d")
+                .expect("State note rough path")
+                .to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn state_note_positive_radius_changes_rough_geometry() {
+    let source = "stateDiagram-v2\nA\nnote right of A : rounded note\n";
+    let baseline = render_state_svg_from_text(source);
+    let rounded = render_classic_state_svg_from_text_with_theme(
+        source,
+        &state_note_radius_theme(Specified::Value(12.0)),
+    );
+
+    assert_ne!(
+        state_note_rough_paths(&rounded),
+        state_note_rough_paths(&baseline)
+    );
+}
+
+#[test]
+fn state_note_zero_radius_preserves_square_rough_path_bytes() {
+    let source = "stateDiagram-v2\nA\nnote right of A : square note\n";
+    let baseline = render_state_svg_from_text(source);
+    let explicit_zero = render_classic_state_svg_from_text_with_theme(
+        source,
+        &state_note_radius_theme(Specified::Value(0.0)),
+    );
+
+    assert_eq!(
+        state_note_rough_paths(&explicit_zero),
+        state_note_rough_paths(&baseline)
+    );
+}
+
+#[test]
+fn state_note_radius_clamps_to_half_the_shortest_side() {
+    let source = "stateDiagram-v2\nA\nnote right of A : clamped note\n";
+    let large = render_classic_state_svg_from_text_with_theme(
+        source,
+        &state_note_radius_theme(Specified::Value(10_000.0)),
+    );
+    let larger = render_classic_state_svg_from_text_with_theme(
+        source,
+        &state_note_radius_theme(Specified::Value(100_000.0)),
+    );
+
+    assert_eq!(
+        state_note_rough_paths(&large),
+        state_note_rough_paths(&larger)
+    );
+}
+
+#[test]
+fn state_note_clear_radius_remains_strictly_unsupported() {
+    let theme = state_note_radius_theme(Specified::Clear);
+    let source = "stateDiagram-v2\nA\nnote right of A : unsupported clear\n";
+    let session = RenderEnvironment::deterministic()
+        .with_theme_portability_requirement(ThemePortabilityRequirement::RequirePortable)
+        .begin_session_with_theme(&theme)
+        .expect("begin strict portable State note session");
+    let parsed = common::install_parse_compatibility(&theme, classic_engine())
+        .parse_diagram_for_render_model_sync(source, ParseOptions::default())
+        .expect("parse strict State note source")
+        .expect("State diagram detected")
+        .into_presentation();
+    let error = match family::prepare(&parsed, &LayoutOptions::default(), session) {
+        Ok(_) => panic!("clearing State Note radius must fail closed in portable mode"),
+        Err(error) => error,
+    };
+
+    assert!(
+        matches!(
+            error,
+            merman_render::Error::UnverifiedFamilyTheme {
+                family_id: merman_model::family::DiagramFamilyId::STATE,
+                residual_count: 1,
+            }
+        ),
+        "unexpected strict State Note radius error: {error:?}"
+    );
+}
+
+#[test]
+fn state_svg_derives_safe_typed_drop_shadow_regions_for_classic_state_nodes() {
+    let theme = state_hard_shadow_theme(5.0, 6.0, 4.0);
+    let source = "stateDiagram-v2\n[*] --> Ready\nReady --> ExtraordinarilyWideStateName\nExtraordinarilyWideStateName --> [*]\n";
+    let svg = render_classic_state_svg_from_text_with_theme(source, &theme);
+    let document = roxmltree::Document::parse(&svg).expect("valid themed State SVG XML");
+    let filters = document
+        .descendants()
+        .filter(|node| {
+            node.has_tag_name("filter")
+                && node
+                    .attribute("id")
+                    .is_some_and(|id| id.ends_with("-theme-effect-state-hard-shadow"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(filters.len(), 2);
+    let filter_ids = filters
+        .iter()
+        .map(|filter| {
+            let primitives = filter
+                .children()
+                .filter(|node| node.is_element())
+                .collect::<Vec<_>>();
+            assert_eq!(primitives.len(), 1);
+            let shadow = primitives[0];
+            assert!(shadow.has_tag_name("feDropShadow"));
+            assert_eq!(shadow.attribute("in"), Some("SourceGraphic"));
+            assert_eq!(shadow.attribute("dx"), Some("5"));
+            assert_eq!(shadow.attribute("dy"), Some("6"));
+            assert_eq!(shadow.attribute("stdDeviation"), Some("0"));
+            assert_eq!(shadow.attribute("flood-color"), Some("#111827"));
+            filter.attribute("id").expect("filter id")
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(filter_ids.len(), 2);
+    let referenced_filter_ids = document
+        .descendants()
+        .filter(|node| {
+            node.has_tag_name("rect") && node.attribute("class") == Some("basic label-container")
+        })
+        .map(|node| {
+            node.attribute("filter")
+                .and_then(|value| value.strip_prefix("url(#"))
+                .and_then(|value| value.strip_suffix(')'))
+                .expect("State rect must reference one typed hard-shadow filter")
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(referenced_filter_ids, filter_ids);
+
+    let regions = state_effect_filter_regions(&svg);
+    assert_eq!(regions.len(), 2);
+    assert!(regions[0].0 < regions[1].0, "node widths must differ");
+    for (width, height, region) in &regions {
+        let expected_x = -2.0 / width;
+        let expected_y = -2.0 / height;
+        let expected_max_x = 1.0 + 7.0 / width;
+        let expected_max_y = 1.0 + 8.0 / height;
+        assert!(region[0] <= expected_x + 1.0e-6, "{region:?}");
+        assert!(region[1] <= expected_y + 1.0e-6, "{region:?}");
+        assert!(
+            region[0] + region[2] >= expected_max_x - 1.0e-6,
+            "{region:?}"
+        );
+        assert!(
+            region[1] + region[3] >= expected_max_y - 1.0e-6,
+            "{region:?}"
+        );
+    }
+    assert_ne!(regions[0].2, regions[1].2);
+
+    let baseline_theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::State,
+                    ThemeStylePatch::default()
+                        .with_stroke_width(4.0)
+                        .expect("valid comparison stroke width"),
+                )),
+            ),
+        )
+        .expect("compile comparison theme");
+    let baseline_view_box = svg_view_box(&render_classic_state_svg_from_text_with_theme(
+        source,
+        &baseline_theme,
+    ));
+    let effect_view_box = svg_view_box(&svg);
+    assert!(effect_view_box[2] >= baseline_view_box[2] + 9.0 - 1.0e-6);
+    assert!(effect_view_box[3] >= baseline_view_box[3] + 10.0 - 1.0e-6);
+
+    let session = RenderEnvironment::deterministic()
+        .with_theme_portability_requirement(ThemePortabilityRequirement::RequirePortable)
+        .begin_session_with_theme(&theme)
+        .expect("begin strict portable State session");
+    let parsed = common::install_parse_compatibility(&theme, classic_engine())
+        .parse_diagram_for_render_model_sync(source, ParseOptions::default())
+        .expect("parse strict State source")
+        .expect("State diagram detected")
+        .into_presentation();
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .expect("prepare strict portable State artifact");
+    artifact
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .expect("typed hard shadow should satisfy strict family portability");
+
+    let session = RenderEnvironment::deterministic()
+        .with_theme_portability_requirement(ThemePortabilityRequirement::RequirePortable)
+        .begin_session_with_theme(&theme)
+        .expect("begin strict portable State session without edges");
+    let parsed = common::install_parse_compatibility(&theme, classic_engine())
+        .parse_diagram_for_render_model_sync(source, ParseOptions::default())
+        .expect("parse strict State source without edges")
+        .expect("State diagram detected")
+        .into_presentation();
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .expect("prepare strict portable State artifact without edges");
+    let debug = SvgDebugOptions {
+        include_edges: false,
+        ..SvgDebugOptions::default()
+    };
+    let rendered = artifact
+        .render_svg(&SvgRenderOptions::default(), &debug)
+        .expect("hidden edges must not invalidate emitted State node effects");
+    assert!(rendered.svg().contains("theme-effect-state-hard-shadow"));
+}
+
+#[test]
+fn state_svg_soft_shadow_uses_four_sigma_regions_and_expands_the_root_viewbox() {
+    let theme = state_drop_shadow_theme_with(
+        DiagramThemeCompiler::new(),
+        "state-soft-shadow",
+        0.0,
+        0.0,
+        8.0,
+        Some(
+            ThemeStylePatch::default()
+                .with_stroke_width(2.0)
+                .expect("valid State stroke width"),
+        ),
+    );
+    let source = "stateDiagram-v2\n[*] --> Ready\nReady --> ExtraordinarilyWideStateName\nExtraordinarilyWideStateName --> [*]\n";
+    let svg = render_classic_state_svg_from_text_with_theme(source, &theme);
+    let document = roxmltree::Document::parse(&svg).expect("valid soft-shadow State SVG XML");
+
+    let filters = document
+        .descendants()
+        .filter(|node| {
+            node.has_tag_name("filter")
+                && node
+                    .attribute("id")
+                    .is_some_and(|id| id.ends_with("-theme-effect-state-soft-shadow"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(filters.len(), 2);
+    assert!(filters.iter().all(|filter| {
+        filter
+            .children()
+            .find(|node| node.is_element() && node.has_tag_name("feDropShadow"))
+            .is_some_and(|shadow| shadow.attribute("stdDeviation") == Some("8"))
+    }));
+
+    let regions = state_effect_filter_regions(&svg);
+    assert_eq!(regions.len(), 2);
+    assert!(regions[0].0 < regions[1].0, "node widths must differ");
+    for (width, height, region) in regions {
+        assert_filter_region_matches_outsets(width, height, region, [33.0; 4]);
+    }
+
+    let baseline_theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::State,
+                    ThemeStylePatch::default()
+                        .with_stroke_width(2.0)
+                        .expect("valid comparison stroke width"),
+                )),
+            ),
+        )
+        .expect("compile comparison theme");
+    let baseline_view_box = svg_view_box(&render_classic_state_svg_from_text_with_theme(
+        source,
+        &baseline_theme,
+    ));
+    let effect_view_box = svg_view_box(&svg);
+    assert!(effect_view_box[2] >= baseline_view_box[2] + 66.0 - 1.0e-6);
+    assert!(effect_view_box[3] >= baseline_view_box[3] + 66.0 - 1.0e-6);
+
+    let strict_svg = render_classic_state_svg_from_text_with_theme_in_environment(
+        source,
+        &theme,
+        &RenderEnvironment::deterministic()
+            .with_theme_portability_requirement(ThemePortabilityRequirement::RequirePortable),
+    );
+    assert!(strict_svg.contains(r#"stdDeviation="8""#));
+}
+
+#[test]
+fn state_svg_shadow_expands_paint_bounds_without_shifting_the_diagram_title() {
+    let source = r#"---
+title: State
+---
+stateDiagram-v2
+[*] --> Ready
+Ready --> [*]
+"#;
+    let baseline_theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::State,
+                    ThemeStylePatch::default()
+                        .with_stroke_width(2.0)
+                        .expect("valid comparison stroke width"),
+                )),
+            ),
+        )
+        .expect("compile State comparison theme");
+    let shadow_theme = state_hard_shadow_theme(48.0, 0.0, 2.0);
+
+    let baseline_svg = render_classic_state_svg_from_text_with_theme(source, &baseline_theme);
+    let shadow_svg = render_classic_state_svg_from_text_with_theme(source, &shadow_theme);
+    assert_eq!(
+        state_diagram_title_x(&shadow_svg),
+        state_diagram_title_x(&baseline_svg),
+        "paint-only shadow outsets must not move the geometry-centered diagram title"
+    );
+
+    let baseline_view_box = svg_view_box(&baseline_svg);
+    let shadow_view_box = svg_view_box(&shadow_svg);
+    assert!(
+        shadow_view_box[2] > baseline_view_box[2] + 40.0,
+        "the positive-x shadow must expand the root paint viewport: baseline={baseline_view_box:?}, shadow={shadow_view_box:?}"
+    );
+    assert!(
+        shadow_view_box[0] + shadow_view_box[2]
+            > baseline_view_box[0] + baseline_view_box[2] + 40.0,
+        "the positive-x shadow must expand the painted right edge: baseline={baseline_view_box:?}, shadow={shadow_view_box:?}"
+    );
+}
+
+#[test]
+fn state_svg_derives_safe_regions_for_negative_hard_shadow_offsets() {
+    let theme = state_hard_shadow_theme(-5.0, -6.0, 2.0);
+    let source = "stateDiagram-v2\n[*] --> Compact\nCompact --> ASignificantlyWiderState\nASignificantlyWiderState --> [*]\n";
+    let svg = render_classic_state_svg_from_text_with_theme(source, &theme);
+    let regions = state_effect_filter_regions(&svg);
+    assert_eq!(regions.len(), 2);
+    assert!(regions[0].0 < regions[1].0, "node widths must differ");
+    for (width, height, region) in regions {
+        let expected_x = -6.0 / width;
+        let expected_y = -7.0 / height;
+        let expected_max_x = 1.0 + 1.0 / width;
+        let expected_max_y = 1.0 + 1.0 / height;
+        assert!(region[0] <= expected_x + 1.0e-6, "{region:?}");
+        assert!(region[1] <= expected_y + 1.0e-6, "{region:?}");
+        assert!(
+            region[0] + region[2] >= expected_max_x - 1.0e-6,
+            "{region:?}"
+        );
+        assert!(
+            region[1] + region[3] >= expected_max_y - 1.0e-6,
+            "{region:?}"
+        );
+    }
+}
+
+#[test]
+fn state_svg_uses_the_classic_default_one_pixel_stroke_for_effect_bounds() {
+    let theme = state_hard_shadow_theme_with(DiagramThemeCompiler::new(), 5.0, 6.0, None);
+    let svg = render_classic_state_svg_from_text_with_theme(
+        "stateDiagram-v2\n[*] --> Ready\nReady --> [*]\n",
+        &theme,
+    );
+    let regions = state_effect_filter_regions(&svg);
+    let [(width, height, region)] = regions.as_slice() else {
+        panic!("expected one materialized State hard-shadow region");
+    };
+
+    assert_filter_region_matches_outsets(*width, *height, *region, [0.5, 5.5, 6.5, 0.5]);
+}
+
+#[test]
+fn state_svg_excludes_non_painting_strokes_from_effect_bounds() {
+    let theme = state_hard_shadow_theme_with(DiagramThemeCompiler::new(), 5.0, 6.0, None);
+    for source_style in [
+        "stroke:none,stroke-width:100px",
+        "stroke:transparent,stroke-width:100px",
+        "stroke:#111827,stroke-width:100px,stroke-opacity:0",
+        "stroke:#111827,stroke-width:100px,stroke-opacity:-1",
+        "stroke:#111827,stroke-width:100px,opacity:0%",
+        "stroke:#111827,stroke-width:100px,opacity:-1%",
+    ] {
+        let source =
+            format!("stateDiagram-v2\n[*] --> Ready\nReady --> [*]\nstyle Ready {source_style}\n");
+        let svg = render_classic_state_svg_from_text_with_theme(&source, &theme);
+        let regions = state_effect_filter_regions(&svg);
+        let [(width, height, region)] = regions.as_slice() else {
+            panic!("expected one materialized State hard-shadow region for {source_style}");
+        };
+        assert_filter_region_matches_outsets(*width, *height, *region, [0.0, 5.0, 6.0, 0.0]);
+    }
+}
+
+#[test]
+fn state_svg_terminal_effect_region_uses_the_session_resource_intersection() {
+    let theme = state_hard_shadow_theme_with(
+        DiagramThemeCompiler::new()
+            .with_resource_policy(ThemeResourcePolicy::unbounded_for_trusted_input()),
+        4096.0,
+        0.0,
+        None,
+    );
+    let source = "stateDiagram-v2\n[*] --> Ready\nReady --> [*]\n";
+    let host_ceiling = ThemeResourcePolicy::interactive()
+        .with_limit(ThemeResourceLimitId::MaxEffectFilterRegionMagnitude, 2)
+        .expect("valid host terminal filter-region ceiling");
+    let environment = RenderEnvironment::deterministic().with_theme_resource_ceiling(host_ceiling);
+
+    for portability in [
+        ThemePortabilityRequirement::BestEffort,
+        ThemePortabilityRequirement::RequirePortable,
+    ] {
+        let session = environment
+            .clone()
+            .with_theme_portability_requirement(portability)
+            .begin_session_with_theme(&theme)
+            .expect("begin State session");
+        let parsed = common::install_parse_compatibility(&theme, classic_engine())
+            .parse_diagram_for_render_model_sync(source, ParseOptions::default())
+            .expect("parse State source")
+            .expect("State diagram detected")
+            .into_presentation();
+        let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+            .expect("prepare State artifact");
+        let error =
+            match artifact.render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default()) {
+                Ok(_) => panic!("terminal effect materialization must preserve resource rejection"),
+                Err(error) => error,
+            };
+        let merman_render::Error::ThemeResourceLimitExceeded(resource) = error else {
+            panic!("terminal theme limits must not degrade into portability residuals: {error:?}");
+        };
+        assert_eq!(
+            resource.limit,
+            ThemeResourceLimitId::MaxEffectFilterRegionMagnitude.as_str()
+        );
+        assert_eq!(resource.phase.as_str(), "effect_materialize");
+        assert!(resource.actual > resource.max);
+        assert_eq!(resource.max, 2);
+        assert_eq!(
+            resource.profile,
+            Some(merman_model::resources::ResourceProfile::Interactive)
+        );
+        assert!(resource.explicit_overrides.iter().any(|resource_override| {
+            resource_override.id == ThemeResourceLimitId::MaxEffectFilterRegionMagnitude
+                && resource_override.value == 2
+        }));
+    }
+}
+
+fn state_edge_label_foreign_object_height(svg: &str, edge_id: &str) -> f64 {
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG XML");
+    document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("data-id") == Some(edge_id)
+                && node
+                    .attribute("class")
+                    .is_some_and(|classes| classes.split_whitespace().any(|class| class == "label"))
+        })
+        .and_then(|label| {
+            label
+                .descendants()
+                .find(|node| node.has_tag_name("foreignObject"))
+        })
+        .and_then(|node| node.attribute("height"))
+        .and_then(|height| height.parse::<f64>().ok())
+        .unwrap_or_else(|| panic!("missing numeric State edge label height for {edge_id}"))
+}
+
+fn state_cluster_title_geometry(svg: &str, cluster_id: &str) -> (f64, f64, f64) {
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG XML");
+    let cluster = document
+        .descendants()
+        .find(|node| node.has_tag_name("g") && node.attribute("data-id") == Some(cluster_id))
+        .unwrap_or_else(|| panic!("missing State cluster {cluster_id}"));
+    let title_height = cluster
+        .descendants()
+        .find(|node| node.has_tag_name("foreignObject"))
+        .and_then(|node| node.attribute("height"))
+        .and_then(|height| height.parse::<f64>().ok())
+        .unwrap_or_else(|| panic!("missing State cluster title height for {cluster_id}"));
+    let outer_y = cluster
+        .descendants()
+        .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("outer"))
+        .and_then(|node| node.attribute("y"))
+        .and_then(|y| y.parse::<f64>().ok())
+        .unwrap_or_else(|| panic!("missing State cluster outer y for {cluster_id}"));
+    let inner_y = cluster
+        .children()
+        .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("inner"))
+        .and_then(|node| node.attribute("y"))
+        .and_then(|y| y.parse::<f64>().ok())
+        .unwrap_or_else(|| panic!("missing State cluster inner y for {cluster_id}"));
+    (title_height, outer_y, inner_y)
+}
+
+#[test]
+fn state_svg_compiled_theme_styles_structural_roles_and_reflows_transition_labels() {
+    let label_typography = TextStylePatch {
+        font_size_px: Specified::Value(30.0),
+        ..TextStylePatch::default()
+    };
+    let composite_typography = TextStylePatch {
+        font_size_px: Specified::Value(40.0),
+        ..TextStylePatch::default()
+    };
+    let styles = ThemeRuleSet::default()
+        .with_rule(ThemeRule::new(
+            ThemeTarget::TransitionMarker,
+            ThemeStylePatch::default()
+                .with_fill(CanvasPaint::solid("#00f2ff").unwrap())
+                .with_stroke(CanvasPaint::solid("#00f2ff").unwrap()),
+        ))
+        .with_rule(ThemeRule::new(
+            ThemeTarget::TransitionLabelBackground,
+            ThemeStylePatch::default().with_fill(CanvasPaint::solid("#051423").unwrap()),
+        ))
+        .with_rule(ThemeRule::new(
+            ThemeTarget::TransitionLabel,
+            ThemeStylePatch {
+                typography: label_typography,
+                ..ThemeStylePatch::default()
+            },
+        ))
+        .with_rule(ThemeRule::new(
+            ThemeTarget::CompositeHeader,
+            ThemeStylePatch::default().with_fill(CanvasPaint::solid("#ff00aa").unwrap()),
+        ))
+        .with_rule(ThemeRule::new(
+            ThemeTarget::CompositeLabel,
+            ThemeStylePatch {
+                typography: composite_typography,
+                ..ThemeStylePatch::default()
+            },
+        ))
+        .with_rule(
+            ThemeRule::new(
+                ThemeTarget::SpecialStateInner,
+                ThemeStylePatch::default().with_fill(CanvasPaint::solid("#ffffff").unwrap()),
+            )
+            .with_variant(ThemeVariant::End),
+        );
+    let theme = DiagramThemeCompiler::new()
+        .compile(state_theme_spec().with_styles(styles))
+        .expect("compile State structural theme");
+    let source = r#"stateDiagram-v2
+state Parent {
+  [*] --> Running : a deliberately long transition label
+  Running --> [*]
+}"#;
+
+    let baseline = render_state_svg_from_text(source);
+    let themed = render_state_svg_from_text_with_theme(source, &theme);
+
+    assert!(themed.contains("fill:#00f2ff !important"), "{themed}");
+    assert!(
+        themed.contains("background-color: #051423 !important"),
+        "{themed}"
+    );
+    assert!(themed.contains("fill:#ff00aa !important"), "{themed}");
+    assert!(themed.contains("fill:#ffffff !important"), "{themed}");
+    assert!(themed.contains("font-size: 30px !important"), "{themed}");
+    assert!(
+        state_edge_label_foreign_object_height(&themed, "edge0")
+            > state_edge_label_foreign_object_height(&baseline, "edge0")
+    );
+    let (baseline_title_height, _, _) = state_cluster_title_geometry(&baseline, "Parent");
+    let (themed_title_height, themed_outer_y, themed_inner_y) =
+        state_cluster_title_geometry(&themed, "Parent");
+    assert!(themed_title_height > baseline_title_height);
+    assert!((themed_inner_y - themed_outer_y - themed_title_height - 2.0).abs() < 1e-6);
+}
+
+#[test]
+fn state_direct_paints_yield_to_terminal_mermaid_owners_from_site_and_source() {
+    const MERMAID_COLOR: &str = "#22c55e";
+    const TYPED_COLOR: &str = "#ec4899";
+
+    #[derive(Clone, Copy)]
+    enum PaintFacet {
+        Fill,
+        Stroke,
+    }
+
+    let cases = [
+        (
+            "state-fill",
+            ThemeTarget::State,
+            PaintFacet::Fill,
+            "stateBkg",
+            "stateDiagram-v2\nReady\n",
+            ".node rect{fill:#22c55e;stroke:",
+        ),
+        (
+            "state-stroke",
+            ThemeTarget::State,
+            PaintFacet::Stroke,
+            "stateBorder",
+            "stateDiagram-v2\nReady\n",
+            "stroke:#22c55e;stroke-width:",
+        ),
+        (
+            "state-label-fill",
+            ThemeTarget::StateLabel,
+            PaintFacet::Fill,
+            "stateLabelColor",
+            "stateDiagram-v2\nReady\n",
+            ".nodeLabel{color:#22c55e;}",
+        ),
+        (
+            "note-fill",
+            ThemeTarget::Note,
+            PaintFacet::Fill,
+            "noteBkgColor",
+            "stateDiagram-v2\nReady\nnote right of Ready : terminal note\n",
+            ".statediagram-note rect{fill:#22c55e;stroke:",
+        ),
+        (
+            "note-stroke",
+            ThemeTarget::Note,
+            PaintFacet::Stroke,
+            "noteBorderColor",
+            "stateDiagram-v2\nReady\nnote right of Ready : terminal note\n",
+            ";stroke:#22c55e;stroke-width:1px;rx:0;ry:0;}",
+        ),
+        (
+            "note-label-fill",
+            ThemeTarget::NoteLabel,
+            PaintFacet::Fill,
+            "noteTextColor",
+            "stateDiagram-v2\nReady\nnote right of Ready : terminal note\n",
+            ".statediagram-note .nodeLabel{color:#22c55e;}",
+        ),
+        (
+            "transition-label-fill",
+            ThemeTarget::TransitionLabel,
+            PaintFacet::Fill,
+            "transitionLabelColor",
+            "stateDiagram-v2\nReady --> Done: Finish\n",
+            ".edgeLabel .label text{fill:#22c55e;}",
+        ),
+        (
+            "title-fill",
+            ThemeTarget::Title,
+            PaintFacet::Fill,
+            "textColor",
+            "---\ntitle: Terminal ownership\n---\nstateDiagram-v2\nReady\n",
+            ".statediagramTitleText{text-anchor:middle;font-size:18px;fill:#22c55e;}",
+        ),
+    ];
+
+    for (case, target, facet, config_key, source, terminal_fragment) in cases {
+        let style = match facet {
+            PaintFacet::Fill => ThemeStylePatch::default().with_fill(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed State terminal fill"),
+            ),
+            PaintFacet::Stroke => ThemeStylePatch::default().with_stroke(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed State terminal stroke"),
+            ),
+        };
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec()
+                    .with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(target, style))),
+            )
+            .unwrap_or_else(|error| panic!("compile {case} State ownership theme: {error}"));
+
+        for origin in ["site", "source"] {
+            let config = state_terminal_owner_config_for_origin(
+                serde_json::json!({
+                    "theme": "base",
+                    "themeVariables": {(config_key): MERMAID_COLOR},
+                }),
+                origin,
+            );
+            let (svg, evidence) =
+                render_strict_state_svg_with_theme_and_config(&theme, source, config, origin);
+
+            assert!(
+                svg.contains(terminal_fragment),
+                "Mermaid terminal owner must reach the exact {origin} {case} declaration: {svg}"
+            );
+            assert!(
+                !svg.contains(TYPED_COLOR),
+                "typed paint must yield to {origin} {case}: {svg}"
+            );
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {case}"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_transition_marker_paints_use_transition_color_before_line_color() {
+    const SOURCE: &str = "stateDiagram-v2\nReady --> Done: Finish\n";
+    const TYPED_COLOR: &str = "#ec4899";
+    const MERMAID_COLOR: &str = "#22c55e";
+
+    for (property, style, expected_typed_declaration) in [
+        (
+            "fill",
+            ThemeStylePatch::default().with_fill(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed State transition marker fill"),
+            ),
+            "fill:#ec4899 !important",
+        ),
+        (
+            "stroke",
+            ThemeStylePatch::default().with_stroke(
+                CanvasPaint::solid(TYPED_COLOR)
+                    .expect("valid typed State transition marker stroke"),
+            ),
+            "stroke:#ec4899 !important",
+        ),
+    ] {
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec().with_styles(
+                    ThemeRuleSet::default()
+                        .with_rule(ThemeRule::new(ThemeTarget::TransitionMarker, style)),
+                ),
+            )
+            .unwrap_or_else(|error| {
+                panic!("compile State transition marker {property} ownership theme: {error}")
+            });
+
+        for origin in ["site", "source"] {
+            let (owned_svg, owned_evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                SOURCE,
+                serde_json::json!({
+                    "theme": "base",
+                    "themeVariables": { "transitionColor": MERMAID_COLOR },
+                }),
+                origin,
+            );
+            let owned_document =
+                roxmltree::Document::parse(&owned_svg).expect("valid owned State marker SVG XML");
+            let owned_marker_path = owned_document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("marker")
+                        && node
+                            .attribute("id")
+                            .is_some_and(|id| id.ends_with("_stateDiagram-barbEnd"))
+                })
+                .and_then(|marker| marker.children().find(|node| node.has_tag_name("path")))
+                .expect("base State barbEnd marker path");
+
+            assert!(
+                owned_svg.contains("defs [id$=\"-barbEnd\"]{fill:#22c55e;stroke:#22c55e;}"),
+                "transitionColor must own both terminal marker paints for {origin}: {owned_svg}"
+            );
+            assert!(
+                !owned_marker_path
+                    .attribute("style")
+                    .unwrap_or_default()
+                    .contains(TYPED_COLOR),
+                "typed marker {property} must yield to explicit transitionColor for {origin}: {owned_svg}"
+            );
+            assert_eq!(
+                owned_evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "owned transitionColor {property} for {origin}"
+            );
+
+            let (line_svg, line_evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                SOURCE,
+                serde_json::json!({
+                    "themeVariables": { "lineColor": MERMAID_COLOR },
+                }),
+                origin,
+            );
+            let line_document = roxmltree::Document::parse(&line_svg)
+                .expect("valid lineColor State marker SVG XML");
+            let typed_marker_id = line_document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("path")
+                        && node.attribute("data-edge") == Some("true")
+                        && node
+                            .attribute("marker-end")
+                            .is_some_and(|value| value.ends_with("_stateDiagram-barbEnd-1)"))
+                })
+                .and_then(|path| path.attribute("marker-end"))
+                .and_then(|value| value.strip_prefix("url(#"))
+                .and_then(|value| value.strip_suffix(')'))
+                .expect("typed State transition marker reference");
+            let typed_marker_path = line_document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("marker") && node.attribute("id") == Some(typed_marker_id)
+                })
+                .and_then(|marker| marker.children().find(|node| node.has_tag_name("path")))
+                .expect("typed State barbEnd marker path");
+
+            assert!(
+                typed_marker_path
+                    .attribute("style")
+                    .is_some_and(|style| style.contains(expected_typed_declaration)),
+                "a late Default lineColor replay must not own the already-selected transitionColor {property} terminal for {origin}: {line_svg}"
+            );
+            assert_eq!(
+                line_evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 1,
+                    not_applicable: 0,
+                    residual: 0,
+                },
+                "non-owning Default lineColor {property} for {origin}"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_neo_note_stroke_yields_to_the_shared_node_border_owner() {
+    const SOURCE: &str = "stateDiagram-v2\nReady\nnote right of Ready : Neo terminal note\n";
+    const TYPED_COLOR: &str = "#ec4899";
+    const MERMAID_COLOR: &str = "#22c55e";
+
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Note,
+                ThemeStylePatch::default().with_stroke(
+                    CanvasPaint::solid(TYPED_COLOR).expect("valid typed Neo State note stroke"),
+                ),
+            ))),
+        )
+        .expect("compile Neo State note ownership theme");
+
+    for origin in ["site", "source"] {
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            SOURCE,
+            state_terminal_owner_config_for_origin(
+                serde_json::json!({
+                    "theme": "base",
+                    "look": "neo",
+                    "themeVariables": {
+                        "nodeBorder": MERMAID_COLOR,
+                        "useGradient": false,
+                    },
+                }),
+                origin,
+            ),
+            origin,
+        );
+        let document =
+            roxmltree::Document::parse(&svg).expect("valid Neo State note ownership SVG XML");
+        let note = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes
+                            .split_whitespace()
+                            .any(|class| class == "statediagram-note")
+                    })
+            })
+            .expect("Neo State note group");
+        let stroke_path = note
+            .descendants()
+            .filter(|node| node.has_tag_name("path"))
+            .nth(1)
+            .expect("Neo State note stroke path");
+
+        assert!(
+            !stroke_path
+                .attribute("style")
+                .unwrap_or_default()
+                .contains(TYPED_COLOR),
+            "typed Note.stroke must yield to the Neo path-level owner for {origin}: {svg}"
+        );
+        assert!(
+            svg.contains("[data-look=\"neo\"].node path{stroke:#22c55e;stroke-width:"),
+            "the exact Neo path selector must carry nodeBorder rather than stateBorder for {origin}: {svg}"
+        );
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 1,
+                accounted: 1,
+                applied: 0,
+                not_applicable: 1,
+                residual: 0,
+            },
+            "Neo Note.stroke selected border owner for {origin}"
+        );
+    }
+}
+
+#[test]
+fn state_neo_note_stroke_does_not_yield_to_state_border() {
+    const SOURCE: &str = "stateDiagram-v2\nReady\nnote right of Ready : Neo terminal note\n";
+    const TYPED_COLOR: &str = "#ec4899";
+    const NON_OWNER_COLOR: &str = "#22c55e";
+
+    let theme = DiagramThemeCompiler::new()
+        .compile(state_theme_spec_with_theme("base").with_styles(
+            ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Note,
+                ThemeStylePatch::default().with_stroke(
+                    CanvasPaint::solid(TYPED_COLOR).expect("valid typed Neo State note stroke"),
+                ),
+            )),
+        ))
+        .expect("compile Neo State note non-owner theme");
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        SOURCE,
+        serde_json::json!({
+            "look": "neo",
+            "themeVariables": {
+                "stateBorder": NON_OWNER_COLOR,
+                "useGradient": false,
+            },
+        }),
+        "site",
+    );
+    let document =
+        roxmltree::Document::parse(&svg).expect("valid Neo State note non-owner SVG XML");
+    let stroke_path = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("class").is_some_and(|classes| {
+                    classes
+                        .split_whitespace()
+                        .any(|class| class == "statediagram-note")
+                })
+        })
+        .and_then(|note| {
+            note.descendants()
+                .filter(|node| node.has_tag_name("path"))
+                .nth(1)
+        })
+        .expect("Neo State note stroke path");
+
+    assert!(
+        stroke_path
+            .attribute("style")
+            .is_some_and(|style| style.contains("stroke:#ec4899 !important")),
+        "stateBorder must not suppress typed Neo Note.stroke: {svg}"
+    );
+    assert!(
+        !svg.contains("[data-look=\"neo\"].node path{stroke:#22c55e;"),
+        "Neo node stroke must not read stateBorder: {svg}"
+    );
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 1,
+            accounted: 1,
+            applied: 1,
+            not_applicable: 0,
+            residual: 0,
+        }
+    );
+}
+
+#[test]
+fn state_neo_shared_node_stroke_uses_the_scoped_gradient_for_state_note_and_start() {
+    const SOURCE: &str =
+        "stateDiagram-v2\n[*] --> Ready\nnote right of Ready : Neo terminal note\n";
+    const TYPED_COLOR: &str = "#ec4899";
+    const GRADIENT_START: &str = "#22c55e";
+    let stroke = || {
+        ThemeStylePatch::default().with_stroke(
+            CanvasPaint::solid(TYPED_COLOR).expect("valid typed Neo State shared stroke"),
+        )
+    };
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(
+                ThemeRuleSet::default()
+                    .with_rule(ThemeRule::new(ThemeTarget::State, stroke()))
+                    .with_rule(ThemeRule::new(ThemeTarget::Note, stroke()))
+                    .with_rule(
+                        ThemeRule::new(ThemeTarget::SpecialState, stroke())
+                            .with_variant(ThemeVariant::Start),
+                    ),
+            ),
+        )
+        .expect("compile Neo State shared-gradient theme");
+
+    for origin in ["site", "source"] {
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            SOURCE,
+            serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "themeVariables": {
+                    "useGradient": true,
+                    "gradientStart": GRADIENT_START,
+                    "gradientStop": "#16a34a",
+                    "nodeBorder": "#0f172a",
+                },
+            }),
+            origin,
+        );
+
+        for selector in [
+            "[data-look=\"neo\"].node rect,",
+            "[data-look=\"neo\"].node path{stroke:url(#merman-gradient);",
+            "[data-look=\"neo\"].node circle{stroke:url(#merman-gradient);",
+        ] {
+            assert!(
+                svg.contains(selector),
+                "the scoped Neo gradient must own {origin} selector {selector}: {svg}"
+            );
+        }
+        assert!(
+            svg.contains("stop-color=\"#22c55e\"") && svg.contains("stop-color=\"#16a34a\""),
+            "the scoped Neo gradient must retain both {origin} stops: {svg}"
+        );
+        assert!(
+            !svg.contains(TYPED_COLOR),
+            "{origin} shared gradient: {svg}"
+        );
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 3,
+                accounted: 3,
+                applied: 0,
+                not_applicable: 3,
+                residual: 0,
+            },
+            "{origin} shared Neo gradient"
+        );
+    }
+}
+
+#[test]
+fn state_composite_terminal_owners_follow_shape_look_and_gradient_branch() {
+    const TYPED_COLOR: &str = "#ec4899";
+    const MERMAID_COLOR: &str = "#22c55e";
+    const COMPOSITE: &str = "stateDiagram-v2\nstate Parent {\n  [*] --> Running\n}\n";
+    const NESTED_COMPOSITE: &str =
+        "stateDiagram-v2\nstate Outer {\n  state Inner {\n    [*] --> Running\n  }\n}\n";
+    const DIVIDER: &str =
+        "stateDiagram-v2\nstate Parallel {\n  [*] --> First\n  --\n  [*] --> Second\n}\n";
+
+    #[derive(Clone, Copy)]
+    enum PaintFacet {
+        Fill,
+        Stroke,
+    }
+
+    #[derive(Clone, Copy)]
+    enum ClusterPart {
+        Body,
+        Header,
+        Label,
+        Divider,
+    }
+
+    struct Case {
+        name: &'static str,
+        target: ThemeTarget,
+        facet: PaintFacet,
+        source: &'static str,
+        cluster_id: &'static str,
+        part: ClusterPart,
+        ordinal: Option<usize>,
+        config: serde_json::Value,
+        terminal_fragment: &'static str,
+    }
+
+    let cases = vec![
+        Case {
+            name: "classic-body-fill",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Body,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "compositeBackground": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".statediagram-cluster.statediagram-cluster .inner{fill:#22c55e;}",
+        },
+        Case {
+            name: "classic-body-stroke",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Body,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "stateBorder": MERMAID_COLOR },
+            }),
+            terminal_fragment: ";stroke:#22c55e;stroke-width:",
+        },
+        Case {
+            name: "classic-header-fill",
+            target: ThemeTarget::CompositeHeader,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Header,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "compositeTitleBackground": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".statediagram-cluster rect{fill:#22c55e;stroke:",
+        },
+        Case {
+            name: "classic-header-stroke",
+            target: ThemeTarget::CompositeHeader,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Header,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "stateBorder": MERMAID_COLOR },
+            }),
+            terminal_fragment: ";stroke:#22c55e;stroke-width:",
+        },
+        Case {
+            name: "classic-label-fill",
+            target: ThemeTarget::CompositeLabel,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Label,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "stateLabelColor": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".cluster-label,#merman .nodeLabel{color:#22c55e;}",
+        },
+        Case {
+            name: "classic-alt-body-fill",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Fill,
+            source: NESTED_COMPOSITE,
+            cluster_id: "Inner",
+            part: ClusterPart::Body,
+            ordinal: Some(2),
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "altBackground": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".statediagram-cluster.statediagram-cluster-alt .inner{fill:#22c55e;}",
+        },
+        Case {
+            name: "classic-divider-fill",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Fill,
+            source: DIVIDER,
+            cluster_id: "divider-id-1",
+            part: ClusterPart::Divider,
+            ordinal: Some(2),
+            config: serde_json::json!({
+                "theme": "base",
+                "htmlLabels": false,
+                "themeVariables": { "altBackground": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".statediagram-state rect.divider{stroke-dasharray:10,10;fill:#22c55e;}",
+        },
+        Case {
+            name: "neo-body-fill",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Body,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "htmlLabels": false,
+                "themeVariables": { "compositeBackground": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".statediagram-cluster.statediagram-cluster .inner{fill:#22c55e;}",
+        },
+        Case {
+            name: "neo-alt-body-fill",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Fill,
+            source: NESTED_COMPOSITE,
+            cluster_id: "Inner",
+            part: ClusterPart::Body,
+            ordinal: Some(2),
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "htmlLabels": false,
+                "themeVariables": { "altBackground": MERMAID_COLOR },
+            }),
+            terminal_fragment: ".statediagram-cluster.statediagram-cluster-alt .inner{fill:#22c55e;}",
+        },
+        Case {
+            name: "neo-divider-fill",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Fill,
+            source: DIVIDER,
+            cluster_id: "divider-id-1",
+            part: ClusterPart::Divider,
+            ordinal: Some(2),
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "htmlLabels": false,
+                "themeVariables": { "mainBkg": MERMAID_COLOR },
+            }),
+            terminal_fragment: "[data-look=\"neo\"].statediagram-cluster rect{fill:#22c55e;stroke:",
+        },
+        Case {
+            name: "neo-header-fill",
+            target: ThemeTarget::CompositeHeader,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Header,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "htmlLabels": false,
+                "themeVariables": { "mainBkg": MERMAID_COLOR },
+            }),
+            terminal_fragment: "[data-look=\"neo\"].statediagram-cluster rect{fill:#22c55e;stroke:",
+        },
+        Case {
+            name: "neo-body-stroke",
+            target: ThemeTarget::Composite,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Body,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "htmlLabels": false,
+                "themeVariables": { "stateBorder": MERMAID_COLOR, "useGradient": false },
+            }),
+            terminal_fragment: ";stroke:#22c55e;stroke-width:",
+        },
+        Case {
+            name: "neo-header-gradient-stroke",
+            target: ThemeTarget::CompositeHeader,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            cluster_id: "Parent",
+            part: ClusterPart::Header,
+            ordinal: None,
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "htmlLabels": false,
+                "themeVariables": {
+                    "useGradient": true,
+                    "gradientStart": MERMAID_COLOR,
+                    "gradientStop": "#16a34a"
+                },
+            }),
+            terminal_fragment: "stroke:url(#merman-gradient);stroke-width:",
+        },
+    ];
+
+    for case in cases {
+        let style = match case.facet {
+            PaintFacet::Fill => ThemeStylePatch::default()
+                .with_fill(CanvasPaint::solid(TYPED_COLOR).expect("valid typed composite fill")),
+            PaintFacet::Stroke => ThemeStylePatch::default().with_stroke(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed composite stroke"),
+            ),
+        };
+        let mut rule = ThemeRule::new(case.target, style);
+        if let Some(ordinal) = case.ordinal {
+            rule = rule.with_ordinal(
+                OrdinalSelector::exact(ordinal).expect("valid composite terminal ordinal"),
+            );
+        }
+        let theme = DiagramThemeCompiler::new()
+            .compile(state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(rule)))
+            .unwrap_or_else(|error| panic!("compile {} State theme: {error}", case.name));
+
+        for origin in ["site", "source"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                case.source,
+                state_terminal_owner_config_for_origin(case.config.clone(), origin),
+                origin,
+            );
+            let document = roxmltree::Document::parse(&svg)
+                .unwrap_or_else(|error| panic!("valid {} State SVG XML: {error}", case.name));
+            let cluster = document
+                .descendants()
+                .find(|node| {
+                    if !node.has_tag_name("g") {
+                        return false;
+                    }
+                    if matches!(case.part, ClusterPart::Divider) {
+                        return node.attribute("id").is_some_and(|id| {
+                            id.contains(&format!("-state-{}-", case.cluster_id))
+                        }) && node.descendants().any(|child| {
+                            child.has_tag_name("rect")
+                                && child.attribute("class") == Some("divider")
+                        });
+                    }
+                    node.attribute("data-id") == Some(case.cluster_id)
+                })
+                .unwrap_or_else(|| panic!("missing {} cluster: {svg}", case.cluster_id));
+            let terminal = match case.part {
+                ClusterPart::Body => cluster.children().find(|node| {
+                    node.has_tag_name("rect") && node.attribute("class") == Some("inner")
+                }),
+                ClusterPart::Header => cluster.descendants().find(|node| {
+                    node.has_tag_name("rect") && node.attribute("class") == Some("outer")
+                }),
+                ClusterPart::Label => cluster.children().find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("cluster-label")
+                }),
+                ClusterPart::Divider => cluster.descendants().find(|node| {
+                    node.has_tag_name("rect") && node.attribute("class") == Some("divider")
+                }),
+            }
+            .unwrap_or_else(|| panic!("missing {} terminal element: {svg}", case.name));
+
+            assert!(
+                !terminal
+                    .attribute("style")
+                    .unwrap_or_default()
+                    .contains(TYPED_COLOR),
+                "typed paint must not reach the owned {origin} {} terminal: {svg}",
+                case.name
+            );
+            assert!(
+                svg.contains(case.terminal_fragment),
+                "exact Mermaid {origin} {} terminal declaration is missing: {svg}",
+                case.name
+            );
+            if case.name == "neo-header-gradient-stroke" {
+                assert!(
+                    svg.contains("stop-color=\"#22c55e\"")
+                        && svg.contains("stop-color=\"#16a34a\""),
+                    "the selected Neo gradient stops must reach the terminal definition: {svg}"
+                );
+            }
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {}",
+                case.name
+            );
+        }
+    }
+}
+
+#[test]
+fn state_neo_composite_body_fill_uses_its_winning_background_owner() {
+    const TYPED_BODY: &str = "#ec4899";
+    const TYPED_HEADER: &str = "#a855f7";
+    const MAIN_BACKGROUND: &str = "#22c55e";
+    const BODY_BACKGROUND: &str = "#0ea5e9";
+    const OTHER_BACKGROUND: &str = "#f59e0b";
+
+    for (source, cluster_id, ordinal, body_key, other_key, body_selector) in [
+        (
+            "stateDiagram-v2\nstate Parent {\n  state Child\n}\n",
+            "Parent",
+            1,
+            "compositeBackground",
+            "altBackground",
+            ".statediagram-cluster.statediagram-cluster .inner",
+        ),
+        (
+            "stateDiagram-v2\nstate Outer {\n  state Inner {\n    state Child\n  }\n}\n",
+            "Inner",
+            2,
+            "altBackground",
+            "compositeBackground",
+            ".statediagram-cluster.statediagram-cluster-alt .inner",
+        ),
+    ] {
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec_with_theme("base").with_styles(
+                    ThemeRuleSet::default()
+                        .with_rule(
+                            ThemeRule::new(
+                                ThemeTarget::Composite,
+                                ThemeStylePatch::default()
+                                    .with_fill(CanvasPaint::solid(TYPED_BODY).unwrap()),
+                            )
+                            .with_ordinal(OrdinalSelector::exact(ordinal).unwrap()),
+                        )
+                        .with_rule(
+                            ThemeRule::new(
+                                ThemeTarget::CompositeHeader,
+                                ThemeStylePatch::default()
+                                    .with_fill(CanvasPaint::solid(TYPED_HEADER).unwrap()),
+                            )
+                            .with_ordinal(OrdinalSelector::exact(ordinal).unwrap()),
+                        ),
+                ),
+            )
+            .expect("compile independent Neo composite body and header fills");
+
+        for html_labels in [false, true] {
+            for body_owned in [false, true] {
+                let mut config = serde_json::json!({
+                    "look": "neo",
+                    "htmlLabels": html_labels,
+                    "themeVariables": {
+                        "mainBkg": MAIN_BACKGROUND,
+                        (other_key): OTHER_BACKGROUND,
+                    },
+                });
+                if body_owned {
+                    config["themeVariables"][body_key] = serde_json::json!(BODY_BACKGROUND);
+                }
+                for origin in ["site", "source"] {
+                    // Select the baseline at initialization so source fields own only their properties.
+                    let mut baseline_config = if origin == "site" {
+                        config.clone()
+                    } else {
+                        serde_json::json!({"secure": []})
+                    };
+                    baseline_config["theme"] = serde_json::json!("base");
+                    let baseline_source = if origin == "source" {
+                        format!("%%{{init: {config}}}%%\n{source}")
+                    } else {
+                        source.to_string()
+                    };
+                    let baseline = render_state_svg_from_text_with_engine(
+                        classic_typed_engine().with_site_config(
+                            merman_core::presentation::SourcePresentationConfig::from_value(
+                                baseline_config,
+                            ),
+                        ),
+                        &baseline_source,
+                    );
+                    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                        &theme,
+                        source,
+                        config.clone(),
+                        origin,
+                    );
+                    let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+                    let cluster = document
+                        .descendants()
+                        .find(|node| {
+                            node.has_tag_name("g") && node.attribute("data-id") == Some(cluster_id)
+                        })
+                        .expect("requested composite group");
+                    let classes = cluster.attribute("class").unwrap_or_default();
+                    assert!(
+                        classes
+                            .split_whitespace()
+                            .any(|class| class == "statediagram-cluster")
+                    );
+                    assert_eq!(
+                        classes
+                            .split_whitespace()
+                            .any(|class| class == "statediagram-cluster-alt"),
+                        body_key == "altBackground",
+                        "the fixture must select the actual {body_key} body selector"
+                    );
+                    let body = cluster
+                        .children()
+                        .find(|node| node.attribute("class") == Some("inner"))
+                        .expect("composite body rectangle");
+                    let body_fill = body
+                        .attribute("style")
+                        .unwrap_or_default()
+                        .split(';')
+                        .filter_map(|declaration| declaration.split_once(':'))
+                        .find_map(|(property, value)| {
+                            (property.trim() == "fill").then(|| value.trim())
+                        });
+                    assert_eq!(
+                        body_fill,
+                        (!body_owned).then_some("#ec4899 !important"),
+                        "{origin} {body_key}, owned={body_owned}, htmlLabels={html_labels}: {svg}"
+                    );
+                    let header = cluster
+                        .descendants()
+                        .find(|node| node.attribute("class") == Some("outer"))
+                        .expect("composite header rectangle");
+                    assert!(
+                        !header
+                            .attribute("style")
+                            .unwrap_or_default()
+                            .contains("fill:"),
+                        "mainBkg must continue to own the Neo header: {svg}"
+                    );
+                    let css = state_svg_stylesheet(&svg);
+                    assert_eq!(css, state_svg_stylesheet(&baseline));
+                    assert!(css.contains(
+                        "[data-look=\"neo\"].statediagram-cluster rect{fill:#22c55e;stroke:"
+                    ));
+                    if body_owned {
+                        assert!(
+                            css.contains(&format!("{body_selector}{{fill:{BODY_BACKGROUND};}}"))
+                        );
+                        assert_eq!(
+                            svg, baseline,
+                            "fully overridden fills must preserve unthemed output"
+                        );
+                    }
+                    assert_eq!(
+                        evidence,
+                        StateThemeEvidenceCounts {
+                            required: 2,
+                            accounted: 2,
+                            applied: usize::from(!body_owned),
+                            not_applicable: 1 + usize::from(body_owned),
+                            residual: 0,
+                        },
+                        "{origin} {body_key}, owned={body_owned}, htmlLabels={html_labels}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn state_special_terminal_owners_follow_shape_look_and_inner_outer_branch() {
+    const TYPED_COLOR: &str = "#ec4899";
+    const MERMAID_COLOR: &str = "#22c55e";
+    const START: &str = "stateDiagram-v2\n[*] --> Ready\n";
+    const END: &str = "stateDiagram-v2\nReady --> [*]\n";
+    const FORK: &str = "stateDiagram-v2\nstate Fork <<fork>>\n";
+    const CHOICE: &str = "stateDiagram-v2\nstate Decide <<choice>>\n";
+
+    #[derive(Clone, Copy)]
+    enum PaintFacet {
+        Fill,
+        Stroke,
+    }
+
+    #[derive(Clone, Copy)]
+    enum SpecialPart {
+        Start,
+        EndOuterFill,
+        EndOuterStroke,
+        EndInnerFill,
+        EndInnerStroke,
+        NamedFill(&'static str),
+        NamedStroke(&'static str),
+    }
+
+    struct Case {
+        name: &'static str,
+        target: ThemeTarget,
+        variant: ThemeVariant,
+        facet: PaintFacet,
+        source: &'static str,
+        part: SpecialPart,
+        config: serde_json::Value,
+        expected_attr: Option<(&'static str, &'static str)>,
+        terminal_fragment: Option<&'static str>,
+    }
+
+    let special_config = |look: &str| {
+        serde_json::json!({
+            "theme": "base",
+            "look": look,
+            "themeVariables": { "specialStateColor": MERMAID_COLOR },
+        })
+    };
+    let line_config = |look: &str| {
+        serde_json::json!({
+            "theme": "base",
+            "look": look,
+            "themeVariables": { "lineColor": MERMAID_COLOR },
+        })
+    };
+    let node_border_config = |look: &str| {
+        serde_json::json!({
+            "theme": "base",
+            "look": look,
+            "themeVariables": {
+                "nodeBorder": MERMAID_COLOR,
+                "lineColor": "#112233",
+                "useGradient": false,
+            },
+        })
+    };
+    let inner_border_config = |look: &str| {
+        serde_json::json!({
+            "theme": "base",
+            "look": look,
+            "themeVariables": { "stateBorder": MERMAID_COLOR },
+        })
+    };
+    let cases = vec![
+        Case {
+            name: "classic-start-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            facet: PaintFacet::Fill,
+            source: START,
+            part: SpecialPart::Start,
+            config: special_config("classic"),
+            expected_attr: None,
+            terminal_fragment: Some(".node circle.state-start{fill:#22c55e;stroke:#22c55e;}"),
+        },
+        Case {
+            name: "classic-start-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            facet: PaintFacet::Stroke,
+            source: START,
+            part: SpecialPart::Start,
+            config: special_config("classic"),
+            expected_attr: None,
+            terminal_fragment: Some(".node circle.state-start{fill:#22c55e;stroke:#22c55e;}"),
+        },
+        Case {
+            name: "classic-end-outer-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Fill,
+            source: END,
+            part: SpecialPart::EndOuterFill,
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "classic",
+                "themeVariables": { "mainBkg": MERMAID_COLOR },
+            }),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-end-outer-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Stroke,
+            source: END,
+            part: SpecialPart::EndOuterStroke,
+            config: line_config("classic"),
+            expected_attr: Some(("stroke", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-fork-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Fill,
+            source: FORK,
+            part: SpecialPart::NamedFill("Fork"),
+            config: line_config("classic"),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-fork-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Stroke,
+            source: FORK,
+            part: SpecialPart::NamedStroke("Fork"),
+            config: line_config("classic"),
+            expected_attr: Some(("stroke", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-choice-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Fill,
+            source: CHOICE,
+            part: SpecialPart::NamedFill("Decide"),
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "classic",
+                "themeVariables": { "mainBkg": MERMAID_COLOR },
+            }),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-choice-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Stroke,
+            source: CHOICE,
+            part: SpecialPart::NamedStroke("Decide"),
+            config: node_border_config("classic"),
+            expected_attr: Some(("stroke", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-end-inner-fill",
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Fill,
+            source: END,
+            part: SpecialPart::EndInnerFill,
+            config: inner_border_config("classic"),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "classic-end-inner-stroke",
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Stroke,
+            source: END,
+            part: SpecialPart::EndInnerStroke,
+            config: inner_border_config("classic"),
+            expected_attr: Some(("stroke", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "neo-start-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            facet: PaintFacet::Fill,
+            source: START,
+            part: SpecialPart::Start,
+            config: special_config("neo"),
+            expected_attr: None,
+            terminal_fragment: Some(".node circle.state-start{fill:#22c55e;stroke:#22c55e;}"),
+        },
+        Case {
+            name: "neo-start-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            facet: PaintFacet::Stroke,
+            source: START,
+            part: SpecialPart::Start,
+            config: node_border_config("neo"),
+            expected_attr: None,
+            terminal_fragment: Some("[data-look=\"neo\"].node circle{stroke:#22c55e;filter:"),
+        },
+        Case {
+            name: "neo-end-outer-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Fill,
+            source: END,
+            part: SpecialPart::EndOuterFill,
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "themeVariables": { "mainBkg": MERMAID_COLOR },
+            }),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "neo-end-outer-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Stroke,
+            source: END,
+            part: SpecialPart::EndOuterStroke,
+            config: node_border_config("neo"),
+            expected_attr: Some(("stroke", "#112233")),
+            terminal_fragment: Some("[data-look=\"neo\"].node path{stroke:#22c55e;"),
+        },
+        Case {
+            name: "neo-fork-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Fill,
+            source: FORK,
+            part: SpecialPart::NamedFill("Fork"),
+            config: line_config("neo"),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "neo-fork-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Stroke,
+            source: FORK,
+            part: SpecialPart::NamedStroke("Fork"),
+            config: node_border_config("neo"),
+            expected_attr: Some(("stroke", "#112233")),
+            terminal_fragment: Some("[data-look=\"neo\"].node path{stroke:#22c55e;"),
+        },
+        Case {
+            name: "neo-choice-fill",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Fill,
+            source: CHOICE,
+            part: SpecialPart::NamedFill("Decide"),
+            config: serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "themeVariables": { "mainBkg": MERMAID_COLOR },
+            }),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "neo-choice-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Stroke,
+            source: CHOICE,
+            part: SpecialPart::NamedStroke("Decide"),
+            config: node_border_config("neo"),
+            expected_attr: Some(("stroke", MERMAID_COLOR)),
+            terminal_fragment: Some("[data-look=\"neo\"].node path{stroke:#22c55e;"),
+        },
+        Case {
+            name: "neo-end-inner-fill",
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Fill,
+            source: END,
+            part: SpecialPart::EndInnerFill,
+            config: inner_border_config("neo"),
+            expected_attr: Some(("fill", MERMAID_COLOR)),
+            terminal_fragment: None,
+        },
+        Case {
+            name: "neo-end-inner-stroke",
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Stroke,
+            source: END,
+            part: SpecialPart::EndInnerStroke,
+            config: node_border_config("neo"),
+            expected_attr: Some(("stroke", MERMAID_COLOR)),
+            terminal_fragment: Some("[data-look=\"neo\"].node path{stroke:#22c55e;"),
+        },
+    ];
+
+    for case in cases {
+        let style = match case.facet {
+            PaintFacet::Fill => ThemeStylePatch::default().with_fill(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed special-state fill"),
+            ),
+            PaintFacet::Stroke => ThemeStylePatch::default().with_stroke(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed special-state stroke"),
+            ),
+        };
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec().with_styles(
+                    ThemeRuleSet::default()
+                        .with_rule(ThemeRule::new(case.target, style).with_variant(case.variant)),
+                ),
+            )
+            .unwrap_or_else(|error| panic!("compile {} State theme: {error}", case.name));
+
+        for origin in ["site", "source"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                case.source,
+                state_terminal_owner_config_for_origin(case.config.clone(), origin),
+                origin,
+            );
+            let document = roxmltree::Document::parse(&svg)
+                .unwrap_or_else(|error| panic!("valid {} State SVG XML: {error}", case.name));
+            let terminal = match case.part {
+                SpecialPart::Start => document.descendants().find(|node| {
+                    node.has_tag_name("circle") && node.attribute("class") == Some("state-start")
+                }),
+                SpecialPart::EndOuterFill => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| outer.children().find(|node| node.has_tag_name("path"))),
+                SpecialPart::EndOuterStroke => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| {
+                        outer
+                            .children()
+                            .filter(|node| node.has_tag_name("path"))
+                            .nth(1)
+                    }),
+                SpecialPart::EndInnerFill => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| outer.children().find(|node| node.has_tag_name("g")))
+                    .and_then(|inner| inner.children().find(|node| node.has_tag_name("path"))),
+                SpecialPart::EndInnerStroke => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| outer.children().find(|node| node.has_tag_name("g")))
+                    .and_then(|inner| {
+                        inner
+                            .children()
+                            .filter(|node| node.has_tag_name("path"))
+                            .nth(1)
+                    }),
+                SpecialPart::NamedFill(id) => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g")
+                            && node
+                                .attribute("id")
+                                .is_some_and(|value| value.contains(&format!("-state-{id}-")))
+                    })
+                    .and_then(|group| group.descendants().find(|node| node.has_tag_name("path"))),
+                SpecialPart::NamedStroke(id) => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g")
+                            && node
+                                .attribute("id")
+                                .is_some_and(|value| value.contains(&format!("-state-{id}-")))
+                    })
+                    .and_then(|group| {
+                        group
+                            .descendants()
+                            .filter(|node| node.has_tag_name("path"))
+                            .nth(1)
+                    }),
+            }
+            .unwrap_or_else(|| panic!("missing {} terminal element: {svg}", case.name));
+
+            assert!(
+                !terminal
+                    .attribute("style")
+                    .unwrap_or_default()
+                    .contains(TYPED_COLOR),
+                "typed paint must not reach the owned {origin} {} terminal: {svg}",
+                case.name
+            );
+            if let Some((property, value)) = case.expected_attr {
+                assert_eq!(
+                    terminal.attribute(property),
+                    Some(value),
+                    "exact {origin} {} terminal attribute: {svg}",
+                    case.name
+                );
+                assert_eq!(
+                    terminal.attribute("style"),
+                    Some(""),
+                    "the {origin} {} base attribute must not introduce inline paint that outranks compatibility CSS: {svg}",
+                    case.name
+                );
+            }
+            if let Some(fragment) = case.terminal_fragment {
+                assert!(
+                    svg.contains(fragment),
+                    "exact Mermaid {origin} {} terminal declaration is missing: {svg}",
+                    case.name
+                );
+            }
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {}",
+                case.name
+            );
+        }
+    }
+}
+
+#[test]
+fn state_neo_global_node_gradient_owns_rough_special_path_strokes() {
+    const TYPED_COLOR: &str = "#ec4899";
+    const END: &str = "stateDiagram-v2\nReady --> [*]\n";
+    const FORK: &str = "stateDiagram-v2\nstate Fork <<fork>>\n";
+    const CHOICE: &str = "stateDiagram-v2\nstate Decide <<choice>>\n";
+
+    #[derive(Clone, Copy)]
+    enum Terminal {
+        EndOuter,
+        EndInner,
+        Named(&'static str),
+    }
+
+    let cases = [
+        (
+            "end-outer",
+            ThemeTarget::SpecialState,
+            ThemeVariant::End,
+            END,
+            Terminal::EndOuter,
+        ),
+        (
+            "end-inner",
+            ThemeTarget::SpecialStateInner,
+            ThemeVariant::End,
+            END,
+            Terminal::EndInner,
+        ),
+        (
+            "fork",
+            ThemeTarget::SpecialState,
+            ThemeVariant::Special,
+            FORK,
+            Terminal::Named("Fork"),
+        ),
+        (
+            "choice",
+            ThemeTarget::SpecialState,
+            ThemeVariant::Special,
+            CHOICE,
+            Terminal::Named("Decide"),
+        ),
+    ];
+
+    for (case, target, variant, source, terminal) in cases {
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec().with_styles(
+                    ThemeRuleSet::default().with_rule(
+                        ThemeRule::new(
+                            target,
+                            ThemeStylePatch::default().with_stroke(
+                                CanvasPaint::solid(TYPED_COLOR)
+                                    .expect("valid typed Neo special-state stroke"),
+                            ),
+                        )
+                        .with_variant(variant),
+                    ),
+                ),
+            )
+            .unwrap_or_else(|error| panic!("compile {case} gradient-owner theme: {error}"));
+
+        for origin in ["site", "source"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                source,
+                serde_json::json!({
+                    "theme": "base",
+                    "look": "neo",
+                    "themeVariables": {
+                        "useGradient": true,
+                        "gradientStart": "#22c55e",
+                        "gradientStop": "#16a34a",
+                        "lineColor": "#112233",
+                        "nodeBorder": "#556677"
+                    }
+                }),
+                origin,
+            );
+            let document = roxmltree::Document::parse(&svg)
+                .unwrap_or_else(|error| panic!("valid {case} gradient-owner SVG: {error}"));
+            let path = match terminal {
+                Terminal::EndOuter => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| {
+                        outer
+                            .children()
+                            .filter(|node| node.has_tag_name("path"))
+                            .nth(1)
+                    }),
+                Terminal::EndInner => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| outer.children().find(|node| node.has_tag_name("g")))
+                    .and_then(|inner| {
+                        inner
+                            .children()
+                            .filter(|node| node.has_tag_name("path"))
+                            .nth(1)
+                    }),
+                Terminal::Named(id) => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g")
+                            && node
+                                .attribute("id")
+                                .is_some_and(|value| value.contains(&format!("-state-{id}-")))
+                    })
+                    .and_then(|group| {
+                        group
+                            .descendants()
+                            .filter(|node| node.has_tag_name("path"))
+                            .nth(1)
+                    }),
+            }
+            .unwrap_or_else(|| panic!("missing {case} gradient-owner terminal: {svg}"));
+
+            assert!(
+                svg.contains("[data-look=\"neo\"].node path{stroke:url(#merman-gradient);"),
+                "the global Neo gradient setup must be active for {origin} {case}: {svg}"
+            );
+            assert_eq!(
+                path.attribute("style"),
+                Some(""),
+                "no inline paint may shadow the Neo gradient for {origin} {case}: {svg}"
+            );
+            let base_stroke = match terminal {
+                Terminal::EndOuter | Terminal::Named("Fork") => "#112233",
+                Terminal::EndInner => "#556677",
+                Terminal::Named(_) => "#556677",
+            };
+            assert_eq!(
+                path.attribute("stroke"),
+                Some(base_stroke),
+                "the {origin} {case} base attribute remains below the Neo gradient stylesheet: {svg}"
+            );
+            let gradient = document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("linearGradient")
+                        && node.attribute("id") == Some("merman-gradient")
+                })
+                .expect("the final CSS gradient reference must resolve");
+            let stops = gradient
+                .children()
+                .filter(|node| node.has_tag_name("stop"))
+                .map(|node| (node.attribute("offset"), node.attribute("stop-color")))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                stops,
+                vec![
+                    (Some("0%"), Some("#22c55e")),
+                    (Some("100%"), Some("#16a34a"))
+                ]
+            );
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {case} gradient owner"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_structural_direct_paints_remain_applied_without_terminal_provenance() {
+    const TYPED_COLOR: &str = "#ec4899";
+    const COMPOSITE: &str = "stateDiagram-v2\nstate Parent {\n  [*] --> Running\n}\n";
+    const START: &str = "stateDiagram-v2\n[*] --> Ready\n";
+    const END: &str = "stateDiagram-v2\nReady --> [*]\n";
+    const CHOICE: &str = "stateDiagram-v2\nstate Decide <<choice>>\n";
+
+    #[derive(Clone, Copy)]
+    enum PaintFacet {
+        Fill,
+        Stroke,
+    }
+
+    #[derive(Clone, Copy)]
+    enum Terminal {
+        CompositeBody,
+        CompositeHeader,
+        CompositeLabel,
+        Start,
+        EndOuterFill,
+        EndOuterStroke,
+        EndInnerFill,
+        NamedFill(&'static str),
+    }
+
+    struct Case {
+        name: &'static str,
+        target: ThemeTarget,
+        variant: ThemeVariant,
+        facet: PaintFacet,
+        source: &'static str,
+        terminal: Terminal,
+        config: serde_json::Value,
+        expected_style: &'static str,
+    }
+
+    let classic = || serde_json::json!({"htmlLabels": false});
+    let neo = || {
+        serde_json::json!({
+            "look": "neo",
+            "htmlLabels": false,
+        })
+    };
+    let cases = vec![
+        Case {
+            name: "composite-body",
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            terminal: Terminal::CompositeBody,
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "composite-header",
+            target: ThemeTarget::CompositeHeader,
+            variant: ThemeVariant::Default,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            terminal: Terminal::CompositeHeader,
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "composite-label",
+            target: ThemeTarget::CompositeLabel,
+            variant: ThemeVariant::Default,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            terminal: Terminal::CompositeLabel,
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "special-start",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            facet: PaintFacet::Fill,
+            source: START,
+            terminal: Terminal::Start,
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "special-end-outer",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Fill,
+            source: END,
+            terminal: Terminal::EndOuterFill,
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "special-choice",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            facet: PaintFacet::Fill,
+            source: CHOICE,
+            terminal: Terminal::NamedFill("Decide"),
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "special-end-inner",
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Fill,
+            source: END,
+            terminal: Terminal::EndInnerFill,
+            config: classic(),
+            expected_style: "fill:#ec4899 !important",
+        },
+        Case {
+            name: "neo-composite-header-stroke",
+            target: ThemeTarget::CompositeHeader,
+            variant: ThemeVariant::Default,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            terminal: Terminal::CompositeHeader,
+            config: neo(),
+            expected_style: "stroke:#ec4899 !important",
+        },
+        Case {
+            name: "neo-special-end-outer-stroke",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            facet: PaintFacet::Stroke,
+            source: END,
+            terminal: Terminal::EndOuterStroke,
+            config: neo(),
+            expected_style: "stroke:#ec4899 !important",
+        },
+    ];
+
+    for case in cases {
+        let style = match case.facet {
+            PaintFacet::Fill => ThemeStylePatch::default()
+                .with_fill(CanvasPaint::solid(TYPED_COLOR).expect("valid structural direct fill")),
+            PaintFacet::Stroke => ThemeStylePatch::default().with_stroke(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid structural direct stroke"),
+            ),
+        };
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec_with_theme("base").with_styles(
+                    ThemeRuleSet::default()
+                        .with_rule(ThemeRule::new(case.target, style).with_variant(case.variant)),
+                ),
+            )
+            .unwrap_or_else(|error| panic!("compile {} State theme: {error}", case.name));
+        let (svg, evidence) =
+            render_strict_state_svg_with_theme_and_config(&theme, case.source, case.config, "site");
+        let document = roxmltree::Document::parse(&svg)
+            .unwrap_or_else(|error| panic!("valid {} State SVG XML: {error}", case.name));
+        let terminal = match case.terminal {
+            Terminal::CompositeBody => document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute("data-id") == Some("Parent"))
+                .and_then(|cluster| {
+                    cluster.children().find(|node| {
+                        node.has_tag_name("rect") && node.attribute("class") == Some("inner")
+                    })
+                }),
+            Terminal::CompositeHeader => document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute("data-id") == Some("Parent"))
+                .and_then(|cluster| {
+                    cluster.descendants().find(|node| {
+                        node.has_tag_name("rect") && node.attribute("class") == Some("outer")
+                    })
+                }),
+            Terminal::CompositeLabel => document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute("data-id") == Some("Parent"))
+                .and_then(|cluster| {
+                    cluster.children().find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("cluster-label")
+                    })
+                })
+                .and_then(|label| label.children().find(|node| node.has_tag_name("text"))),
+            Terminal::Start => document.descendants().find(|node| {
+                node.has_tag_name("circle") && node.attribute("class") == Some("state-start")
+            }),
+            Terminal::EndOuterFill => document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                })
+                .and_then(|outer| outer.children().find(|node| node.has_tag_name("path"))),
+            Terminal::EndOuterStroke => document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                })
+                .and_then(|outer| {
+                    outer
+                        .children()
+                        .filter(|node| node.has_tag_name("path"))
+                        .nth(1)
+                }),
+            Terminal::EndInnerFill => document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                })
+                .and_then(|outer| outer.children().find(|node| node.has_tag_name("g")))
+                .and_then(|inner| inner.children().find(|node| node.has_tag_name("path"))),
+            Terminal::NamedFill(id) => document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("g")
+                        && node
+                            .attribute("id")
+                            .is_some_and(|value| value.contains(&format!("-state-{id}-")))
+                })
+                .and_then(|group| group.descendants().find(|node| node.has_tag_name("path"))),
+        }
+        .unwrap_or_else(|| panic!("missing {} terminal element: {svg}", case.name));
+
+        assert!(
+            terminal
+                .attribute("style")
+                .is_some_and(|style| style.contains(case.expected_style)),
+            "typed paint must reach the exact unowned {} terminal: {svg}",
+            case.name
+        );
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 1,
+                accounted: 1,
+                applied: 1,
+                not_applicable: 0,
+                residual: 0,
+            },
+            "unowned {}",
+            case.name
+        );
+    }
+}
+
+#[test]
+fn state_note_stroke_yields_to_derived_note_background_ownership() {
+    const SOURCE: &str = "stateDiagram-v2\nReady\nnote right of Ready : derived note border\n";
+    const TYPED_COLOR: &str = "#ec4899";
+
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Note,
+                ThemeStylePatch::default().with_stroke(
+                    CanvasPaint::solid(TYPED_COLOR).expect("valid typed State note stroke"),
+                ),
+            ))),
+        )
+        .expect("compile derived State note-border ownership theme");
+
+    for theme_id in ["base", "neo", "neo-dark"] {
+        for origin in ["site", "source"] {
+            let config = serde_json::json!({
+                "theme": theme_id,
+                "themeVariables": { "noteBkgColor": "#fef3c7" },
+            });
+            let (svg, evidence) =
+                render_strict_state_svg_with_theme_and_config(&theme, SOURCE, config, origin);
+
+            assert!(
+                !svg.contains(TYPED_COLOR),
+                "typed State note stroke must yield to derived {origin} {theme_id} noteBorderColor: {svg}"
+            );
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {theme_id}"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_transition_label_background_uses_distinct_native_and_html_terminal_owners() {
+    const MERMAID_COLOR: &str = "#22c55e";
+    const TYPED_COLOR: &str = "#ec4899";
+    const SOURCE: &str = "stateDiagram-v2\nReady --> Done: Finish\n";
+
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec_with_theme("base").with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::TransitionLabelBackground,
+                    ThemeStylePatch::default().with_fill(
+                        CanvasPaint::solid(TYPED_COLOR)
+                            .expect("valid typed State transition-label background"),
+                    ),
+                )),
+            ),
+        )
+        .expect("compile State transition-label background ownership theme");
+
+    let cases = [
+        ("native-owner", false, "labelBackgroundColor", true),
+        ("native-non-owner", false, "edgeLabelBackground", false),
+        ("html-owner", true, "edgeLabelBackground", true),
+        ("html-non-owner", true, "labelBackgroundColor", false),
+    ];
+
+    for (case, html_labels, configured_path, mermaid_owns_terminal) in cases {
+        for origin in ["site", "source"] {
+            let config = serde_json::json!({
+                    "htmlLabels": html_labels,
+                "themeVariables": {(configured_path): MERMAID_COLOR},
+            });
+            let (svg, evidence) =
+                render_strict_state_svg_with_theme_and_config(&theme, SOURCE, config, origin);
+
+            assert_eq!(
+                svg.contains(TYPED_COLOR),
+                !mermaid_owns_terminal,
+                "typed background terminal result for {origin} {case}: {svg}"
+            );
+            if mermaid_owns_terminal {
+                let terminal_fragment = if html_labels {
+                    ".edgeLabel{background-color:#22c55e;text-align:center;}"
+                } else {
+                    ".edgeLabel .label rect{fill:#22c55e;opacity:0.5;}"
+                };
+                assert!(
+                    svg.contains(terminal_fragment),
+                    "Mermaid background owner must reach the exact {origin} {case} declaration: {svg}"
+                );
+            }
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: usize::from(!mermaid_owns_terminal),
+                    not_applicable: usize::from(mermaid_owns_terminal),
+                    residual: 0,
+                },
+                "{origin} {case}"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_transition_label_background_ordinals_survive_resvg_fallback_per_occurrence() {
+    const FIRST_BACKGROUND: &str = "#dc2626";
+    const SECOND_BACKGROUND: &str = "#16a34a";
+    const SOURCE: &str = r#"%%{init: {"htmlLabels": true}}%%
+stateDiagram-v2
+First --> Second: first transition
+Second --> Third: second transition
+"#;
+
+    let styles = ThemeRuleSet::default()
+        .with_rule(
+            ThemeRule::new(
+                ThemeTarget::TransitionLabelBackground,
+                ThemeStylePatch::default().with_fill(
+                    CanvasPaint::solid(FIRST_BACKGROUND).expect("valid first background"),
+                ),
+            )
+            .with_ordinal(OrdinalSelector::exact(1).expect("valid first ordinal")),
+        )
+        .with_rule(
+            ThemeRule::new(
+                ThemeTarget::TransitionLabelBackground,
+                ThemeStylePatch::default().with_fill(
+                    CanvasPaint::solid(SECOND_BACKGROUND).expect("valid second background"),
+                ),
+            )
+            .with_ordinal(OrdinalSelector::exact(2).expect("valid second ordinal")),
+        );
+    let theme = DiagramThemeCompiler::new()
+        .compile(state_theme_spec().with_styles(styles))
+        .expect("compile ordinal State transition-label backgrounds");
+    let (parity_svg, native_svg) =
+        render_state_public_and_native_svg_from_text_with_theme_in_environment(
+            SOURCE,
+            &theme,
+            &RenderEnvironment::deterministic(),
+        );
+
+    let parity = roxmltree::Document::parse(&parity_svg).expect("valid parity State SVG XML");
+    let native = roxmltree::Document::parse(&native_svg).expect("valid ResvgSafe State SVG XML");
+    for (edge_id, fill) in [("edge0", FIRST_BACKGROUND), ("edge1", SECOND_BACKGROUND)] {
+        let occurrence = format!("state-transition-label-background:{edge_id}");
+        let foreign_object = parity
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("foreignObject")
+                    && node.attribute("data-merman-fallback-occurrence")
+                        == Some(occurrence.as_str())
+            })
+            .unwrap_or_else(|| panic!("missing parity occurrence {occurrence}: {parity_svg}"));
+        assert_eq!(
+            foreign_object.attribute("data-merman-fallback-background-fill"),
+            Some(fill),
+            "Parity SVG must bind the terminal background to {occurrence}: {parity_svg}"
+        );
+        let parity_background = foreign_object
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("div")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "labelBkg")
+                    })
+            })
+            .and_then(|node| node.attribute("style"))
+            .unwrap_or_else(|| {
+                panic!("missing Parity labelBkg style for {occurrence}: {parity_svg}")
+            });
+        assert!(
+            parity_background.contains(&format!("background-color: {fill} !important")),
+            "Parity SVG must apply {fill} to {occurrence}: {parity_svg}"
+        );
+
+        let fallback_group = native
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("data-merman-fallback-occurrence")
+                        == Some(occurrence.as_str())
+            })
+            .unwrap_or_else(|| panic!("missing ResvgSafe occurrence {occurrence}: {native_svg}"));
+        let fallback_viewport = fallback_group
+            .children()
+            .find(|node| node.has_tag_name("svg"))
+            .unwrap_or_else(|| panic!("missing ResvgSafe viewport for {occurrence}: {native_svg}"));
+        let dimension = |node: roxmltree::Node<'_, '_>, name| {
+            node.attribute(name)
+                .expect("label viewport dimension")
+                .parse::<f64>()
+                .expect("finite label viewport dimension")
+        };
+        let width = dimension(foreign_object, "width");
+        let height = dimension(foreign_object, "height");
+        assert_eq!(dimension(fallback_viewport, "width"), width);
+        assert_eq!(dimension(fallback_viewport, "height"), height);
+        let view_box = fallback_viewport
+            .attribute("viewBox")
+            .expect("fallback viewport viewBox")
+            .split_whitespace()
+            .map(|value| value.parse::<f64>().expect("finite viewBox component"))
+            .collect::<Vec<_>>();
+        assert_eq!(view_box, [0.0, 0.0, width, height]);
+        let source_overflow = foreign_object
+            .attribute("style")
+            .and_then(|style| {
+                style.split(';').find_map(|declaration| {
+                    let (property, value) = declaration.split_once(':')?;
+                    (property.trim() == "overflow").then(|| value.trim())
+                })
+            })
+            .or_else(|| foreign_object.attribute("overflow"))
+            .unwrap_or("hidden");
+        assert!(
+            fallback_viewport
+                .attribute("style")
+                .expect("fallback viewport style")
+                .split(';')
+                .filter_map(|declaration| declaration.split_once(':'))
+                .any(|(property, value)| {
+                    property.trim() == "overflow" && value.trim() == source_overflow
+                }),
+            "ResvgSafe must preserve source clipping for {occurrence}: {native_svg}"
+        );
+        let fallback_rects = fallback_viewport
+            .descendants()
+            .filter(|node| {
+                node.has_tag_name("rect")
+                    && node.attribute("data-merman-fallback-occurrence")
+                        == Some(occurrence.as_str())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fallback_rects.len(),
+            1,
+            "ResvgSafe must emit one bound background for {occurrence}: {native_svg}"
+        );
+        let fallback_rect = fallback_rects[0];
+        assert_eq!(fallback_rect.attribute("fill"), Some(fill));
+        let expected_fill = format!("{fill} !important");
+        assert!(
+            fallback_rect
+                .attribute("style")
+                .expect("bound background style")
+                .split(';')
+                .filter_map(|declaration| declaration.split_once(':'))
+                .any(|(property, value)| {
+                    property.trim() == "fill" && value.trim() == expected_fill
+                }),
+            "legacy edge-label CSS must not override {occurrence}: {native_svg}"
+        );
+        assert_eq!(
+            fallback_rect.attribute("data-merman-fallback-occurrence"),
+            Some(occurrence.as_str())
+        );
+    }
+}
+
+#[test]
+fn state_transition_stroke_yields_to_extended_theme_background_ownership() {
+    const SOURCE: &str = "stateDiagram-v2\nReady --> Done: Finish\n";
+    const TYPED_COLOR: &str = "#ec4899";
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Transition,
+                ThemeStylePatch::default().with_stroke(CanvasPaint::solid(TYPED_COLOR).unwrap()),
+            ))),
+        )
+        .expect("compile extended State transition ownership theme");
+    for theme_id in [
+        "neo",
+        "neo-dark",
+        "redux",
+        "redux-dark",
+        "redux-color",
+        "redux-dark-color",
+    ] {
+        for config_key in ["background", "primaryColor"] {
+            for origin in ["site", "source"] {
+                let config = serde_json::json!({
+                    "theme": theme_id,
+                    "themeVariables": {(config_key): "#ffffff"},
+                });
+                let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                    &theme,
+                    SOURCE,
+                    config.clone(),
+                    origin,
+                );
+                let baseline = render_unhosted_state_svg_with_config(SOURCE, config, origin);
+                let owned = origin == "source" || config_key == "background";
+                let css = state_svg_stylesheet(&svg);
+                if owned {
+                    assert_eq!(
+                        css,
+                        state_svg_stylesheet(&baseline),
+                        "the {origin} {theme_id}/{config_key} owner retains its derived terminal"
+                    );
+                }
+                assert_eq!(
+                    state_transition_inline_stroke(&svg),
+                    (!owned).then(|| format!("{TYPED_COLOR} !important")),
+                    "{origin} {theme_id}/{config_key}"
+                );
+                if config_key == "background" {
+                    assert!(
+                        svg.contains(".transition{stroke:#000000;"),
+                        "background must derive the transition terminal: {svg}"
+                    );
+                }
+                assert_eq!(
+                    evidence,
+                    StateThemeEvidenceCounts {
+                        required: 1,
+                        accounted: 1,
+                        applied: usize::from(!owned),
+                        not_applicable: usize::from(owned),
+                        residual: 0,
+                    },
+                    "{origin} {theme_id}/{config_key}"
+                );
+            }
+        }
+    }
+}
+
+fn render_unhosted_state_svg_with_config(
+    source: &str,
+    config: serde_json::Value,
+    origin: &str,
+) -> String {
+    let (engine, source) = if origin == "site" {
+        (
+            classic_typed_engine().with_site_config(
+                merman_core::presentation::SourcePresentationConfig::from_value(config),
+            ),
+            source.to_string(),
+        )
+    } else {
+        assert_eq!(origin, "source");
+        (
+            classic_typed_engine().with_site_config(
+                merman_core::presentation::SourcePresentationConfig::from_value(
+                    serde_json::json!({"secure": []}),
+                ),
+            ),
+            format!("%%{{init: {config}}}%%\n{source}"),
+        )
+    };
+    render_state_svg_from_text_with_engine(engine, &source)
+}
+
+fn state_svg_stylesheet(svg: &str) -> String {
+    roxmltree::Document::parse(svg)
+        .expect("valid State SVG")
+        .descendants()
+        .find(|node| node.has_tag_name("style"))
+        .and_then(|node| node.text())
+        .expect("State stylesheet")
+        .to_owned()
+}
+
+fn state_transition_inline_stroke(svg: &str) -> Option<String> {
+    let document = roxmltree::Document::parse(svg).expect("valid State SVG");
+    let edges = document
+        .descendants()
+        .filter(|node| node.has_tag_name("path") && node.attribute("data-edge") == Some("true"))
+        .collect::<Vec<_>>();
+    let [edge] = edges.as_slice() else {
+        panic!("expected one State transition terminal: {svg}");
+    };
+    edge.attribute("style")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|declaration| declaration.split_once(':'))
+        .find(|(property, _)| property.trim() == "stroke")
+        .map(|(_, value)| value.trim().to_owned())
+}
+
+#[test]
+fn state_transition_stroke_follows_source_backed_theme_ownership() {
+    const SOURCE: &str = "stateDiagram-v2\nReady --> Done: Finish\n";
+    const MERMAID_COLOR: &str = "#22c55e";
+    const TYPED_COLOR: &str = "#ec4899";
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            DiagramThemeSpec::new().with_styles(ThemeRuleSet::default().with_rule(ThemeRule::new(
+                ThemeTarget::Transition,
+                ThemeStylePatch::default().with_stroke(CanvasPaint::solid(TYPED_COLOR).unwrap()),
+            ))),
+        )
+        .expect("compile State transition ownership theme");
+    for (theme_id, config_key, derived_owner) in [
+        ("base", "lineColor", true),
+        ("forest", "lineColor", true),
+        ("default", "lineColor", false),
+        ("dark", "lineColor", false),
+        ("neutral", "lineColor", false),
+        ("dark", "mainContrastColor", true),
+    ] {
+        for origin in ["site", "source"] {
+            let config = serde_json::json!({
+                "theme": theme_id,
+                "themeVariables": {(config_key): MERMAID_COLOR},
+            });
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                SOURCE,
+                config.clone(),
+                origin,
+            );
+            let baseline = render_unhosted_state_svg_with_config(SOURCE, config, origin);
+            let css = state_svg_stylesheet(&svg);
+            let owned = origin == "source" || derived_owner;
+            if owned {
+                assert_eq!(
+                    css,
+                    state_svg_stylesheet(&baseline),
+                    "the {origin} {theme_id}/{config_key} owner retains its final terminal"
+                );
+            }
+            assert_eq!(
+                state_transition_inline_stroke(&svg),
+                (!owned).then(|| format!("{TYPED_COLOR} !important")),
+                "{origin} {theme_id}/{config_key}"
+            );
+            if origin == "source" && config_key == "mainContrastColor" {
+                assert!(
+                    !css.contains(".transition{stroke:#22c55e;"),
+                    "source directives must filter the non-schema mainContrastColor: {css}"
+                );
+            } else if derived_owner {
+                assert!(
+                    css.contains(".transition{stroke:#22c55e;"),
+                    "the pinned {origin} {theme_id}/{config_key} derivation must reach its terminal: {css}"
+                );
+            }
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: usize::from(!owned),
+                    not_applicable: usize::from(owned),
+                    residual: 0,
+                },
+                "{origin} {theme_id}/{config_key}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_state_svg_mixed_emphasis_retains_node_and_edge_runs() {
+    for (label, expected_rows) in [
+        ("plain **bold** *italic*", 1),
+        ("plain **bold** *italic*<br/>plain **bold** *italic*", 2),
+    ] {
+        let svg = render_state_svg_from_text(&format!(
+            "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nstate \"{label}\" as A\nA --> B: {label}\n"
+        ));
+        let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+        for (owner, attribute, value) in [
+            ("node", "id", "merman-state-A-0"),
+            ("edge", "data-id", "edge0"),
+        ] {
+            let terminal = document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute(attribute) == Some(value))
+                .unwrap_or_else(|| panic!("missing {owner} terminal: {svg}"));
+            let rows = terminal
+                .descendants()
+                .filter(|node| node.attribute("class") == Some("text-outer-tspan row"))
+                .collect::<Vec<_>>();
+            assert_eq!(rows.len(), expected_rows, "{owner}: {svg}");
+            for row in rows {
+                let runs = row
+                    .children()
+                    .filter(|node| node.attribute("class") == Some("text-inner-tspan"))
+                    .map(|node| {
+                        (
+                            node.text().unwrap_or_default().trim(),
+                            node.attribute("font-weight"),
+                            node.attribute("font-style"),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    runs,
+                    [
+                        ("plain", Some("normal"), Some("normal")),
+                        ("bold", Some("bold"), Some("normal")),
+                        ("italic", Some("normal"), Some("italic")),
+                    ],
+                    "{owner}: {svg}"
+                );
+            }
+        }
+        assert!(!svg.contains("<foreignObject"), "{svg}");
+    }
+
+    let svg = render_state_svg_from_text(
+        "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nstate \"**bold** *italic*\" as Parent {\nA\n}\n",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+    let title = document
+        .descendants()
+        .find(|node| node.attribute("class") == Some("cluster-label"))
+        .expect("plain cluster title");
+    let word = title
+        .descendants()
+        .find(|node| node.attribute("class") == Some("text-inner-tspan"))
+        .expect("literal cluster title text");
+    assert_eq!(word.text(), Some("**bold** *italic*"), "{svg}");
+    assert_eq!(word.attribute("font-weight"), Some("normal"), "{svg}");
+    assert_eq!(word.attribute("font-style"), Some("normal"), "{svg}");
+}
+
+struct StateEmphasisTextMeasurer {
+    fallback: std::sync::Arc<dyn TextMeasurer + Send + Sync>,
+}
+
+impl Default for StateEmphasisTextMeasurer {
+    fn default() -> Self {
+        Self {
+            fallback: DeterministicTextMeasurer::default().with_width_callback(Self::width),
+        }
+    }
+}
+
+impl StateEmphasisTextMeasurer {
+    fn width(text: &str, style: &TextStyle) -> f64 {
+        let bold = matches!(style.font_weight.as_deref(), Some("700" | "bold"));
+        let italic = style.font_style.as_deref() == Some("italic");
+        text.chars().count() as f64
+            * (4.0 + if bold { 4.0 } else { 0.0 } + if italic { 2.0 } else { 0.0 })
+    }
+}
+
+impl TextMeasurer for StateEmphasisTextMeasurer {
+    fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+        self.fallback.measure(text, style)
+    }
+
+    fn measure_wrapped(
+        &self,
+        text: &str,
+        style: &TextStyle,
+        max_width: Option<f64>,
+        wrap_mode: WrapMode,
+    ) -> TextMetrics {
+        self.fallback
+            .measure_wrapped(text, style, max_width, wrap_mode)
+    }
+
+    fn measure_svg_text_computed_length_px(&self, text: &str, style: &TextStyle) -> f64 {
+        Self::width(text, style)
+    }
+
+    fn measure_svg_text_bbox_x(&self, text: &str, style: &TextStyle) -> (f64, f64) {
+        let half = Self::width(text, style) / 2.0;
+        match (text.trim_start(), style.font_style.as_deref()) {
+            ("Tilt", Some("italic")) => (half, half + 10.0),
+            ("Lean", Some("italic")) => (half + 7.0, half),
+            _ => (half, half),
+        }
+    }
+}
+
+fn state_emphasis_environment() -> RenderEnvironment {
+    let identity = TextMeasurementProfileIdentity::new(
+        MeasurementProfileId::new("test.state-emphasis").expect("valid profile id"),
+        "test",
+    )
+    .expect("valid profile identity");
+    RenderEnvironment::deterministic().with_text_measurement_policy(TextMeasurementPolicy::uniform(
+        TextMeasurementProfile::new(
+            identity,
+            std::sync::Arc::new(StateEmphasisTextMeasurer::default()),
+        ),
+    ))
+}
+
+#[test]
+fn native_state_markdown_rows_keep_fixed_stride_with_face_dependent_bboxes() {
+    struct FaceBboxMeasurer;
+
+    impl TextMeasurer for FaceBboxMeasurer {
+        fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+            TextMetrics {
+                width: self.measure_svg_text_computed_length_px(text, style),
+                height: self.measure_svg_tspan_text_bbox_height_px(text, style),
+                line_count: 1,
+            }
+        }
+
+        fn measure_svg_text_computed_length_px(&self, text: &str, _style: &TextStyle) -> f64 {
+            text.chars().count() as f64 * 5.0
+        }
+
+        fn measure_svg_text_bbox_x(&self, text: &str, style: &TextStyle) -> (f64, f64) {
+            let half = self.measure_svg_text_computed_length_px(text, style) / 2.0;
+            (half, half)
+        }
+
+        fn measure_svg_tspan_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
+            if text.trim().is_empty() {
+                0.0
+            } else if style.font_style.as_deref() == Some("italic") {
+                18.0
+            } else if matches!(style.font_weight.as_deref(), Some("bold" | "700")) {
+                14.0
+            } else {
+                10.0
+            }
+        }
+
+        fn measure_svg_create_text_bbox_y_offset_px(&self, _text: &str, style: &TextStyle) -> f64 {
+            if style.font_style.as_deref() == Some("italic") {
+                -2.0
+            } else if matches!(style.font_weight.as_deref(), Some("bold" | "700")) {
+                -6.0
+            } else {
+                -4.0
+            }
+        }
+    }
+
+    let identity = TextMeasurementProfileIdentity::new(
+        MeasurementProfileId::new("test.state-face-bbox-stride").expect("valid profile id"),
+        "test",
+    )
+    .expect("valid profile identity");
+    let environment = RenderEnvironment::deterministic().with_text_measurement_policy(
+        TextMeasurementPolicy::uniform(TextMeasurementProfile::new(
+            identity,
+            std::sync::Arc::new(FaceBboxMeasurer),
+        )),
+    );
+    for (label, source_style, expected_rows, node_ink_height, edge_ink_height) in [
+        ("A<br/>*ii*", "", vec!["A", "ii"], 37.6, 37.6),
+        ("*ii*<br/>A", "", vec!["ii", "A"], 25.6, 25.6),
+        ("A **B**<br/>*ii*", "", vec!["A B", "ii"], 39.6, 39.6),
+        ("**B**<br/>*ii*<br/>A", "", vec!["B", "ii", "A"], 47.2, 47.2),
+        ("*ii*", "", vec!["ii"], 18.0, 18.0),
+        ("A **B** *ii*", "", vec!["A B ii"], 22.0, 22.0),
+        ("A<br/>B", "", vec!["A", "B"], 27.6, 27.6),
+        (
+            "A<br/>*ii*",
+            "style A font-weight:700,font-style:italic\n",
+            vec!["A", "ii"],
+            35.6,
+            37.6,
+        ),
+    ] {
+        let (layout, svg) = render_state_layout_and_svg_from_text_in_environment(
+            &format!(
+                "%%{{init: {{\"htmlLabels\": false, \"themeVariables\": {{\"fontSize\": \"16px\"}}, \"state\": {{\"minNodeWidth\": 0}}}}}}%%\nstateDiagram-v2\nstate \"{label}\" as A\nA --> B: {label}\n{source_style}"
+            ),
+            &environment,
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+        let layout_node = layout.nodes.iter().find(|node| node.id == "A").unwrap();
+        let layout_edge = layout.edges[0].label.as_ref().unwrap();
+        for (attribute, value, shape_class, padding, ink_height, layout_height) in [
+            (
+                "id",
+                "merman-state-A-0",
+                "basic label-container",
+                16.0,
+                node_ink_height,
+                layout_node.height,
+            ),
+            (
+                "data-id",
+                "edge0",
+                "background",
+                4.0,
+                edge_ink_height,
+                layout_edge.height,
+            ),
+        ] {
+            let terminal = document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute(attribute) == Some(value))
+                .expect("State label terminal");
+            let rows = terminal
+                .descendants()
+                .filter(|node| node.attribute("class") == Some("text-outer-tspan row"))
+                .collect::<Vec<_>>();
+            let visible_rows = rows
+                .iter()
+                .map(|row| {
+                    row.descendants()
+                        .filter(|node| node.is_text())
+                        .filter_map(|node| node.text())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(visible_rows, expected_rows, "{value}/{label}: {svg}");
+            let baselines = rows
+                .iter()
+                .map(|row| row.attribute("y").unwrap().parse::<f64>().unwrap())
+                .collect::<Vec<_>>();
+            for pair in baselines.windows(2) {
+                assert!(
+                    (pair[1] - pair[0] - 17.6).abs() <= 1e-9,
+                    "{value}/{label}: face bboxes must not alter the 1.1em stride: {svg}"
+                );
+            }
+            let shape = terminal
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("rect") && node.attribute("class") == Some(shape_class)
+                })
+                .expect("State label shape");
+            let shape_height = shape.attribute("height").unwrap().parse::<f64>().unwrap();
+            let expected_height = ink_height + padding;
+            assert!(
+                (layout_height - expected_height).abs() <= 1e-9,
+                "{value}/{label}: layout height must enclose the face union once: {svg}"
+            );
+            assert!(
+                (shape_height - expected_height).abs() <= 1e-9,
+                "{value}/{label}: SVG height must match the layout: {svg}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_state_svg_code_spans_use_the_svg_projection_even_when_empty() {
+    for label in ["ASCII ``omitted``", "``omitted``"] {
+        let svg = render_state_svg_from_text(&format!(
+            "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nstate \"{label}\" as A\n"
+        ));
+        let document = roxmltree::Document::parse(&svg).unwrap();
+        let node = document
+            .descendants()
+            .find(|node| node.attribute("id") == Some("merman-state-A-0"))
+            .unwrap();
+        let text = node
+            .descendants()
+            .filter(|node| node.attribute("class") == Some("text-inner-tspan"))
+            .flat_map(|node| node.text())
+            .collect::<String>();
+        assert_eq!(
+            text,
+            if label.starts_with("ASCII") {
+                "ASCII"
+            } else {
+                ""
+            }
+        );
+    }
+}
+
+#[test]
+fn native_state_node_styled_start_anchor_uses_run_ink_union() {
+    for (label, expected_rows, ink_left, ink_right) in [
+        ("**Skew** *Tilt*", 1, 0.0, 72.0),
+        ("**WiderWord**<br/>**Skew** *Tilt*", 2, 0.0, 72.0),
+        ("*Lean* **Skew**", 1, -7.0, 64.0),
+        ("*Lean* **Skew**<br/>**WiderWord**", 2, -7.0, 72.0),
+    ] {
+        let (layout, svg) = render_state_layout_and_svg_from_text_in_environment(
+            &format!(
+                "%%{{init: {{\"htmlLabels\": false, \"state\": {{\"minNodeWidth\": 0}}}}}}%%\nstateDiagram-v2\nstate \"{label}\" as A\n"
+            ),
+            &state_emphasis_environment(),
+        );
+        let layout_node = layout
+            .nodes
+            .iter()
+            .find(|node| node.id == "A")
+            .expect("State node layout");
+        let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+        let node = document
+            .descendants()
+            .find(|node| node.attribute("id") == Some("merman-state-A-0"))
+            .expect("State SVG node");
+        let shape = node
+            .descendants()
+            .find(|node| node.attribute("class") == Some("basic label-container"))
+            .expect("State node shape");
+        let text = node
+            .descendants()
+            .find(|node| node.has_tag_name("text"))
+            .expect("native State node text");
+        // Start-anchored rows share their origin, not their individual advance centers.
+        // Keep the existing 8px shape padding on each side of the measured ink union.
+        let ink_width = ink_right - ink_left;
+        let shape_width = shape
+            .attribute("width")
+            .expect("State node width")
+            .parse::<f64>()
+            .expect("numeric State node width");
+        assert_eq!(layout_node.width, ink_width + 16.0, "{label}: {svg}");
+        assert_eq!(shape_width, layout_node.width, "{label}: {svg}");
+        assert_eq!(text.attribute("text-anchor"), None, "{svg}");
+        let label_group = text.parent().expect("State text label group");
+        let label_x = label_group
+            .attribute("transform")
+            .and_then(|value| value.strip_prefix("translate("))
+            .and_then(|value| value.split_once(','))
+            .expect("translated State node text")
+            .0
+            .parse::<f64>()
+            .expect("numeric State node text x");
+        assert_eq!(label_x, -ink_width / 2.0, "{label}: {svg}");
+        let rows = text
+            .children()
+            .filter(|node| node.has_tag_name("tspan"))
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), expected_rows, "{label}: {svg}");
+        for row in rows {
+            let baseline_x = row
+                .attribute("x")
+                .expect("State row baseline x")
+                .parse::<f64>()
+                .expect("numeric State row baseline x");
+            assert_eq!(baseline_x, -ink_left, "{label}: {svg}");
+            assert_eq!(
+                label_x + baseline_x + ink_left,
+                -shape_width / 2.0 + 8.0,
+                "{label}: {svg}"
+            );
+            assert_eq!(
+                label_x + baseline_x + ink_right,
+                shape_width / 2.0 - 8.0,
+                "{label}: {svg}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_state_transition_styled_bbox_preserves_symmetric_padding() {
+    let (layout, svg) = render_state_layout_and_svg_from_text_in_environment(
+        "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nA --> B: **Skew** *Tilt*",
+        &state_emphasis_environment(),
+    );
+    let layout_label = layout.edges[0].label.as_ref().expect("edge layout label");
+    let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+    let label = document
+        .descendants()
+        .find(|node| node.attribute("data-id") == Some("edge0") && node.has_tag_name("g"))
+        .expect("edge SVG label");
+    let background = label
+        .descendants()
+        .find(|node| node.attribute("class") == Some("background"))
+        .expect("edge label background");
+    // The italic tspan owns its leading space: advances are 32 + 30, with 10px right overhang.
+    // Centering the 62px row requires a 41px half-width, plus the existing 2px padding.
+    assert_eq!(layout_label.width, 86.0, "{svg}");
+    assert_eq!(background.attribute("width"), Some("86"), "{svg}");
+    let label_x = label
+        .attribute("transform")
+        .and_then(|value| value.strip_prefix("translate("))
+        .and_then(|value| value.split_once(','))
+        .expect("translated edge label")
+        .0
+        .parse::<f64>()
+        .expect("numeric edge label x");
+    assert_eq!(label_x, -43.0, "{svg}");
+}
+
+#[test]
+fn native_state_svg_mixed_emphasis_preserves_terminal_inline_overrides() {
+    let typography = TextStylePatch {
+        font_weight: Specified::Value(400),
+        font_style: Specified::Value(merman_render::diagram_theme::FontStyle::Normal),
+        ..TextStylePatch::default()
+    };
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(
+                ThemeRuleSet::default()
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::StateLabel,
+                        ThemeStylePatch {
+                            typography: typography.clone(),
+                            ..ThemeStylePatch::default()
+                        },
+                    ))
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::TransitionLabel,
+                        ThemeStylePatch {
+                            typography,
+                            ..ThemeStylePatch::default()
+                        },
+                    )),
+            ),
+        )
+        .expect("compile State terminal typography");
+    for (source_style, expected_weight, expected_style) in [
+        ("", "400", "normal"),
+        (
+            "style A font-weight:700,font-style:italic\n",
+            "700",
+            "italic",
+        ),
+    ] {
+        let source = format!(
+            "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nstate \"plain **bold** *italic*\" as A\nA --> B: plain **bold** *italic*\n{source_style}"
+        );
+        let svg = render_state_svg_from_text_with_theme_in_environment(
+            &source,
+            &theme,
+            &state_emphasis_environment(),
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+        for (attribute, value, weight, font_style) in [
+            ("id", "merman-state-A-0", expected_weight, expected_style),
+            ("data-id", "edge0", "400", "normal"),
+        ] {
+            let terminal = document
+                .descendants()
+                .find(|node| node.has_tag_name("g") && node.attribute(attribute) == Some(value))
+                .expect("State label terminal");
+            let words = terminal
+                .descendants()
+                .filter(|node| node.attribute("class") == Some("text-inner-tspan"))
+                .collect::<Vec<_>>();
+            assert_eq!(words.len(), 3, "{value}: {svg}");
+            for word in words {
+                let inline = word.attribute("style").expect("terminal inline override");
+                assert!(
+                    inline.contains(&format!("font-weight:{weight} !important")),
+                    "{svg}"
+                );
+                assert!(
+                    inline.contains(&format!("font-style:{font_style} !important")),
+                    "{svg}"
+                );
+            }
+        }
+        let plain = render_state_svg_from_text_with_theme_in_environment(
+            &source.replace("plain **bold** *italic*", "plain bold italic"),
+            &theme,
+            &state_emphasis_environment(),
+        );
+        let shape_dimensions = |svg: &str| {
+            let document = roxmltree::Document::parse(svg).expect("valid State SVG");
+            document
+                .descendants()
+                .filter(|node| {
+                    node.has_tag_name("rect")
+                        && matches!(
+                            node.attribute("class"),
+                            Some("basic label-container" | "background")
+                        )
+                })
+                .map(|node| {
+                    (
+                        node.attribute("width").expect("label width").to_owned(),
+                        node.attribute("height").expect("label height").to_owned(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shape_dimensions(&svg), shape_dimensions(&plain), "{svg}");
+        let plain_document = roxmltree::Document::parse(&plain).expect("valid plain State SVG");
+        for (attribute, value, expected_rows) in [
+            (
+                "id",
+                "merman-state-A-0",
+                if source_style.is_empty() { 1 } else { 2 },
+            ),
+            ("data-id", "edge0", 1),
+        ] {
+            let rows = |document: &roxmltree::Document<'_>| {
+                document
+                    .descendants()
+                    .find(|node| node.has_tag_name("g") && node.attribute(attribute) == Some(value))
+                    .expect("State label terminal")
+                    .descendants()
+                    .filter(|node| node.attribute("class") == Some("text-outer-tspan row"))
+                    .map(|row| {
+                        row.descendants()
+                            .filter(|node| node.is_text())
+                            .filter_map(|node| node.text())
+                            .collect::<String>()
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(rows(&document).len(), expected_rows, "{value}: {svg}");
+            assert_eq!(rows(&document), rows(&plain_document), "{value}: {svg}");
+        }
+    }
+}
+
+#[test]
+fn native_state_transition_labels_share_layout_background_and_measured_text_origin() {
+    fn parse_translate(value: &str) -> (f64, f64) {
+        value
+            .strip_prefix("translate(")
+            .and_then(|value| value.strip_suffix(')'))
+            .and_then(|value| value.split_once(','))
+            .map(|(x, y)| {
+                (
+                    x.trim().parse::<f64>().expect("numeric translate x"),
+                    y.trim().parse::<f64>().expect("numeric translate y"),
+                )
+            })
+            .unwrap_or_else(|| panic!("two-component translate: {value}"))
+    }
+
+    let cases = [
+        (
+            "ordinary-single-default",
+            "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nA --> B: Agjp",
+            None,
+            1,
+        ),
+        (
+            "ordinary-multiline-large",
+            "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nA --> B: Agjp<br/>second",
+            Some(32.0),
+            2,
+        ),
+        (
+            "self-loop-single-large",
+            "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nA --> A: Agjp",
+            Some(32.0),
+            1,
+        ),
+        (
+            "self-loop-multiline-default",
+            "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nA --> A: Agjp<br/>second",
+            None,
+            2,
+        ),
+    ];
+
+    for (case, source, font_size_px, expected_lines) in cases {
+        let svg = font_size_px.map_or_else(
+            || render_state_svg_from_text(source),
+            |font_size_px| {
+                render_state_svg_from_text_with_theme(
+                    source,
+                    &state_transition_label_font_size_theme(font_size_px),
+                )
+            },
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+        let label = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("data-id") == Some("edge0")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "label")
+                    })
+            })
+            .unwrap_or_else(|| panic!("native State edge label for {case}: {svg}"));
+        let background = label
+            .descendants()
+            .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("background"))
+            .unwrap_or_else(|| panic!("native State edge background for {case}: {svg}"));
+        let text = label
+            .descendants()
+            .find(|node| node.has_tag_name("text"))
+            .unwrap_or_else(|| panic!("native State edge text for {case}: {svg}"));
+        let rows = text
+            .children()
+            .filter(|node| {
+                node.has_tag_name("tspan")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "row")
+                    })
+            })
+            .collect::<Vec<_>>();
+        let width = background
+            .attribute("width")
+            .expect("background width")
+            .parse::<f64>()
+            .expect("numeric background width");
+        let height = background
+            .attribute("height")
+            .expect("background height")
+            .parse::<f64>()
+            .expect("numeric background height");
+        let (label_x, label_y) = parse_translate(
+            label
+                .attribute("transform")
+                .expect("layout-sized label transform"),
+        );
+        let text_parent = text.parent().expect("native edge text parent");
+        let (text_x, text_y) = parse_translate(
+            text_parent
+                .attribute("transform")
+                .expect("measured text origin"),
+        );
+
+        assert_eq!(rows.len(), expected_lines, "{case}: {svg}");
+        assert_eq!(text.attribute("id"), None, "{case} must stay non-prepared");
+        assert!(!svg.contains("@font-face"), "{case} must stay non-prepared");
+        assert!((label_x + width / 2.0).abs() <= 1e-9, "{case}: {svg}");
+        assert!((label_y + height / 2.0).abs() <= 1e-9, "{case}: {svg}");
+        assert!((text_x - width / 2.0).abs() <= 1e-9, "{case}: {svg}");
+        let font_size_px = font_size_px.unwrap_or(16.0);
+        let text_style = TextStyle {
+            font_size: f64::from(font_size_px),
+            ..TextStyle::default()
+        };
+        let measurer = DeterministicTextMeasurer::default();
+        let measured_text = if expected_lines == 1 {
+            "Agjp"
+        } else {
+            "Agjp\nsecond"
+        };
+        let bbox_y = measurer.measure_svg_create_text_bbox_y_offset_px("Agjp", &text_style);
+        let first_baseline_y = rows[0]
+            .attribute("y")
+            .expect("native State row has an explicit baseline")
+            .parse::<f64>()
+            .expect("numeric native State baseline");
+        let expected_first_baseline_y = 2.0 + f64::from(font_size_px) - bbox_y;
+        assert!(
+            text_y.abs() <= 1e-9,
+            "{case}: explicit baselines must be relative to the layout box: {svg}"
+        );
+        assert!(
+            (first_baseline_y - expected_first_baseline_y).abs() <= 1e-9,
+            "{case}: measured baseline {expected_first_baseline_y}, actual {first_baseline_y}: {svg}"
+        );
+        assert!(
+            (first_baseline_y - height / 2.0).abs() > 1e-9,
+            "{case}: terminal baseline must not be independently re-centered by label height: {svg}"
+        );
+        let ink_top_y = first_baseline_y + bbox_y - f64::from(font_size_px);
+        assert!((ink_top_y - 2.0).abs() <= 1e-9, "{case}: {svg}");
+        // createText pads the terminal ink bbox by 2px and advances rows by 1.1em.
+        let mut ink_bottom_y = f64::NEG_INFINITY;
+        for ((index, row), line) in rows.iter().enumerate().zip(measured_text.lines()) {
+            let visible = row
+                .descendants()
+                .filter(|node| node.is_text())
+                .filter_map(|node| node.text())
+                .collect::<String>();
+            assert_eq!(visible, line, "{case}: row {index}: {svg}");
+            let baseline_y = row
+                .attribute("y")
+                .expect("native State row baseline")
+                .parse::<f64>()
+                .expect("numeric native State row baseline");
+            assert!(
+                (baseline_y - first_baseline_y - index as f64 * text_style.font_size * 1.1).abs()
+                    <= 1e-9,
+                "{case}: row {index} must retain createText's 1.1em stride: {svg}"
+            );
+            let top = baseline_y - text_style.font_size
+                + measurer.measure_svg_create_text_bbox_y_offset_px(line, &text_style);
+            let bottom = top + measurer.measure_svg_tspan_text_bbox_height_px(line, &text_style);
+            assert!(top >= 2.0 - 1e-9, "{case}: row {index}: {svg}");
+            ink_bottom_y = ink_bottom_y.max(bottom);
+        }
+        assert!(
+            (ink_bottom_y - (height - 2.0)).abs() <= 1e-9,
+            "{case}: {svg}"
+        );
+    }
+}
+
+#[test]
+fn native_state_transition_asymmetric_bbox_shares_text_background_and_layout_width() {
+    #[derive(Default)]
+    struct AsymmetricStateTextMeasurer {
+        fallback: DeterministicTextMeasurer,
+    }
+
+    impl TextMeasurer for AsymmetricStateTextMeasurer {
+        fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+            if text == "Skew" {
+                let mut metrics = self.fallback.measure(text, style);
+                metrics.width = 10.0;
+                metrics
+            } else {
+                self.fallback.measure(text, style)
+            }
+        }
+
+        fn measure_wrapped(
+            &self,
+            text: &str,
+            style: &TextStyle,
+            max_width: Option<f64>,
+            wrap_mode: WrapMode,
+        ) -> TextMetrics {
+            if text == "Skew" {
+                self.measure(text, style)
+            } else {
+                self.fallback
+                    .measure_wrapped(text, style, max_width, wrap_mode)
+            }
+        }
+
+        fn measure_svg_text_computed_length_px(&self, text: &str, style: &TextStyle) -> f64 {
+            if text == "Skew" {
+                10.0
+            } else {
+                self.fallback
+                    .measure_svg_text_computed_length_px(text, style)
+            }
+        }
+
+        fn measure_svg_text_bbox_x(&self, text: &str, style: &TextStyle) -> (f64, f64) {
+            if text == "Skew" {
+                (0.0, 20.0)
+            } else {
+                self.fallback.measure_svg_text_bbox_x(text, style)
+            }
+        }
+
+        fn measure_svg_create_text_bbox_y_offset_px(&self, text: &str, style: &TextStyle) -> f64 {
+            self.fallback
+                .measure_svg_create_text_bbox_y_offset_px(text, style)
+        }
+    }
+
+    fn parse_translate(value: &str) -> (f64, f64) {
+        value
+            .strip_prefix("translate(")
+            .and_then(|value| value.strip_suffix(')'))
+            .and_then(|value| value.split_once(','))
+            .map(|(x, y)| {
+                (
+                    x.trim().parse::<f64>().expect("numeric translate x"),
+                    y.trim().parse::<f64>().expect("numeric translate y"),
+                )
+            })
+            .unwrap_or_else(|| panic!("two-component translate: {value}"))
+    }
+
+    let identity = TextMeasurementProfileIdentity::new(
+        MeasurementProfileId::new("test.state-asymmetric-bbox").expect("valid profile id"),
+        "test",
+    )
+    .expect("valid profile identity");
+    let environment = RenderEnvironment::deterministic().with_text_measurement_policy(
+        TextMeasurementPolicy::uniform(TextMeasurementProfile::new(
+            identity,
+            std::sync::Arc::new(AsymmetricStateTextMeasurer::default()),
+        )),
+    );
+    let (layout, svg) = render_state_layout_and_svg_from_text_in_environment(
+        "%%{init: {\"htmlLabels\": false}}%%\nstateDiagram-v2\nA --> B: Skew",
+        &environment,
+    );
+    let layout_label = layout
+        .edges
+        .iter()
+        .find(|edge| edge.id == "edge0")
+        .and_then(|edge| edge.label.as_ref())
+        .expect("State edge layout label");
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG");
+    let label = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("data-id") == Some("edge0")
+                && node
+                    .attribute("class")
+                    .is_some_and(|classes| classes.split_whitespace().any(|class| class == "label"))
+        })
+        .expect("State edge SVG label");
+    let background = label
+        .descendants()
+        .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("background"))
+        .expect("State edge label background");
+    let text = label
+        .descendants()
+        .find(|node| node.has_tag_name("text"))
+        .expect("State edge label text");
+    let width = background
+        .attribute("width")
+        .expect("background width")
+        .parse::<f64>()
+        .expect("numeric background width");
+    let (label_x, _) = parse_translate(
+        label
+            .attribute("transform")
+            .expect("layout-sized label transform"),
+    );
+    let (text_x, _) = parse_translate(
+        text.parent()
+            .and_then(|node| node.attribute("transform"))
+            .expect("centered text anchor transform"),
+    );
+
+    assert_eq!(
+        text.descendants()
+            .find(|node| node.has_tag_name("tspan") && node.text() == Some("Skew"))
+            .and_then(|node| node.text()),
+        Some("Skew"),
+        "{svg}"
+    );
+    assert_eq!(width, 44.0, "{svg}");
+    assert_eq!(layout_label.width, width, "{svg}");
+    assert_eq!(label_x, -width / 2.0, "{svg}");
+    assert_eq!(text_x, width / 2.0, "{svg}");
+    assert!(text_x >= 2.0, "{svg}");
+    assert_eq!(text_x + 20.0, width - 2.0, "{svg}");
+}
+
+#[test]
+fn native_state_transition_auto_wrap_shares_tspans_background_and_layout_bounds() {
+    const EDGE_WRAP_WIDTH_PX: f64 = 200.0;
+
+    fn parse_translate(value: &str) -> (f64, f64) {
+        value
+            .strip_prefix("translate(")
+            .and_then(|value| value.strip_suffix(')'))
+            .and_then(|value| value.split_once(','))
+            .map(|(x, y)| {
+                (
+                    x.trim().parse::<f64>().expect("numeric translate x"),
+                    y.trim().parse::<f64>().expect("numeric translate y"),
+                )
+            })
+            .unwrap_or_else(|| panic!("two-component translate: {value}"))
+    }
+
+    let long_word = "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW";
+    let spaced_words = "MMMMMMMMMMMM MMMMMMMMMMMM";
+    let cases = [
+        (
+            "ordinary-long-word",
+            format!(
+                "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nA --> B: {long_word}"
+            ),
+            long_word,
+            false,
+            3,
+        ),
+        (
+            "ordinary-spaced-words",
+            format!(
+                "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nA --> B: {spaced_words}"
+            ),
+            spaced_words,
+            true,
+            2,
+        ),
+        (
+            "self-loop-long-word",
+            format!(
+                "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nA --> A: {long_word}"
+            ),
+            long_word,
+            false,
+            3,
+        ),
+        (
+            "self-loop-spaced-words",
+            format!(
+                "%%{{init: {{\"htmlLabels\": false}}}}%%\nstateDiagram-v2\nA --> A: {spaced_words}"
+            ),
+            spaced_words,
+            true,
+            2,
+        ),
+    ];
+    let measurer = DeterministicTextMeasurer::default();
+    let text_style = TextStyle::default();
+
+    for (case, source, label_text, contains_space, expected_lines) in cases {
+        let (layout, svg) = render_state_layout_and_svg_from_text_in_environment(
+            &source,
+            &RenderEnvironment::deterministic(),
+        );
+        let layout_label = layout
+            .edges
+            .iter()
+            .find(|edge| edge.id == "edge0")
+            .and_then(|edge| edge.label.as_ref())
+            .expect("State edge layout label");
+        let document = roxmltree::Document::parse(&svg).expect("valid native State SVG");
+        let label = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("data-id") == Some("edge0")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "label")
+                    })
+            })
+            .unwrap_or_else(|| panic!("native State edge label for {case}: {svg}"));
+        let background = label
+            .descendants()
+            .find(|node| node.has_tag_name("rect") && node.attribute("class") == Some("background"))
+            .unwrap_or_else(|| panic!("native State edge background for {case}: {svg}"));
+        let text = label
+            .descendants()
+            .find(|node| node.has_tag_name("text"))
+            .unwrap_or_else(|| panic!("native State edge text for {case}: {svg}"));
+        let rows = text
+            .children()
+            .filter(|node| {
+                node.has_tag_name("tspan")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "row")
+                    })
+            })
+            .collect::<Vec<_>>();
+        let emitted_lines = rows
+            .iter()
+            .map(|row| {
+                row.descendants()
+                    .filter(|node| node.is_text())
+                    .filter_map(|node| node.text())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        let width = background
+            .attribute("width")
+            .expect("background width")
+            .parse::<f64>()
+            .expect("numeric background width");
+        let height = background
+            .attribute("height")
+            .expect("background height")
+            .parse::<f64>()
+            .expect("numeric background height");
+        let (label_x, label_y) = parse_translate(
+            label
+                .attribute("transform")
+                .expect("layout-sized label transform"),
+        );
+        let text_parent = text.parent().expect("native edge text parent");
+        let (text_x, text_y) = parse_translate(
+            text_parent
+                .attribute("transform")
+                .expect("measured text origin"),
+        );
+        assert!(rows.len() > 1, "{case} must auto-wrap: {svg}");
+        assert_eq!(rows.len(), expected_lines, "{case}: {svg}");
+        if contains_space {
+            assert_eq!(emitted_lines.join(" "), label_text, "{case}: {svg}");
+        } else {
+            assert_eq!(emitted_lines.concat(), label_text, "{case}: {svg}");
+        }
+        let mut previous_baseline: Option<f64> = None;
+        let mut maximum_advance = 0.0_f64;
+        let mut ink_top = f64::INFINITY;
+        let mut ink_bottom = f64::NEG_INFINITY;
+        for (row, line) in rows.iter().zip(&emitted_lines) {
+            let line_width = measurer.measure_svg_text_computed_length_px(line, &text_style);
+            maximum_advance = maximum_advance.max(line_width);
+            assert!(line_width <= EDGE_WRAP_WIDTH_PX, "{case}: {line}: {svg}");
+            let baseline_y = row
+                .attribute("y")
+                .expect("native row has an explicit user-space baseline")
+                .parse::<f64>()
+                .expect("numeric native row baseline");
+            assert!(baseline_y > 0.0 && baseline_y < height, "{case}: {svg}");
+            if let Some(previous) = previous_baseline {
+                assert!(
+                    (baseline_y - previous - text_style.font_size * 1.1).abs() <= 1e-9,
+                    "{case}: row stride must be 1.1em: {svg}"
+                );
+            }
+            previous_baseline = Some(baseline_y);
+            let top = baseline_y - text_style.font_size
+                + measurer.measure_svg_create_text_bbox_y_offset_px(line, &text_style);
+            ink_top = ink_top.min(top);
+            ink_bottom = ink_bottom
+                .max(top + measurer.measure_svg_tspan_text_bbox_height_px(line, &text_style));
+            assert_eq!(row.attribute("dy"), None, "{case}: {svg}");
+        }
+
+        assert_eq!(text.attribute("y"), None, "{case}: {svg}");
+        assert_eq!(text.attribute("id"), None, "{case} must stay non-prepared");
+        assert!(!svg.contains("@font-face"), "{case} must stay non-prepared");
+        let (ink_left, ink_right) =
+            emitted_lines
+                .iter()
+                .fold((0.0_f64, 0.0_f64), |(maximum_left, maximum_right), line| {
+                    let (left, right) = measurer.measure_svg_text_bbox_x(line, &text_style);
+                    (maximum_left.max(left), maximum_right.max(right))
+                });
+        let expected_width = 2.0 * (ink_left.max(ink_right).max(maximum_advance / 2.0) + 2.0);
+        assert!((width - expected_width).abs() <= 1e-9, "{case}: {svg}");
+        assert!((ink_top - 2.0).abs() <= 1e-9, "{case}: {svg}");
+        assert!((ink_bottom - (height - 2.0)).abs() <= 1e-9, "{case}: {svg}");
+        assert!((layout_label.width - width).abs() <= 1e-9, "{case}: {svg}");
+        assert!(
+            (layout_label.height - height).abs() <= 1e-9,
+            "{case}: {svg}"
+        );
+        assert!((label_x + width / 2.0).abs() <= 1e-9, "{case}: {svg}");
+        assert!((label_y + height / 2.0).abs() <= 1e-9, "{case}: {svg}");
+        assert!((text_x - width / 2.0).abs() <= 1e-9, "{case}: {svg}");
+        assert_eq!(text_y, 0.0, "{case}: {svg}");
+    }
+}
+
+#[test]
+fn state_note_compatibility_css_targets_the_note_text_terminal() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(
+                ThemeRuleSet::default()
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::Note,
+                        ThemeStylePatch::default()
+                            .with_fill(CanvasPaint::solid("#422006").expect("valid note fill")),
+                    ))
+                    .with_rule(ThemeRule::new(
+                        ThemeTarget::NoteLabel,
+                        ThemeStylePatch::default().with_fill(
+                            CanvasPaint::solid("#fef3c7").expect("valid note-label fill"),
+                        ),
+                    )),
+            ),
+        )
+        .expect("compile State note text theme");
+    let svg = render_state_svg_from_text_with_theme(
+        r#"%%{init: {"htmlLabels": true}}%%
+stateDiagram-v2
+A
+note right of A : terminal note text
+"#,
+        &theme,
+    );
+
+    assert!(
+        svg.contains(".statediagram-note text{fill:"),
+        "the compatibility color must target the Mermaid State note text terminal: {svg}"
+    );
+    assert!(
+        !svg.contains(".statediagram-note .noteLabel text{fill:"),
+        "the State note selector must match Mermaid's final text terminal: {svg}"
+    );
+    assert!(
+        svg.contains("color:#fef3c7 !important"),
+        "the typed NoteLabel paint must remain attached to the HTML label before fallback conversion: {svg}"
+    );
+
+    let fallback = merman_render::svg::foreign_object_label_fallback_svg_text(
+        &svg,
+        &DeterministicTextMeasurer::default(),
+    );
+    let document = roxmltree::Document::parse(&fallback).expect("valid fallback State SVG XML");
+    let fallback_text: Vec<_> = document
+        .descendants()
+        .filter(|node| {
+            node.has_tag_name("text")
+                && node.attribute("class").is_some_and(|classes| {
+                    classes
+                        .split_whitespace()
+                        .any(|class| class == "merman-foreignobject-fallback-text")
+                })
+                && node
+                    .attribute("data-merman-source-classes")
+                    .is_some_and(|classes| {
+                        classes
+                            .split_whitespace()
+                            .any(|class| class == "statediagram-note")
+                    })
+        })
+        .collect();
+    assert_eq!(
+        fallback_text
+            .iter()
+            .map(|node| node.text().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .concat(),
+        "terminal note text",
+        "the complete State note must survive fallback wrapping: {fallback}"
+    );
+    assert!(!fallback_text.is_empty(), "State note has a text terminal");
+    for line in fallback_text {
+        assert_eq!(line.attribute("fill"), Some("#fef3c7"));
+        assert_eq!(
+            line.attribute(("http://www.w3.org/XML/1998/namespace", "space")),
+            Some("preserve")
+        );
+    }
+}
+
+#[test]
+fn state_svg_title_theme_fill_reaches_the_terminal_svg_text_paint() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::Title,
+                    ThemeStylePatch::default()
+                        .with_fill(CanvasPaint::solid("#f43f5e").expect("valid title paint")),
+                )),
+            ),
+        )
+        .expect("compile State title theme");
+    let svg = render_state_svg_from_text_with_theme(
+        r#"---
+title: Terminal title
+---
+stateDiagram-v2
+[*] --> Ready
+Ready --> [*]
+"#,
+        &theme,
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid themed State SVG XML");
+    let title = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("text") && node.attribute("class") == Some("statediagramTitleText")
+        })
+        .expect("terminal State diagram title");
+    let style = title.attribute("style").expect("typed title style");
+
+    assert!(style.contains("fill:#f43f5e !important"), "{style}");
+    assert!(!style.contains("color:#f43f5e"), "{style}");
+}
+
+#[test]
+fn state_title_terminal_ownership_uses_text_color_not_title_color() {
+    const TYPED_COLOR: &str = "#f43f5e";
+    const NON_OWNER_COLOR: &str = "#22c55e";
+    const SOURCE: &str = r#"---
+title: Terminal title
+---
+stateDiagram-v2
+Ready
+"#;
+
+    let theme =
+        DiagramThemeCompiler::new()
+            .compile(state_theme_spec_with_theme("base").with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::Title,
+                    ThemeStylePatch::default().with_fill(
+                        CanvasPaint::solid(TYPED_COLOR).expect("valid State title paint"),
+                    ),
+                )),
+            ))
+            .expect("compile State title ownership theme");
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        SOURCE,
+        serde_json::json!({
+            "themeVariables": { "titleColor": NON_OWNER_COLOR },
+        }),
+        "site",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid State title ownership SVG XML");
+    let title = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("text") && node.attribute("class") == Some("statediagramTitleText")
+        })
+        .expect("terminal State title text");
+
+    assert!(
+        title
+            .attribute("style")
+            .is_some_and(|style| style.contains("fill:#f43f5e !important")),
+        "titleColor must not suppress the typed State Title fill: {svg}"
+    );
+    assert!(
+        !svg.contains(NON_OWNER_COLOR),
+        "State title compatibility paint must come from textColor, not titleColor: {svg}"
+    );
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 1,
+            accounted: 1,
+            applied: 1,
+            not_applicable: 0,
+            residual: 0,
+        }
+    );
+}
+
+#[test]
+fn state_svg_split_rough_surfaces_keep_fill_and_stroke_styles_on_their_own_paths() {
+    let split_paint = || {
+        ThemeStylePatch::default()
+            .with_fill(CanvasPaint::solid("#f43f5e").expect("valid split-surface fill"))
+            .with_stroke(CanvasPaint::solid("#2563eb").expect("valid split-surface stroke"))
+            .with_stroke_width(6.0)
+            .expect("valid split-surface stroke width")
+    };
+    let styles = ThemeRuleSet::default()
+        .with_rule(ThemeRule::new(ThemeTarget::State, split_paint()))
+        .with_rule(ThemeRule::new(ThemeTarget::Note, split_paint()))
+        .with_rule(
+            ThemeRule::new(ThemeTarget::SpecialState, split_paint())
+                .with_variant(ThemeVariant::Start),
+        )
+        .with_rule(
+            ThemeRule::new(ThemeTarget::SpecialState, split_paint())
+                .with_variant(ThemeVariant::End),
+        )
+        .with_rule(
+            ThemeRule::new(ThemeTarget::SpecialStateInner, split_paint())
+                .with_variant(ThemeVariant::End),
+        )
+        .with_rule(
+            ThemeRule::new(ThemeTarget::SpecialState, split_paint())
+                .with_variant(ThemeVariant::Special),
+        );
+    let theme = DiagramThemeCompiler::new()
+        .compile(state_theme_spec().with_styles(styles))
+        .expect("compile split-surface State theme");
+    let svg = render_state_svg_from_text_with_theme(
+        r#"%%{init: {"look": "handDrawn", "handDrawnSeed": 7}}%%
+stateDiagram-v2
+[*] --> Idle
+state Decide <<choice>>
+state Fork <<fork>>
+state Join <<join>>
+Idle --> Decide
+Decide --> Fork
+Fork --> Join
+Join --> [*]
+note right of Idle : split surface
+"#,
+        &theme,
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid themed State SVG XML");
+    let split_path_pairs = document
+        .descendants()
+        .filter(|node| node.has_tag_name("g"))
+        .filter_map(|group| {
+            let paths = group
+                .children()
+                .filter(|child| child.has_tag_name("path"))
+                .collect::<Vec<_>>();
+            (paths.len() == 2).then(|| (paths[0], paths[1]))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        split_path_pairs.len(),
+        8,
+        "expected start, ordinary, choice, fork, join, note, and both end-state surfaces: {svg}"
+    );
+    for (fill_path, stroke_path) in split_path_pairs {
+        assert_eq!(fill_path.attribute("stroke"), Some("none"));
+        assert_eq!(stroke_path.attribute("fill"), Some("none"));
+
+        let fill_style = fill_path.attribute("style").unwrap_or_default();
+        let stroke_style = stroke_path.attribute("style").unwrap_or_default();
+        assert!(
+            fill_style.contains("fill:#f43f5e !important"),
+            "fill path must retain the typed fill: {fill_style}"
+        );
+        assert!(
+            !fill_style
+                .split(';')
+                .any(|declaration| declaration.trim_start().starts_with("stroke")),
+            "fill path must not acquire stroke declarations: {fill_style}"
+        );
+        assert!(
+            stroke_style.contains("stroke:#2563eb !important")
+                && stroke_style.contains("stroke-width:6px !important"),
+            "stroke path must retain the typed stroke: {stroke_style}"
+        );
+        assert!(
+            !stroke_style
+                .split(';')
+                .any(|declaration| declaration.trim_start().starts_with("fill")),
+            "stroke path must not acquire fill declarations: {stroke_style}"
+        );
+    }
+}
+
+fn render_state_svg_with_hand_drawn_seed(seed: u64) -> String {
+    let site_config = common::presentation_config(serde_json::json!({
+        "look": "handDrawn",
+        "handDrawnSeed": seed,
+        "themeVariables": {
+            "stateBkg": "#101827",
+            "stateBorder": "#38bdf8",
+            "nodeBorder": "#a855f7",
+            "mainBkg": "#0f172a",
+            "lineColor": "#e11d48",
+            "strokeWidth": 4,
+            "specialStateColor": "#f97316",
+            "innerEndBackground": "#22c55e",
+            "background": "#020617",
+            "noteBkgColor": "#fef3c7",
+            "noteBorderColor": "#92400e"
+        }
+    }));
+    let source = r#"stateDiagram-v2
+[*] --> Idle
+state Decide <<choice>>
+Idle --> Decide
+Decide --> Fork
+state Fork <<fork>>
+Fork --> Join
+state Join <<join>>
+Join --> [*]
+note right of Idle : seeded note"#;
+
+    render_state_svg_from_text_with_engine(
+        classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_config(
+                site_config.as_config().clone(),
+            ),
+        ),
+        source,
+    )
+}
+
+#[test]
+fn state_svg_invalid_default_look_falls_back_to_the_family_neo_default() {
+    let source = "stateDiagram-v2\n[*] --> Ready\nReady --> [*]\n";
+    let baseline = render_state_svg_from_text_with_engine(MermaidEngine::new(), source);
+    let svg = render_state_svg_from_text_with_engine(
+        MermaidEngine::new().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "look": "default"
+            })),
+        ),
+        source,
+    );
+
+    assert_eq!(svg, baseline);
+    assert!(svg.contains(r#"data-look="neo""#));
+    assert!(!svg.contains(r#"data-look="default""#));
+}
+
+#[test]
+fn state_svg_default_min_node_width_reaches_leaf_foreign_object() {
+    let svg = render_state_svg_from_text("stateDiagram-v2\nA\n");
+    let document = roxmltree::Document::parse(&svg).expect("State SVG");
+    let width = document
+        .descendants()
+        .filter(|node| node.has_tag_name("foreignObject"))
+        .find(|node| node.descendants().any(|child| child.text() == Some("A")))
+        .and_then(|node| node.attribute("width"))
+        .expect("leaf label foreignObject")
+        .parse::<f64>()
+        .expect("numeric leaf label width");
+    assert_eq!(
+        width, 120.0,
+        "default state.minNodeWidth must size the label box"
+    );
+}
+
+#[test]
+fn state_svg_explicit_zero_min_node_width_keeps_natural_leaf_width() {
+    let svg = render_state_svg_from_text(
+        "%%{init: {\"state\": {\"minNodeWidth\": 0}}}%%\nstateDiagram-v2\nA\n",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("State SVG");
+    let width = document
+        .descendants()
+        .filter(|node| node.has_tag_name("foreignObject"))
+        .find(|node| node.descendants().any(|child| child.text() == Some("A")))
+        .and_then(|node| node.attribute("width"))
+        .expect("leaf label foreignObject")
+        .parse::<f64>()
+        .expect("numeric leaf label width");
+    assert!(
+        width > 0.0 && width < 120.0,
+        "explicit zero must disable the default minimum: {width}"
+    );
+}
+
+#[test]
+fn state_svg_cross_composite_default_min_width_reaches_all_leaf_labels() {
+    let source =
+        include_str!("../../../fixtures/state/stress_state_cross_composite_transitions_007.mmd");
+    let svg = render_state_svg_from_text(source);
+    let document = roxmltree::Document::parse(&svg).expect("State SVG");
+
+    for label in ["InnerA", "Deep", "After"] {
+        let width = document
+            .descendants()
+            .filter(|node| node.has_tag_name("foreignObject"))
+            .find(|node| node.descendants().any(|child| child.text() == Some(label)))
+            .and_then(|node| node.attribute("width"))
+            .expect("leaf label foreignObject")
+            .parse::<f64>()
+            .expect("numeric leaf label width");
+        assert_eq!(width, 120.0, "default state.minNodeWidth must size {label}");
+    }
+}
+
+#[test]
+fn state_svg_uses_label_presence_and_source_owned_end_state_paints() {
+    for look in ["classic", "neo"] {
+        let engine = classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "look": look,
+                "layout": "elk",
+                "themeVariables": {
+                    "mainBkg": "#112233",
+                    "lineColor": "#223344",
+                    "stateBorder": "#334455",
+                    "specialStateColor": "#445566",
+                    "innerEndBackground": "#556677",
+                    "background": "#667788",
+                    "nodeBorder": "#778899"
+                }
+            })),
+        );
+        let svg = render_state_svg_from_text_with_engine(
+            engine,
+            "stateDiagram-v2\n[*] --> Ready\nReady --> Done: finish\nDone --> [*]\n",
+        );
+        let document = roxmltree::Document::parse(&svg).expect("State SVG");
+        let labels: Vec<_> = document
+            .descendants()
+            .filter(|node| node.has_tag_name("g") && node.attribute("class") == Some("edgeLabel"))
+            .collect();
+        assert_eq!(
+            labels.len(),
+            if cfg!(feature = "layout-elk") { 1 } else { 3 },
+            "{look}: label groups follow the selected provider's insertion contract"
+        );
+        let paths = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("class").is_some_and(|classes| {
+                        classes.split_whitespace().any(|class| class == "edgePaths")
+                    })
+            })
+            .expect("edge path group");
+        if cfg!(feature = "layout-elk") {
+            assert!(
+                paths
+                    .attribute("class")
+                    .unwrap()
+                    .split_whitespace()
+                    .any(|class| class == "edges")
+            );
+        }
+        for edge in paths.children().filter(|node| node.has_tag_name("path")) {
+            let marker = edge.attribute("marker-end").expect("transition marker");
+            assert_eq!(
+                marker.ends_with("-margin)"),
+                look == "neo",
+                "{look}: {marker}"
+            );
+        }
+        let end_outer = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("class") == Some("outer-path")
+                    && node.children().any(|child| child.has_tag_name("g"))
+            })
+            .expect("end-state double circle");
+        let outer_paints: Vec<_> = end_outer
+            .children()
+            .filter(|node| node.has_tag_name("path"))
+            .collect();
+        assert_eq!(outer_paints[0].attribute("fill"), Some("#112233"));
+        assert_eq!(outer_paints[1].attribute("stroke"), Some("#223344"));
+        let inner = end_outer
+            .children()
+            .find(|node| node.has_tag_name("g"))
+            .unwrap();
+        let inner_paints: Vec<_> = inner
+            .children()
+            .filter(|node| node.has_tag_name("path"))
+            .collect();
+        assert_eq!(inner_paints[0].attribute("fill"), Some("#334455"));
+        assert_eq!(inner_paints[1].attribute("stroke"), Some("#334455"));
+        for path in outer_paints.iter().chain(&inner_paints) {
+            assert_eq!(path.attribute("style"), Some(""));
+        }
+        if look == "neo" {
+            assert!(svg.contains(r##"[data-look="neo"].node path{stroke:#778899;"##));
+        }
+    }
+}
+
+#[test]
+fn state_neo_rough_base_attributes_do_not_override_the_theme_stylesheet() {
+    for gradient in [false, true] {
+        let engine = classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "look": "neo",
+                "themeVariables": {
+                    "mainBkg": "#110011",
+                    "nodeBorder": "#220022",
+                    "stateBorder": "#440044",
+                    "lineColor": "#550055",
+                    "noteBkgColor": "#770077",
+                    "noteBorderColor": "#880088",
+                    "strokeWidth": 9,
+                    "useGradient": gradient
+                }
+            })),
+        );
+        let svg = render_state_svg_from_text_with_engine(
+            engine,
+            r#"stateDiagram-v2
+[*] --> Idle
+state Decide <<choice>>
+state Fork <<fork>>
+Idle --> Decide
+Decide --> Fork
+Fork --> [*]
+note right of Idle : terminal note
+"#,
+        );
+        let document = roxmltree::Document::parse(&svg).expect("valid Neo State SVG XML");
+        for (id, fill, stroke, width) in [
+            ("-state-Decide-", "#110011", "#220022", "1.3"),
+            ("-state-Fork-", "#550055", "#550055", "1.3"),
+            ("-state-root_end-", "#110011", "#550055", "2"),
+            ("-state-Idle----note-", "#770077", "#880088", "1.3"),
+        ] {
+            let group = document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("g")
+                        && node.attribute("id").is_some_and(|value| value.contains(id))
+                })
+                .unwrap_or_else(|| panic!("missing {id}: {svg}"));
+            assert_state_rough_path_pair(group, None, fill, stroke, width);
+            for path in group.descendants().filter(|node| node.has_tag_name("path")) {
+                assert_eq!(path.attribute("style"), Some(""), "{id}: {svg}");
+            }
+        }
+        let stroke = if gradient {
+            "url(#merman-gradient)"
+        } else {
+            "#220022"
+        };
+        assert!(
+            svg.contains(&format!(
+                r#"[data-look="neo"].node path{{stroke:{stroke};stroke-width:9px;}}"#
+            )),
+            "{svg}"
+        );
+    }
+}
+
+#[test]
+fn state_svg_classic_look_honors_theme_css_options() {
+    let engine = classic_engine().with_site_config(
+        merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+            "look": "classic",
+            "themeVariables": {
+                "transitionColor": "#202020",
+                "lineColor": "#303030",
+                "nodeBorder": "#404040",
+                "stateLabelColor": "#505050",
+                "mainBkg": "#606060",
+                "background": "#707070",
+                "altBackground": "#808080",
+                "strokeWidth": 4,
+                "noteBorderColor": "#909090",
+                "noteBkgColor": "#a0a0a0",
+                "noteTextColor": "#b0b0b0",
+                "labelBackgroundColor": "#c0c0c0",
+                "edgeLabelBackground": "#d0d0d0",
+                "transitionLabelColor": "#e0e0e0",
+                "specialStateColor": "#f0f0f0",
+                "innerEndBackground": "#010101",
+                "compositeBackground": "#020202",
+                "stateBkg": "#030303",
+                "stateBorder": "#040404",
+                "compositeTitleBackground": "#050505"
+            }
+        })),
+    );
+    let svg = render_state_svg_from_text_with_engine(
+        engine,
+        r#"stateDiagram-v2
+[*] --> Active: start
+Active --> [*]: done"#,
+    );
+
+    assert!(
+        svg.contains(r#".marker{fill:#303030;stroke:#303030;}"#),
+        "expected State base marker CSS to follow lineColor: {svg}"
+    );
+    assert!(
+        svg.contains(r#"defs [id$="-barbEnd"]{fill:#202020;stroke:#202020;}"#),
+        "expected State barbEnd marker CSS to follow transitionColor and the prefixed marker id: {svg}"
+    );
+    assert!(
+        svg.contains(r##"#merman [id$="-dependencyStart"],#merman [id$="-dependencyEnd"]{fill:#303030;stroke:#303030;stroke-width:4;}"##),
+        "expected State dependency marker CSS to use Mermaid suffix selectors: {svg}"
+    );
+    assert!(
+        svg.contains(r#".transition{stroke:#202020;stroke-width:4;fill:none;}"#),
+        "expected State transition CSS to follow transitionColor/strokeWidth: {svg}"
+    );
+    assert!(
+        svg.contains(r#".edgeLabel .label text{fill:#e0e0e0;}"#),
+        "expected State edge label CSS to follow transitionLabelColor: {svg}"
+    );
+    assert!(
+        svg.contains(r#".node circle.state-start{fill:#f0f0f0;stroke:#f0f0f0;}"#),
+        "expected State start/fork CSS to follow specialStateColor: {svg}"
+    );
+    assert!(
+        svg.contains(r#".node rect{fill:#030303;stroke:#040404;stroke-width:4px;}"#),
+        "expected State node CSS to follow stateBkg/stateBorder/strokeWidth: {svg}"
+    );
+    assert!(
+        !svg.contains(r#"id="merman-gradient""#) && svg.contains(r#"id="merman-drop-shadow""#),
+        "classic state SVG should emit classic drop-shadow defs but not gradient defs unless useGradient is set: {svg}"
+    );
+    assert!(
+        !svg.contains(r#"markerUnits="strokeWidth""#),
+        "classic state SVG should keep Mermaid's classic barb marker units: {svg}"
+    );
+    assert!(
+        svg.contains(r#"id="merman-edge0""#)
+            && svg.contains(r#"data-look="classic""#)
+            && svg.contains(r#"id="merman-state-Active-1""#),
+        "classic state DOM should use Mermaid scoped ids and explicit data-look: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_neo_look_emits_neo_marker_and_cluster_theme_resources() {
+    let engine = classic_engine().with_site_config(
+        merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+            "look": "neo",
+            "themeVariables": {
+                "transitionColor": "#202020",
+                "mainBkg": "#606060",
+                "stateBorder": "#040404",
+                "strokeWidth": 4,
+                "useGradient": true,
+                "gradientStart": "#112233",
+                "gradientStop": "#445566",
+                "dropShadow": "url(#drop-shadow)",
+                "radius": 3
+            }
+        })),
+    );
+    let svg = render_state_svg_from_text_with_engine(
+        engine,
+        r#"stateDiagram-v2
+[*] --> Active: start
+state Active {
+  Idle --> Busy
+}"#,
+    );
+
+    assert!(
+        svg.contains(r#"<defs><linearGradient id="merman-gradient""#),
+        "expected neo state SVG to emit the shared gradient resource: {svg}"
+    );
+    assert!(
+        svg.contains(r#"<filter id="merman-drop-shadow""#),
+        "expected neo state SVG to emit the shared drop-shadow resource: {svg}"
+    );
+    assert!(
+        svg.contains(r#"markerUnits="strokeWidth""#)
+            && svg.contains(r#"d="M 19,7 L11,14 L13,7 L11,0 Z""#),
+        "expected neo state SVG to use Mermaid's neo barb marker geometry: {svg}"
+    );
+    assert!(
+        svg.contains(r#"marker-end="url(#merman_stateDiagram-barbEnd-margin)""#),
+        "expected neo state transitions to use the margin arrowhead marker"
+    );
+    assert!(
+        svg.contains(
+            r##"[data-look="neo"].statediagram-cluster rect{fill:#606060;stroke:url(#merman-gradient);stroke-width:4;}"##
+        ),
+        "expected neo state cluster CSS to reference the scoped gradient: {svg}"
+    );
+    assert!(
+        svg.contains(
+            r##"[data-look="neo"].statediagram-cluster rect.outer{rx:3px;ry:3px;filter:url(#merman-drop-shadow);}"##
+        ),
+        "expected neo state cluster outer rect CSS to reference the scoped drop-shadow and radius: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_hand_drawn_seed_controls_visible_rough_paths() {
+    let seed_7 = render_state_svg_with_hand_drawn_seed(7);
+    let seed_7_again = render_state_svg_with_hand_drawn_seed(7);
+    let seed_8 = render_state_svg_with_hand_drawn_seed(8);
+
+    assert_eq!(
+        seed_7, seed_7_again,
+        "same handDrawnSeed should keep State rough SVG deterministic"
+    );
+    assert_ne!(
+        seed_7, seed_8,
+        "different handDrawnSeed should change visible State rough paths"
+    );
+    assert!(
+        seed_7.contains(r##"fill="#0f172a""##)
+            && seed_7.contains(r##"stroke="#a855f7" stroke-width="1.3""##),
+        "seed test should exercise ordinary visible rough paths with Mermaid's hand-drawn mainBkg/nodeBorder/1.3 fallback: {seed_7}"
+    );
+    assert!(
+        seed_7.contains(r##"fill="#fef3c7""##)
+            && seed_7.contains(r##"stroke="#92400e" stroke-width="1.3""##),
+        "seed test should exercise note rough paths as a second visible consumer: {seed_7}"
+    );
+}
+
+#[test]
+fn state_hand_drawn_terminals_follow_shape_specific_mermaid_fallbacks() {
+    let engine = classic_engine().with_site_config(
+        merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+            "look": "handDrawn",
+            "handDrawnSeed": 7,
+            "htmlLabels": false,
+            "themeVariables": {
+                "mainBkg": "#110011",
+                "nodeBorder": "#220022",
+                "stateBkg": "#330033",
+                "stateBorder": "#440044",
+                "strokeWidth": 9,
+                "lineColor": "#550055",
+                "specialStateColor": "#660066",
+                "noteBkgColor": "#770077",
+                "noteBorderColor": "#880088",
+                "compositeTitleBackground": "#990099",
+                "compositeBackground": "#aa00aa",
+                "altBackground": "#bb00bb",
+                "background": "#cc00cc"
+            }
+        })),
+    );
+    let svg = render_state_svg_from_text_with_engine(
+        engine,
+        r#"stateDiagram-v2
+[*] --> Idle
+state Decide <<choice>>
+state Fork <<fork>>
+state Join <<join>>
+Idle --> Decide
+Decide --> Fork
+Fork --> Join
+Join --> [*]
+note right of Idle : terminal note
+state Parent {
+  [*] --> Child
+}
+state Outer {
+  state Inner {
+    [*] --> Nested
+  }
+}
+state Parallel {
+  [*] --> First
+  --
+  [*] --> Second
+}
+"#,
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid HandDrawn State SVG XML");
+    let group = |id_fragment: &str| {
+        document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("class") != Some("note-cluster")
+                    && node
+                        .attribute("id")
+                        .is_some_and(|id| id.contains(id_fragment))
+            })
+            .unwrap_or_else(|| panic!("missing State group {id_fragment}: {svg}"))
+    };
+
+    assert_state_rough_path_pair(
+        group("-state-Idle-"),
+        Some("outer-path"),
+        "#110011",
+        "#220022",
+        "1.3",
+    );
+    assert_state_rough_path_pair(
+        group("-state-root_start-"),
+        Some("outer-path"),
+        "#550055",
+        "#550055",
+        "1",
+    );
+    assert_state_rough_path_pair(group("-state-Decide-"), None, "#110011", "#220022", "1.3");
+    assert_state_rough_path_pair(group("-state-Fork-"), None, "#550055", "#550055", "1.3");
+    assert_state_rough_path_pair(group("-state-Join-"), None, "#550055", "#550055", "1.3");
+
+    let end = group("-state-root_end-");
+    assert_state_rough_path_pair(end, Some("outer-path"), "#110011", "#550055", "2");
+    let end_inner = end
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.parent().is_some_and(|parent| {
+                    parent.has_tag_name("g") && parent.attribute("class") == Some("outer-path")
+                })
+        })
+        .expect("HandDrawn State end inner path pair");
+    assert_state_rough_path_pair(end_inner, None, "#440044", "#440044", "2");
+
+    let note = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("class").is_some_and(|classes| {
+                    classes
+                        .split_whitespace()
+                        .any(|class| class == "statediagram-note")
+                })
+        })
+        .expect("HandDrawn State note group");
+    assert_state_rough_path_pair(note, Some("outer-path"), "#770077", "#880088", "1.3");
+
+    for (cluster_id, body_fill) in [("Parent", "#aa00aa"), ("Inner", "#bb00bb")] {
+        let cluster = document
+            .descendants()
+            .find(|node| node.has_tag_name("g") && node.attribute("data-id") == Some(cluster_id))
+            .unwrap_or_else(|| panic!("missing HandDrawn State cluster {cluster_id}: {svg}"));
+        assert_state_rough_path_pair(cluster, Some("outer"), "#990099", "#220022", "1");
+        assert_state_rough_path_pair(cluster, Some("inner"), body_fill, "#220022", "1");
+    }
+
+    let divider = group("-state-divider-id-1-");
+    assert_state_rough_path_pair(divider, Some("divider"), "lightgrey", "#220022", "1");
+    let divider_stroke = divider
+        .descendants()
+        .find(|node| node.has_tag_name("g") && node.attribute("class") == Some("divider"))
+        .and_then(|pair| {
+            pair.children()
+                .filter(|node| node.has_tag_name("path"))
+                .nth(1)
+        })
+        .expect("HandDrawn State divider stroke path");
+    assert_eq!(divider_stroke.attribute("stroke-dasharray"), Some("5"));
+}
+
+#[test]
+fn state_hand_drawn_terminal_owners_follow_distinct_surfaces_from_site_and_source() {
+    const TYPED_COLOR: &str = "#ec4899";
+    const MERMAID_COLOR: &str = "#22c55e";
+    const ORDINARY: &str = "stateDiagram-v2\nReady\n";
+    const NOTE: &str = "stateDiagram-v2\nReady\nnote right of Ready : terminal note\n";
+    const START: &str = "stateDiagram-v2\n[*] --> Ready\n";
+    const END: &str = "stateDiagram-v2\nReady --> [*]\n";
+    const FORK: &str = "stateDiagram-v2\nstate Fork <<fork>>\n";
+    const JOIN: &str = "stateDiagram-v2\nstate Join <<join>>\n";
+    const CHOICE: &str = "stateDiagram-v2\nstate Decide <<choice>>\n";
+    const COMPOSITE: &str = "stateDiagram-v2\nstate Parent {\n  [*] --> Ready\n}\n";
+    const NESTED_COMPOSITE: &str =
+        "stateDiagram-v2\nstate Outer {\n  state Inner {\n    [*] --> Ready\n  }\n}\n";
+    const DIVIDER: &str =
+        "stateDiagram-v2\nstate Parallel {\n  [*] --> First\n  --\n  [*] --> Second\n}\n";
+
+    #[derive(Clone, Copy)]
+    enum PaintFacet {
+        Fill,
+        Stroke,
+    }
+
+    #[derive(Clone, Copy)]
+    enum Terminal {
+        Named(&'static str),
+        Note,
+        Start,
+        EndOuter,
+        EndInner,
+        CompositeHeader(&'static str),
+        CompositeBody(&'static str),
+        Divider,
+    }
+
+    struct Case {
+        name: &'static str,
+        terminal: Terminal,
+        target: ThemeTarget,
+        variant: ThemeVariant,
+        ordinal: Option<usize>,
+        facet: PaintFacet,
+        source: &'static str,
+        config_key: &'static str,
+    }
+
+    let cases = [
+        Case {
+            name: "ordinary-fill",
+            terminal: Terminal::Named("Ready"),
+            target: ThemeTarget::State,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: ORDINARY,
+            config_key: "mainBkg",
+        },
+        Case {
+            name: "ordinary-stroke",
+            terminal: Terminal::Named("Ready"),
+            target: ThemeTarget::State,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: ORDINARY,
+            config_key: "nodeBorder",
+        },
+        Case {
+            name: "note-fill",
+            terminal: Terminal::Note,
+            target: ThemeTarget::Note,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: NOTE,
+            config_key: "noteBkgColor",
+        },
+        Case {
+            name: "note-stroke",
+            terminal: Terminal::Note,
+            target: ThemeTarget::Note,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: NOTE,
+            config_key: "noteBorderColor",
+        },
+        Case {
+            name: "start-fill",
+            terminal: Terminal::Start,
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: START,
+            config_key: "lineColor",
+        },
+        Case {
+            name: "start-stroke",
+            terminal: Terminal::Start,
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: START,
+            config_key: "lineColor",
+        },
+        Case {
+            name: "composite-header-fill",
+            terminal: Terminal::CompositeHeader("Parent"),
+            target: ThemeTarget::CompositeHeader,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            config_key: "compositeTitleBackground",
+        },
+        Case {
+            name: "composite-header-stroke",
+            terminal: Terminal::CompositeHeader("Parent"),
+            target: ThemeTarget::CompositeHeader,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            config_key: "nodeBorder",
+        },
+        Case {
+            name: "composite-body-fill",
+            terminal: Terminal::CompositeBody("Parent"),
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: COMPOSITE,
+            config_key: "compositeBackground",
+        },
+        Case {
+            name: "composite-body-stroke",
+            terminal: Terminal::CompositeBody("Parent"),
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: COMPOSITE,
+            config_key: "nodeBorder",
+        },
+        Case {
+            name: "composite-alt-fill",
+            terminal: Terminal::CompositeBody("Inner"),
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            ordinal: Some(2),
+            facet: PaintFacet::Fill,
+            source: NESTED_COMPOSITE,
+            config_key: "altBackground",
+        },
+        Case {
+            name: "divider-stroke",
+            terminal: Terminal::Divider,
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            ordinal: Some(2),
+            facet: PaintFacet::Stroke,
+            source: DIVIDER,
+            config_key: "nodeBorder",
+        },
+        Case {
+            name: "end-outer-fill",
+            terminal: Terminal::EndOuter,
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: END,
+            config_key: "mainBkg",
+        },
+        Case {
+            name: "end-outer-stroke",
+            terminal: Terminal::EndOuter,
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: END,
+            config_key: "lineColor",
+        },
+        Case {
+            name: "end-inner-fill",
+            terminal: Terminal::EndInner,
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: END,
+            config_key: "nodeBorder",
+        },
+        Case {
+            name: "end-inner-stroke",
+            terminal: Terminal::EndInner,
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: END,
+            config_key: "nodeBorder",
+        },
+        Case {
+            name: "fork-fill",
+            terminal: Terminal::Named("Fork"),
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: FORK,
+            config_key: "lineColor",
+        },
+        Case {
+            name: "join-stroke",
+            terminal: Terminal::Named("Join"),
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: JOIN,
+            config_key: "lineColor",
+        },
+        Case {
+            name: "choice-fill",
+            terminal: Terminal::Named("Decide"),
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            facet: PaintFacet::Fill,
+            source: CHOICE,
+            config_key: "mainBkg",
+        },
+        Case {
+            name: "choice-stroke",
+            terminal: Terminal::Named("Decide"),
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            facet: PaintFacet::Stroke,
+            source: CHOICE,
+            config_key: "nodeBorder",
+        },
+    ];
+
+    for case in cases {
+        let style = match case.facet {
+            PaintFacet::Fill => ThemeStylePatch::default().with_fill(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed HandDrawn terminal fill"),
+            ),
+            PaintFacet::Stroke => ThemeStylePatch::default().with_stroke(
+                CanvasPaint::solid(TYPED_COLOR).expect("valid typed HandDrawn terminal stroke"),
+            ),
+        };
+        let mut rule = ThemeRule::new(case.target, style).with_variant(case.variant);
+        if let Some(ordinal) = case.ordinal {
+            rule = rule.with_ordinal(
+                OrdinalSelector::exact(ordinal).expect("valid HandDrawn terminal ordinal"),
+            );
+        }
+        let theme = DiagramThemeCompiler::new()
+            .compile(state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(rule)))
+            .unwrap_or_else(|error| panic!("compile {} theme: {error}", case.name));
+
+        for origin in ["site", "source"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                case.source,
+                serde_json::json!({
+                    "theme": "base",
+                    "look": "handDrawn",
+                    "handDrawnSeed": 7,
+                    "htmlLabels": false,
+                    "themeVariables": { (case.config_key): MERMAID_COLOR },
+                }),
+                origin,
+            );
+            let document = roxmltree::Document::parse(&svg).expect("valid hand-drawn terminal SVG");
+            let named = |id: &str| {
+                document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g")
+                            && node
+                                .attribute("id")
+                                .is_some_and(|value| value.contains(&format!("-state-{id}-")))
+                    })
+                    .unwrap_or_else(|| panic!("missing state {id}: {svg}"))
+            };
+            let pair = match case.terminal {
+                Terminal::Named(id) => named(id).descendants().find(|node| {
+                    node.has_tag_name("g")
+                        && node
+                            .children()
+                            .filter(|child| child.has_tag_name("path"))
+                            .count()
+                            == 2
+                }),
+                Terminal::Note => document
+                    .descendants()
+                    .find(|node| node.attribute("class") == Some("label noteLabel"))
+                    .and_then(|label| label.parent())
+                    .and_then(|container| {
+                        container.children().find(|node| {
+                            node.has_tag_name("g")
+                                && node
+                                    .children()
+                                    .filter(|child| child.has_tag_name("path"))
+                                    .count()
+                                    == 2
+                        })
+                    }),
+                Terminal::Start | Terminal::EndOuter => document.descendants().find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                }),
+                Terminal::EndInner => document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("class") == Some("outer-path")
+                    })
+                    .and_then(|outer| outer.children().find(|node| node.has_tag_name("g"))),
+                Terminal::CompositeHeader(id) => named(id).descendants().find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("outer")
+                }),
+                Terminal::CompositeBody(id) => named(id).descendants().find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("inner")
+                }),
+                Terminal::Divider => document.descendants().find(|node| {
+                    node.has_tag_name("g") && node.attribute("class") == Some("divider")
+                }),
+            }
+            .unwrap_or_else(|| panic!("missing {} terminal pair: {svg}", case.name));
+            let (index, property) = match case.facet {
+                PaintFacet::Fill => (0, "fill"),
+                PaintFacet::Stroke => (1, "stroke"),
+            };
+            let terminal = pair
+                .children()
+                .filter(|node| node.has_tag_name("path"))
+                .nth(index)
+                .expect("selected fill/stroke path");
+            assert_eq!(
+                terminal.attribute(property),
+                Some(MERMAID_COLOR),
+                "explicit {origin} {} must reach its own terminal: {svg}",
+                case.name
+            );
+            assert!(
+                !svg.contains(TYPED_COLOR),
+                "typed paint must yield to explicit {origin} {}: {svg}",
+                case.name
+            );
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {}",
+                case.name
+            );
+        }
+    }
+
+    let divider_fill_theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(
+                ThemeRuleSet::default().with_rule(
+                    ThemeRule::new(
+                        ThemeTarget::Composite,
+                        ThemeStylePatch::default().with_fill(
+                            CanvasPaint::solid(TYPED_COLOR)
+                                .expect("valid typed HandDrawn divider fill"),
+                        ),
+                    )
+                    .with_ordinal(OrdinalSelector::exact(2).expect("valid divider ordinal")),
+                ),
+            ),
+        )
+        .expect("compile HandDrawn divider fill theme");
+    for origin in ["site", "source"] {
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &divider_fill_theme,
+            DIVIDER,
+            serde_json::json!({
+                "theme": "base",
+                "look": "handDrawn",
+                "handDrawnSeed": 7,
+                "htmlLabels": false,
+                "themeVariables": { "altBackground": MERMAID_COLOR },
+            }),
+            origin,
+        );
+        assert!(
+            svg.contains("fill:#ec4899 !important"),
+            "HandDrawn divider fill must remain typed because its Mermaid fallback is constant lightgrey, not {origin} altBackground: {svg}"
+        );
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 1,
+                accounted: 1,
+                applied: 1,
+                not_applicable: 0,
+                residual: 0,
+            },
+            "{origin} divider fill"
+        );
+    }
+}
+
+#[test]
+fn state_hand_drawn_rect_with_title_shares_typed_stroke_with_its_divider() {
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec_with_theme("base").with_styles(
+                ThemeRuleSet::default().with_rule(ThemeRule::new(
+                    ThemeTarget::State,
+                    ThemeStylePatch::default()
+                        .with_stroke(
+                            CanvasPaint::solid("#ec4899")
+                                .expect("valid HandDrawn rectWithTitle stroke"),
+                        )
+                        .with_stroke_width(3.0)
+                        .expect("valid HandDrawn rectWithTitle stroke width"),
+                )),
+            ),
+        )
+        .expect("compile HandDrawn rectWithTitle theme");
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        "stateDiagram-v2\nDisplay : Ready\nDisplay : Running\n",
+        serde_json::json!({
+            "look": "handDrawn",
+            "handDrawnSeed": 7,
+        }),
+        "site",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid HandDrawn State SVG");
+    let container = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("data-look") == Some("handDrawn")
+                && node.descendants().any(|child| {
+                    child.has_tag_name("rect")
+                        && child.attribute("class") == Some("outer title-state")
+                })
+        })
+        .expect("HandDrawn rectWithTitle container");
+    let outer = container
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("rect") && node.attribute("class") == Some("outer title-state")
+        })
+        .expect("HandDrawn rectWithTitle outer rect");
+    let divider = container
+        .descendants()
+        .find(|node| node.has_tag_name("line") && node.attribute("class") == Some("divider"))
+        .expect("HandDrawn rectWithTitle divider");
+    for (surface, node) in [("outer", outer), ("divider", divider)] {
+        let style = node.attribute("style").unwrap_or_default();
+        assert!(
+            style.contains("stroke:#ec4899 !important"),
+            "typed State stroke must reach the HandDrawn rectWithTitle {surface}: {svg}"
+        );
+        assert!(
+            style.contains("stroke-width:3px !important"),
+            "typed State stroke width must reach the HandDrawn rectWithTitle {surface}: {svg}"
+        );
+    }
+    assert_eq!(
+        evidence,
+        StateThemeEvidenceCounts {
+            required: 1,
+            accounted: 1,
+            applied: 1,
+            not_applicable: 0,
+            residual: 0,
+        }
+    );
+}
+
+#[test]
+fn state_neo_zero_stroke_width_owns_composite_and_special_path_terminals() {
+    let width = || {
+        ThemeStylePatch::default()
+            .with_stroke_width(3.0)
+            .expect("valid typed State terminal stroke width")
+    };
+    let theme = DiagramThemeCompiler::new()
+        .compile(
+            state_theme_spec().with_styles(
+                ThemeRuleSet::default()
+                    .with_rule(ThemeRule::new(ThemeTarget::Composite, width()))
+                    .with_rule(
+                        ThemeRule::new(ThemeTarget::SpecialState, width())
+                            .with_variant(ThemeVariant::Special),
+                    ),
+            ),
+        )
+        .expect("compile Neo zero-width ownership theme");
+    let source = "stateDiagram-v2\nstate Parent {\n  [*] --> Running\n}\nstate Decide <<choice>>\n";
+
+    for origin in ["site", "source"] {
+        let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+            &theme,
+            source,
+            serde_json::json!({
+                "theme": "base",
+                "look": "neo",
+                "themeVariables": { "strokeWidth": 0 },
+            }),
+            origin,
+        );
+
+        assert!(
+            svg.contains("[data-look=\"neo\"].statediagram-cluster rect{")
+                && svg.contains("stroke-width:0;}"),
+            "explicit {origin} strokeWidth=0 must reach the Neo composite terminal: {svg}"
+        );
+        assert!(
+            svg.contains("[data-look=\"neo\"].node path{") && svg.contains("stroke-width:0px;}"),
+            "explicit {origin} strokeWidth=0 must reach the Neo special path terminal: {svg}"
+        );
+        assert!(
+            !svg.contains("stroke-width:3px !important"),
+            "typed stroke width must yield to explicit {origin} strokeWidth=0: {svg}"
+        );
+        assert_eq!(
+            evidence,
+            StateThemeEvidenceCounts {
+                required: 2,
+                accounted: 2,
+                applied: 0,
+                not_applicable: 2,
+                residual: 0,
+            },
+            "{origin} Neo zero-width ownership"
+        );
+    }
+}
+
+#[test]
+fn state_stroke_width_terminal_ownership_follows_surface_and_look() {
+    const TYPED_WIDTH: &str = "stroke-width:3px !important";
+    const SOURCE_STATE: &str = "stateDiagram-v2\nReady\n";
+    const SOURCE_TRANSITION: &str = "stateDiagram-v2\nReady --> Done\n";
+    const SOURCE_COMPOSITE: &str = "stateDiagram-v2\nstate Parent {\n  [*] --> Ready\n}\n";
+    const SOURCE_DIVIDER: &str =
+        "stateDiagram-v2\nstate Parallel {\n  [*] --> First\n  --\n  [*] --> Second\n}\n";
+    const SOURCE_NOTE: &str = "stateDiagram-v2\nReady\nnote right of Ready : terminal note\n";
+    const SOURCE_START: &str = "stateDiagram-v2\n[*] --> Ready\n";
+    const SOURCE_END: &str = "stateDiagram-v2\nReady --> [*]\n";
+    const SOURCE_FORK: &str = "stateDiagram-v2\nstate Fork <<fork>>\n";
+    const SOURCE_CHOICE: &str = "stateDiagram-v2\nstate Decide <<choice>>\n";
+
+    struct OwnedCase {
+        name: &'static str,
+        target: ThemeTarget,
+        variant: ThemeVariant,
+        source: &'static str,
+        look: &'static str,
+        terminal_fragment: &'static str,
+    }
+
+    let owned_cases = [
+        OwnedCase {
+            name: "classic-state",
+            target: ThemeTarget::State,
+            variant: ThemeVariant::Default,
+            source: SOURCE_STATE,
+            look: "classic",
+            terminal_fragment: "stroke-width:7px;}",
+        },
+        OwnedCase {
+            name: "neo-state",
+            target: ThemeTarget::State,
+            variant: ThemeVariant::Default,
+            source: SOURCE_STATE,
+            look: "neo",
+            terminal_fragment: "stroke-width:7px;}",
+        },
+        OwnedCase {
+            name: "transition",
+            target: ThemeTarget::Transition,
+            variant: ThemeVariant::Default,
+            source: SOURCE_TRANSITION,
+            look: "classic",
+            terminal_fragment: "stroke-width:7;fill:none;}",
+        },
+        OwnedCase {
+            name: "classic-composite",
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            source: SOURCE_COMPOSITE,
+            look: "classic",
+            terminal_fragment: "stroke-width:7px;}",
+        },
+        OwnedCase {
+            name: "neo-composite",
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            source: SOURCE_COMPOSITE,
+            look: "neo",
+            terminal_fragment: "stroke-width:7;}",
+        },
+        OwnedCase {
+            name: "neo-path",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            source: SOURCE_CHOICE,
+            look: "neo",
+            terminal_fragment: "stroke-width:7px;}",
+        },
+    ];
+
+    for case in owned_cases {
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                state_theme_spec().with_styles(
+                    ThemeRuleSet::default().with_rule(
+                        ThemeRule::new(
+                            case.target,
+                            ThemeStylePatch::default()
+                                .with_stroke_width(3.0)
+                                .expect("valid State terminal stroke width"),
+                        )
+                        .with_variant(case.variant),
+                    ),
+                ),
+            )
+            .unwrap_or_else(|error| panic!("compile {} width theme: {error}", case.name));
+
+        for origin in ["site", "source"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                case.source,
+                serde_json::json!({
+                    "theme": "base",
+                    "look": case.look,
+                    "themeVariables": { "strokeWidth": 7 },
+                }),
+                origin,
+            );
+
+            assert!(
+                svg.contains(case.terminal_fragment),
+                "explicit {origin} strokeWidth must reach the {} terminal: {svg}",
+                case.name
+            );
+            assert!(
+                !svg.contains(TYPED_WIDTH),
+                "typed width must yield to explicit {origin} strokeWidth on {}: {svg}",
+                case.name
+            );
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 0,
+                    not_applicable: 1,
+                    residual: 0,
+                },
+                "{origin} {}",
+                case.name
+            );
+        }
+    }
+
+    struct UnownedCase {
+        name: &'static str,
+        target: ThemeTarget,
+        variant: ThemeVariant,
+        ordinal: Option<usize>,
+        source: &'static str,
+        look: &'static str,
+    }
+
+    let unowned_cases = [
+        UnownedCase {
+            name: "hand-drawn-state",
+            target: ThemeTarget::State,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            source: SOURCE_STATE,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-note",
+            target: ThemeTarget::Note,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            source: SOURCE_NOTE,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-start",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Start,
+            ordinal: None,
+            source: SOURCE_START,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-composite-body",
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            source: SOURCE_COMPOSITE,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-composite-header",
+            target: ThemeTarget::CompositeHeader,
+            variant: ThemeVariant::Default,
+            ordinal: None,
+            source: SOURCE_COMPOSITE,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-divider",
+            target: ThemeTarget::Composite,
+            variant: ThemeVariant::Default,
+            ordinal: Some(2),
+            source: SOURCE_DIVIDER,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-end-outer",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::End,
+            ordinal: None,
+            source: SOURCE_END,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-end-inner",
+            target: ThemeTarget::SpecialStateInner,
+            variant: ThemeVariant::End,
+            ordinal: None,
+            source: SOURCE_END,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-fork",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            source: SOURCE_FORK,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "hand-drawn-choice",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            source: SOURCE_CHOICE,
+            look: "handDrawn",
+        },
+        UnownedCase {
+            name: "classic-choice",
+            target: ThemeTarget::SpecialState,
+            variant: ThemeVariant::Special,
+            ordinal: None,
+            source: SOURCE_CHOICE,
+            look: "classic",
+        },
+    ];
+
+    for case in unowned_cases {
+        let mut rule = ThemeRule::new(
+            case.target,
+            ThemeStylePatch::default()
+                .with_stroke_width(3.0)
+                .expect("valid HandDrawn State terminal stroke width"),
+        )
+        .with_variant(case.variant);
+        if let Some(ordinal) = case.ordinal {
+            rule = rule.with_ordinal(
+                OrdinalSelector::exact(ordinal).expect("valid HandDrawn width ordinal"),
+            );
+        }
+        let theme = DiagramThemeCompiler::new()
+            .compile(state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(rule)))
+            .unwrap_or_else(|error| panic!("compile {} width theme: {error}", case.name));
+
+        for origin in ["site", "source"] {
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                case.source,
+                serde_json::json!({
+                    "theme": "base",
+                    "look": case.look,
+                    "handDrawnSeed": 7,
+                    "themeVariables": { "strokeWidth": 7 },
+                }),
+                origin,
+            );
+            assert!(
+                svg.contains(TYPED_WIDTH),
+                "global {origin} strokeWidth must not own the {} terminal: {svg}",
+                case.name
+            );
+            assert_eq!(
+                evidence,
+                StateThemeEvidenceCounts {
+                    required: 1,
+                    accounted: 1,
+                    applied: 1,
+                    not_applicable: 0,
+                    residual: 0,
+                },
+                "{origin} {}",
+                case.name
+            );
+        }
+    }
+}
+
+#[test]
+fn state_svg_root_html_labels_override_deprecated_flowchart_label_dom() {
+    let root_false = render_state_svg_from_text(
+        r#"%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": true}}}%%
+stateDiagram-v2
+A --> B: owns
+"#,
+    );
+    let root_true = render_state_svg_from_text(
+        r#"%%{init: {"htmlLabels": true, "flowchart": {"htmlLabels": false}}}%%
+stateDiagram-v2
+A --> B: owns
+"#,
+    );
+
+    assert!(
+        root_false.contains(r#"class="text-outer-tspan row""#)
+            && root_false.contains(r#"class="text-inner-tspan""#),
+        "root htmlLabels=false should render State labels as SVG text: {root_false}"
+    );
+    assert!(
+        !root_false.contains("<foreignObject"),
+        "root htmlLabels=false should override deprecated flowchart.htmlLabels=true for simple State label DOM: {root_false}"
+    );
+    assert!(
+        root_true.contains("<foreignObject")
+            && root_true.contains(r#"class="nodeLabel markdown-node-label""#)
+            && root_true.contains(r#"class="edgeLabel""#),
+        "root htmlLabels=true should override deprecated flowchart.htmlLabels=false and keep HTML label DOM: {root_true}"
+    );
+}
+
+#[test]
+fn state_svg_root_html_labels_false_uses_svg_text_for_cluster_titles() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": true}}}%%
+stateDiagram-v2
+state Parent {
+  A
+}
+"#,
+    );
+
+    assert!(
+        svg.contains(r#"class="cluster-label""#) && svg.contains(r#"class="text-outer-tspan row""#),
+        "root htmlLabels=false should render State cluster titles as SVG text: {svg}"
+    );
+    assert!(
+        !svg.contains("<foreignObject"),
+        "root htmlLabels=false should override deprecated flowchart.htmlLabels=true for simple State cluster DOM: {svg}"
+    );
+}
+
+#[test]
+fn state_composite_paint_uses_large_and_multiline_title_measurements() {
+    for layout in ["dagre", "elk"] {
+        if layout == "elk" && !cfg!(feature = "layout-elk") {
+            continue;
+        }
+        for html_labels in [true, false] {
+            for title in ["Large title", "First<br/>Second"] {
+                let engine = classic_engine().with_site_config(
+                    merman_core::presentation::SourcePresentationConfig::from_value(
+                        serde_json::json!({
+                            "layout": layout,
+                            "look": "classic",
+                            "htmlLabels": html_labels,
+                            "themeVariables": { "fontSize": "32px" }
+                        }),
+                    ),
+                );
+                let source = format!("stateDiagram-v2\nstate \"{title}\" as Parent {{\n A\n}}\n");
+                let parsed = engine
+                    .parse_diagram_for_render_model_sync(&source, ParseOptions::default())
+                    .expect("parse composite")
+                    .expect("State diagram")
+                    .into_presentation();
+                let session = RenderEnvironment::deterministic().begin_session().unwrap();
+                let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+                    .expect("prepare composite");
+                let projection = artifact.layout_json().expect("State layout projection");
+                let clusters = projection["layout"]["StateDiagramV2"]["clusters"]
+                    .as_array()
+                    .expect("State clusters");
+                let cluster = clusters
+                    .iter()
+                    .find(|cluster| cluster["id"] == "Parent")
+                    .expect("Parent cluster");
+                let title_height = cluster["title_label"]["height"].as_f64().unwrap();
+                let rendered = artifact
+                    .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+                    .expect("render composite");
+                let document = roxmltree::Document::parse(rendered.svg()).expect("State SVG");
+                let group = document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("g") && node.attribute("data-id") == Some("Parent")
+                    })
+                    .expect("Parent SVG group");
+                let rect = |class| {
+                    group
+                        .descendants()
+                        .find(|node| {
+                            node.has_tag_name("rect") && node.attribute("class") == Some(class)
+                        })
+                        .expect("composite rectangle")
+                };
+                let number = |node: roxmltree::Node<'_, '_>, name| {
+                    node.attribute(name).unwrap().parse::<f64>().unwrap()
+                };
+                let outer = rect("outer");
+                let inner = rect("inner");
+                // clusters.js reserves the full painted bbox plus the fixed border gap.
+                assert!(
+                    (number(inner, "y") - number(outer, "y") - title_height - 2.0).abs() < 0.001,
+                    "{layout}, html={html_labels}, title={title}"
+                );
+                assert!(
+                    (number(outer, "height") - number(inner, "height") - title_height - 6.0).abs()
+                        < 0.001,
+                    "{layout}, html={html_labels}, title={title}"
+                );
+                let label = group
+                    .children()
+                    .find(|node| node.attribute("class") == Some("cluster-label"))
+                    .expect("composite title");
+                if html_labels {
+                    let foreign = label
+                        .descendants()
+                        .find(|node| node.has_tag_name("foreignObject"))
+                        .expect("HTML title");
+                    assert_eq!(number(foreign, "height"), title_height);
+                    assert_eq!(
+                        title_height,
+                        if title.contains("<br/>") { 96.0 } else { 48.0 }
+                    );
+                    assert_eq!(label.descendants().filter(|node| node.has_tag_name(("http://www.w3.org/1999/xhtml", "br"))).count(),
+                        usize::from(title.contains("<br/>")));
+                } else {
+                    assert!(
+                        title_height > 24.0,
+                        "32px title must exceed the old fixed height"
+                    );
+                    assert_eq!(
+                        label
+                            .descendants()
+                            .filter(|node| node.attribute("class") == Some("text-outer-tspan row"))
+                            .count(),
+                        if title.contains("<br/>") { 2 } else { 1 }
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn state_svg_root_html_labels_false_uses_svg_text_for_notes() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": true}}}%%
+stateDiagram-v2
+A
+note right of A : Note text
+"#,
+    );
+
+    assert!(
+        svg.contains("statediagram-note")
+            && svg.contains(
+                r#"<tspan font-style="normal" class="text-inner-tspan" font-weight="normal">Note text</tspan>"#
+            ),
+        "root htmlLabels=false should render State notes as SVG text: {svg}"
+    );
+    assert!(
+        !svg.contains(r#"<span class="nodeLabel"><p>Note text</p></span>"#),
+        "root htmlLabels=false should not render State note text through HTML node labels: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_serializes_sanitized_note_images_as_valid_xhtml() {
+    let svg = render_state_svg_from_text(
+        r#"stateDiagram-v2
+A
+note right of A
+  <a href='https://mermaid.js.org/' target='_blank'><code>note about mermaid</code></a><br/>
+  <img src=x onerror=alert(1)>
+end note
+"#,
+    );
+
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG XML");
+    let image = document
+        .descendants()
+        .find(|node| node.is_element() && node.tag_name().name() == "img")
+        .expect("sanitized note image");
+    assert_eq!(image.attribute("src"), Some("x"));
+    assert_eq!(
+        image.attribute("style"),
+        Some("display: flex; flex-direction: column; width: 100%;")
+    );
+    assert!(image.attribute("onerror").is_none());
+}
+
+#[test]
+fn state_svg_root_html_labels_false_uses_svg_text_for_rect_with_title() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": true}}}%%
+stateDiagram-v2
+Display : Ready
+Display : Running
+"#,
+    );
+
+    assert!(
+        svg.contains(r#"title-state"#)
+            && svg.contains(r#"class="text-outer-tspan row""#)
+            && svg.contains("Ready")
+            && svg.contains("Running"),
+        "root htmlLabels=false should render State rectWithTitle labels as SVG text: {svg}"
+    );
+    assert!(
+        !svg.contains("<foreignObject"),
+        "root htmlLabels=false should override deprecated flowchart.htmlLabels=true for State rectWithTitle DOM: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_root_html_labels_false_uses_svg_text_for_empty_edge_labels() {
+    for backend in ["elk", "dagre"] {
+        let engine = classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "layout": backend,
+                "htmlLabels": false,
+                "flowchart": {"htmlLabels": true}
+            })),
+        );
+        let svg = render_state_svg_from_text_with_engine(engine, "stateDiagram-v2\nA --> B\n");
+        let document = roxmltree::Document::parse(&svg).expect("State SVG");
+        let labels: Vec<_> = document
+            .descendants()
+            .filter(|node| node.has_tag_name("g") && node.attribute("class") == Some("edgeLabel"))
+            .collect();
+        if backend == "elk" && cfg!(feature = "layout-elk") {
+            assert!(
+                labels.is_empty(),
+                "ELK only inserts groups for present labels"
+            );
+        } else {
+            assert_eq!(
+                labels.len(),
+                1,
+                "Dagre inserts an empty wrapper for an unlabeled edge"
+            );
+            let label = labels[0]
+                .children()
+                .find(|node| node.is_element())
+                .expect("Dagre label group");
+            assert_eq!(label.attribute("data-id"), Some("edge0"));
+            assert_eq!(label.attribute("transform"), Some("translate(0, 0)"));
+            assert!(
+                !label.children().any(|node| node.is_element()),
+                "empty SVG labels have no HTML child"
+            );
+        }
+        assert!(
+            !document
+                .descendants()
+                .any(|node| node.has_tag_name("foreignObject")),
+            "{backend}: root htmlLabels=false overrides the deprecated Flowchart setting"
+        );
+    }
+}
+
+#[test]
+fn state_svg_root_html_labels_false_uses_svg_text_for_self_loop_edge_labels() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": true}}}%%
+stateDiagram-v2
+A --> A: again
+"#,
+    );
+
+    assert!(
+        svg.contains(r#"data-id="edge0""#)
+            && svg.contains(
+                r#"<tspan font-style="normal" class="text-inner-tspan" font-weight="normal">again</tspan>"#
+            ),
+        "root htmlLabels=false should render State self-loop labels on the original edge id as SVG text: {svg}"
+    );
+    assert!(
+        !svg.contains("cyclic-special"),
+        "Mermaid 11.16 keeps cyclic-special helpers out of the public self-loop edge label DOM: {svg}"
+    );
+    assert_eq!(
+        svg.matches("<foreignObject").count(),
+        0,
+        "root htmlLabels=false should override deprecated flowchart.htmlLabels=true for State self-loop label DOM: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_leaf_self_loop_keeps_dagre_label_anchor_without_an_explicit_path_update() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"layout": "dagre"}}%%
+stateDiagram-v2
+A --> A: again
+"#,
+    );
+
+    let points = state_edge_data_points(&svg, "edge0");
+    let (_, label_y) = state_edge_label_position(&svg, "edge0");
+    let path_max_y = points
+        .iter()
+        .map(|point| point.y)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    assert!(
+        label_y > path_max_y,
+        "a leaf self-loop has no cluster cut, so Mermaid keeps its outside Dagre label anchor: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_composite_self_loop_preserves_the_layout_label_offset_after_cluster_clipping() {
+    let source = r#"%%{init: {"layout": "dagre"}}%%
+stateDiagram-v2
+state Active {
+  Idle
+}
+Inactive --> Idle: ACT
+Active --> Active: LOG
+"#;
+    let session = RenderEnvironment::deterministic().begin_session().unwrap();
+    let parsed = classic_engine()
+        .parse_diagram_for_render_model_sync(source, ParseOptions::default())
+        .unwrap()
+        .unwrap()
+        .into_presentation();
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session).unwrap();
+    let projection = artifact.layout_json().unwrap();
+    let layout: merman_render::model::StateDiagramLayout =
+        serde_json::from_value(projection["layout"]["StateDiagramV2"].clone()).unwrap();
+    let rendered = artifact
+        .render_svg(&SvgRenderOptions::default(), &SvgDebugOptions::default())
+        .unwrap();
+    let svg = rendered.svg();
+
+    let points = state_edge_data_points(svg, "edge1");
+    assert_eq!(points.len(), 4, "expected one compact logical self-loop");
+    assert!(
+        points[0].x > points[1].x && points[3].x < points[2].x,
+        "data-points must retain the endpoint-clipped self-loop geometry: {points:?}"
+    );
+
+    let (label_x, label_y) = state_edge_label_position(svg, "edge1");
+    let edge = layout.edges.iter().find(|edge| edge.id == "edge1").unwrap();
+    let anchor = edge.label.as_ref().unwrap();
+    // This symmetric self-loop keeps the same route midpoint after cluster clipping.
+    // Mermaid 12.1 therefore preserves the layout anchor, including its label offset.
+    let expected_x = anchor.x;
+    let expected_y = anchor.y;
+    let midpoint_y = (points[1].y + points[2].y) / 2.0;
+    assert!(
+        expected_y > midpoint_y,
+        "the fixture must retain a nonzero label offset"
+    );
+    assert!(
+        (label_x - expected_x).abs() <= 1e-5 && (label_y - expected_y).abs() <= 1e-5,
+        "a symmetric cluster cut must preserve the layout label offset: label=({label_x}, {label_y}), expected=({expected_x}, {expected_y})"
+    );
+}
+
+#[test]
+fn state_svg_direct_composite_self_loop_keeps_unclipped_dagre_endpoints() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"layout": "dagre"}}%%
+stateDiagram-v2
+[*] --> Active
+state Active {
+  [*] --> Ready
+  Ready --> Ready : ping
+  Ready --> Working : start
+  Working --> Working : progress
+  Working --> Ready : done
+}
+Active --> Active : re-enter
+Active --> [*] : stop
+"#,
+    );
+
+    let points = state_edge_data_points(&svg, "edge6");
+    assert_eq!(points.len(), 4, "expected one compact composite self-loop");
+    assert!(
+        (points[0].x - points[1].x).abs() <= 1e-9 && (points[2].x - points[3].x).abs() <= 1e-9,
+        "a direct composite endpoint has no node intersect callback, so the Dagre endpoints must remain unclipped: {points:?}"
+    );
+}
+
+#[test]
+fn state_svg_security_level_controls_unsafe_click_href_rendering() {
+    let strict = render_state_svg_from_text(
+        r#"%%{init: {"securityLevel": "strict"}}%%
+stateDiagram-v2
+	S1
+	S2
+	S3
+	S4
+	click S1 href "javascript:alert(1)"
+	click S2 href "jav&#x61;script:alert(2)"
+	click S3 href ""
+	click S4 href "javascript#colon;alert(4)"
+"#,
+    );
+    assert!(
+        strict.contains(r#"<a>"#),
+        "expected strict mode to keep Mermaid's anchor wrapper for a declared State link: {strict}"
+    );
+    assert!(
+        !strict.contains(r#"xlink:href="javascript:alert(1)""#),
+        "expected strict mode to omit unsafe State click href from SVG: {strict}"
+    );
+    assert!(
+        strict.contains(r#"xlink:href="jav&amp;&amp;x61;script:alert(2)""#),
+        "expected strict mode to run Mermaid cleanup and preserve only the browser-safe literal entity spelling: {strict}"
+    );
+    assert!(
+        strict.contains(r#"xlink:href="""#),
+        "expected strict mode to preserve an empty DOM href like DOMPurify: {strict}"
+    );
+    assert!(!strict.contains(r#"target="_blank""#), "{strict}");
+    assert!(
+        !strict.contains("ﬂ°")
+            && !strict.contains("¶ß")
+            && !strict.contains(r#"xlink:href="javascript&colon;alert(4)""#),
+        "expected strict mode to apply Mermaid cleanup before DOMPurify admission: {strict}"
+    );
+
+    let loose = render_state_svg_from_text_with_engine(
+        classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "securityLevel": "loose"
+            })),
+        ),
+        r#"stateDiagram-v2
+S1
+click S1 href "javascript:alert(1)"
+"#,
+    );
+    assert!(
+        loose.contains(r#"xlink:href="javascript:alert(1)" target="_blank""#),
+        "expected loose mode to preserve State click hrefs exactly like Mermaid's link injection path: {loose}"
+    );
+}
+
+#[test]
+fn state_svg_normalizes_truthy_whitespace_tooltips_after_dompurify() {
+    let svg = render_state_svg_from_text(
+        r#"stateDiagram-v2
+S1
+click S1 "https://example.test" "   "
+"#,
+    );
+
+    assert!(svg.contains(r#"title="""#), "{svg}");
+    assert!(!svg.contains(r#"title="   ""#), "{svg}");
+}
+
+#[test]
+fn state_svg_treats_explicit_and_omitted_empty_tooltips_like_mermaid() {
+    let svg = render_state_svg_from_text(
+        r#"stateDiagram-v2
+S1
+S2
+click S1 "https://example.test/one" ""
+click S2 href "https://example.test/two"
+"#,
+    );
+
+    let explicit = svg
+        .find(r#"xlink:href="https://example.test/one""#)
+        .expect("explicit-tooltip anchor");
+    let explicit_tag = &svg[explicit
+        ..svg[explicit..]
+            .find('>')
+            .map_or(svg.len(), |end| explicit + end)];
+    assert!(!explicit_tag.contains(" title="), "{explicit_tag}");
+
+    let omitted = svg
+        .find(r#"xlink:href="https://example.test/two""#)
+        .expect("href-form anchor");
+    let omitted_tag = &svg[omitted
+        ..svg[omitted..]
+            .find('>')
+            .map_or(svg.len(), |end| omitted + end)];
+    assert!(!omitted_tag.contains(" title="), "{omitted_tag}");
+}
+
+#[test]
+fn state_svg_strict_repeated_unsafe_clicks_preserve_nested_wrappers() {
+    let svg = render_state_svg_from_text(
+        r#"%%{init: {"securityLevel": "strict"}}%%
+stateDiagram-v2
+S1
+click S1 "javascript:alert(1)" "JavaScript"
+click S1 "data:text/html,unsafe" "Data"
+"#,
+    );
+
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG XML");
+    let node = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node
+                    .attribute("id")
+                    .is_some_and(|id| id.contains("-state-S1-"))
+        })
+        .expect("S1 node");
+    let inner = node.parent().expect("inner link wrapper");
+    let outer = inner.parent().expect("outer link wrapper");
+
+    assert!(inner.has_tag_name("a"), "{svg}");
+    assert!(outer.has_tag_name("a"), "{svg}");
+    assert_eq!(outer.attribute("title"), Some("JavaScript"));
+    assert_eq!(inner.attribute("title"), Some("Data"));
+    assert_eq!(node.attribute("title"), Some("Data"));
+    for anchor in [outer, inner] {
+        assert_eq!(
+            anchor.attribute(("http://www.w3.org/1999/xlink", "href")),
+            None,
+            "{svg}"
+        );
+        assert_eq!(anchor.attribute("target"), None, "{svg}");
+    }
+}
+
+#[test]
+fn state_svg_loose_repeated_clicks_preserve_each_href_and_target() {
+    let svg = render_state_svg_from_text_with_engine(
+        classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "securityLevel": "loose"
+            })),
+        ),
+        r#"stateDiagram-v2
+S1
+click S1 "https://example.test/first" "First"
+click S1 "https://example.test/last" "Last"
+"#,
+    );
+
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG XML");
+    let node = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node
+                    .attribute("id")
+                    .is_some_and(|id| id.contains("-state-S1-"))
+        })
+        .expect("S1 node");
+    let inner = node.parent().expect("inner link wrapper");
+    let outer = inner.parent().expect("outer link wrapper");
+
+    assert_eq!(outer.attribute("title"), Some("First"));
+    assert_eq!(inner.attribute("title"), Some("Last"));
+    assert_eq!(node.attribute("title"), Some("Last"));
+    assert_eq!(
+        outer.attribute(("http://www.w3.org/1999/xlink", "href")),
+        Some("https://example.test/first")
+    );
+    assert_eq!(
+        inner.attribute(("http://www.w3.org/1999/xlink", "href")),
+        Some("https://example.test/last")
+    );
+    assert_eq!(outer.attribute("target"), Some("_blank"));
+    assert_eq!(inner.attribute("target"), Some("_blank"));
+}
+
+#[test]
+fn state_svg_empty_later_tooltip_does_not_clear_existing_node_title() {
+    let svg = render_state_svg_from_text(
+        r#"stateDiagram-v2
+S1
+click S1 "https://example.test/first" "First"
+click S1 "https://example.test/last" ""
+"#,
+    );
+
+    let document = roxmltree::Document::parse(&svg).expect("valid State SVG XML");
+    let node = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node
+                    .attribute("id")
+                    .is_some_and(|id| id.contains("-state-S1-"))
+        })
+        .expect("S1 node");
+    let inner = node.parent().expect("inner link wrapper");
+    let outer = inner.parent().expect("outer link wrapper");
+
+    assert_eq!(outer.attribute("title"), Some("First"));
+    assert_eq!(inner.attribute("title"), None);
+    assert_eq!(node.attribute("title"), Some("First"));
+}
+
+#[test]
+fn state_svg_honors_theme_options_on_visible_rough_paths() {
+    let engine = classic_engine().with_site_config(
+        merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+            "themeVariables": {
+                "stateBkg": "#101827",
+                "stateBorder": "#38bdf8",
+                "nodeBorder": "#a855f7",
+                "mainBkg": "#0f172a",
+                "lineColor": "#e11d48",
+                "strokeWidth": 4,
+                "specialStateColor": "#f97316",
+                "innerEndBackground": "#22c55e",
+                "background": "#020617",
+                "compositeBackground": "#111827",
+                "noteBkgColor": "#fef3c7",
+                "noteBorderColor": "#92400e"
+            }
+        })),
+    );
+    let svg = render_state_svg_from_text_with_engine(
+        engine,
+        r#"stateDiagram-v2
+[*] --> Idle
+state Decide <<choice>>
+state Fork <<fork>>
+state Join <<join>>
+Idle --> Decide
+Decide --> Fork
+Fork --> Join
+Join --> [*]
+note right of Idle : themed note"#,
+    );
+    let document = roxmltree::Document::parse(&svg).expect("valid themed State rough SVG XML");
+    let special_paths = |id: &str| {
+        let group = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node
+                        .attribute("id")
+                        .is_some_and(|value| value.contains(&format!("-state-{id}-")))
+            })
+            .unwrap_or_else(|| panic!("missing {id} State special node: {svg}"));
+        let mut paths = group.descendants().filter(|node| node.has_tag_name("path"));
+        (
+            paths.next().expect("special-state fill path"),
+            paths.next().expect("special-state stroke path"),
+        )
+    };
+    let (choice_fill, choice_stroke) = special_paths("Decide");
+    let (fork_fill, fork_stroke) = special_paths("Fork");
+    let end_outer = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("g")
+                && node.attribute("class") == Some("outer-path")
+                && node.children().any(|child| child.has_tag_name("g"))
+        })
+        .expect("State end outer-path group");
+    let mut end_outer_paths = end_outer
+        .children()
+        .filter(|node| node.has_tag_name("path"));
+    let end_outer_fill = end_outer_paths.next().expect("State end outer fill path");
+    let end_outer_stroke = end_outer_paths.next().expect("State end outer stroke path");
+    let end_inner = end_outer
+        .children()
+        .find(|node| node.has_tag_name("g"))
+        .expect("State end inner group");
+    let mut end_inner_paths = end_inner
+        .children()
+        .filter(|node| node.has_tag_name("path"));
+    let end_inner_fill = end_inner_paths.next().expect("State end inner fill path");
+    let end_inner_stroke = end_inner_paths.next().expect("State end inner stroke path");
+
+    assert!(
+        svg.contains(r##".node rect{fill:#101827;stroke:#38bdf8;stroke-width:4px;}"##),
+        "classic ordinary State rects should consume stateBkg/stateBorder/strokeWidth through CSS: {svg}"
+    );
+    assert_eq!(choice_fill.attribute("fill"), Some("#0f172a"), "{svg}");
+    assert_eq!(choice_stroke.attribute("stroke"), Some("#a855f7"), "{svg}");
+    assert_eq!(fork_fill.attribute("fill"), Some("#e11d48"), "{svg}");
+    assert_eq!(fork_stroke.attribute("stroke"), Some("#e11d48"), "{svg}");
+    assert!(
+        svg.contains(r##".node circle.state-start{fill:#f97316;stroke:#f97316;}"##),
+        "start-state styling should consume specialStateColor: {svg}"
+    );
+    assert_eq!(end_outer_fill.attribute("fill"), Some("#0f172a"), "{svg}");
+    assert_eq!(
+        end_outer_stroke.attribute("stroke"),
+        Some("#e11d48"),
+        "{svg}"
+    );
+    assert_eq!(end_inner_fill.attribute("fill"), Some("#38bdf8"), "{svg}");
+    assert_eq!(
+        end_inner_stroke.attribute("stroke"),
+        Some("#38bdf8"),
+        "{svg}"
+    );
+    assert_ne!(end_inner_fill.attribute("fill"), Some("#22c55e"), "{svg}");
+    assert_ne!(
+        end_outer_stroke.attribute("stroke"),
+        Some("#020617"),
+        "{svg}"
+    );
+    assert!(
+        svg.contains(r##"fill="#fef3c7""##)
+            && svg.contains(r##"stroke="#92400e" stroke-width="1.3""##),
+        "note rough paths should consume noteBkgColor/noteBorderColor: {svg}"
+    );
+}
+
+#[test]
+fn state_svg_preserves_ordered_shadow_inputs_and_accumulated_bounds() {
+    use merman_render::diagram_theme::EffectColorSpace;
+    let source = "stateDiagram-v2\nReady --> Done\n";
+    let render = |second_input, color_space| {
+        let graph = EffectGraph::new(
+            "composed",
+            [
+                EffectPrimitive::DropShadow {
+                    input: EffectInput::SourceGraphic,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    blur_radius: 2.0,
+                    spread: 0.0,
+                    color: ThemeColorValue::parse("#ff0000").unwrap(),
+                },
+                EffectPrimitive::DropShadow {
+                    input: second_input,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    blur_radius: 3.0,
+                    spread: 0.0,
+                    color: ThemeColorValue::parse("#0000ff").unwrap(),
+                },
+            ],
+        )
+        .unwrap()
+        .with_color_space(color_space);
+        let theme = DiagramThemeCompiler::new()
+            .compile(
+                DiagramThemeSpec::new().with_effects(
+                    DiagramEffectSet::default()
+                        .with_graph(graph)
+                        .unwrap()
+                        .with_binding(EffectBinding::new(ThemeTarget::State, "composed").unwrap())
+                        .unwrap(),
+                ),
+            )
+            .unwrap();
+        render_classic_state_svg_from_text_with_theme_in_environment(
+            source,
+            &theme,
+            &RenderEnvironment::deterministic()
+                .with_theme_portability_requirement(ThemePortabilityRequirement::RequirePortable),
+        )
+    };
+    let composed = render(EffectInput::Previous, EffectColorSpace::LinearRgb);
+    let reset = render(EffectInput::SourceGraphic, EffectColorSpace::LinearRgb);
+    let srgb = render(EffectInput::Previous, EffectColorSpace::Srgb);
+    assert!(srgb.contains(r#"color-interpolation-filters="sRGB""#));
+    let document = roxmltree::Document::parse(&composed).unwrap();
+    let filters: Vec<_> = document
+        .descendants()
+        .filter(|node| {
+            node.has_tag_name("filter")
+                && node
+                    .attribute("id")
+                    .is_some_and(|id| id.ends_with("-theme-effect-composed"))
+        })
+        .collect();
+    assert_eq!(filters.len(), 2);
+    for filter in filters {
+        let stages: Vec<_> = filter
+            .children()
+            .filter(|node| node.has_tag_name("feDropShadow"))
+            .collect();
+        assert_eq!(stages.len(), 2);
+        assert_eq!(stages[0].attribute("in"), Some("SourceGraphic"));
+        assert_eq!(stages[1].attribute("in"), None);
+        assert_eq!(stages[0].attribute("stdDeviation"), Some("2"));
+        assert_eq!(stages[1].attribute("stdDeviation"), Some("3"));
+        assert_eq!(stages[0].attribute("flood-color"), Some("#ff0000"));
+        assert_eq!(stages[1].attribute("flood-color"), Some("#0000ff"));
+    }
+    let composed_bounds = svg_view_box(&composed);
+    let reset_bounds = svg_view_box(&reset);
+    assert!(composed_bounds[2] >= reset_bounds[2] + 16.0 - 1.0e-6);
+    assert!(composed_bounds[3] >= reset_bounds[3] + 16.0 - 1.0e-6);
+}
+
+#[test]
+fn state_svg_plain_rect_radius_uses_effective_theme_for_both_label_modes() {
+    // Pinned roundedRect -> drawRect keeps State's preset radius 10 for numeric
+    // zero, while the truthy string "0" explicitly draws square corners.
+    // Theme Neo supplies radius 3 and Redux supplies 12, independently of look.
+    for (look, theme, radius, expected) in [
+        ("neo", "neo", None, 3.0),
+        ("neo", "redux", None, 12.0),
+        ("classic", "redux", None, 12.0),
+        ("neo", "default", None, 5.0),
+        ("classic", "default", None, 5.0),
+        ("default", "default", None, 5.0),
+        ("neo", "neo", Some(serde_json::json!(0)), 10.0),
+        ("classic", "default", Some(serde_json::json!(0)), 10.0),
+        ("neo", "neo", Some(serde_json::json!("0")), 0.0),
+        ("classic", "default", Some(serde_json::json!(7.5)), 7.5),
+        ("neo", "neo", Some(serde_json::json!(7.5)), 7.5),
+    ] {
+        for html_labels in [true, false] {
+            let mut config = serde_json::json!({
+                "look": look,
+                "theme": theme,
+                "htmlLabels": html_labels
+            });
+            if let Some(radius) = radius.clone() {
+                config["themeVariables"] = serde_json::json!({"radius": radius});
+            }
+            let engine = classic_engine().with_site_config(
+                merman_core::presentation::SourcePresentationConfig::from_value(config),
+            );
+            let svg = render_state_svg_from_text_with_engine(engine, "stateDiagram-v2\nA\n");
+            let document = roxmltree::Document::parse(&svg).expect("State SVG");
+            let rect = document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("rect")
+                        && node.attribute("class") == Some("basic label-container")
+                })
+                .expect("ordinary State rectangle");
+            for attr in ["rx", "ry"] {
+                let actual: f64 = rect.attribute(attr).unwrap().parse().unwrap();
+                assert_eq!(
+                    actual, expected,
+                    "look={look}, theme={theme}, radius={radius:?}, htmlLabels={html_labels}, {attr}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn state_svg_small_terminal_shadow_uses_effective_theme_and_look() {
+    // stateStart/stateEnd choose the small filter using nodeShadow, independently
+    // of look=neo and dropShadow; a hand-drawn terminal never gets this override.
+    for (look, theme, shadow, expected) in [
+        ("neo", "neo", None, false),
+        ("neo", "redux", None, true),
+        ("classic", "redux", None, true),
+        ("classic", "default", None, false),
+        ("neo", "neo", Some(serde_json::json!(false)), false),
+        ("classic", "default", Some(serde_json::json!(true)), true),
+        ("handDrawn", "neo", Some(serde_json::json!(true)), false),
+        ("neo", "neo", Some(serde_json::json!(0)), false),
+        ("neo", "neo", Some(serde_json::json!("false")), true),
+    ] {
+        let mut config = serde_json::json!({"look": look, "theme": theme});
+        if let Some(shadow) = shadow.clone() {
+            config["themeVariables"] = serde_json::json!({"nodeShadow": shadow});
+        }
+        let engine = classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(config),
+        );
+        let svg = render_state_svg_from_text_with_engine(
+            engine,
+            "stateDiagram-v2\n[*] --> A\nA --> [*]\n",
+        );
+        let document = roxmltree::Document::parse(&svg).expect("State SVG");
+        let diagram_id = document.root_element().attribute("id").expect("diagram id");
+        let expected_style = format!("filter:url(#{diagram_id}-drop-shadow-small)");
+        let terminals: Vec<_> = document
+            .descendants()
+            .filter(|node| matches!(node.attribute("class"), Some("state-start" | "outer-path")))
+            .collect();
+        assert_eq!(terminals.len(), 2, "look={look}, theme={theme}: {svg}");
+        for terminal in terminals {
+            let class = terminal.attribute("class").unwrap();
+            let filter = terminal
+                .attribute("style")
+                .unwrap_or_default()
+                .split(';')
+                .map(str::trim)
+                .find(|declaration| declaration.starts_with("filter:"));
+            assert_eq!(
+                filter,
+                expected.then_some(expected_style.as_str()),
+                "look={look}, theme={theme}, nodeShadow={shadow:?}, terminal={class}"
+            );
+        }
+    }
+}
+
+#[test]
+fn state_svg_min_width_updates_html_box_without_changing_wrapping() {
+    for (min_width, label, wrapping_width, display, white_space, width) in [
+        (120, "A", 1000, "table", "nowrap", Some("120px")),
+        (0, "A", 1000, "table-cell", "nowrap", None),
+        (
+            120,
+            "A long state label beyond the minimum width",
+            1000,
+            "table-cell",
+            "nowrap",
+            None,
+        ),
+        (
+            120,
+            "A long state label that must wrap onto multiple lines",
+            120,
+            "table",
+            "break-spaces",
+            Some("120px"),
+        ),
+    ] {
+        for note in [false, true] {
+            let config = serde_json::json!({
+                "htmlLabels": true,
+                "state": {"minNodeWidth": min_width, "wrappingWidth": wrapping_width}
+            });
+            let source = if note {
+                format!("stateDiagram-v2\nN\nnote right of N : {label}\n")
+            } else {
+                format!("stateDiagram-v2\nstate \"{label}\" as N\n")
+            };
+            let svg = render_state_svg_from_text_with_engine(
+                classic_engine().with_site_config(
+                    merman_core::presentation::SourcePresentationConfig::from_value(config),
+                ),
+                &source,
+            );
+            let document = roxmltree::Document::parse(&svg).expect("State SVG");
+            let div = document
+                .descendants()
+                .find(|node| {
+                    node.has_tag_name("div")
+                        && node.descendants().any(|child| child.text() == Some(label))
+                })
+                .expect("leaf label div");
+            let style: std::collections::BTreeMap<_, _> = div
+                .attribute("style")
+                .unwrap()
+                .split(';')
+                .filter_map(|entry| entry.split_once(':'))
+                .map(|(key, value)| (key.trim(), value.trim()))
+                .collect();
+            assert_eq!(
+                style.get("display").copied(),
+                Some(display),
+                "note={note}, min={min_width}, label={label}"
+            );
+            assert_eq!(style.get("white-space").copied(), Some(white_space));
+            assert_eq!(style.get("width").copied(), width);
+        }
+    }
+    let svg = render_state_svg_from_text_with_engine(
+        classic_engine().with_site_config(
+            merman_core::presentation::SourcePresentationConfig::from_value(serde_json::json!({
+                "htmlLabels": false, "state": {"minNodeWidth": 120}
+            })),
+        ),
+        "stateDiagram-v2\n[*] --> A\nA --> [*]\n",
+    );
+    let document = roxmltree::Document::parse(&svg).expect("State SVG");
+    assert!(
+        !document
+            .descendants()
+            .any(|node| node.has_tag_name("foreignObject"))
+    );
+    assert_eq!(
+        document
+            .descendants()
+            .filter(|node| node.attribute("class") == Some("state-start"))
+            .count(),
+        1
+    );
+}
+
+#[cfg(feature = "layout-elk")]
+#[test]
+fn state_elk_parallel_self_loops_preserve_transition_label_and_marker_ordinals() {
+    let mut rules = ThemeRuleSet::default();
+    for (target, colors) in [
+        (ThemeTarget::Transition, ["#123456", "#654321"]),
+        (ThemeTarget::TransitionLabel, ["#22c55e", "#ec4899"]),
+        (ThemeTarget::TransitionMarker, ["#2468ac", "#ac6824"]),
+    ] {
+        for (index, color) in colors.into_iter().enumerate() {
+            let patch = if target == ThemeTarget::Transition {
+                ThemeStylePatch::default().with_stroke(CanvasPaint::solid(color).unwrap())
+            } else {
+                ThemeStylePatch::default().with_fill(CanvasPaint::solid(color).unwrap())
+            };
+            rules = rules.with_rule(
+                ThemeRule::new(target, patch)
+                    .with_ordinal(OrdinalSelector::exact(index + 1).unwrap()),
+            );
+        }
+    }
+    let theme = DiagramThemeCompiler::new()
+        .compile(state_theme_spec().with_styles(rules))
+        .unwrap();
+    let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+        &theme,
+        "stateDiagram-v2\nReady --> Ready: first\nReady --> Ready: second\n",
+        serde_json::json!({"layout":"elk", "htmlLabels":false}),
+        "site",
+    );
+    let document = roxmltree::Document::parse(&svg).unwrap();
+    for (index, stroke, label_fill, marker_fill) in [
+        (0, "#123456", "#22c55e", "#2468ac"),
+        (1, "#654321", "#ec4899", "#ac6824"),
+    ] {
+        let id = format!("edge{index}");
+        let edge = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("path") && node.attribute("data-id") == Some(id.as_str())
+            })
+            .unwrap();
+        assert!(
+            edge.attribute("style")
+                .is_some_and(|style| style.contains(&format!("stroke:{stroke}"))),
+            "{id} stroke: {svg}"
+        );
+        let label = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name("g")
+                    && node.attribute("data-id") == Some(id.as_str())
+                    && node.attribute("class") == Some("label")
+            })
+            .unwrap();
+        assert!(
+            label.descendants().any(|node| node
+                .attribute("style")
+                .is_some_and(|style| style.contains(&format!("fill:{label_fill}")))),
+            "{id} label paint: {svg}"
+        );
+        let marker_id = edge
+            .attribute("marker-end")
+            .and_then(|url| url.strip_prefix("url(#"))
+            .and_then(|url| url.strip_suffix(')'))
+            .unwrap();
+        let marker = document
+            .descendants()
+            .find(|node| node.has_tag_name("marker") && node.attribute("id") == Some(marker_id))
+            .unwrap();
+        assert!(
+            marker.descendants().any(|node| node
+                .attribute("style")
+                .is_some_and(|style| style.contains(&format!("fill:{marker_fill}")))),
+            "{id} marker paint: {svg}"
+        );
+    }
+    assert_eq!(evidence.applied, 6);
+    assert_eq!(evidence.residual, 0);
+}
+
+#[test]
+fn state_explicit_radius_wins_compatibility_css_on_plain_title_and_composite_rects() {
+    for html_labels in [false, true] {
+        for (source, target, classes) in [
+            (
+                "stateDiagram-v2\nReady\n",
+                ThemeTarget::State,
+                &["basic label-container"][..],
+            ),
+            (
+                "stateDiagram-v2\nDisplay : Ready\nDisplay : Running\n",
+                ThemeTarget::State,
+                &["outer title-state"][..],
+            ),
+            (
+                "stateDiagram-v2\nstate Parent {\nReady\n}\n",
+                ThemeTarget::Composite,
+                &["outer", "inner"][..],
+            ),
+        ] {
+            let theme = DiagramThemeCompiler::new()
+                .compile(
+                    state_theme_spec().with_styles(ThemeRuleSet::default().with_rule(
+                        ThemeRule::new(
+                            target,
+                            ThemeStylePatch {
+                                geometry: ThemeGeometryPatch {
+                                    radius: Specified::Value(12.0),
+                                },
+                                ..Default::default()
+                            },
+                        ),
+                    )),
+                )
+                .unwrap();
+            let (svg, evidence) = render_strict_state_svg_with_theme_and_config(
+                &theme,
+                source,
+                serde_json::json!({"htmlLabels":html_labels}),
+                "site",
+            );
+            let document = roxmltree::Document::parse(&svg).unwrap();
+            for class in classes {
+                let rect = document
+                    .descendants()
+                    .find(|node| {
+                        node.has_tag_name("rect") && node.attribute("class") == Some(*class)
+                    })
+                    .unwrap_or_else(|| panic!("missing {class} rect: {svg}"));
+                assert_eq!(rect.attribute("rx"), Some("12"));
+                assert_eq!(rect.attribute("ry"), Some("12"));
+                for property in ["rx", "ry"] {
+                    assert!(
+                        rect.attribute("style").is_some_and(|style| style
+                            .split(';')
+                            .any(|decl| decl == format!("{property}:12px"))),
+                        "inline geometry must win compatibility CSS for {class}/{property}: {svg}"
+                    );
+                }
+            }
+            assert_eq!(evidence.applied, 1);
+            assert_eq!(evidence.residual, 0);
+        }
+    }
+}

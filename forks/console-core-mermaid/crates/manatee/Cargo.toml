@@ -1,0 +1,23 @@
+[package]
+name = "console-core-mermaid-cytoscape"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Headless compound graph layout algorithms (COSE/FCoSE ports)."
+documentation = "https://docs.rs/manatee"
+readme = "README.md"
+keywords = ["graph", "layout", "cose", "fcose"]
+categories = ["visualization"]
+
+[dependencies]
+indexmap.workspace = true
+libm.workspace = true
+thiserror.workspace = true
+rustc-hash.workspace = true
+
+[lib]
+name = "manatee"

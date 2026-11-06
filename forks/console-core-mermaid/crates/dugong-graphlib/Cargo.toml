@@ -1,0 +1,23 @@
+[package]
+name = "console-core-mermaid-graph"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Graph data structure APIs used by dugong (port of dagrejs/graphlib)."
+documentation = "https://docs.rs/dugong-graphlib"
+readme = "README.md"
+keywords = ["graph", "dagre", "graphlib"]
+categories = ["data-structures"]
+
+[dependencies]
+hashbrown.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lib]
+name = "dugong_graphlib"

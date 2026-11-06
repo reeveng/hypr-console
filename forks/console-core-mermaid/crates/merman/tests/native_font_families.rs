@@ -1,0 +1,680 @@
+#![cfg(feature = "native-fonts")]
+
+use merman::svg::export::{NativeFontContext, NativeFontOptions};
+use merman::svg::{TextMeasurementOperation, TextMeasurementPhase, TextMeasurementSource};
+use merman::{
+    OperationControl, RenderOutput, RenderRequest, Renderer, SvgEnvironment, SvgOutput, SvgRequest,
+};
+
+fn font_context() -> NativeFontContext {
+    let fonts =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../merman-export/tests/fonts");
+    NativeFontOptions::default()
+        .with_font_file(fonts.join("Cousine-Regular.ttf"))
+        .with_font_file(fonts.join("Cousine-Bold.ttf"))
+        .with_font_file(fonts.join("Cousine-Italic.ttf"))
+        .load(&OperationControl::new())
+        .expect("the checked-in explicit font set loads")
+}
+
+#[cfg(feature = "diagram-er")]
+mod er_native_regressions {
+    use super::*;
+    use merman::svg::export::NativeFontLimits;
+    use std::fmt::Write as _;
+
+    fn tables(count: usize) -> String {
+        let mut source = String::from("erDiagram\n");
+        for i in 0..count {
+            writeln!(
+                source,
+                "  T{i} {{\n    text name_{i}\n    integer size_{i}\n  }}"
+            )
+            .unwrap();
+        }
+        source
+    }
+
+    fn request(context: NativeFontContext) -> SvgRequest {
+        SvgRequest {
+            environment: SvgEnvironment::deterministic()
+                .with_native_font_context(context)
+                .unwrap(),
+            ..Default::default()
+        }
+    }
+
+    fn single_font_context() -> NativeFontContext {
+        NativeFontOptions::default()
+            .with_font_file(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../merman-export/tests/fonts/Cousine-Regular.ttf"),
+            )
+            .load(&OperationControl::new())
+            .unwrap()
+    }
+
+    #[test]
+    fn er_native_default_budget_renders_500_tables() {
+        let output = render(&tables(500), Some(single_font_context()));
+        assert!(output.svg().contains("entity-T499-499"));
+        assert_native_without_fallback(&output, "er");
+    }
+
+    #[test]
+    fn er_native_independent_renders_do_not_accumulate_measurements() {
+        let context = NativeFontOptions::default()
+            .with_font_file(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../merman-export/tests/fonts/Cousine-Regular.ttf"),
+            )
+            .with_limits(NativeFontLimits {
+                max_cache_entries: 0,
+                max_measurements: 256,
+                ..Default::default()
+            })
+            .load(&OperationControl::new())
+            .unwrap();
+        let request = request(context.clone());
+        let renderer = Renderer::new();
+        for _ in 0..10 {
+            let output = renderer.render(RenderRequest::svg(
+                &tables(3),
+                OperationControl::new(),
+                request.clone(),
+            ));
+            assert!(output.is_ok(), "independent render failed: {output:?}");
+        }
+        assert!(context.check().is_ok());
+    }
+
+    #[test]
+    fn er_native_failed_render_does_not_poison_font_assets() {
+        let context = NativeFontOptions::default()
+            .with_font_file(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../merman-export/tests/fonts/Cousine-Regular.ttf"),
+            )
+            .with_limits(NativeFontLimits {
+                max_measurements: 64,
+                ..Default::default()
+            })
+            .load(&OperationControl::new())
+            .unwrap();
+        let request = request(context.clone());
+        let renderer = Renderer::new();
+        let error = renderer
+            .render(RenderRequest::svg(
+                &tables(340),
+                OperationControl::new(),
+                request.clone(),
+            ))
+            .unwrap_err();
+        let merman::RenderError::ResourceLimitExceeded(limit) = error else {
+            panic!("expected a structured native font limit, got {error}");
+        };
+        let message = limit.to_string();
+        assert!(
+            message.contains("NativeFontLimits::max_measurements"),
+            "{message}"
+        );
+        assert!(
+            message.contains("NativeFontOptions::with_limits"),
+            "{message}"
+        );
+        assert!(
+            message.contains("resource profiles do not change"),
+            "{message}"
+        );
+        assert_eq!(limit.id, "native_font_measurements");
+        assert_eq!(limit.actual, 65);
+        assert_eq!(limit.maximum, 64);
+        assert_eq!(limit.cause, merman::ResourceLimitCause::Ceiling);
+        assert!(
+            context.check().is_ok(),
+            "render failure mutated shared font assets"
+        );
+        renderer
+            .render(RenderRequest::svg(
+                "erDiagram\nSMALL\n",
+                OperationControl::new(),
+                request,
+            ))
+            .expect("a fresh operation can render with the same font assets");
+    }
+}
+
+fn render(source: &str, context: Option<NativeFontContext>) -> SvgOutput {
+    let environment = match context {
+        Some(context) => SvgEnvironment::deterministic()
+            .with_native_font_context(context)
+            .expect("native font environment"),
+        None => SvgEnvironment::deterministic(),
+    };
+    match Renderer::new()
+        .render(RenderRequest::svg(
+            source,
+            OperationControl::new(),
+            SvgRequest {
+                environment,
+                ..Default::default()
+            },
+        ))
+        .unwrap_or_else(|error| panic!("render failed for {source:?}: {error}"))
+    {
+        RenderOutput::Svg(Some(output)) => output,
+        other => panic!("expected a rendered diagram, got {other:?}"),
+    }
+}
+
+fn assert_native_without_fallback(output: &SvgOutput, family: &str) {
+    let entries = output.evidence().measurement().entries();
+    assert!(!entries.is_empty(), "{family} must measure non-title text");
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.provenance().operation != TextMeasurementOperation::TitleBBoxX),
+        "{family} must use native measurement outside diagram titles: {entries:?}"
+    );
+    for entry in entries {
+        assert_eq!(
+            entry.provenance().source,
+            TextMeasurementSource::Host,
+            "{family}: {entry:?}"
+        );
+        assert_eq!(
+            entry.provenance().fallback_reason,
+            None,
+            "{family}: {entry:?}"
+        );
+    }
+}
+
+fn layout(source: &str, context: Option<NativeFontContext>) -> serde_json::Value {
+    let environment = match context {
+        Some(context) => SvgEnvironment::deterministic()
+            .with_native_font_context(context)
+            .expect("native font environment"),
+        None => SvgEnvironment::deterministic(),
+    };
+    match Renderer::new()
+        .render(RenderRequest::layout_json(
+            source,
+            OperationControl::new(),
+            SvgRequest {
+                environment,
+                ..Default::default()
+            },
+        ))
+        .expect("layout inspection succeeds")
+    {
+        RenderOutput::LayoutJson(Some(output)) => output.layout()["layout"].clone(),
+        other => panic!("expected layout JSON, got {other:?}"),
+    }
+}
+
+#[test]
+fn explicit_font_metrics_change_text_driven_geometry_beyond_titles() {
+    let cases: &[(&str, &str)] = &[
+        #[cfg(feature = "diagram-flowchart")]
+        (
+            "flowchart",
+            "flowchart LR\nA[WWWWWWWWWWWWWWWWWWWWWWWW] -->|WWWWWWWWWWWW| B[Destination]\n",
+        ),
+        #[cfg(feature = "diagram-class")]
+        (
+            "class",
+            "classDiagram\nclass WWWWWWWWWWWWWWWWWWWWWWWW {\n+String WWWWWWWWWWWWWWWW\n}\n",
+        ),
+        #[cfg(feature = "diagram-er")]
+        (
+            "er",
+            "erDiagram\nWWWWWWWWWWWWWWWWWWWWWWWW ||--o{ ORDER : WWWWWWWWWWWWWWWW\n",
+        ),
+        #[cfg(feature = "diagram-sequence")]
+        (
+            "sequence",
+            "sequenceDiagram\nparticipant WWWWWWWWWWWWWWWWWWWWWWWW\nparticipant Compiler\nWWWWWWWWWWWWWWWWWWWWWWWW->>Compiler: WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW\n",
+        ),
+    ];
+    let context = font_context();
+    for (family, source) in cases {
+        assert_ne!(
+            layout(source, None),
+            layout(source, Some(context.clone())),
+            "{family} geometry must depend on the explicit font, not estimated glyph widths"
+        );
+    }
+}
+
+#[cfg(feature = "diagram-timeline")]
+#[test]
+fn timeline_wrap_probes_use_native_computed_length() {
+    let output = render(
+        "timeline\nsection Preparation\n2024 : A long event label containing several words that must be measured before wrapping\n",
+        Some(font_context()),
+    );
+    assert_native_without_fallback(&output, "timeline");
+    assert!(
+        output
+            .evidence()
+            .measurement()
+            .entries()
+            .iter()
+            .any(|entry| {
+                let provenance = entry.provenance();
+                provenance.operation == TextMeasurementOperation::ComputedLength
+                    && provenance.phase == TextMeasurementPhase::ComputedLength
+            }),
+        "timeline must use the routed computed-length phase"
+    );
+}
+
+#[cfg(all(feature = "diagram-architecture", feature = "layout-cytoscape"))]
+#[test]
+fn architecture_uses_native_canvas_advances() {
+    let output = render(
+        "architecture-beta\nservice worker [Worker service with a long label]\n",
+        Some(font_context()),
+    );
+    assert_native_without_fallback(&output, "architecture");
+    assert!(
+        output
+            .evidence()
+            .measurement()
+            .entries()
+            .iter()
+            .any(|entry| {
+                let provenance = entry.provenance();
+                provenance.operation == TextMeasurementOperation::CanvasMeasureTextWidth
+                    && provenance.phase == TextMeasurementPhase::Layout
+            }),
+        "architecture must use native Canvas-compatible advances"
+    );
+}
+
+#[cfg(feature = "diagram-info")]
+#[test]
+fn info_native_viewport_measurement_preserves_default_geometry() {
+    let output = render("info", Some(font_context()));
+    assert_native_without_fallback(&output, "info");
+    let entries = output.evidence().measurement().entries();
+    assert_eq!(
+        entries.len(),
+        2,
+        "Info measures only the version text bounds"
+    );
+    for operation in [
+        TextMeasurementOperation::BBoxX,
+        TextMeasurementOperation::RawBBoxHeight,
+    ] {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.provenance().operation == operation)
+            .expect("Info viewport records each version text bound");
+        assert_eq!(entry.provenance().phase, TextMeasurementPhase::SvgBBox);
+        assert_eq!(entry.count(), 1);
+    }
+    let document = roxmltree::Document::parse(output.svg()).expect("valid info SVG");
+    assert_eq!(document.root_element().attribute("viewBox"), None);
+    let native_layout = layout("info", Some(font_context()));
+    assert_eq!(native_layout, layout("info", None));
+    assert_eq!(
+        native_layout["InfoDiagram"]["bounds"],
+        serde_json::json!({
+            "min_x": 0.0,
+            "min_y": 0.0,
+            "max_x": 400.0,
+            "max_y": 100.0,
+        })
+    );
+}
+
+#[test]
+fn legend_consumers_use_native_client_rect_widths() {
+    let cases: &[(&str, &str)] = &[
+        #[cfg(feature = "diagram-pie")]
+        (
+            "pie",
+            "pie\n\"Completed tasks\": 40\n\"Pending tasks\": 60\n",
+        ),
+        #[cfg(feature = "diagram-journey")]
+        (
+            "journey",
+            "journey\nsection Preparation\nCompile source: 5: Developer with a long name\n",
+        ),
+    ];
+    let context = font_context();
+    for (family, source) in cases {
+        let output = render(source, Some(context.clone()));
+        assert_native_without_fallback(&output, family);
+        assert!(
+            output
+                .evidence()
+                .measurement()
+                .entries()
+                .iter()
+                .any(|entry| {
+                    entry.provenance().operation
+                        == TextMeasurementOperation::BoundingClientRectWidth
+                }),
+            "{family} legend must use native client-rect widths"
+        );
+    }
+}
+
+#[cfg(feature = "diagram-treemap")]
+#[test]
+fn treemap_emission_uses_native_computed_length_for_fit_decisions() {
+    let output = render(
+        "treemap\n\"Root\"\n \"Completed tasks with a long descriptive label\": 40\n \"Pending tasks\": 60\n",
+        Some(font_context()),
+    );
+    assert_native_without_fallback(&output, "treemap");
+    assert!(
+        output
+            .evidence()
+            .measurement()
+            .entries()
+            .iter()
+            .any(|entry| {
+                let provenance = entry.provenance();
+                provenance.operation == TextMeasurementOperation::ComputedLength
+                    && provenance.phase == TextMeasurementPhase::ComputedLength
+            }),
+        "treemap text-fit decisions must use native advances during emission"
+    );
+}
+
+#[test]
+fn every_compiled_text_driven_family_uses_native_measurement_without_titles() {
+    let cases: &[(&str, &str)] = &[
+        #[cfg(feature = "diagram-agentflow")]
+        (
+            "agentflow",
+            "agentflow-beta TB\nflow support[\"Support\"]\n input[\"Question\"]@{ shape: input }\n task[\"Resolve\"]@{ shape: task }\n input --> task\nend\n",
+        ),
+        #[cfg(all(feature = "diagram-architecture", feature = "layout-cytoscape"))]
+        (
+            "architecture",
+            "architecture-beta\nservice worker [Worker]\n",
+        ),
+        #[cfg(feature = "diagram-block")]
+        (
+            "block",
+            "block-beta\ncolumns 2\nA[\"First block\"] B[\"Second block\"]\n",
+        ),
+        #[cfg(feature = "diagram-c4")]
+        (
+            "c4",
+            "C4Context\nPerson(customer, \"Customer\", \"A customer\")\nSystem(bank, \"Banking System\", \"Does banking\")\nRel(customer, bank, \"Uses\")\n",
+        ),
+        #[cfg(feature = "diagram-class")]
+        (
+            "class",
+            "classDiagram\nclass Animal {\n+String name\n+eat()\n}\nclass Dog\nAnimal <|-- Dog\n",
+        ),
+        #[cfg(feature = "diagram-cynefin")]
+        (
+            "cynefin",
+            "cynefin-beta\nclear\n \"Runbook\"\ncomplex\n \"Retrospective\"\nclear --> complex : \"Probe\"\n",
+        ),
+        #[cfg(feature = "diagram-er")]
+        (
+            "er",
+            "erDiagram\nCUSTOMER ||--o{ ORDER : places\nCUSTOMER {\nstring name\n}\n",
+        ),
+        #[cfg(feature = "diagram-event-modeling")]
+        (
+            "eventmodeling",
+            "eventmodeling\ntf 01 ui Shop.Cart\ntf 02 cmd Ordering.AddItem ->> 01 { sku: \"SKU-1\" }\n",
+        ),
+        #[cfg(feature = "diagram-flowchart")]
+        (
+            "flowchart",
+            "flowchart LR\nA[Start process] -->|Continue work| B[Finish process]\n",
+        ),
+        #[cfg(feature = "diagram-gantt")]
+        (
+            "gantt",
+            "gantt\ndateFormat YYYY-MM-DD\nsection Preparation\nCompile source :a1, 2024-01-01, 1d\n",
+        ),
+        #[cfg(feature = "diagram-git-graph")]
+        (
+            "gitgraph",
+            "gitGraph:\ncommit id: \"Initial change\"\nbranch feature\ncheckout feature\ncommit id: \"Feature change\"\n",
+        ),
+        #[cfg(feature = "diagram-ishikawa")]
+        (
+            "ishikawa",
+            "ishikawa-beta\nBlurry Photo\n Process\n  Out of focus\n User\n  Wrong position\n",
+        ),
+        #[cfg(feature = "diagram-journey")]
+        (
+            "journey",
+            "journey\nsection Preparation\nCompile source: 5: Developer\n",
+        ),
+        #[cfg(feature = "diagram-kanban")]
+        ("kanban", "kanban\n todo[Todo]\n  task[Compile source]\n"),
+        #[cfg(all(feature = "diagram-mindmap", feature = "layout-cytoscape"))]
+        ("mindmap", "mindmap\n Root\n  First child\n  Second child\n"),
+        #[cfg(feature = "diagram-pie")]
+        (
+            "pie",
+            "pie\n\"Completed tasks\": 40\n\"Pending tasks\": 60\n",
+        ),
+        #[cfg(feature = "diagram-railroad")]
+        (
+            "railroad",
+            "railroad-beta\nrule = sequence(terminal(\"hello\"), nonterminal(\"other\")) ;\nother = terminal(\"world\") ;\n",
+        ),
+        #[cfg(feature = "diagram-requirement")]
+        (
+            "requirement",
+            "requirementDiagram\nrequirement req1 {\nid: 1\ntext: User login\nrisk: high\nverifymethod: analysis\n}\n",
+        ),
+        #[cfg(feature = "diagram-sankey")]
+        ("sankey", "sankey-beta\nSource,Destination,10\n"),
+        #[cfg(feature = "diagram-sequence")]
+        (
+            "sequence",
+            "sequenceDiagram\nparticipant Developer\nparticipant Compiler\nDeveloper->>Compiler: Compile source\nCompiler-->>Developer: Build finished\n",
+        ),
+        #[cfg(feature = "diagram-state")]
+        (
+            "state",
+            "stateDiagram-v2\n[*] --> Idle\nIdle --> Active: start process\nActive --> Idle: stop process\n",
+        ),
+        #[cfg(feature = "diagram-swimlane")]
+        (
+            "swimlane",
+            "swimlane-beta LR\nA[Start process] --> B[Finish process]\n",
+        ),
+        #[cfg(feature = "diagram-timeline")]
+        (
+            "timeline",
+            "timeline\nsection Preparation\n2024 : First release\n2025 : Second release\n",
+        ),
+        #[cfg(feature = "diagram-tree-view")]
+        (
+            "treeview",
+            "treeView-beta\nsrc/\n index.js\n App.tsx\npackage.json\n",
+        ),
+        #[cfg(feature = "diagram-treemap")]
+        (
+            "treemap",
+            "treemap\n\"Root\"\n \"Completed tasks\": 40\n \"Pending tasks\": 60\n",
+        ),
+        #[cfg(feature = "diagram-usecase")]
+        (
+            "usecase",
+            "usecase-beta\nactor Customer(\"Customer\")\nsystemBoundary \"Order system\"\n Checkout(\"Place order\")\nend\nCustomer --> Checkout\n",
+        ),
+        #[cfg(feature = "diagram-wardley")]
+        (
+            "wardley",
+            "wardley-beta\nsize [1100, 800]\nanchor Business [0.95, 0.63]\ncomponent Cup of Tea [0.79, 0.61]\nBusiness -> Cup of Tea\nannotations [1, 0]\nannotation 1,[0.57, 0.16] \"Alternative approaches in research\"\n",
+        ),
+        #[cfg(feature = "diagram-xychart")]
+        (
+            "xychart",
+            "xychart-beta\nx-axis [Jan, Feb, Mar]\ny-axis \"Revenue\" 0 --> 100\nbar [20, 40, 80]\n",
+        ),
+        #[cfg(feature = "diagram-zenuml")]
+        ("zenuml", "zenuml\nAlice->Bob: Hello\nBob-->Alice: Reply\n"),
+    ];
+    let context = font_context();
+    for (family, source) in cases {
+        let output = render(source, Some(context.clone()));
+        assert_native_without_fallback(&output, family);
+    }
+}
+
+#[test]
+fn fixed_geometry_families_do_not_invent_body_measurement() {
+    let cases: &[(&str, &str)] = &[
+        #[cfg(feature = "diagram-packet")]
+        ("packet", "packet-beta\n0-7: \"DATA\"\n8-15: \"TYPE\"\n"),
+        #[cfg(feature = "diagram-quadrant-chart")]
+        (
+            "quadrantchart",
+            "quadrantChart\nx-axis Low --> High\ny-axis Low --> High\nquadrant-1 Advance\nquadrant-2 Evaluate\nquadrant-3 Reconsider\nquadrant-4 Improve\nTask A: [0.3, 0.6]\n",
+        ),
+        #[cfg(feature = "diagram-radar")]
+        (
+            "radar",
+            "radar-beta\naxis Quality,Delivery,Support\ncurve score{1,2,3}\n",
+        ),
+        #[cfg(feature = "diagram-venn")]
+        (
+            "venn",
+            "venn-beta\nset A[\"Core\"]:20\nset B[\"Editor\"]:14\nunion A,B[\"Shared\"]:4\n",
+        ),
+    ];
+    let context = font_context();
+    for (family, source) in cases {
+        let output = render(source, Some(context.clone()));
+        assert!(
+            output.evidence().measurement().entries().is_empty(),
+            "{family} uses source-defined fixed geometry"
+        );
+    }
+}
+
+#[cfg(feature = "diagram-mindmap")]
+#[test]
+fn mindmap_icon_label_viewports_contain_the_selected_font_glyphs() {
+    let context = font_context();
+    let source = "---\nconfig:\n  fontFamily: Cousine\n---\nmindmap\nroot\n  child[Square]\n    plain\n    with icon\n    ::icon(mdi mdi-fire)\n";
+    let mut request = SvgRequest {
+        environment: SvgEnvironment::deterministic()
+            .with_native_font_context(context.clone())
+            .unwrap(),
+        pipeline: Some(merman::svg::SvgPipeline::resvg_safe()),
+        ..Default::default()
+    };
+    request.options.diagram_id = Some("mindmap-font-bounds".to_owned());
+    let RenderOutput::Svg(Some(output)) = Renderer::new()
+        .render(RenderRequest::svg(source, OperationControl::new(), request))
+        .expect("Mindmap renders with explicit fonts")
+    else {
+        panic!("expected Mindmap SVG");
+    };
+    assert_native_without_fallback(&output, "mindmap");
+    let document = roxmltree::Document::parse(output.svg()).unwrap();
+    for label in ["root", "Square", "plain", "with icon"] {
+        let text = document
+            .descendants()
+            .find(|node| node.has_tag_name("text") && node.text() == Some(label))
+            .unwrap_or_else(|| panic!("missing complete label {label:?}"));
+        let viewport = text
+            .ancestors()
+            .find(|node| node.has_tag_name("svg"))
+            .expect("fallback retains its source label viewport");
+        let width: f64 = viewport.attribute("width").unwrap().parse().unwrap();
+        let height: f64 = viewport.attribute("height").unwrap().parse().unwrap();
+        assert!(
+            viewport
+                .attribute("style")
+                .unwrap()
+                .contains("overflow:hidden")
+        );
+        // Shape the emitted text independently, before its viewport can conceal clipped glyphs.
+        let mut probe = output.svg()[text.range()].to_owned();
+        probe.insert_str("<text".len(), " id=\"mindmap-font-probe\"");
+        let probe = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">{probe}</svg>"#
+        );
+        let mut options = usvg::Options::default();
+        context.apply_to_usvg_options(&mut options);
+        let tree = usvg::Tree::from_str(&probe, &options).unwrap();
+        let bounds = tree
+            .node_by_id("mindmap-font-probe")
+            .expect("selected font must actually paint the label")
+            .abs_bounding_box();
+        assert!(
+            bounds.x() >= -0.01
+                && bounds.y() >= -0.01
+                && f64::from(bounds.right()) <= width + 0.01
+                && f64::from(bounds.bottom()) <= height + 0.01,
+            "{label:?}: drawn glyphs {bounds:?} must fit label viewport {width}x{height}"
+        );
+    }
+}
+
+#[test]
+fn rich_text_fallback_shapes_selected_faces_without_svg_only_style_interference() {
+    let context = font_context();
+    let source = r#"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="60"><style>tspan { font-size:64px; opacity:0; stroke:red; }</style><foreignObject width="400" height="60"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Cousine;font-size:16px">Alpha <b>Beta</b> <i>Gamma</i></div></foreignObject></svg>"#;
+    let fallback = merman::svg::foreign_object_label_fallback_svg_text(
+        source,
+        &merman::svg::DeterministicTextMeasurer::default(),
+    );
+    let mut options = usvg::Options::default();
+    context.apply_to_usvg_options(&mut options);
+    let tree = usvg::Tree::from_str(&fallback, &options).expect("fallback SVG parses");
+    fn inspect(
+        group: &usvg::Group,
+        faces: &mut std::collections::BTreeSet<String>,
+        tree: &usvg::Tree,
+    ) {
+        for node in group.children() {
+            match node {
+                usvg::Node::Group(group) => inspect(group, faces, tree),
+                usvg::Node::Text(text) => {
+                    assert!(
+                        !text.flattened().children().is_empty(),
+                        "text must remain visible"
+                    );
+                    for chunk in text.chunks() {
+                        for span in chunk.spans() {
+                            assert_eq!(span.font_size().get(), 16.0);
+                        }
+                    }
+                    for span in text.layouted() {
+                        for glyph in &span.positioned_glyphs {
+                            faces.insert(
+                                tree.console_core_font_database()
+                                    .face(glyph.font)
+                                    .unwrap()
+                                    .post_script_name
+                                    .clone(),
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut faces = std::collections::BTreeSet::new();
+    inspect(tree.root(), &mut faces, &tree);
+    assert_eq!(
+        faces,
+        ["Cousine-Regular", "Cousine-Bold", "Cousine-Italic"]
+            .map(str::to_owned)
+            .into_iter()
+            .collect(),
+        "the actual backend must shape each retained HTML emphasis face"
+    );
+}

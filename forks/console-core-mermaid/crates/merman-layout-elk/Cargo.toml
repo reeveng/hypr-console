@@ -1,0 +1,21 @@
+[package]
+name = "console-core-mermaid-layout-elk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Optional ELK layout engine integration for merman."
+documentation = "https://docs.rs/merman-layout-elk"
+readme = "README.md"
+keywords = ["mermaid", "elk", "layout", "diagrams"]
+categories = ["visualization"]
+
+[dependencies]
+merman-elk-layered.workspace = true
+thiserror.workspace = true
+
+[lib]
+name = "merman_layout_elk"

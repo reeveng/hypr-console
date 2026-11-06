@@ -1,0 +1,1244 @@
+use crate::diagnostic_projection::{
+    DiagnosticCandidate, append_diagnostic_candidates_cancellable, core_error_candidate,
+    no_diagram_candidate, panic_candidate,
+};
+use crate::recovery::editor_recovery_candidates;
+use crate::rules::AnalysisRuleConfig;
+use crate::{
+    AnalysisCancellationToken, AnalysisCancelled, AnalysisCaptureOutcome, AnalysisPayload,
+    AnalysisRejection, AnalysisSyntaxFacts, DiagramParseDisposition, DocumentDiagram,
+    FenceTextIndex, SourceDescriptor, SourceMap,
+};
+#[cfg(feature = "compat-json")]
+use merman_core::{
+    DiagramParseOutcome, DiagramSnapshotCapture,
+    presentation::{MermaidEngine, SourcePresentationConfig},
+};
+use merman_core::{
+    EditorSemanticFacts, Error as CoreError, ParsedEditorFacts, SemanticParseOutcome,
+    SemanticParser, SemanticSnapshotCapture,
+    preprocess::{SourceAppearanceSummary, SourceConfigEvidence},
+};
+#[cfg(feature = "compat-json")]
+use merman_model::presentation::PresentationMetadata;
+use merman_model::{MermaidConfig, SemanticMetadata, warnings::DiagramWarningFact};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::panic::{self, AssertUnwindSafe};
+use std::sync::Arc;
+
+/// Stable binding metadata for the host-document limits owned by analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AnalysisResourceLimitDescriptor {
+    pub stable_id: &'static str,
+    pub phase: &'static str,
+    pub description: &'static str,
+    pub overridable: bool,
+    pub minimum_value: usize,
+}
+
+pub const MAX_DOCUMENT_DIAGRAMS_RESOURCE_LIMIT_ID: &str = "max_document_diagrams";
+pub const ANALYSIS_RESOURCE_LIMIT_DESCRIPTORS: [AnalysisResourceLimitDescriptor; 1] =
+    [AnalysisResourceLimitDescriptor {
+        stable_id: MAX_DOCUMENT_DIAGRAMS_RESOURCE_LIMIT_ID,
+        phase: "document_scan",
+        description: "Maximum Mermaid fences admitted from one Markdown or MDX host document",
+        overridable: true,
+        minimum_value: 0,
+    }];
+
+/// Returns the profile value for an analysis-owned resource limit.
+pub fn analysis_resource_profile_value(
+    profile: merman_model::resources::ResourceProfile,
+    stable_id: &str,
+) -> Option<usize> {
+    if stable_id != MAX_DOCUMENT_DIAGRAMS_RESOURCE_LIMIT_ID {
+        return None;
+    }
+    match profile {
+        merman_model::resources::ResourceProfile::Interactive => Some(256),
+        merman_model::resources::ResourceProfile::Constrained => Some(128),
+        merman_model::resources::ResourceProfile::TrustedNative => Some(1_024),
+        merman_model::resources::ResourceProfile::UnboundedForTrustedInput => None,
+    }
+}
+
+/// Complete analysis configuration, split by generation and diagnostic invalidation scope.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AnalysisOptions {
+    /// Inputs that require a new canonical parse generation when changed.
+    snapshot: AnalysisSnapshotPolicy,
+    /// Inputs that can reproject diagnostics from an existing canonical generation.
+    diagnostics: AnalysisDiagnosticPolicy,
+}
+
+/// Inputs frozen into one canonical analysis generation.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct AnalysisSnapshotPolicy {
+    /// Host document identity and source kind.
+    pub source: SourceDescriptor,
+    /// Mermaid site configuration applied from pinned defaults.
+    pub site_config: Option<MermaidConfig>,
+    /// Deterministic or host-backed runtime values used during parsing.
+    pub runtime_policy: merman_model::runtime::RuntimePolicy,
+    /// Deterministic admission budgets enforced before parser-owned work begins.
+    pub resources: AnalysisResourceLimits,
+}
+
+/// Lightweight analysis admission budgets that are safe to copy into worker tickets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AnalysisResourceLimits {
+    max_source_bytes: Option<usize>,
+    max_document_diagrams: Option<usize>,
+}
+
+impl AnalysisResourceLimits {
+    pub const fn max_source_bytes(self) -> Option<usize> {
+        self.max_source_bytes
+    }
+
+    pub const fn max_document_diagrams(self) -> Option<usize> {
+        self.max_document_diagrams
+    }
+
+    pub fn preflight_document(
+        self,
+        source: &str,
+        descriptor: &SourceDescriptor,
+    ) -> Option<AnalysisRejection> {
+        let cancellation = AnalysisCancellationToken::new();
+        self.preflight_document_cancellable(source, descriptor, &cancellation)
+            .expect("a private analysis cancellation token cannot be cancelled")
+    }
+
+    pub fn preflight_document_cancellable(
+        self,
+        source: &str,
+        descriptor: &SourceDescriptor,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<Option<AnalysisRejection>, AnalysisCancelled> {
+        cancellation.checkpoint()?;
+        if let Some(rejection) = crate::source_limits::source_limit_rejection_cancellable(
+            source,
+            descriptor,
+            self.max_source_bytes,
+            cancellation,
+        )? {
+            return Ok(Some(rejection));
+        }
+        crate::document_limits::document_diagram_limit_rejection_cancellable(
+            source,
+            descriptor,
+            self.max_document_diagrams,
+            cancellation,
+        )
+    }
+}
+
+/// Selects fix materialization for one diagnostic projection.
+///
+/// This policy does not affect snapshot identity or the options JSON contract.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FixGeneration {
+    /// Project diagnostics without constructing replacement edits.
+    #[default]
+    Omit,
+    /// Construct fixes for retained diagnostics using their captured repair evidence.
+    #[cfg(feature = "fixes")]
+    Generate,
+}
+
+/// Inputs that reproject diagnostics without rebuilding parser-owned facts.
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct AnalysisDiagnosticPolicy {
+    /// Enabled rules, profiles, and severity overrides.
+    pub rule_config: AnalysisRuleConfig,
+    /// Replacement generation is explicitly requested per projection.
+    pub fix_generation: FixGeneration,
+}
+
+impl AnalysisDiagnosticPolicy {
+    pub const fn with_fix_generation(mut self, fix_generation: FixGeneration) -> Self {
+        self.fix_generation = fix_generation;
+        self
+    }
+}
+
+impl Default for AnalysisSnapshotPolicy {
+    fn default() -> Self {
+        Self {
+            source: SourceDescriptor::diagram(),
+            site_config: None,
+            runtime_policy: merman_model::runtime::RuntimePolicy::deterministic(),
+            resources: AnalysisResourceLimits::default(),
+        }
+    }
+}
+
+impl AnalysisOptions {
+    pub fn with_source(mut self, source: SourceDescriptor) -> Self {
+        self.snapshot.source = source;
+        self
+    }
+
+    pub fn with_site_config(mut self, site_config: MermaidConfig) -> Self {
+        self.snapshot.site_config = Some(site_config);
+        self
+    }
+
+    pub fn with_fixed_today(mut self, today: Option<merman_model::time::CivilDate>) -> Self {
+        self.snapshot.runtime_policy = self.snapshot.runtime_policy.with_fixed_today(today);
+        self
+    }
+
+    pub fn try_with_fixed_today_at_local_midnight(
+        mut self,
+        today: merman_model::time::CivilDate,
+    ) -> Result<Self, merman_model::runtime::RuntimePolicyError> {
+        self.snapshot.runtime_policy = self
+            .snapshot
+            .runtime_policy
+            .try_with_fixed_today_at_local_midnight(today)?;
+        Ok(self)
+    }
+
+    pub fn try_with_fixed_local_offset_minutes(
+        mut self,
+        offset_minutes: i32,
+    ) -> Result<Self, merman_model::runtime::RuntimePolicyError> {
+        self.snapshot.runtime_policy = self
+            .snapshot
+            .runtime_policy
+            .try_with_fixed_local_offset_minutes(offset_minutes)?;
+        Ok(self)
+    }
+
+    pub fn with_runtime_policy(
+        mut self,
+        runtime_policy: merman_model::runtime::RuntimePolicy,
+    ) -> Self {
+        self.snapshot.runtime_policy = runtime_policy;
+        self
+    }
+
+    pub fn with_operation_context(self, context: merman_model::runtime::OperationContext) -> Self {
+        self.with_runtime_policy(
+            merman_model::runtime::RuntimePolicy::from_operation_context(context),
+        )
+    }
+
+    pub fn try_native() -> Result<Self, merman_model::runtime::RuntimePolicyError> {
+        Ok(
+            Self::default()
+                .with_runtime_policy(merman_model::runtime::RuntimePolicy::try_native()?),
+        )
+    }
+
+    pub fn with_max_source_bytes(mut self, max_source_bytes: Option<usize>) -> Self {
+        self.snapshot.resources.max_source_bytes = max_source_bytes;
+        self
+    }
+
+    pub fn with_max_document_diagrams(mut self, max_document_diagrams: Option<usize>) -> Self {
+        self.snapshot.resources.max_document_diagrams = max_document_diagrams;
+        self
+    }
+
+    pub fn with_rule_config(mut self, rule_config: AnalysisRuleConfig) -> Self {
+        self.diagnostics.rule_config = rule_config;
+        self
+    }
+
+    pub const fn with_fix_generation(mut self, fix_generation: FixGeneration) -> Self {
+        self.diagnostics.fix_generation = fix_generation;
+        self
+    }
+
+    pub fn snapshot_policy(&self) -> &AnalysisSnapshotPolicy {
+        &self.snapshot
+    }
+
+    pub fn diagnostic_policy(&self) -> &AnalysisDiagnosticPolicy {
+        &self.diagnostics
+    }
+
+    pub fn source(&self) -> &SourceDescriptor {
+        &self.snapshot.source
+    }
+
+    pub fn site_config(&self) -> Option<&MermaidConfig> {
+        self.snapshot.site_config.as_ref()
+    }
+
+    pub fn runtime_policy(&self) -> &merman_model::runtime::RuntimePolicy {
+        &self.snapshot.runtime_policy
+    }
+
+    pub fn max_source_bytes(&self) -> Option<usize> {
+        self.snapshot.resources.max_source_bytes()
+    }
+
+    pub fn max_document_diagrams(&self) -> Option<usize> {
+        self.snapshot.resources.max_document_diagrams()
+    }
+
+    pub const fn resource_limits(&self) -> AnalysisResourceLimits {
+        self.snapshot.resources
+    }
+
+    pub fn rule_config(&self) -> &AnalysisRuleConfig {
+        &self.diagnostics.rule_config
+    }
+}
+
+/// Opaque identity for one analyzer environment and its snapshot-affecting policy.
+#[derive(Clone)]
+pub struct AnalysisEnvironmentIdentity(Arc<()>);
+
+impl AnalysisEnvironmentIdentity {
+    fn new() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl fmt::Debug for AnalysisEnvironmentIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("AnalysisEnvironmentIdentity(..)")
+    }
+}
+
+impl PartialEq for AnalysisEnvironmentIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for AnalysisEnvironmentIdentity {}
+
+impl Hash for AnalysisEnvironmentIdentity {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Analyzer {
+    backend: AnalysisBackend,
+    options: AnalysisOptions,
+    environment_identity: AnalysisEnvironmentIdentity,
+}
+
+#[derive(Debug, Clone)]
+enum AnalysisBackend {
+    Semantic(SemanticParser),
+    #[cfg(feature = "compat-json")]
+    Custom(Box<MermaidEngine>),
+}
+
+impl AnalysisBackend {
+    fn capture(
+        &self,
+        source: &str,
+        mode: CaptureMode,
+        control: &merman_model::OperationControl,
+    ) -> merman_model::OperationControlResult<DiagramAnalysisEvidence> {
+        match self {
+            Self::Semantic(parser) => match mode {
+                CaptureMode::DiagnosticsOnly => {
+                    parser.capture_diagram_recovery_snapshot_controlled_sync(source, control)
+                }
+                CaptureMode::RichFacts => {
+                    parser.capture_diagram_snapshot_controlled_sync(source, control)
+                }
+            }
+            .map(DiagramAnalysisEvidence::from_semantic_capture),
+            #[cfg(feature = "compat-json")]
+            Self::Custom(engine) => engine
+                .capture_diagram_snapshot_controlled_sync(source, control)
+                .map(DiagramAnalysisEvidence::from_mermaid_capture),
+        }
+    }
+
+    fn with_options(&self, options: &AnalysisOptions) -> Self {
+        match self {
+            Self::Semantic(_) => Self::Semantic(semantic_parser_from_options(options)),
+            #[cfg(feature = "compat-json")]
+            Self::Custom(engine) => Self::Custom(Box::new(apply_options_to_engine(
+                (**engine).clone(),
+                options,
+            ))),
+        }
+    }
+
+    fn begin_operation(
+        &self,
+    ) -> Result<merman_model::runtime::OperationContext, merman_model::runtime::RuntimePolicyError>
+    {
+        match self {
+            Self::Semantic(parser) => parser.begin_operation(),
+            #[cfg(feature = "compat-json")]
+            Self::Custom(engine) => engine.begin_operation(),
+        }
+    }
+
+    fn with_operation_context(self, context: merman_model::runtime::OperationContext) -> Self {
+        match self {
+            Self::Semantic(parser) => Self::Semantic(parser.with_operation_context(context)),
+            #[cfg(feature = "compat-json")]
+            Self::Custom(engine) => {
+                Self::Custom(Box::new((*engine).with_operation_context(context)))
+            }
+        }
+    }
+}
+
+impl Default for Analyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Analyzer {
+    pub fn new() -> Self {
+        Self::with_options(AnalysisOptions::default())
+    }
+
+    pub fn with_options(options: AnalysisOptions) -> Self {
+        let backend = AnalysisBackend::Semantic(semantic_parser_from_options(&options));
+        Self {
+            backend,
+            options,
+            environment_identity: AnalysisEnvironmentIdentity::new(),
+        }
+    }
+
+    /// Creates an analyzer with a full Mermaid compatibility engine and custom registries.
+    ///
+    /// Registry customizations on `engine` are preserved. Runtime policy and site configuration
+    /// are always taken from `options`, so snapshots cannot describe a different environment from
+    /// the one used by the parser.
+    /// This explicit adapter evaluates presentation, including visual themes. Default analyzers
+    /// always use the canonical semantic parser, even when this feature is enabled.
+    #[cfg(feature = "compat-json")]
+    pub fn with_mermaid_engine(engine: MermaidEngine, options: AnalysisOptions) -> Self {
+        let engine = apply_options_to_engine(engine, &options);
+        Self {
+            backend: AnalysisBackend::Custom(Box::new(engine)),
+            options,
+            environment_identity: AnalysisEnvironmentIdentity::new(),
+        }
+    }
+
+    pub fn options(&self) -> &AnalysisOptions {
+        &self.options
+    }
+
+    pub fn environment_identity(&self) -> &AnalysisEnvironmentIdentity {
+        &self.environment_identity
+    }
+
+    /// Derives a diagnostics-only view without changing the parser environment identity.
+    pub fn with_diagnostic_policy(&self, policy: AnalysisDiagnosticPolicy) -> Self {
+        let mut options = self.options.clone();
+        options.diagnostics = policy;
+        Self {
+            backend: self.backend.clone(),
+            options,
+            environment_identity: self.environment_identity.clone(),
+        }
+    }
+
+    /// Derives an analyzer with an exact snapshot policy and a new environment identity.
+    pub fn with_snapshot_policy(&self, policy: AnalysisSnapshotPolicy) -> Self {
+        let options = AnalysisOptions {
+            snapshot: policy,
+            diagnostics: self.options.diagnostics.clone(),
+        };
+        Self {
+            backend: self.backend.with_options(&options),
+            options,
+            environment_identity: AnalysisEnvironmentIdentity::new(),
+        }
+    }
+
+    pub(crate) fn with_capture_source(&self, source: SourceDescriptor) -> Self {
+        if self.options.source() == &source {
+            return self.clone();
+        }
+        let mut options = self.options.clone();
+        options.snapshot.source = source;
+        Self {
+            backend: self.backend.clone(),
+            options,
+            environment_identity: AnalysisEnvironmentIdentity::new(),
+        }
+    }
+
+    /// Generates diagnostics for an explicit request-local source descriptor.
+    pub fn analyze_source_cancellable(
+        &self,
+        source: Arc<str>,
+        descriptor: SourceDescriptor,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<AnalysisPayload, AnalysisCancelled> {
+        self.with_capture_source(descriptor)
+            .analyze_cancellable(source, cancellation)
+    }
+
+    /// Generates facts for an explicit request-local source descriptor.
+    pub fn analyze_source_facts_cancellable(
+        &self,
+        source: Arc<str>,
+        descriptor: SourceDescriptor,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<crate::AnalysisFactsPayload, AnalysisCancelled> {
+        self.with_capture_source(descriptor)
+            .analyze_facts_cancellable(source, cancellation)
+    }
+
+    pub(crate) fn try_for_operation(
+        &self,
+    ) -> Result<Self, merman_model::runtime::RuntimePolicyError> {
+        let context = self.backend.begin_operation()?;
+        Ok(Self {
+            backend: self.backend.clone().with_operation_context(context.clone()),
+            options: self.options.clone().with_operation_context(context),
+            environment_identity: self.environment_identity.clone(),
+        })
+    }
+
+    pub(crate) fn runtime_policy_candidates(
+        &self,
+        error: merman_model::runtime::RuntimePolicyError,
+        source_map: &SourceMap,
+    ) -> Vec<DiagnosticCandidate> {
+        vec![core_error_candidate(&CoreError::from(error), source_map).candidate]
+    }
+
+    pub fn analyze_generation(&self, source: &str) -> AnalysisCaptureOutcome {
+        crate::document::analyze_document_generation(source, self, self.options.source().clone())
+    }
+
+    /// Captures a generation while retaining the caller's immutable source allocation.
+    pub fn analyze_generation_shared(&self, source: Arc<str>) -> AnalysisCaptureOutcome {
+        crate::document::analyze_document_generation_shared(
+            source,
+            self,
+            self.options.source().clone(),
+        )
+    }
+
+    /// Captures a generation cooperatively without promoting borrowed text inside the operation.
+    pub fn analyze_generation_shared_cancellable(
+        &self,
+        source: Arc<str>,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<AnalysisCaptureOutcome, AnalysisCancelled> {
+        crate::document::analyze_document_generation_shared_cancellable(
+            source,
+            self,
+            self.options.source().clone(),
+            cancellation,
+        )
+    }
+
+    pub fn analyze(&self, source: &str) -> AnalysisPayload {
+        crate::document::analyze_document(source, self, self.options.source().clone())
+    }
+
+    pub fn analyze_facts(&self, source: &str) -> crate::AnalysisFactsPayload {
+        match self.analyze_generation(source) {
+            AnalysisCaptureOutcome::Ready(generation) => {
+                generation.to_facts_payload(self.options.diagnostic_policy())
+            }
+            AnalysisCaptureOutcome::Rejected(rejection) => {
+                crate::AnalysisFactsPayload::from_rejection(&rejection)
+            }
+        }
+    }
+
+    pub fn analyze_json(&self, source: &str) -> Result<Vec<u8>, serde_json::Error> {
+        self.analyze(source).to_json_bytes()
+    }
+
+    pub fn analyze_facts_json(&self, source: &str) -> Result<Vec<u8>, serde_json::Error> {
+        self.analyze_facts(source).to_json_bytes()
+    }
+
+    /// Generates and projects diagnostics cooperatively using one caller-owned cancellation token.
+    pub fn analyze_cancellable(
+        &self,
+        source: Arc<str>,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<AnalysisPayload, AnalysisCancelled> {
+        crate::document::analyze_document_shared_cancellable(
+            source,
+            self,
+            self.options.source().clone(),
+            cancellation,
+        )
+    }
+
+    /// Generates and projects the facts contract cooperatively using one cancellation token.
+    pub fn analyze_facts_cancellable(
+        &self,
+        source: Arc<str>,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<crate::AnalysisFactsPayload, AnalysisCancelled> {
+        match self.analyze_generation_shared_cancellable(source, cancellation)? {
+            AnalysisCaptureOutcome::Ready(generation) => generation
+                .to_facts_payload_cancellable(self.options.diagnostic_policy(), cancellation),
+            AnalysisCaptureOutcome::Rejected(rejection) => {
+                cancellation.checkpoint()?;
+                Ok(crate::AnalysisFactsPayload::from_rejection(&rejection))
+            }
+        }
+    }
+
+    pub(crate) fn capture_document_diagram_cancellable(
+        &self,
+        diagram: &DocumentDiagram,
+        document_source_map: &SourceMap,
+        mode: CaptureMode,
+        control: CaptureCancellation<'_>,
+    ) -> Result<CapturedDiagram, AnalysisCancelled> {
+        let cancellation = control.cancellation();
+        cancellation.checkpoint()?;
+        let source_map =
+            source_map_for_diagram_cancellable(diagram, document_source_map, cancellation)?;
+        let evidence = match control {
+            CaptureCancellation::RecoverParserCancellation(_) => {
+                self.capture_evidence(diagram.text.as_str(), mode)
+            }
+            CaptureCancellation::Propagate(_) => {
+                self.capture_evidence_cancellable(diagram.text.as_str(), mode, cancellation)?
+            }
+        };
+        cancellation.checkpoint()?;
+        let mut captured = self.capture_from_evidence_cancellable(
+            diagram.text.as_str(),
+            &source_map,
+            &evidence,
+            mode,
+            cancellation,
+        )?;
+        captured.appearance = evidence.source_config().appearance().clone();
+        cancellation.checkpoint()?;
+        captured.candidates =
+            crate::document::normalize_document_diagnostic_candidates_cancellable(
+                document_source_map,
+                diagram,
+                captured.candidates,
+                cancellation,
+            )?;
+        cancellation.checkpoint()?;
+        Ok(captured)
+    }
+
+    fn capture_evidence(&self, source: &str, mode: CaptureMode) -> DiagramAnalysisEvidence {
+        let cancellation = AnalysisCancellationToken::new();
+        self.capture_evidence_cancellable(source, mode, &cancellation)
+            .unwrap_or_else(|_| DiagramAnalysisEvidence::OperationError {
+                error: CoreError::from(merman_model::OperationCancelled {
+                    phase: merman_model::OperationPhase::Analysis,
+                    reason: merman_model::CancelReason::Requested,
+                }),
+                source_config: SourceConfigEvidence::default(),
+            })
+    }
+
+    fn capture_evidence_cancellable(
+        &self,
+        source: &str,
+        mode: CaptureMode,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<DiagramAnalysisEvidence, AnalysisCancelled> {
+        cancellation.checkpoint()?;
+        if source_is_blank_cancellable(source, cancellation)? {
+            return Ok(DiagramAnalysisEvidence::EmptySource {
+                source_config: SourceConfigEvidence::default(),
+            });
+        }
+        let parse_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.backend
+                .capture(source, mode, cancellation.operation_control())
+        }));
+        let evidence = match parse_result {
+            Err(panic_payload) => DiagramAnalysisEvidence::Panic {
+                message: panic_message(panic_payload.as_ref()).to_string(),
+                metadata: None,
+                source_config: SourceConfigEvidence::default(),
+            },
+            Ok(Err(_)) => return Err(AnalysisCancelled),
+            Ok(Ok(evidence)) => evidence,
+        };
+        cancellation.checkpoint()?;
+        Ok(evidence)
+    }
+
+    fn capture_from_evidence_cancellable(
+        &self,
+        source: &str,
+        source_map: &SourceMap,
+        evidence: &DiagramAnalysisEvidence,
+        mode: CaptureMode,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<CapturedDiagram, AnalysisCancelled> {
+        cancellation.checkpoint()?;
+        let authored_config = match evidence {
+            DiagramAnalysisEvidence::Parsed { metadata, .. }
+            | DiagramAnalysisEvidence::ParseFailed { metadata, .. }
+            | DiagramAnalysisEvidence::Panic {
+                metadata: Some(metadata),
+                ..
+            } => Some(&metadata.config),
+            _ => None,
+        };
+        let source_lints = crate::rules::source_lint_candidates_cancellable(
+            source,
+            source_map,
+            authored_config,
+            evidence.source_config(),
+            cancellation,
+        )?;
+        cancellation.checkpoint()?;
+        let unavailable_syntax = |diagram_type| match mode {
+            CaptureMode::DiagnosticsOnly => None,
+            CaptureMode::RichFacts => Some(AnalysisSyntaxFacts::unavailable(diagram_type)),
+        };
+        match evidence {
+            DiagramAnalysisEvidence::EmptySource { .. } => {
+                let candidates = vec![no_diagram_candidate(source_map)];
+                Self::finish_capture(
+                    candidates,
+                    unavailable_syntax(None),
+                    DiagramParseDisposition::Unavailable,
+                    cancellation,
+                )
+            }
+            DiagramAnalysisEvidence::Panic { message, .. } => {
+                let mut candidates = source_lints;
+                candidates.push(panic_candidate(message, source_map));
+                Self::finish_capture(
+                    candidates,
+                    unavailable_syntax(None),
+                    DiagramParseDisposition::Unavailable,
+                    cancellation,
+                )
+            }
+            #[cfg(feature = "compat-json")]
+            DiagramAnalysisEvidence::NoSnapshot { .. } => Self::finish_capture(
+                source_lints,
+                unavailable_syntax(None),
+                DiagramParseDisposition::Unavailable,
+                cancellation,
+            ),
+            DiagramAnalysisEvidence::OperationError { error, .. } => {
+                let projection = core_error_candidate(error, source_map);
+                let mut candidates = source_lints;
+                candidates.push(projection.candidate);
+                Self::finish_capture(
+                    candidates,
+                    unavailable_syntax(projection.diagram_type),
+                    DiagramParseDisposition::Unavailable,
+                    cancellation,
+                )
+            }
+            DiagramAnalysisEvidence::Parsed {
+                metadata,
+                warning_facts,
+                editor_facts,
+                source_config,
+            } => self.analyze_parsed_diagram_cancellable(
+                DiagramCaptureInput {
+                    source_map,
+                    metadata,
+                    editor_facts: editor_facts.as_ref(),
+                },
+                ParsedDiagramCaptureInput {
+                    warning_facts,
+                    source_config,
+                },
+                source_lints,
+                mode,
+                cancellation,
+            ),
+            DiagramAnalysisEvidence::ParseFailed {
+                metadata,
+                error,
+                editor_facts,
+                ..
+            } => self.analyze_parse_error_cancellable(
+                DiagramCaptureInput {
+                    source_map,
+                    metadata,
+                    editor_facts: editor_facts.as_ref(),
+                },
+                source_lints,
+                error,
+                mode,
+                cancellation,
+            ),
+        }
+    }
+
+    fn analyze_parsed_diagram_cancellable(
+        &self,
+        input: DiagramCaptureInput<'_>,
+        parsed: ParsedDiagramCaptureInput<'_>,
+        mut candidates: Vec<DiagnosticCandidate>,
+        mode: CaptureMode,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<CapturedDiagram, AnalysisCancelled> {
+        let DiagramCaptureInput {
+            source_map,
+            metadata,
+            editor_facts,
+        } = input;
+        let ParsedDiagramCaptureInput {
+            warning_facts,
+            source_config,
+        } = parsed;
+        cancellation.checkpoint()?;
+        let diagram_type = metadata.diagram_type.as_str();
+        append_diagnostic_candidates_cancellable(
+            &mut candidates,
+            crate::rules::parsed_source_lint_candidates_cancellable(
+                source_map,
+                diagram_type,
+                source_config,
+                cancellation,
+            )?,
+            cancellation,
+        )?;
+        append_diagnostic_candidates_cancellable(
+            &mut candidates,
+            crate::rules::semantic_warning_candidates_cancellable(
+                diagram_type,
+                warning_facts,
+                source_map,
+                cancellation,
+            )?,
+            cancellation,
+        )?;
+        let editor_candidates = Self::editor_recovery_candidates_from_facts_cancellable(
+            diagram_type,
+            source_map,
+            editor_facts,
+            cancellation,
+        )?;
+        append_diagnostic_candidates_cancellable(&mut candidates, editor_candidates, cancellation)?;
+        let syntax = match mode {
+            CaptureMode::DiagnosticsOnly => None,
+            CaptureMode::RichFacts => {
+                let effective_layout = metadata.effective_layout.clone();
+                Some(
+                    AnalysisSyntaxFacts::new(
+                        Some(diagram_type.to_string()),
+                        Self::editor_text_index_from_facts_cancellable(editor_facts, cancellation)?,
+                    )
+                    .with_effective_layout(effective_layout),
+                )
+            }
+        };
+        Self::finish_capture(
+            candidates,
+            syntax,
+            DiagramParseDisposition::Parsed,
+            cancellation,
+        )
+    }
+
+    fn analyze_parse_error_cancellable(
+        &self,
+        input: DiagramCaptureInput<'_>,
+        mut candidates: Vec<DiagnosticCandidate>,
+        error: &CoreError,
+        mode: CaptureMode,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<CapturedDiagram, AnalysisCancelled> {
+        let DiagramCaptureInput {
+            source_map,
+            metadata: meta,
+            editor_facts,
+        } = input;
+        cancellation.checkpoint()?;
+        let core_diagnostic = core_error_candidate(error, source_map);
+        candidates.push(
+            core_diagnostic
+                .candidate
+                .with_parse_location(core_diagnostic.parse_location),
+        );
+        let diagram_type = meta.diagram_type.as_str();
+        append_diagnostic_candidates_cancellable(
+            &mut candidates,
+            Self::editor_recovery_candidates_from_facts_cancellable(
+                diagram_type,
+                source_map,
+                editor_facts,
+                cancellation,
+            )?,
+            cancellation,
+        )?;
+        let syntax = match mode {
+            CaptureMode::DiagnosticsOnly => None,
+            CaptureMode::RichFacts => {
+                let effective_layout = meta.effective_layout.clone();
+                Some(
+                    AnalysisSyntaxFacts::new(
+                        Some(diagram_type.to_string()),
+                        Self::editor_text_index_from_facts_cancellable(editor_facts, cancellation)?,
+                    )
+                    .with_effective_layout(effective_layout),
+                )
+            }
+        };
+        let disposition = if matches!(error, CoreError::UnsupportedDiagram { .. }) {
+            // Recognized source without a parser has no recoverable semantic outcome.
+            DiagramParseDisposition::Unavailable
+        } else {
+            DiagramParseDisposition::Recovered
+        };
+        Self::finish_capture(candidates, syntax, disposition, cancellation)
+    }
+
+    fn editor_recovery_candidates_from_facts_cancellable(
+        diagram_type: &str,
+        source_map: &SourceMap,
+        facts: Option<&EditorSemanticFacts>,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<Vec<DiagnosticCandidate>, AnalysisCancelled> {
+        let Some(facts) = facts else {
+            return Ok(Vec::new());
+        };
+
+        let mut candidates = Vec::with_capacity(facts.diagnostics.len());
+        for batch in facts.diagnostics.chunks(128) {
+            cancellation.checkpoint()?;
+            append_diagnostic_candidates_cancellable(
+                &mut candidates,
+                editor_recovery_candidates(batch.iter().cloned(), diagram_type, source_map),
+                cancellation,
+            )?;
+        }
+        cancellation.checkpoint()?;
+        Ok(candidates)
+    }
+
+    fn editor_text_index_from_facts_cancellable(
+        facts: Option<&EditorSemanticFacts>,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<FenceTextIndex, AnalysisCancelled> {
+        match facts {
+            Some(facts) => FenceTextIndex::from_core_facts_cancellable(facts, cancellation),
+            None => Ok(FenceTextIndex::default()),
+        }
+    }
+
+    fn finish_capture(
+        candidates: Vec<DiagnosticCandidate>,
+        syntax: Option<AnalysisSyntaxFacts>,
+        parse_disposition: DiagramParseDisposition,
+        cancellation: &AnalysisCancellationToken,
+    ) -> Result<CapturedDiagram, AnalysisCancelled> {
+        cancellation.checkpoint()?;
+        Ok(CapturedDiagram {
+            candidates,
+            syntax,
+            parse_disposition,
+            appearance: SourceAppearanceSummary::Unknown,
+        })
+    }
+}
+
+fn source_map_for_diagram_cancellable(
+    diagram: &DocumentDiagram,
+    document_source_map: &SourceMap,
+    cancellation: &AnalysisCancellationToken,
+) -> Result<SourceMap, AnalysisCancelled> {
+    if diagram.is_fence() {
+        SourceMap::from_shared_text_cancellable(diagram.text.clone(), cancellation)
+    } else {
+        cancellation.checkpoint()?;
+        Ok(document_source_map.clone())
+    }
+}
+
+fn source_is_blank_cancellable(
+    source: &str,
+    cancellation: &AnalysisCancellationToken,
+) -> Result<bool, AnalysisCancelled> {
+    const CHECKPOINT_INTERVAL_BYTES: usize = 4 * 1024;
+
+    cancellation.checkpoint()?;
+    let mut checkpoint_offset = 0;
+    for (offset, character) in source.char_indices() {
+        if offset.saturating_sub(checkpoint_offset) >= CHECKPOINT_INTERVAL_BYTES {
+            cancellation.checkpoint()?;
+            checkpoint_offset = offset;
+        }
+        if !character.is_whitespace() {
+            return Ok(false);
+        }
+    }
+    cancellation.checkpoint()?;
+    Ok(true)
+}
+
+#[derive(Debug)]
+struct AnalysisMetadata {
+    diagram_type: String,
+    config: MermaidConfig,
+    effective_layout: Option<String>,
+}
+
+impl From<SemanticMetadata> for AnalysisMetadata {
+    fn from(metadata: SemanticMetadata) -> Self {
+        Self {
+            diagram_type: metadata.diagram_type,
+            config: metadata.config,
+            effective_layout: metadata
+                .semantic_config
+                .get_str("layout")
+                .map(str::to_owned),
+        }
+    }
+}
+
+#[cfg(feature = "compat-json")]
+impl From<PresentationMetadata> for AnalysisMetadata {
+    fn from(metadata: PresentationMetadata) -> Self {
+        Self {
+            diagram_type: metadata.diagram_type,
+            config: metadata.config,
+            effective_layout: metadata
+                .effective_config
+                .get_str("layout")
+                .map(str::to_owned),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum DiagramAnalysisEvidence {
+    EmptySource {
+        source_config: SourceConfigEvidence,
+    },
+    Panic {
+        message: String,
+        metadata: Option<AnalysisMetadata>,
+        source_config: SourceConfigEvidence,
+    },
+    #[cfg(feature = "compat-json")]
+    NoSnapshot {
+        source_config: SourceConfigEvidence,
+    },
+    OperationError {
+        error: CoreError,
+        source_config: SourceConfigEvidence,
+    },
+    Parsed {
+        metadata: AnalysisMetadata,
+        warning_facts: Vec<DiagramWarningFact>,
+        editor_facts: Option<EditorSemanticFacts>,
+        source_config: SourceConfigEvidence,
+    },
+    ParseFailed {
+        metadata: AnalysisMetadata,
+        error: CoreError,
+        editor_facts: Option<EditorSemanticFacts>,
+        source_config: SourceConfigEvidence,
+    },
+}
+
+impl DiagramAnalysisEvidence {
+    fn from_semantic_capture(capture: SemanticSnapshotCapture) -> Self {
+        match capture {
+            SemanticSnapshotCapture::Snapshot(snapshot) => {
+                let (metadata, outcome, editor_facts, source_config) =
+                    snapshot.into_parts_with_source_config();
+                let metadata = metadata.into();
+                let editor_facts = available_editor_facts(editor_facts);
+                match outcome {
+                    SemanticParseOutcome::Parsed(model) => Self::Parsed {
+                        metadata,
+                        warning_facts: model.into_warning_facts(),
+                        editor_facts,
+                        source_config,
+                    },
+                    SemanticParseOutcome::Failed(error) => Self::ParseFailed {
+                        metadata,
+                        error,
+                        editor_facts,
+                        source_config,
+                    },
+                    SemanticParseOutcome::Panicked(message) => Self::Panic {
+                        message,
+                        metadata: Some(metadata),
+                        source_config,
+                    },
+                }
+            }
+            SemanticSnapshotCapture::Failed {
+                error,
+                source_config,
+            } => Self::OperationError {
+                error,
+                source_config,
+            },
+            SemanticSnapshotCapture::Panicked {
+                panic,
+                source_config,
+            } => Self::Panic {
+                message: panic.message().to_owned(),
+                metadata: None,
+                source_config,
+            },
+        }
+    }
+
+    #[cfg(feature = "compat-json")]
+    fn from_mermaid_capture(capture: DiagramSnapshotCapture) -> Self {
+        match capture {
+            DiagramSnapshotCapture::Snapshot(Some(snapshot)) => {
+                let (metadata, outcome, editor_facts, source_config) =
+                    snapshot.into_parts_with_source_config();
+                let metadata = metadata.into();
+                let editor_facts = available_editor_facts(editor_facts);
+                match outcome {
+                    DiagramParseOutcome::Parsed { warning_facts, .. } => Self::Parsed {
+                        metadata,
+                        warning_facts,
+                        editor_facts,
+                        source_config,
+                    },
+                    DiagramParseOutcome::Failed(error) => Self::ParseFailed {
+                        metadata,
+                        error,
+                        editor_facts,
+                        source_config,
+                    },
+                    DiagramParseOutcome::Panicked(message) => Self::Panic {
+                        message,
+                        metadata: Some(metadata),
+                        source_config,
+                    },
+                }
+            }
+            DiagramSnapshotCapture::Snapshot(None) => Self::NoSnapshot {
+                source_config: SourceConfigEvidence::default(),
+            },
+            DiagramSnapshotCapture::Failed {
+                error,
+                source_config,
+            } => Self::OperationError {
+                error,
+                source_config,
+            },
+            DiagramSnapshotCapture::Panicked {
+                panic,
+                source_config,
+            } => Self::Panic {
+                message: panic.message().to_owned(),
+                metadata: None,
+                source_config,
+            },
+        }
+    }
+
+    fn source_config(&self) -> &SourceConfigEvidence {
+        match self {
+            Self::EmptySource { source_config }
+            | Self::Panic { source_config, .. }
+            | Self::OperationError { source_config, .. }
+            | Self::Parsed { source_config, .. }
+            | Self::ParseFailed { source_config, .. } => source_config,
+            #[cfg(feature = "compat-json")]
+            Self::NoSnapshot { source_config } => source_config,
+        }
+    }
+}
+
+fn available_editor_facts(facts: ParsedEditorFacts) -> Option<EditorSemanticFacts> {
+    match facts {
+        ParsedEditorFacts::Available(facts) => Some(facts),
+        ParsedEditorFacts::Unavailable => None,
+    }
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("panic while analyzing Mermaid source")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CaptureMode {
+    DiagnosticsOnly,
+    RichFacts,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CaptureCancellation<'a> {
+    RecoverParserCancellation(&'a AnalysisCancellationToken),
+    Propagate(&'a AnalysisCancellationToken),
+}
+
+impl<'a> CaptureCancellation<'a> {
+    pub(crate) const fn cancellation(self) -> &'a AnalysisCancellationToken {
+        match self {
+            Self::RecoverParserCancellation(cancellation) | Self::Propagate(cancellation) => {
+                cancellation
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DiagramCaptureInput<'a> {
+    source_map: &'a SourceMap,
+    metadata: &'a AnalysisMetadata,
+    editor_facts: Option<&'a EditorSemanticFacts>,
+}
+
+#[derive(Clone, Copy)]
+struct ParsedDiagramCaptureInput<'a> {
+    warning_facts: &'a [DiagramWarningFact],
+    source_config: &'a SourceConfigEvidence,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CapturedDiagram {
+    pub(crate) candidates: Vec<DiagnosticCandidate>,
+    pub(crate) syntax: Option<AnalysisSyntaxFacts>,
+    pub(crate) parse_disposition: DiagramParseDisposition,
+    pub(crate) appearance: SourceAppearanceSummary,
+}
+
+fn semantic_parser_from_options(options: &AnalysisOptions) -> SemanticParser {
+    let parser = SemanticParser::new().with_runtime_policy(options.runtime_policy().clone());
+    match options.site_config() {
+        Some(config) => parser.with_site_config(config.clone()),
+        None => parser,
+    }
+}
+
+#[cfg(feature = "compat-json")]
+fn apply_options_to_engine(engine: MermaidEngine, options: &AnalysisOptions) -> MermaidEngine {
+    engine
+        .with_exact_site_config(
+            options
+                .site_config()
+                .cloned()
+                .map(SourcePresentationConfig::from_config),
+        )
+        .with_runtime_policy(options.runtime_policy().clone())
+}
+
+#[cfg(test)]
+mod tests;

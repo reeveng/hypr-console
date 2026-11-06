@@ -1,0 +1,4 @@
+package = "fontconfig-parser"
+version = "0.5.8"
+repository = "https://github.com/Riey/fontconfig-parser"
+revision = "b8a29fbb7fcf217b3cb74c0e77040e1d61a61922"

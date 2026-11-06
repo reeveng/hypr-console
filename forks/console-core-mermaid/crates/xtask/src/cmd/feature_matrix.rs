@@ -1,0 +1,2985 @@
+//! Structured Cargo feature-matrix verification.
+
+use super::artifact_profiles::CargoPackage;
+use crate::XtaskError;
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
+use std::process::Command;
+
+#[allow(dead_code)]
+mod capability_contract {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../merman-bindings-core/src/generated/capability_surface.rs"
+    ));
+}
+
+const TRANSPORT_TARGETS: &[(&str, &str)] = &[
+    ("merman-android-jni", "native"),
+    ("merman-ffi", "native"),
+    ("merman-typst-plugin", "typst"),
+    ("merman-uniffi", "native"),
+    ("merman-wasi", "native"),
+    ("merman-wasm", "web"),
+];
+const HOST_TRANSPORT_PACKAGES: &[&str] = &["merman-ffi", "merman-uniffi"];
+const EMPTY_DEFAULT_PACKAGES: &[&str] = &[
+    "merman-analysis",
+    "merman-android-jni",
+    "merman-ascii",
+    "merman-bindings-core",
+    "merman-core",
+    "merman-editor-core",
+    "merman-export",
+    "merman-ffi",
+    "merman-lsp",
+    "merman-model",
+    "merman-markup",
+    "merman-render",
+    "merman-typst-plugin",
+    "merman-uniffi",
+    "merman-wasi",
+    "merman-wasm",
+];
+const PUBLIC_FEATURE_ALLOWLIST_EXTRAS: &[(&str, &[&str])] = &[
+    (
+        "merman",
+        &[
+            "complete-svg",
+            "complete-svg-elk",
+            "system-fonts",
+            "experimental-system-font-query",
+            "presentation",
+            "compat-json",
+            "editor-facts",
+        ],
+    ),
+    ("merman-analysis", &["compat-json", "fixes"]),
+    ("merman-android-jni", &["native-runtime", "system-fonts"]),
+    ("merman-ascii", &[]),
+    ("merman-bindings-core", &["native-runtime", "system-fonts"]),
+    (
+        "merman-cli",
+        &["system-fonts", "experimental-system-font-query"],
+    ),
+    (
+        "merman-core",
+        &[
+            "compat-json",
+            "editor-facts",
+            "operation-deadlines",
+            "presentation",
+            "terminal-text",
+            "test-support",
+        ],
+    ),
+    ("merman-editor-core", &[]),
+    (
+        "merman-export",
+        &[
+            "bundled-fonts",
+            "system-fonts",
+            "experimental-system-font-query",
+        ],
+    ),
+    (
+        "merman-ffi",
+        &["bundled-fonts", "native-runtime", "system-fonts"],
+    ),
+    ("merman-lsp", &["stdio"]),
+    (
+        "merman-model",
+        &[
+            "compat-json",
+            "presentation-data",
+            "html-entities",
+            "terminal-text",
+            "test-support",
+            "operation-deadlines",
+        ],
+    ),
+    ("merman-markup", &["html", "url", "color"]),
+    ("merman-render", &[]),
+    ("merman-rustdoc", &["complete-svg", "complete-svg-elk"]),
+    ("merman-typst-plugin", &[]),
+    (
+        "merman-uniffi",
+        &["binding-generation", "native-runtime", "system-fonts"],
+    ),
+    ("merman-wasi", &["bundled-fonts"]),
+    ("merman-wasm", &[]),
+    ("roughr-merman", &["host-random", "legacy-compat"]),
+];
+const SVG_ENGINE_FEATURES: &[&str] = &["layout-cytoscape", "layout-elk", "math"];
+const RETIRED_BINDING_RUNTIME_FEATURES: &[&str] =
+    &["system-clock", "system-random", "system-timezone"];
+const BINDINGS_CORE_NATIVE_RUNTIME_EDGES: &[&str] = &[
+    "merman/system-clock",
+    "merman/system-random",
+    "merman/system-timezone",
+    "merman-analysis?/system-clock",
+    "merman-analysis?/system-random",
+    "merman-analysis?/system-timezone",
+];
+const NATIVE_RUNTIME_FORWARDERS: &[(&str, &str)] = &[
+    ("merman-android-jni", "merman-bindings-core"),
+    ("merman-ffi", "merman-bindings-core"),
+    ("merman-uniffi", "merman-bindings-core"),
+];
+const LOCAL_FONT_FEATURE_CONTRACTS: &[(&str, &str, &str)] = &[
+    ("merman-export", "bundled-fonts", "native-fonts"),
+    ("merman-bindings-core", "native-fonts", "svg"),
+    ("merman-bindings-core", "system-fonts", "native-fonts"),
+    ("merman-ffi", "native-fonts", "svg"),
+    ("merman-ffi", "bundled-fonts", "native-fonts"),
+    ("merman-ffi", "system-fonts", "native-fonts"),
+    ("merman-wasi", "native-fonts", "svg"),
+    ("merman-wasi", "bundled-fonts", "native-fonts"),
+];
+const PRODUCT_FEATURE_CONTRACTS: usize = 3;
+
+fn transport_packages() -> impl Iterator<Item = &'static str> {
+    TRANSPORT_TARGETS.iter().map(|(package, _)| *package)
+}
+
+fn wasm_transport_packages() -> impl Iterator<Item = &'static str> {
+    TRANSPORT_TARGETS
+        .iter()
+        .filter_map(|(package, target)| matches!(*target, "typst" | "web").then_some(*package))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FeatureForwardingContract {
+    package: &'static str,
+    dependency: &'static str,
+    features: &'static [&'static str],
+}
+
+const FEATURE_FORWARDING_CONTRACTS: &[FeatureForwardingContract] = &[
+    FeatureForwardingContract {
+        package: "merman",
+        dependency: "merman-analysis",
+        features: &["fixes"],
+    },
+    FeatureForwardingContract {
+        package: "merman-cli",
+        dependency: "merman-analysis",
+        features: &["fixes"],
+    },
+    FeatureForwardingContract {
+        package: "merman-bindings-core",
+        dependency: "merman-analysis",
+        features: &["fixes"],
+    },
+    FeatureForwardingContract {
+        package: "merman-editor-core",
+        dependency: "merman-analysis",
+        features: &["fixes"],
+    },
+    FeatureForwardingContract {
+        package: "merman-lsp",
+        dependency: "merman-editor-core",
+        features: &["fixes"],
+    },
+    FeatureForwardingContract {
+        package: "merman-android-jni",
+        dependency: "merman-bindings-core",
+        features: &[
+            "analysis",
+            "ascii",
+            "fixes",
+            "jpeg",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "pdf",
+            "png",
+            "svg",
+            "system-fonts",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-bindings-core",
+        dependency: "merman",
+        features: &[
+            "ascii",
+            "jpeg",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "native-fonts",
+            "pdf",
+            "png",
+            "svg",
+            "system-fonts",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-cli",
+        dependency: "merman",
+        features: &[
+            "ascii",
+            "jpeg",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "native-fonts",
+            "pdf",
+            "png",
+            "svg",
+            "system-clock",
+            "system-fonts",
+            "system-random",
+            "system-timezone",
+            "system-timing",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-ffi",
+        dependency: "merman-bindings-core",
+        features: &[
+            "analysis",
+            "ascii",
+            "fixes",
+            "jpeg",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "native-fonts",
+            "pdf",
+            "png",
+            "svg",
+            "system-fonts",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-ffi",
+        dependency: "merman-export",
+        features: &["bundled-fonts"],
+    },
+    FeatureForwardingContract {
+        package: "merman-uniffi",
+        dependency: "merman-bindings-core",
+        features: &[
+            "analysis",
+            "ascii",
+            "fixes",
+            "jpeg",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "pdf",
+            "png",
+            "svg",
+            "system-fonts",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-wasi",
+        dependency: "merman-bindings-core",
+        features: &[
+            "analysis",
+            "ascii",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "native-fonts",
+            "png",
+            "svg",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-wasi",
+        dependency: "merman-export",
+        features: &["bundled-fonts", "native-fonts"],
+    },
+    FeatureForwardingContract {
+        package: "merman-wasm",
+        dependency: "merman-bindings-core",
+        features: &[
+            "analysis",
+            "ascii",
+            "fixes",
+            "layout-cytoscape",
+            "layout-elk",
+            "math",
+            "svg",
+        ],
+    },
+    FeatureForwardingContract {
+        package: "merman-typst-plugin",
+        dependency: "merman-bindings-core",
+        features: &["analysis", "layout-cytoscape", "layout-elk", "svg"],
+    },
+    FeatureForwardingContract {
+        package: "merman-rustdoc",
+        dependency: "merman",
+        features: &["layout-cytoscape", "layout-elk", "math", "svg"],
+    },
+];
+
+#[derive(Debug, Clone, Copy)]
+struct DependencyFeatureContract {
+    package: &'static str,
+    dependency: &'static str,
+    expected_features: &'static [&'static str],
+    expected_uses_default_features: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PublishedDefaultContract {
+    package: &'static str,
+    expected_defaults: &'static [&'static str],
+}
+
+const PUBLISHED_DEFAULT_CONTRACTS: &[PublishedDefaultContract] = &[PublishedDefaultContract {
+    package: "roughr-merman",
+    expected_defaults: &["legacy-compat"],
+}];
+
+const DEPENDENCY_FEATURE_CONTRACTS: &[DependencyFeatureContract] = &[
+    DependencyFeatureContract {
+        package: "merman-bindings-core",
+        dependency: "merman",
+        expected_features: &["compat-json"],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-ffi",
+        dependency: "merman-bindings-core",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-ffi",
+        dependency: "merman",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-ffi",
+        dependency: "merman-export",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-wasi",
+        dependency: "merman-bindings-core",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-wasi",
+        dependency: "merman",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-wasi",
+        dependency: "merman-export",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "dugong",
+        dependency: "serde_json",
+        expected_features: &[],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "dugong-graphlib",
+        dependency: "serde_json",
+        expected_features: &[],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "manatee",
+        dependency: "indexmap",
+        expected_features: &[],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-core",
+        dependency: "indexmap",
+        expected_features: &["serde"],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-core",
+        dependency: "serde_json",
+        expected_features: &["float_roundtrip", "preserve_order"],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-model",
+        dependency: "indexmap",
+        expected_features: &["serde"],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-model",
+        dependency: "serde_json",
+        expected_features: &["float_roundtrip", "preserve_order"],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-markup",
+        dependency: "merman-model",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-ascii",
+        dependency: "merman-model",
+        expected_features: &["html-entities", "terminal-text"],
+        expected_uses_default_features: Some(false),
+    },
+    DependencyFeatureContract {
+        package: "merman-render",
+        dependency: "indexmap",
+        expected_features: &["serde"],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-render",
+        dependency: "serde_json",
+        expected_features: &[],
+        expected_uses_default_features: None,
+    },
+    DependencyFeatureContract {
+        package: "merman-render",
+        dependency: "roughr-merman",
+        expected_features: &[],
+        expected_uses_default_features: Some(false),
+    },
+];
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct FeatureMatrixOptions {
+    strict: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoDistRecipe {
+    features: Vec<String>,
+}
+
+#[derive(Debug)]
+struct FeatureGraph {
+    packages: BTreeMap<String, CargoPackage>,
+}
+
+#[derive(Debug, Clone)]
+struct BuildCase {
+    package: String,
+    features: Vec<String>,
+    default_features: bool,
+    target: Option<String>,
+    reason: &'static str,
+}
+
+pub(crate) fn verify_feature_matrix(args: Vec<String>) -> Result<(), XtaskError> {
+    let options = parse_options(args)?;
+    let root = super::workspace_root();
+
+    if let Some(message) = super::capability_surface::verify_capability_surface_artifacts()? {
+        return Err(matrix_error(message));
+    }
+    let (artifact_profiles, packages) =
+        super::artifact_profiles::load_feature_matrix_inputs().map_err(matrix_error)?;
+    println!(
+        "validated {} exact artifact build profile(s)",
+        artifact_profiles.profile_count()
+    );
+
+    let graph = FeatureGraph::from_packages(packages).map_err(matrix_error)?;
+    let report = graph.validate()?;
+    println!(
+        "feature-matrix structure packages={} capability_leaves={} empty_defaults={} published_defaults={} feature_allowlists={} forwarding_edges={} dependency_feature_boundaries={} transport_engines={} product_contracts={}",
+        report.capability_bearing_packages,
+        report.capability_leaves,
+        report.empty_defaults,
+        report.published_defaults,
+        report.feature_allowlists,
+        report.forwarding_edges,
+        report.dependency_feature_boundaries,
+        report.transport_engines,
+        report.product_contracts
+    );
+
+    let (host_artifacts, wasm_artifacts) = if options.strict {
+        artifact_profiles.into_profiles()
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    run_isolated_diagram_consumers(&root)?;
+    let cases = graph.build_cases(options.strict, &wasm_artifacts)?;
+    for (index, case) in cases.iter().enumerate() {
+        println!(
+            "feature-matrix build {}/{} package={} default_features={} features={} target={} reason={}",
+            index + 1,
+            cases.len(),
+            case.package,
+            case.default_features,
+            display_features(&case.features),
+            case.target.as_deref().unwrap_or("host"),
+            case.reason
+        );
+        run_build_case(&root, case)?;
+    }
+    for profile in &host_artifacts {
+        println!(
+            "feature-matrix artifact package={} profile={} target=host features={} diagram_families={}",
+            profile.package,
+            profile.id,
+            display_features(&profile.features),
+            profile.diagram_families.join(",")
+        );
+        run_host_artifact_case(&root, profile)?;
+    }
+    for profile in &wasm_artifacts {
+        println!(
+            "feature-matrix artifact package={} profile={} target={} features={}",
+            profile.package,
+            profile.id,
+            profile.target_triple,
+            display_features(&profile.features)
+        );
+        run_wasm_artifact_case(&root, profile)?;
+    }
+
+    Ok(())
+}
+
+fn parse_options(args: Vec<String>) -> Result<FeatureMatrixOptions, XtaskError> {
+    let mut options = FeatureMatrixOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--strict" => options.strict = true,
+            "--help" | "-h" => {
+                println!("usage: xtask verify-feature-matrix [--strict]");
+                println!();
+                println!(
+                    "Always validates Cargo feature implications and a curated set of product and transport builds."
+                );
+                println!("  --strict  build every public capability leaf and diagram singleton,");
+                println!("            and every exact host plus Web/Typst WASM artifact recipe");
+                println!("            finite native/release target sets remain with owner CI");
+                return Err(XtaskError::Usage);
+            }
+            _ => return Err(XtaskError::Usage),
+        }
+    }
+    Ok(options)
+}
+
+fn matrix_error(message: impl Into<String>) -> XtaskError {
+    XtaskError::FeatureMatrix(message.into())
+}
+
+impl FeatureGraph {
+    #[cfg(test)]
+    fn load() -> Result<Self, XtaskError> {
+        let root = super::workspace_root();
+        let packages =
+            super::artifact_profiles::load_workspace_packages(&root, true).map_err(matrix_error)?;
+        Self::from_packages(packages).map_err(matrix_error)
+    }
+
+    fn from_packages(workspace_packages: Vec<CargoPackage>) -> Result<Self, String> {
+        let mut packages = BTreeMap::new();
+        for package in workspace_packages {
+            let name = package.name.clone();
+            if packages.insert(name.clone(), package).is_some() {
+                return Err(format!(
+                    "Cargo metadata contains duplicate workspace package `{name}`"
+                ));
+            }
+        }
+        if packages.is_empty() {
+            return Err("Cargo metadata contains no workspace packages".to_string());
+        }
+        Ok(Self { packages })
+    }
+
+    fn validate(&self) -> Result<ValidationReport, XtaskError> {
+        let mut report = ValidationReport::default();
+        for package in self.packages.values() {
+            let capability_features = self.capability_features(package);
+            if !capability_features.is_empty() {
+                report.capability_bearing_packages += 1;
+            }
+            report.capability_leaves += capability_features.len();
+            self.validate_capability_implications(package)?;
+        }
+        report.empty_defaults = self.validate_empty_default_contracts(EMPTY_DEFAULT_PACKAGES)?;
+        report.published_defaults =
+            self.validate_published_default_contracts(PUBLISHED_DEFAULT_CONTRACTS)?;
+        report.feature_allowlists = self.validate_public_feature_allowlists()?;
+        self.validate_diagram_selectors()?;
+        report.forwarding_edges = self.validate_feature_forwarding(FEATURE_FORWARDING_CONTRACTS)?
+            + self.validate_native_runtime_feature_contract()?
+            + self.validate_font_feature_contracts()?;
+        report.dependency_feature_boundaries =
+            self.validate_dependency_feature_contracts(DEPENDENCY_FEATURE_CONTRACTS)?;
+        let transport_package_names = transport_packages().collect::<Vec<_>>();
+        report.transport_engines = self.validate_transport_contracts(&transport_package_names)?;
+        report.product_contracts = self.validate_product_feature_contracts()?;
+        Ok(report)
+    }
+
+    fn validate_empty_default_contracts(&self, packages: &[&str]) -> Result<usize, XtaskError> {
+        for package_name in packages {
+            let package = self.package(package_name)?;
+            let defaults = package.features.get("default").ok_or_else(|| {
+                matrix_error(format!(
+                    "{}: low-level package must declare an explicit empty `default` feature",
+                    package.manifest_path.display()
+                ))
+            })?;
+            if !defaults.is_empty() {
+                return Err(matrix_error(format!(
+                    "{}: low-level package default must be empty; exact product and artifact profiles select capabilities",
+                    package.manifest_path.display()
+                )));
+            }
+        }
+        Ok(packages.len())
+    }
+
+    fn validate_public_feature_allowlists(&self) -> Result<usize, XtaskError> {
+        let mut checked = 0;
+        for (package_name, extras) in PUBLIC_FEATURE_ALLOWLIST_EXTRAS {
+            self.validate_public_feature_allowlist(package_name, extras)?;
+            checked += 1;
+        }
+        Ok(checked)
+    }
+
+    fn validate_published_default_contracts(
+        &self,
+        contracts: &[PublishedDefaultContract],
+    ) -> Result<usize, XtaskError> {
+        for contract in contracts {
+            let package = self.package(contract.package)?;
+            let actual_defaults = direct_feature_members(package, "default")?;
+            let expected_defaults = contract
+                .expected_defaults
+                .iter()
+                .map(|feature| (*feature).to_string())
+                .collect::<BTreeSet<_>>();
+            if actual_defaults != expected_defaults {
+                return Err(matrix_error(format!(
+                    "{}: published defaults expected {}, found {}",
+                    package.manifest_path.display(),
+                    display_feature_set(&expected_defaults),
+                    display_feature_set(&actual_defaults)
+                )));
+            }
+        }
+        Ok(contracts.len())
+    }
+
+    fn validate_public_feature_allowlist(
+        &self,
+        package_name: &str,
+        extras: &[&str],
+    ) -> Result<(), XtaskError> {
+        let package = self.package(package_name)?;
+        let mut allowed = self
+            .capability_features(package)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        if !matches!(
+            package_name,
+            "merman-export" | "merman-markup" | "roughr-merman"
+        ) {
+            allowed.insert("all-diagrams".to_string());
+            allowed.extend(
+                merman::model::family::diagram_family_selectors()
+                    .iter()
+                    .map(|selector| selector.feature.to_string()),
+            );
+        }
+        allowed.insert("default".to_string());
+        allowed.extend(extras.iter().map(|feature| (*feature).to_string()));
+        let unexpected = package
+            .features
+            .keys()
+            .filter(|feature| !allowed.contains(*feature))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unexpected.is_empty() {
+            return Err(matrix_error(format!(
+                "{}: unexpected public Cargo features outside the canonical allowlist: {}",
+                package.manifest_path.display(),
+                unexpected.join(", ")
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_diagram_selectors(&self) -> Result<(), XtaskError> {
+        let selectors = merman::model::family::diagram_family_selectors();
+        let expected = selectors
+            .iter()
+            .map(|selector| selector.feature.to_string())
+            .collect::<BTreeSet<_>>();
+        for (name, _) in PUBLIC_FEATURE_ALLOWLIST_EXTRAS {
+            if matches!(*name, "merman-export" | "merman-markup" | "roughr-merman") {
+                continue;
+            }
+            let package = self.package(name)?;
+            if direct_feature_members(package, "all-diagrams")? != expected {
+                return Err(matrix_error(format!(
+                    "{name}: all-diagrams must contain exactly the canonical selectors"
+                )));
+            }
+            for selector in selectors {
+                let members = direct_feature_members(package, selector.feature)?;
+                if members
+                    .iter()
+                    .any(|member| expected.contains(member) || member == "all-diagrams")
+                {
+                    return Err(matrix_error(format!(
+                        "{name}: {} must not activate another logical family",
+                        selector.feature
+                    )));
+                }
+                let mut expected_edges = BTreeSet::new();
+                for dependency in package
+                    .dependencies
+                    .iter()
+                    .filter(|dependency| dependency.kind.is_none())
+                {
+                    if !self
+                        .packages
+                        .get(&dependency.name)
+                        .is_some_and(|dependency| dependency.features.contains_key("all-diagrams"))
+                    {
+                        continue;
+                    }
+                    if dependency.uses_default_features
+                        || dependency
+                            .features
+                            .iter()
+                            .any(|feature| feature == "all-diagrams" || expected.contains(feature))
+                    {
+                        return Err(matrix_error(format!(
+                            "{name}: dependency `{}` must not activate default or fixed diagram selectors",
+                            dependency.name
+                        )));
+                    }
+                    let weak = if dependency.optional { "?" } else { "" };
+                    let edge = format!("{}{weak}/{}", dependency.name, selector.feature);
+                    if !members.contains(&edge) {
+                        return Err(matrix_error(format!(
+                            "{name}: {} must forward `{edge}`",
+                            selector.feature
+                        )));
+                    }
+                    expected_edges.insert(edge);
+                }
+                for member in &members {
+                    // Source-backed fixtures may select the matching parser through a dev-only
+                    // dependency. Production edges remain mandatory above; this permits no
+                    // cross-family or all-diagrams forwarding from a singleton selector.
+                    let dev_fixture_edge = package.dependencies.iter().any(|dependency| {
+                        dependency.kind.as_deref() == Some("dev")
+                            && member == &format!("{}/{}", dependency.name, selector.feature)
+                    });
+                    if dependency_feature(member).is_some_and(|(_, feature)| {
+                        feature == "all-diagrams" || expected.contains(feature)
+                    }) && !expected_edges.contains(member)
+                        && !dev_fixture_edge
+                    {
+                        return Err(matrix_error(format!(
+                            "{name}: {} has unexpected diagram selector edge `{member}`; expected {}",
+                            selector.feature,
+                            display_feature_set(&expected_edges)
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_feature_forwarding(
+        &self,
+        contracts: &[FeatureForwardingContract],
+    ) -> Result<usize, XtaskError> {
+        let mut checked = 0;
+        for contract in contracts {
+            let package = self.package(contract.package)?;
+            for feature in contract.features {
+                let edges = self.transitive_feature_edges(contract.package, feature)?;
+                let forwards = edges.iter().any(|edge| {
+                    dependency_feature(edge).is_some_and(|(dependency, forwarded)| {
+                        dependency == contract.dependency && forwarded == *feature
+                    })
+                });
+                if !forwards {
+                    return Err(matrix_error(format!(
+                        "{}: feature `{feature}` must forward `{feature}` to dependency `{}`",
+                        package.manifest_path.display(),
+                        contract.dependency
+                    )));
+                }
+                checked += 1;
+            }
+        }
+        Ok(checked)
+    }
+
+    fn validate_font_feature_contracts(&self) -> Result<usize, XtaskError> {
+        for (package_name, feature, prerequisite) in LOCAL_FONT_FEATURE_CONTRACTS {
+            let closure = self.local_closure(package_name, [*feature])?;
+            if !closure.contains(*prerequisite) {
+                let package = self.package(package_name)?;
+                return Err(matrix_error(format!(
+                    "{}: feature `{feature}` must imply this crate's `{prerequisite}` feature",
+                    package.manifest_path.display()
+                )));
+            }
+        }
+        Ok(LOCAL_FONT_FEATURE_CONTRACTS.len())
+    }
+
+    fn validate_native_runtime_feature_contract(&self) -> Result<usize, XtaskError> {
+        let bindings_core = self.package("merman-bindings-core")?;
+        for feature in RETIRED_BINDING_RUNTIME_FEATURES {
+            if bindings_core.features.contains_key(*feature) {
+                return Err(matrix_error(format!(
+                    "{}: binding owners must expose atomic `native-runtime`, not retired `{feature}`",
+                    bindings_core.manifest_path.display()
+                )));
+            }
+        }
+        let core_edges = direct_feature_members(bindings_core, "native-runtime")?;
+        let expected_core_edges = BINDINGS_CORE_NATIVE_RUNTIME_EDGES
+            .iter()
+            .map(|edge| (*edge).to_string())
+            .collect::<BTreeSet<_>>();
+        if core_edges != expected_core_edges {
+            return Err(matrix_error(format!(
+                "{}: `native-runtime` must enable exactly {expected_core_edges:?}; found {core_edges:?}",
+                bindings_core.manifest_path.display()
+            )));
+        }
+
+        for (package_name, dependency) in NATIVE_RUNTIME_FORWARDERS {
+            let package = self.package(package_name)?;
+            for feature in RETIRED_BINDING_RUNTIME_FEATURES {
+                if package.features.contains_key(*feature) {
+                    return Err(matrix_error(format!(
+                        "{}: binding owners must expose atomic `native-runtime`, not retired `{feature}`",
+                        package.manifest_path.display()
+                    )));
+                }
+            }
+            let actual = direct_feature_members(package, "native-runtime")?;
+            let expected = BTreeSet::from([format!("{dependency}/native-runtime")]);
+            if actual != expected {
+                return Err(matrix_error(format!(
+                    "{}: `native-runtime` must forward exactly {expected:?}; found {actual:?}",
+                    package.manifest_path.display()
+                )));
+            }
+        }
+
+        Ok(BINDINGS_CORE_NATIVE_RUNTIME_EDGES.len() + NATIVE_RUNTIME_FORWARDERS.len())
+    }
+
+    fn validate_dependency_feature_contracts(
+        &self,
+        contracts: &[DependencyFeatureContract],
+    ) -> Result<usize, XtaskError> {
+        for contract in contracts {
+            let package = self.package(contract.package)?;
+            let matching = package
+                .dependencies
+                .iter()
+                .filter(|dependency| {
+                    dependency.name == contract.dependency && dependency.kind.is_none()
+                })
+                .collect::<Vec<_>>();
+            if matching.is_empty() {
+                return Err(matrix_error(format!(
+                    "{}: required direct dependency `{}` is missing",
+                    package.manifest_path.display(),
+                    contract.dependency
+                )));
+            }
+            let actual = matching
+                .iter()
+                .flat_map(|dependency| dependency.features.iter().cloned())
+                .collect::<BTreeSet<_>>();
+            let expected = contract
+                .expected_features
+                .iter()
+                .map(|feature| (*feature).to_string())
+                .collect::<BTreeSet<_>>();
+            if actual != expected {
+                return Err(matrix_error(format!(
+                    "{}: direct dependency `{}` feature boundary expected {}, found {}",
+                    package.manifest_path.display(),
+                    contract.dependency,
+                    display_feature_set(&expected),
+                    display_feature_set(&actual)
+                )));
+            }
+            if let Some(expected_uses_default_features) = contract.expected_uses_default_features {
+                let actual = matching
+                    .iter()
+                    .map(|dependency| dependency.uses_default_features)
+                    .collect::<BTreeSet<_>>();
+                let expected = BTreeSet::from([expected_uses_default_features]);
+                if actual != expected {
+                    return Err(matrix_error(format!(
+                        "{}: direct dependency `{}` default-feature boundary expected {expected:?}, found {actual:?}",
+                        package.manifest_path.display(),
+                        contract.dependency
+                    )));
+                }
+            }
+        }
+        Ok(contracts.len())
+    }
+
+    fn validate_product_feature_contracts(&self) -> Result<usize, XtaskError> {
+        for package_name in ["merman", "merman-rustdoc"] {
+            let package = self.package(package_name)?;
+            for (feature, members) in [
+                ("complete-svg", &["svg", "layout-cytoscape"][..]),
+                ("complete-svg-elk", &["complete-svg", "layout-elk"][..]),
+            ] {
+                let actual = direct_feature_members(package, feature)?;
+                let expected = members.iter().map(|member| (*member).to_string()).collect();
+                if actual != expected {
+                    return Err(matrix_error(format!(
+                        "{}: `{feature}` must contain only {expected:?}; math and diagram families remain explicit; found {actual:?}",
+                        package.manifest_path.display()
+                    )));
+                }
+            }
+        }
+
+        let facade = self.package("merman")?;
+        let facade_defaults = direct_feature_members(facade, "default")?;
+        let expected_defaults = BTreeSet::from([
+            "all-diagrams".to_string(),
+            "svg".to_string(),
+            "layout-cytoscape".to_string(),
+            "layout-elk".to_string(),
+        ]);
+        if facade_defaults != expected_defaults {
+            return Err(matrix_error(format!(
+                "{}: merman default must equal `all-diagrams`, `svg`, `layout-cytoscape`, and `layout-elk`; expected {expected_defaults:?}, found {facade_defaults:?}",
+                facade.manifest_path.display()
+            )));
+        }
+
+        let rustdoc = self.package("merman-rustdoc")?;
+        let rustdoc_defaults = direct_feature_members(rustdoc, "default")?;
+        let expected_rustdoc_defaults = &expected_defaults;
+        if &rustdoc_defaults != expected_rustdoc_defaults {
+            return Err(matrix_error(format!(
+                "{}: merman-rustdoc default must equal `all-diagrams`, `svg`, `layout-cytoscape`, and `layout-elk`; expected {expected_rustdoc_defaults:?}, found {rustdoc_defaults:?}",
+                rustdoc.manifest_path.display()
+            )));
+        }
+
+        let cli = self.package("merman-cli")?;
+        let dist_metadata = cli.metadata.get("dist").ok_or_else(|| {
+            matrix_error(format!(
+                "{}: missing published cargo-dist recipe in package metadata",
+                cli.manifest_path.display()
+            ))
+        })?;
+        let dist_recipe = CargoDistRecipe::deserialize(dist_metadata).map_err(|error| {
+            matrix_error(format!(
+                "{}: invalid published cargo-dist recipe: {error}",
+                cli.manifest_path.display()
+            ))
+        })?;
+        let published_features = dist_recipe.features.into_iter().collect::<BTreeSet<_>>();
+        let cli_defaults = direct_feature_members(cli, "default")?;
+        if !published_features.contains("layout-elk") {
+            return Err(matrix_error(format!(
+                "{}: published cargo-dist recipe must retain explicit `layout-elk`; found {published_features:?}",
+                cli.manifest_path.display()
+            )));
+        }
+        if !published_features.contains("math") {
+            return Err(matrix_error(format!(
+                "{}: published cargo-dist recipe must retain explicit `math`; found {published_features:?}",
+                cli.manifest_path.display()
+            )));
+        }
+        if !published_features.contains("fixes") {
+            return Err(matrix_error(format!(
+                "{}: published cargo-dist recipe must retain explicit `fixes`; found {published_features:?}",
+                cli.manifest_path.display()
+            )));
+        }
+        if ["native-fonts", "system-fonts"]
+            .iter()
+            .any(|feature| !published_features.contains(*feature))
+        {
+            return Err(matrix_error(format!(
+                "{}: published cargo-dist recipe must retain `native-fonts` and `system-fonts` for actual-font measurement; found {published_features:?}",
+                cli.manifest_path.display()
+            )));
+        }
+        let mut expected_cli_defaults = published_features;
+        expected_cli_defaults.remove("math");
+        if cli_defaults != expected_cli_defaults {
+            return Err(matrix_error(format!(
+                "{}: CLI default must equal the published cargo-dist recipe without `math`; expected {expected_cli_defaults:?}, found {cli_defaults:?}",
+                cli.manifest_path.display()
+            )));
+        }
+
+        Ok(PRODUCT_FEATURE_CONTRACTS)
+    }
+
+    fn package(&self, name: &str) -> Result<&CargoPackage, XtaskError> {
+        self.packages
+            .get(name)
+            .ok_or_else(|| matrix_error(format!("required workspace package `{name}` is missing")))
+    }
+
+    fn capability_features(&self, package: &CargoPackage) -> Vec<String> {
+        capability_contract::CAPABILITY_IDS
+            .iter()
+            .filter(|feature| package.features.contains_key(**feature))
+            .map(|feature| (*feature).to_string())
+            .collect()
+    }
+
+    fn validate_capability_implications(&self, package: &CargoPackage) -> Result<(), XtaskError> {
+        for capability in capability_contract::CAPABILITIES {
+            if !package.features.contains_key(capability.id) {
+                continue;
+            }
+            let closure = self.local_closure(&package.name, [capability.id])?;
+            for implication in capability.implications {
+                let implication_id = implication.id();
+                if package.features.contains_key(implication_id)
+                    && !closure.contains(implication_id)
+                {
+                    return Err(matrix_error(format!(
+                        "{}: feature `{}` must imply this crate's `{}` feature",
+                        package.manifest_path.display(),
+                        capability.id,
+                        implication_id
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_transport_contracts(&self, packages: &[&str]) -> Result<usize, XtaskError> {
+        let mut checked = 0;
+        for package_name in packages {
+            let package = self.package(package_name)?;
+            let target = transport_target(package_name)?;
+            let defaults = package.features.get("default").ok_or_else(|| {
+                matrix_error(format!(
+                    "{}: transport package must declare an explicit empty `default` feature",
+                    package.manifest_path.display()
+                ))
+            })?;
+            if !defaults.is_empty() {
+                return Err(matrix_error(format!(
+                    "{}: transport package defaults must be empty; exact artifact profiles select release features",
+                    package.manifest_path.display()
+                )));
+            }
+            if !package.features.contains_key("svg") {
+                return Err(matrix_error(format!(
+                    "{}: transport package must expose its local `svg` capability leaf",
+                    package.manifest_path.display()
+                )));
+            }
+            let target_key = capability_contract::TargetKey::from_id(target)
+                .expect("transport target IDs must be owned by the capability descriptor");
+            for capability in capability_contract::CAPABILITIES {
+                if package.features.contains_key(capability.id)
+                    && !capability.targets.contains(&target_key)
+                {
+                    return Err(matrix_error(format!(
+                        "{}: transport target `{target}` cannot expose capability `{}`",
+                        package.manifest_path.display(),
+                        capability.id
+                    )));
+                }
+            }
+            for feature in SVG_ENGINE_FEATURES {
+                if !package.features.contains_key(*feature) {
+                    continue;
+                }
+                checked += 1;
+                let closure = self.local_closure(package_name, [*feature])?;
+                if !closure.contains("svg") {
+                    return Err(matrix_error(format!(
+                        "{}: transport feature `{feature}` must imply this crate's `svg` feature",
+                        package.manifest_path.display()
+                    )));
+                }
+            }
+        }
+        Ok(checked)
+    }
+
+    fn local_closure<'a>(
+        &'a self,
+        package_name: &str,
+        roots: impl IntoIterator<Item = &'a str>,
+    ) -> Result<BTreeSet<&'a str>, XtaskError> {
+        self.package(package_name)?
+            .local_feature_closure(roots)
+            .map_err(matrix_error)
+    }
+
+    fn transitive_feature_edges<'a>(
+        &'a self,
+        package_name: &str,
+        root: &'a str,
+    ) -> Result<BTreeSet<&'a str>, XtaskError> {
+        let package = self.package(package_name)?;
+        if !package.features.contains_key(root) {
+            return Err(matrix_error(format!(
+                "{}: forwarding contract references unknown feature `{root}`",
+                package.manifest_path.display()
+            )));
+        }
+        Ok(self
+            .local_closure(package_name, [root])?
+            .into_iter()
+            .flat_map(|feature| package.features[feature].iter().map(String::as_str))
+            .collect())
+    }
+
+    fn build_cases(
+        &self,
+        strict: bool,
+        wasm_artifacts: &[super::artifact_profiles::WasmArtifactProfile],
+    ) -> Result<Vec<BuildCase>, XtaskError> {
+        let mut cases = BTreeSet::new();
+        for (package, features, reason) in [
+            ("merman-core", Vec::new(), "core-base"),
+            ("merman-markup", Vec::new(), "markup-base"),
+            ("merman-markup", vec!["html".to_string()], "markup-leaf"),
+            ("merman-markup", vec!["url".to_string()], "markup-leaf"),
+            ("merman-markup", vec!["color".to_string()], "markup-leaf"),
+            (
+                "merman-markup",
+                vec!["html".to_string(), "url".to_string(), "color".to_string()],
+                "markup-full",
+            ),
+            ("merman", Vec::new(), "facade-base"),
+            ("merman", vec!["svg".to_string()], "facade-svg"),
+            ("merman-lsp", Vec::new(), "lsp-library"),
+            ("merman-lsp", vec!["stdio".to_string()], "lsp-stdio"),
+        ] {
+            self.package(package)?;
+            cases.insert(BuildCase::new(package, features, None, reason));
+        }
+        cases.insert(BuildCase::with_defaults("merman", None, "facade-default"));
+        self.package("merman-rustdoc")?;
+        cases.insert(BuildCase::with_defaults(
+            "merman-rustdoc",
+            None,
+            "rustdoc-default",
+        ));
+        for package in ["merman", "merman-rustdoc"] {
+            for feature in ["complete-svg", "complete-svg-elk"] {
+                cases.insert(BuildCase::new(
+                    package,
+                    vec![feature.to_string()],
+                    None,
+                    "svg-aggregate",
+                ));
+            }
+        }
+        let transport_package_names = if strict {
+            transport_packages().collect::<Vec<_>>()
+        } else {
+            HOST_TRANSPORT_PACKAGES.to_vec()
+        };
+        for package_name in transport_package_names {
+            let package = self.package(package_name)?;
+            let target = if strict {
+                self.build_target_for(package_name)
+            } else {
+                None
+            };
+            cases.insert(BuildCase::new(
+                package_name,
+                Vec::new(),
+                target.clone(),
+                "transport-base",
+            ));
+            if package.features.contains_key("svg") {
+                cases.insert(BuildCase::new(
+                    package_name,
+                    vec!["svg".to_string()],
+                    target.clone(),
+                    "transport-svg",
+                ));
+            }
+        }
+
+        for package in self
+            .packages
+            .values()
+            .filter(|package| package.features.contains_key("all-diagrams"))
+        {
+            if strict || self.build_target_for(&package.name).is_none() {
+                cases.insert(BuildCase::new(
+                    &package.name,
+                    Vec::new(),
+                    self.build_target_for(&package.name),
+                    "diagram-none",
+                ));
+                cases.insert(BuildCase::new(
+                    &package.name,
+                    vec!["all-diagrams".to_string()],
+                    self.build_target_for(&package.name),
+                    "diagram-all",
+                ));
+            }
+            if strict {
+                for selector in merman::model::family::diagram_family_selectors()
+                    .iter()
+                    .filter(|selector| package.features.contains_key(selector.feature))
+                {
+                    cases.insert(BuildCase::new(
+                        &package.name,
+                        vec![selector.feature.to_string()],
+                        self.build_target_for(&package.name),
+                        "diagram-singleton",
+                    ));
+                }
+            } else if self.build_target_for(&package.name).is_none() {
+                cases.insert(BuildCase::new(
+                    &package.name,
+                    vec!["diagram-flowchart".to_string(), "diagram-gantt".to_string()],
+                    self.build_target_for(&package.name),
+                    "diagram-subset",
+                ));
+            }
+        }
+        if strict {
+            for package in self.packages.values() {
+                for feature in self.capability_features(package) {
+                    cases.insert(BuildCase::new(
+                        &package.name,
+                        vec![feature],
+                        self.build_target_for(&package.name),
+                        "capability-leaf",
+                    ));
+                }
+            }
+            for profile in wasm_artifacts {
+                for feature in &profile.features {
+                    cases.insert(BuildCase::new(
+                        &profile.package,
+                        vec![feature.clone()],
+                        Some(profile.target_triple.clone()),
+                        "wasm-artifact-leaf",
+                    ));
+                }
+            }
+        }
+
+        Ok(cases.into_iter().collect())
+    }
+
+    fn build_target_for(&self, package_name: &str) -> Option<String> {
+        match package_name {
+            "merman-android-jni" => Some("aarch64-linux-android".to_string()),
+            "merman-wasi" => Some("wasm32-wasip1".to_string()),
+            package if wasm_transport_packages().any(|candidate| candidate == package) => {
+                Some("wasm32-unknown-unknown".to_string())
+            }
+            _ => None,
+        }
+    }
+}
+
+fn transport_target(package: &str) -> Result<&'static str, XtaskError> {
+    TRANSPORT_TARGETS
+        .iter()
+        .find_map(|(candidate, target)| (*candidate == package).then_some(*target))
+        .ok_or_else(|| matrix_error(format!("unknown transport package `{package}`")))
+}
+
+impl BuildCase {
+    fn new(
+        package: &str,
+        mut features: Vec<String>,
+        target: Option<String>,
+        reason: &'static str,
+    ) -> Self {
+        features.sort();
+        features.dedup();
+        Self {
+            package: package.to_string(),
+            features,
+            default_features: false,
+            target,
+            reason,
+        }
+    }
+
+    fn with_defaults(package: &str, target: Option<String>, reason: &'static str) -> Self {
+        Self {
+            package: package.to_string(),
+            features: Vec::new(),
+            default_features: true,
+            target,
+            reason,
+        }
+    }
+
+    fn comparison_key(&self) -> (&str, bool, &[String], Option<&str>) {
+        (
+            &self.package,
+            self.default_features,
+            &self.features,
+            self.target.as_deref(),
+        )
+    }
+}
+
+impl PartialEq for BuildCase {
+    fn eq(&self, other: &Self) -> bool {
+        self.comparison_key() == other.comparison_key()
+    }
+}
+
+impl Eq for BuildCase {}
+
+impl PartialOrd for BuildCase {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BuildCase {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.comparison_key().cmp(&other.comparison_key())
+    }
+}
+
+#[derive(Debug, Default)]
+struct ValidationReport {
+    capability_bearing_packages: usize,
+    capability_leaves: usize,
+    empty_defaults: usize,
+    published_defaults: usize,
+    feature_allowlists: usize,
+    forwarding_edges: usize,
+    dependency_feature_boundaries: usize,
+    transport_engines: usize,
+    product_contracts: usize,
+}
+
+fn dependency_feature(edge: &str) -> Option<(&str, &str)> {
+    let (dependency, feature) = edge.split_once('/')?;
+    Some((dependency.trim_end_matches('?'), feature))
+}
+
+fn direct_feature_members(
+    package: &CargoPackage,
+    feature: &str,
+) -> Result<BTreeSet<String>, XtaskError> {
+    package
+        .features
+        .get(feature)
+        .map(|members| members.iter().cloned().collect())
+        .ok_or_else(|| {
+            matrix_error(format!(
+                "{}: required feature `{feature}` is missing",
+                package.manifest_path.display()
+            ))
+        })
+}
+
+fn display_features(features: &[String]) -> String {
+    if features.is_empty() {
+        "<none>".to_string()
+    } else {
+        features.join(",")
+    }
+}
+
+fn display_feature_set(features: &BTreeSet<String>) -> String {
+    format!(
+        "{{{}}}",
+        features.iter().cloned().collect::<Vec<_>>().join(", ")
+    )
+}
+
+fn run_isolated_diagram_consumers(root: &std::path::Path) -> Result<(), XtaskError> {
+    let target_root = super::target_root();
+    let all = merman::model::family::diagram_family_selectors()
+        .iter()
+        .map(|selector| selector.logical_family_kind)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(",");
+    let source_fixture = root.join("crates/xtask/tests/fixtures/diagram-features");
+    let fixture_parent = source_fixture.parent().ok_or_else(|| {
+        matrix_error("isolated diagram consumer fixture has no parent directory".to_owned())
+    })?;
+    let fixture = tempfile::Builder::new()
+        .prefix("diagram-features-")
+        .tempdir_in(fixture_parent)
+        .map_err(|error| {
+            matrix_error(format!("cannot create isolated diagram consumer: {error}"))
+        })?;
+    std::fs::copy(
+        source_fixture.join("Cargo.toml"),
+        fixture.path().join("Cargo.toml"),
+    )
+    .and_then(|_| std::fs::create_dir_all(fixture.path().join("src")))
+    .and_then(|_| {
+        std::fs::copy(
+            source_fixture.join("src/main.rs"),
+            fixture.path().join("src/main.rs"),
+        )
+    })
+    .map_err(|error| matrix_error(format!("cannot stage isolated diagram consumer: {error}")))?;
+    let manifest = fixture.path().join("Cargo.toml");
+    std::fs::copy(root.join("Cargo.lock"), fixture.path().join("Cargo.lock")).map_err(|error| {
+        matrix_error(format!(
+            "cannot seed isolated consumer dependency lock: {error}"
+        ))
+    })?;
+    let embedding = "flowchart,sequence,class,state,er,gantt,pie,gitGraph,mindmap,timeline,quadrantChart,xychart,journey";
+    let embedding_models = format!("{embedding},swimlane");
+    for (name, features, families, models, render, ascii) in [
+        ("none", "", "", "", "", ""),
+        (
+            "model-flowchart",
+            "data-flowchart",
+            "",
+            "flowchart,swimlane",
+            "",
+            "",
+        ),
+        ("model-gantt", "data-gantt", "", "gantt", "", ""),
+        (
+            "model-subset",
+            "data-flowchart,data-gantt",
+            "",
+            "flowchart,gantt,swimlane",
+            "",
+            "",
+        ),
+        ("model-all", "data-all", "", all.as_str(), "", ""),
+        ("facade-empty", "facade,merman/svg", "", "", "", ""),
+        (
+            "facade-layout-only",
+            "facade,merman/layout-cytoscape",
+            "",
+            "",
+            "",
+            "",
+        ),
+        (
+            "facade-layout-elk-only",
+            "facade,merman/layout-elk",
+            "",
+            "",
+            "",
+            "",
+        ),
+        (
+            "facade-flowchart",
+            "facade,merman/svg,merman/diagram-flowchart",
+            "flowchart",
+            "flowchart,swimlane",
+            "",
+            "",
+        ),
+        (
+            "facade-embedding-subset",
+            concat!(
+                "facade,merman/layout-cytoscape,merman/diagram-flowchart,",
+                "merman/diagram-sequence,merman/diagram-class,merman/diagram-state,",
+                "merman/diagram-er,merman/diagram-gantt,merman/diagram-pie,",
+                "merman/diagram-git-graph,merman/diagram-mindmap,merman/diagram-timeline,",
+                "merman/diagram-quadrant-chart,merman/diagram-xychart,merman/diagram-journey"
+            ),
+            embedding,
+            embedding_models.as_str(),
+            "",
+            "",
+        ),
+        (
+            "facade-embedding-all",
+            "facade,merman/all-diagrams,merman/layout-cytoscape",
+            all.as_str(),
+            all.as_str(),
+            "",
+            "",
+        ),
+        (
+            "gantt",
+            "source,merman-core/diagram-gantt",
+            "gantt",
+            "gantt",
+            "",
+            "",
+        ),
+        (
+            "agentflow",
+            "source,renderer,merman-core/diagram-agentflow,merman-render/diagram-agentflow",
+            "agentflow",
+            "agentflow,flowchart,swimlane",
+            "agentflow",
+            "",
+        ),
+        (
+            "usecase",
+            "source,renderer,merman-core/diagram-usecase,merman-render/diagram-usecase",
+            "usecase",
+            "usecase",
+            "usecase",
+            "",
+        ),
+        (
+            "flowchart",
+            "source,renderer,merman-core/diagram-flowchart,merman-render/diagram-flowchart",
+            "flowchart",
+            "flowchart,swimlane",
+            "flowchart",
+            "",
+        ),
+        (
+            "swimlane",
+            "source,renderer,merman-core/diagram-swimlane,merman-render/diagram-swimlane",
+            "swimlane",
+            "flowchart,swimlane",
+            "swimlane",
+            "",
+        ),
+        (
+            "flowchart-gantt",
+            "source,renderer,merman-core/diagram-flowchart,merman-core/diagram-gantt,merman-render/diagram-flowchart,merman-render/diagram-gantt",
+            "flowchart,gantt",
+            "flowchart,gantt,swimlane",
+            "flowchart,gantt",
+            "",
+        ),
+        (
+            "renderer-data",
+            "renderer,data-flowchart,merman-render/diagram-flowchart",
+            "",
+            "flowchart,swimlane",
+            "flowchart",
+            "",
+        ),
+        (
+            "renderer-frozen-output-facts",
+            "source-output-facts",
+            "info,pie,journey,timeline,packet,radar",
+            "info,pie,journey,timeline,packet,radar",
+            "info,pie,journey,timeline,packet,radar",
+            "",
+        ),
+        (
+            "renderer-asymmetric",
+            "source,renderer,merman-core/all-diagrams,merman-render/diagram-flowchart",
+            all.as_str(),
+            all.as_str(),
+            "flowchart",
+            "",
+        ),
+        (
+            "editor-asymmetric",
+            "editor,merman-core/diagram-flowchart",
+            "flowchart",
+            "flowchart,swimlane",
+            "",
+            "",
+        ),
+        (
+            "ascii-data",
+            "ascii,data-flowchart,merman-ascii/diagram-flowchart",
+            "",
+            "flowchart,swimlane",
+            "",
+            "flowchart",
+        ),
+        (
+            "ascii-gantt-data",
+            "ascii,data-gantt,merman-ascii/diagram-gantt",
+            "",
+            "gantt",
+            "",
+            "gantt",
+        ),
+        (
+            "ascii-independent-selection",
+            "source,ascii,data-flowchart,data-gantt,merman-core/diagram-flowchart,merman-ascii/diagram-gantt",
+            "flowchart",
+            "flowchart,gantt,swimlane",
+            "",
+            "gantt",
+        ),
+        (
+            "ascii-asymmetric",
+            "source,ascii,merman-core/all-diagrams,merman-ascii/diagram-flowchart",
+            all.as_str(),
+            all.as_str(),
+            "",
+            "flowchart",
+        ),
+    ] {
+        println!("feature-matrix isolated consumer={name}");
+        let mut command = Command::new("cargo");
+        command
+            .args(["run", "--quiet", "--manifest-path"])
+            .arg(&manifest)
+            .args(["--no-default-features", "--jobs", "2"])
+            .env("CARGO_TARGET_DIR", &target_root)
+            .env("MERMAN_EXPECTED_FAMILIES", families)
+            .env("MERMAN_EXPECTED_MODEL_FAMILIES", models)
+            .env("MERMAN_EXPECTED_RENDER_FAMILIES", render)
+            .env("MERMAN_EXPECTED_ASCII_FAMILIES", ascii)
+            .current_dir(root);
+        if !features.is_empty() {
+            command.args(["--features", features]);
+        }
+        let status = command.status().map_err(|error| {
+            matrix_error(format!("cannot run isolated consumer {name}: {error}"))
+        })?;
+        if !status.success() {
+            return Err(matrix_error(format!(
+                "isolated diagram consumer {name} failed with {status}"
+            )));
+        }
+    }
+    // Test targets activate the broad dev dependency; normal runs above must stay narrow.
+    let status = Command::new("cargo")
+        .args(["test", "--quiet", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--no-default-features", "--features",
+            "source,ascii,data-flowchart,data-gantt,merman-core/diagram-flowchart,merman-ascii/diagram-gantt",
+            "--jobs", "2",
+        ])
+        .env("CARGO_TARGET_DIR", &target_root)
+        .env("MERMAN_EXPECTED_FAMILIES", "flowchart")
+        .env("MERMAN_EXPECTED_ASCII_FAMILIES", "gantt")
+        .current_dir(root)
+        .status()
+        .map_err(|error| matrix_error(format!("cannot run model dev-feature union consumer: {error}")))?;
+    if !status.success() {
+        return Err(matrix_error(format!(
+            "model dev-feature union consumer failed with {status}"
+        )));
+    }
+    let omitted = Command::new("cargo")
+        .args(["check", "--quiet", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--no-default-features",
+            "--features",
+            "omitted-sequence,data-flowchart,data-gantt",
+            "--jobs",
+            "2",
+        ])
+        .env("CARGO_TARGET_DIR", &target_root)
+        .current_dir(root)
+        .output()
+        .map_err(|error| matrix_error(format!("cannot check omitted Sequence payload: {error}")))?;
+    let diagnostics = String::from_utf8_lossy(&omitted.stderr);
+    if omitted.status.success()
+        || !diagnostics.contains("E0432")
+        || !diagnostics.contains("sequence")
+    {
+        return Err(matrix_error(format!(
+            "omitted Sequence payload must fail with an unresolved import: {diagnostics}"
+        )));
+    }
+    Ok(())
+}
+
+fn run_build_case(root: &std::path::Path, case: &BuildCase) -> Result<(), XtaskError> {
+    let mut command = Command::new("cargo");
+    command.args(["check", "--locked", "-p", &case.package]);
+    if !case.default_features {
+        command.arg("--no-default-features");
+    }
+    if !case.features.is_empty() {
+        let features = case.features.join(",");
+        command.args(["--features", features.as_str()]);
+    }
+    if let Some(target) = &case.target {
+        command.args(["--target", target]);
+    }
+    let status = command.current_dir(root).status().map_err(|error| {
+        matrix_error(format!(
+            "cannot build package `{}` with features `{}`: {error}",
+            case.package,
+            display_features(&case.features)
+        ))
+    })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(matrix_error(format!(
+            "package `{}` with features `{}` for target `{}` failed with {status}",
+            case.package,
+            display_features(&case.features),
+            case.target.as_deref().unwrap_or("host")
+        )))
+    }
+}
+
+fn run_wasm_artifact_case(
+    root: &std::path::Path,
+    profile: &super::artifact_profiles::WasmArtifactProfile,
+) -> Result<(), XtaskError> {
+    let mut command = Command::new("cargo");
+    command
+        .args(["check", "--locked", "--target", &profile.target_triple])
+        .current_dir(root);
+    profile.configure_cargo_command(&mut command);
+    let status = command.status().map_err(|error| {
+        matrix_error(format!(
+            "cannot build exact WASM artifact profile `{}`: {error}",
+            profile.id
+        ))
+    })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(matrix_error(format!(
+            "exact WASM artifact profile `{}` failed with {status}",
+            profile.id
+        )))
+    }
+}
+
+fn run_host_artifact_case(
+    root: &std::path::Path,
+    profile: &super::artifact_profiles::HostArtifactProfile,
+) -> Result<(), XtaskError> {
+    let mut command = Command::new("cargo");
+    command.args(["check", "--locked"]).current_dir(root);
+    profile
+        .configure_cargo_command(&mut command)
+        .map_err(matrix_error)?;
+    let status = command.status().map_err(|error| {
+        matrix_error(format!(
+            "cannot build exact host artifact profile `{}`: {error}",
+            profile.id
+        ))
+    })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(matrix_error(format!(
+            "exact host artifact profile `{}` failed with {status}",
+            profile.id
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cmd::artifact_profiles::CargoDependency;
+    use std::path::PathBuf;
+
+    const CLI_RELEASE_FEATURES: &[&str] = &[
+        "all-diagrams",
+        "analysis",
+        "ascii",
+        "fixes",
+        "icons",
+        "jpeg",
+        "layout-cytoscape",
+        "layout-elk",
+        "markdown",
+        "math",
+        "native-fonts",
+        "network-icons",
+        "parallel-markdown",
+        "pdf",
+        "png",
+        "rustdoc",
+        "shell-completions",
+        "svg",
+        "system-clock",
+        "system-fonts",
+        "system-random",
+        "system-timezone",
+        "system-timing",
+    ];
+
+    fn package(name: &str, features: &[(&str, &[&str])]) -> CargoPackage {
+        package_with_metadata(name, features, serde_json::json!({}))
+    }
+
+    fn package_with_metadata(
+        name: &str,
+        features: &[(&str, &[&str])],
+        metadata: serde_json::Value,
+    ) -> CargoPackage {
+        CargoPackage {
+            id: format!("{name} 0.0.0 (path+file:///workspace/{name})"),
+            name: name.to_string(),
+            manifest_path: PathBuf::from(format!("/workspace/{name}/Cargo.toml")),
+            features: features
+                .iter()
+                .map(|(feature, edges)| {
+                    (
+                        (*feature).to_string(),
+                        edges.iter().map(|edge| (*edge).to_string()).collect(),
+                    )
+                })
+                .collect(),
+            metadata,
+            dependencies: Vec::new(),
+            targets: Vec::new(),
+        }
+    }
+
+    fn package_with_dependency_features(
+        name: &str,
+        dependencies: &[(&str, &[&str])],
+    ) -> CargoPackage {
+        let mut package = package(name, &[]);
+        package.dependencies = dependencies
+            .iter()
+            .map(|(dependency, features)| CargoDependency {
+                name: (*dependency).to_string(),
+                kind: None,
+                uses_default_features: false,
+                optional: false,
+                features: features
+                    .iter()
+                    .map(|feature| (*feature).to_string())
+                    .collect(),
+            })
+            .collect();
+        package
+    }
+
+    fn graph(packages: Vec<CargoPackage>) -> FeatureGraph {
+        FeatureGraph {
+            packages: packages
+                .into_iter()
+                .map(|package| (package.name.clone(), package))
+                .collect(),
+        }
+    }
+
+    fn manifest_feature_graph() -> FeatureGraph {
+        let root = super::super::workspace_root();
+        graph(
+            PUBLIC_FEATURE_ALLOWLIST_EXTRAS
+                .iter()
+                .map(|(name, _)| {
+                    let mut package = package(name, &[]);
+                    let directory = if *name == "roughr-merman" {
+                        "roughr"
+                    } else {
+                        name
+                    };
+                    package.manifest_path = root.join("crates").join(directory).join("Cargo.toml");
+                    let source = std::fs::read_to_string(&package.manifest_path).unwrap();
+                    let manifest = toml::from_str::<toml::Table>(&source).unwrap();
+                    package.features = manifest
+                        .get("features")
+                        .unwrap()
+                        .clone()
+                        .try_into()
+                        .unwrap();
+                    package
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn workspace_manifests_satisfy_static_feature_owner_contracts() {
+        let graph = manifest_feature_graph();
+        graph.validate_public_feature_allowlists().unwrap();
+        graph
+            .validate_empty_default_contracts(EMPTY_DEFAULT_PACKAGES)
+            .unwrap();
+        graph
+            .validate_feature_forwarding(FEATURE_FORWARDING_CONTRACTS)
+            .unwrap();
+        graph.validate_font_feature_contracts().unwrap();
+        graph
+            .validate_transport_contracts(&transport_packages().collect::<Vec<_>>())
+            .unwrap();
+    }
+
+    #[test]
+    fn workspace_dependencies_satisfy_feature_boundary_contracts() {
+        FeatureGraph::load()
+            .unwrap()
+            .validate_dependency_feature_contracts(DEPENDENCY_FEATURE_CONTRACTS)
+            .unwrap();
+    }
+
+    #[test]
+    fn font_owners_require_local_prerequisites_despite_dependency_forwarding() {
+        for (name, feature, prerequisite) in [
+            ("merman-export", "bundled-fonts", "native-fonts"),
+            ("merman-bindings-core", "native-fonts", "svg"),
+            ("merman-bindings-core", "system-fonts", "native-fonts"),
+            ("merman-ffi", "native-fonts", "svg"),
+            ("merman-ffi", "bundled-fonts", "native-fonts"),
+            ("merman-ffi", "system-fonts", "native-fonts"),
+            ("merman-wasi", "native-fonts", "svg"),
+            ("merman-wasi", "bundled-fonts", "native-fonts"),
+        ] {
+            let mut graph = manifest_feature_graph();
+            graph
+                .packages
+                .get_mut(name)
+                .unwrap()
+                .features
+                .get_mut(feature)
+                .unwrap()
+                .retain(|edge| edge != prerequisite);
+
+            let error = graph.validate_font_feature_contracts().unwrap_err();
+            let message = error.to_string();
+            assert!(message.contains(name), "{error}");
+            assert!(message.contains(&format!("feature `{feature}`")), "{error}");
+            assert!(
+                message.contains(&format!("this crate's `{prerequisite}`")),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn font_forwarders_reject_wrong_dependency_edges() {
+        for contract in FEATURE_FORWARDING_CONTRACTS {
+            for feature in contract.features.iter().filter(|feature| {
+                matches!(**feature, "native-fonts" | "bundled-fonts" | "system-fonts")
+            }) {
+                let mut graph = manifest_feature_graph();
+                graph
+                    .packages
+                    .get_mut(contract.package)
+                    .unwrap()
+                    .features
+                    .insert((*feature).to_string(), vec![format!("ambient/{feature}")]);
+
+                let error = graph.validate_feature_forwarding(&[*contract]).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains(&format!("must forward `{feature}`")),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_font_owners_reject_eager_dependency_features_and_defaults() {
+        for (name, dependency) in [
+            ("merman-bindings-core", "merman"),
+            ("merman-ffi", "merman-bindings-core"),
+            ("merman-ffi", "merman"),
+            ("merman-ffi", "merman-export"),
+            ("merman-wasi", "merman-bindings-core"),
+            ("merman-wasi", "merman"),
+            ("merman-wasi", "merman-export"),
+        ] {
+            let contract = *DEPENDENCY_FEATURE_CONTRACTS
+                .iter()
+                .find(|contract| contract.package == name && contract.dependency == dependency)
+                .unwrap();
+            let owner =
+                package_with_dependency_features(name, &[(dependency, contract.expected_features)]);
+            graph(vec![owner.clone()])
+                .validate_dependency_feature_contracts(&[contract])
+                .unwrap();
+
+            let mut widened = owner.clone();
+            widened.dependencies[0]
+                .features
+                .push("native-fonts".to_string());
+            let error = graph(vec![widened])
+                .validate_dependency_feature_contracts(&[contract])
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("feature boundary expected"),
+                "{error}"
+            );
+
+            let mut owner = owner;
+            owner.dependencies[0].uses_default_features = true;
+            let error = graph(vec![owner])
+                .validate_dependency_feature_contracts(&[contract])
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("default-feature boundary"),
+                "{error}"
+            );
+        }
+    }
+
+    fn product_contract_graph() -> FeatureGraph {
+        let cli_defaults = CLI_RELEASE_FEATURES
+            .iter()
+            .copied()
+            .filter(|feature| *feature != "math")
+            .collect::<Vec<_>>();
+        graph(vec![
+            package(
+                "merman",
+                &[
+                    (
+                        "default",
+                        &["all-diagrams", "svg", "layout-cytoscape", "layout-elk"],
+                    ),
+                    ("complete-svg", &["svg", "layout-cytoscape"]),
+                    ("complete-svg-elk", &["complete-svg", "layout-elk"]),
+                ],
+            ),
+            package(
+                "merman-rustdoc",
+                &[
+                    (
+                        "default",
+                        &["all-diagrams", "svg", "layout-cytoscape", "layout-elk"],
+                    ),
+                    ("complete-svg", &["svg", "layout-cytoscape"]),
+                    ("complete-svg-elk", &["complete-svg", "layout-elk"]),
+                ],
+            ),
+            package_with_metadata(
+                "merman-cli",
+                &[("default", &cli_defaults)],
+                serde_json::json!({
+                    "dist": {
+                        "default-features": false,
+                        "features": CLI_RELEASE_FEATURES
+                    }
+                }),
+            ),
+        ])
+    }
+
+    fn diagram_selector_contract_graph() -> FeatureGraph {
+        let selectors = merman::model::family::diagram_family_selectors();
+        let mut packages = vec![package(
+            "merman-markup",
+            &[
+                ("default", &[]),
+                ("html", &[]),
+                ("url", &[]),
+                ("color", &[]),
+            ],
+        )];
+        for (name, _) in PUBLIC_FEATURE_ALLOWLIST_EXTRAS {
+            if matches!(*name, "merman-export" | "merman-markup" | "roughr-merman") {
+                continue;
+            }
+            let mut package = package(name, &[]);
+            package.features.insert(
+                "all-diagrams".to_string(),
+                selectors
+                    .iter()
+                    .map(|selector| selector.feature.to_string())
+                    .collect(),
+            );
+            for selector in selectors {
+                package
+                    .features
+                    .insert(selector.feature.to_string(), Vec::new());
+            }
+            packages.push(package);
+        }
+        graph(packages)
+    }
+
+    #[test]
+    fn diagram_selector_contract_rejects_shared_language_and_optional_dependency_leaks() {
+        let selectors = merman::model::family::diagram_family_selectors();
+        let mut graph = diagram_selector_contract_graph();
+        graph.validate_diagram_selectors().unwrap();
+        graph
+            .packages
+            .get_mut("merman-core")
+            .unwrap()
+            .features
+            .get_mut("diagram-flowchart")
+            .unwrap()
+            .push("diagram-swimlane".to_string());
+        assert!(
+            graph
+                .validate_diagram_selectors()
+                .unwrap_err()
+                .to_string()
+                .contains("another logical family")
+        );
+        graph
+            .packages
+            .get_mut("merman-core")
+            .unwrap()
+            .features
+            .get_mut("diagram-flowchart")
+            .unwrap()
+            .clear();
+        let facade = graph.packages.get_mut("merman").unwrap();
+        facade.dependencies.push(CargoDependency {
+            name: "merman-render".to_string(),
+            kind: None,
+            uses_default_features: false,
+            optional: true,
+            features: Vec::new(),
+        });
+        for selector in selectors {
+            facade
+                .features
+                .get_mut(selector.feature)
+                .unwrap()
+                .push(format!("merman-render?/{}", selector.feature));
+        }
+        graph.validate_diagram_selectors().unwrap();
+        for optional in [true, false] {
+            let facade = graph.packages.get_mut("merman").unwrap();
+            facade.dependencies[0].optional = optional;
+            let weak = if optional { "?" } else { "" };
+            for selector in selectors {
+                facade.features.insert(
+                    selector.feature.to_string(),
+                    vec![format!("merman-render{weak}/{}", selector.feature)],
+                );
+            }
+            facade
+                .features
+                .get_mut("diagram-flowchart")
+                .unwrap()
+                .extend(["shape-data".to_string(), format!("merman-render{weak}/svg")]);
+            graph.validate_diagram_selectors().unwrap();
+            let wrong_strength = if optional {
+                "merman-render/diagram-flowchart"
+            } else {
+                "merman-render?/diagram-flowchart"
+            };
+            for unexpected in [
+                "merman-render/diagram-sequence",
+                "merman-render?/diagram-sequence",
+                "merman-render/all-diagrams",
+                "merman-render?/all-diagrams",
+                "merman-bindings-core/diagram-sequence",
+                wrong_strength,
+            ] {
+                graph
+                    .packages
+                    .get_mut("merman")
+                    .unwrap()
+                    .features
+                    .get_mut("diagram-flowchart")
+                    .unwrap()
+                    .push(unexpected.to_string());
+                let error = graph.validate_diagram_selectors().unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("unexpected diagram selector edge")
+                        && error.to_string().contains(unexpected),
+                    "{error}"
+                );
+                graph
+                    .packages
+                    .get_mut("merman")
+                    .unwrap()
+                    .features
+                    .get_mut("diagram-flowchart")
+                    .unwrap()
+                    .pop();
+            }
+        }
+        graph.packages.get_mut("merman").unwrap().features.insert(
+            "diagram-flowchart".to_string(),
+            vec!["merman-render?/diagram-flowchart".to_string()],
+        );
+        assert!(
+            graph
+                .validate_diagram_selectors()
+                .unwrap_err()
+                .to_string()
+                .contains("merman-render/diagram-flowchart")
+        );
+    }
+
+    #[test]
+    fn diagram_selectors_allow_only_matching_dev_fixture_forwarding() {
+        let mut graph = diagram_selector_contract_graph();
+        let ascii = graph.packages.get_mut("merman-ascii").unwrap();
+        ascii.dependencies.push(CargoDependency {
+            name: "merman-core".to_string(),
+            kind: Some("dev".to_string()),
+            uses_default_features: false,
+            optional: false,
+            features: vec!["presentation".to_string()],
+        });
+        ascii.features.insert(
+            "diagram-flowchart".to_string(),
+            vec!["merman-core/diagram-flowchart".to_string()],
+        );
+        graph.validate_diagram_selectors().unwrap();
+
+        for unexpected in ["merman-core/diagram-sequence", "merman-core/all-diagrams"] {
+            let members = graph
+                .packages
+                .get_mut("merman-ascii")
+                .unwrap()
+                .features
+                .get_mut("diagram-flowchart")
+                .unwrap();
+            members.push(unexpected.to_string());
+            assert!(
+                graph
+                    .validate_diagram_selectors()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("unexpected diagram selector edge")
+            );
+            graph
+                .packages
+                .get_mut("merman-ascii")
+                .unwrap()
+                .features
+                .get_mut("diagram-flowchart")
+                .unwrap()
+                .pop();
+        }
+
+        graph.packages.get_mut("merman-ascii").unwrap().dependencies[0].kind = None;
+        assert!(
+            graph
+                .validate_diagram_selectors()
+                .unwrap_err()
+                .to_string()
+                .contains("must forward")
+        );
+    }
+
+    #[test]
+    fn product_feature_contracts_accept_exact_defaults_and_release_recipe() {
+        let graph = product_contract_graph();
+        assert_eq!(
+            graph.validate_product_feature_contracts().unwrap(),
+            PRODUCT_FEATURE_CONTRACTS
+        );
+    }
+
+    #[test]
+    fn svg_aggregates_reject_implicit_math_and_diagram_families() {
+        for package_name in ["merman", "merman-rustdoc"] {
+            for feature in ["complete-svg", "complete-svg-elk"] {
+                for extra in ["math", "all-diagrams"] {
+                    let mut graph = product_contract_graph();
+                    graph
+                        .packages
+                        .get_mut(package_name)
+                        .unwrap()
+                        .features
+                        .get_mut(feature)
+                        .unwrap()
+                        .push(extra.to_string());
+
+                    let error = graph.validate_product_feature_contracts().unwrap_err();
+                    assert!(
+                        error
+                            .to_string()
+                            .contains("math and diagram families remain explicit"),
+                        "{error}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn svg_aggregates_retain_their_output_and_layout_members() {
+        for package_name in ["merman", "merman-rustdoc"] {
+            for feature in ["complete-svg", "complete-svg-elk"] {
+                let mut graph = product_contract_graph();
+                graph
+                    .packages
+                    .get_mut(package_name)
+                    .unwrap()
+                    .features
+                    .get_mut(feature)
+                    .unwrap()
+                    .pop();
+
+                let error = graph.validate_product_feature_contracts().unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains(&format!("`{feature}` must contain only")),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn facade_default_must_select_all_diagrams_and_layouts() {
+        let mut graph = product_contract_graph();
+        graph
+            .packages
+            .get_mut("merman")
+            .unwrap()
+            .features
+            .insert("default".to_string(), vec!["svg".to_string()]);
+
+        let error = graph.validate_product_feature_contracts().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("merman default must equal `all-diagrams`, `svg`, `layout-cytoscape`, and `layout-elk`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn facade_default_does_not_implicitly_enable_math() {
+        let mut graph = product_contract_graph();
+        graph
+            .packages
+            .get_mut("merman")
+            .unwrap()
+            .features
+            .get_mut("default")
+            .unwrap()
+            .push("math".to_string());
+
+        let error = graph.validate_product_feature_contracts().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("merman default must equal `all-diagrams`, `svg`, `layout-cytoscape`, and `layout-elk`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rustdoc_default_keeps_all_diagrams_and_layouts_without_implicit_math() {
+        for defaults in [
+            vec!["svg".to_string()],
+            vec![
+                "all-diagrams".to_string(),
+                "svg".to_string(),
+                "layout-cytoscape".to_string(),
+                "layout-elk".to_string(),
+                "math".to_string(),
+            ],
+        ] {
+            let mut graph = product_contract_graph();
+            graph
+                .packages
+                .get_mut("merman-rustdoc")
+                .unwrap()
+                .features
+                .insert("default".to_string(), defaults);
+
+            let error = graph.validate_product_feature_contracts().unwrap_err();
+            assert!(
+                error.to_string().contains(
+                    "merman-rustdoc default must equal `all-diagrams`, `svg`, `layout-cytoscape`, and `layout-elk`"
+                ),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_release_must_retain_explicit_math() {
+        let mut graph = product_contract_graph();
+        let release_features = CLI_RELEASE_FEATURES
+            .iter()
+            .filter(|feature| **feature != "math")
+            .copied()
+            .collect::<Vec<_>>();
+        graph.packages.get_mut("merman-cli").unwrap().metadata["dist"]["features"] =
+            serde_json::json!(release_features);
+
+        let error = graph.validate_product_feature_contracts().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("published cargo-dist recipe must retain explicit `math`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn cli_release_must_retain_explicit_elk() {
+        let mut graph = product_contract_graph();
+        graph.packages.get_mut("merman-cli").unwrap().metadata["dist"]["features"] =
+            serde_json::json!(["analysis"]);
+
+        let error = graph.validate_product_feature_contracts().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("published cargo-dist recipe must retain explicit `layout-elk`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn cli_default_must_match_the_release_recipe_without_math() {
+        for extra_math in [false, true] {
+            let mut graph = product_contract_graph();
+            let defaults = graph
+                .packages
+                .get_mut("merman-cli")
+                .unwrap()
+                .features
+                .get_mut("default")
+                .unwrap();
+            if extra_math {
+                defaults.push("math".to_string());
+            } else {
+                defaults.retain(|feature| feature != "analysis");
+            }
+
+            let error = graph.validate_product_feature_contracts().unwrap_err();
+            assert!(
+                error.to_string().contains(
+                    "CLI default must equal the published cargo-dist recipe without `math`"
+                ),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_release_and_defaults_cannot_jointly_disable_actual_font_measurement() {
+        for removed in ["native-fonts", "system-fonts"] {
+            let mut graph = product_contract_graph();
+            let cli = graph.packages.get_mut("merman-cli").unwrap();
+            cli.features
+                .get_mut("default")
+                .unwrap()
+                .retain(|feature| feature != removed);
+            let release_features = CLI_RELEASE_FEATURES
+                .iter()
+                .filter(|feature| **feature != removed)
+                .copied()
+                .collect::<Vec<_>>();
+            cli.metadata["dist"]["features"] = serde_json::json!(release_features);
+
+            let error = graph.validate_product_feature_contracts().unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("must retain `native-fonts` and `system-fonts`"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_release_and_defaults_cannot_jointly_disable_fixes() {
+        let mut graph = product_contract_graph();
+        let cli = graph.packages.get_mut("merman-cli").unwrap();
+        cli.features
+            .get_mut("default")
+            .unwrap()
+            .retain(|feature| feature != "fixes");
+        cli.metadata["dist"]["features"] = serde_json::json!(
+            CLI_RELEASE_FEATURES
+                .iter()
+                .filter(|feature| **feature != "fixes")
+                .collect::<Vec<_>>()
+        );
+        let error = graph.validate_product_feature_contracts().unwrap_err();
+        assert!(
+            error.to_string().contains("must retain explicit `fixes`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn options_accept_only_the_explicit_strict_mode() {
+        assert_eq!(
+            parse_options(Vec::new()).unwrap(),
+            FeatureMatrixOptions::default()
+        );
+        assert_eq!(
+            parse_options(vec!["--strict".to_string()]).unwrap(),
+            FeatureMatrixOptions { strict: true }
+        );
+        assert!(parse_options(vec!["--unknown".to_string()]).is_err());
+    }
+
+    #[test]
+    fn derived_matrix_groups_preserve_expected_members() {
+        let transports = transport_packages().collect::<Vec<_>>();
+        let wasm_transports = wasm_transport_packages().collect::<Vec<_>>();
+
+        assert_eq!(
+            transports,
+            vec![
+                "merman-android-jni",
+                "merman-ffi",
+                "merman-typst-plugin",
+                "merman-uniffi",
+                "merman-wasi",
+                "merman-wasm",
+            ]
+        );
+        assert_eq!(wasm_transports, vec!["merman-typst-plugin", "merman-wasm"]);
+        assert!(
+            HOST_TRANSPORT_PACKAGES.iter().all(|package| {
+                transports.contains(package) && !wasm_transports.contains(package)
+            })
+        );
+    }
+
+    #[test]
+    fn transport_engine_must_imply_the_local_svg_leaf() {
+        let graph = graph(vec![package(
+            "merman-wasm",
+            &[
+                ("default", &[]),
+                ("svg", &["binding/svg"]),
+                ("layout-elk", &["binding/layout-elk"]),
+            ],
+        )]);
+        let error = graph
+            .validate_transport_contracts(&["merman-wasm"])
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("must imply this crate's `svg`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn low_level_packages_must_keep_explicit_empty_defaults() {
+        let graph = graph(vec![package(
+            "merman-bindings-core",
+            &[("default", &["svg"]), ("svg", &["merman/svg"])],
+        )]);
+
+        let error = graph
+            .validate_empty_default_contracts(&["merman-bindings-core"])
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("default must be empty"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn published_default_contract_requires_legacy_compat() {
+        let mut roughr = package(
+            "roughr-merman",
+            &[
+                ("default", &["legacy-compat"]),
+                ("legacy-compat", &["host-random", "dep:svgtypes_0_11"]),
+                ("host-random", &["dep:rand"]),
+            ],
+        );
+        let contract = PublishedDefaultContract {
+            package: "roughr-merman",
+            expected_defaults: &["legacy-compat"],
+        };
+        assert_eq!(
+            graph(vec![roughr.clone()])
+                .validate_published_default_contracts(&[contract])
+                .unwrap(),
+            1
+        );
+
+        roughr.features.insert("default".to_string(), Vec::new());
+        let error = graph(vec![roughr])
+            .validate_published_default_contracts(&[contract])
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("published defaults expected"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn dependency_feature_boundary_rejects_default_feature_leakage() {
+        let mut renderer =
+            package_with_dependency_features("merman-render", &[("roughr-merman", &[])]);
+        let contract = DependencyFeatureContract {
+            package: "merman-render",
+            dependency: "roughr-merman",
+            expected_features: &[],
+            expected_uses_default_features: Some(false),
+        };
+        assert_eq!(
+            graph(vec![renderer.clone()])
+                .validate_dependency_feature_contracts(&[contract])
+                .unwrap(),
+            1
+        );
+
+        renderer.dependencies[0].uses_default_features = true;
+        let error = graph(vec![renderer])
+            .validate_dependency_feature_contracts(&[contract])
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("default-feature boundary"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn dependency_feature_boundary_rejects_workspace_feature_leakage() {
+        let graph = graph(vec![package_with_dependency_features(
+            "manatee",
+            &[("indexmap", &["serde"])],
+        )]);
+        let contract = DependencyFeatureContract {
+            package: "manatee",
+            dependency: "indexmap",
+            expected_features: &[],
+            expected_uses_default_features: None,
+        };
+
+        let error = graph
+            .validate_dependency_feature_contracts(&[contract])
+            .unwrap_err();
+        assert!(error.to_string().contains("indexmap"), "{error}");
+        assert!(error.to_string().contains("expected {}"), "{error}");
+        assert!(error.to_string().contains("found {serde}"), "{error}");
+    }
+
+    #[test]
+    fn public_feature_allowlist_rejects_acceptance_feature_on_every_production_crate() {
+        for name in [
+            "merman",
+            "merman-model",
+            "merman-markup",
+            "merman-export",
+            "merman-render",
+        ] {
+            let graph = graph(vec![package(
+                name,
+                &[("default", &[]), ("internal-theme-acceptance", &[])],
+            )]);
+            let extras = PUBLIC_FEATURE_ALLOWLIST_EXTRAS
+                .iter()
+                .find_map(|(candidate, extras)| (*candidate == name).then_some(*extras))
+                .unwrap();
+            let error = graph
+                .validate_public_feature_allowlist(name, extras)
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("internal-theme-acceptance"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn public_feature_allowlist_rejects_retired_font_features() {
+        for (name, extras) in PUBLIC_FEATURE_ALLOWLIST_EXTRAS {
+            let graph = graph(vec![package(
+                name,
+                &[("default", &[]), ("embedded-fonts", &[])],
+            )]);
+            let error = graph
+                .validate_public_feature_allowlist(name, extras)
+                .unwrap_err();
+            assert!(error.to_string().contains("embedded-fonts"), "{error}");
+        }
+    }
+
+    #[test]
+    fn public_feature_allowlist_does_not_share_font_extras_across_owners() {
+        for (name, feature) in [
+            ("merman-wasi", "system-fonts"),
+            ("merman-wasi", "native-runtime"),
+            ("merman-wasm", "bundled-fonts"),
+            ("merman-typst-plugin", "bundled-fonts"),
+            ("merman-bindings-core", "bundled-fonts"),
+        ] {
+            let graph = graph(vec![package(name, &[("default", &[]), (feature, &[])])]);
+            let extras = PUBLIC_FEATURE_ALLOWLIST_EXTRAS
+                .iter()
+                .find_map(|(candidate, extras)| (*candidate == name).then_some(*extras))
+                .unwrap();
+            let error = graph
+                .validate_public_feature_allowlist(name, extras)
+                .unwrap_err();
+            assert!(error.to_string().contains(feature), "{error}");
+        }
+    }
+
+    #[test]
+    fn public_feature_allowlist_still_rejects_unknown_features() {
+        let graph = graph(vec![package(
+            "merman-render",
+            &[
+                ("default", &[]),
+                ("internal-theme-acceptance", &[]),
+                ("internal-theme-acceptance-typo", &[]),
+            ],
+        )]);
+        let extras = PUBLIC_FEATURE_ALLOWLIST_EXTRAS
+            .iter()
+            .find_map(|(package, extras)| (*package == "merman-render").then_some(*extras))
+            .unwrap();
+
+        let error = graph
+            .validate_public_feature_allowlist("merman-render", extras)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unexpected public Cargo features"),
+            "{error}"
+        );
+        assert!(
+            error.to_string().contains("internal-theme-acceptance-typo"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn public_feature_allowlist_rejects_retired_presets() {
+        let graph = graph(vec![package(
+            "merman-wasm",
+            &[("default", &[]), ("svg", &[]), ("full", &["svg"])],
+        )]);
+
+        let error = graph
+            .validate_public_feature_allowlist("merman-wasm", &[])
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unexpected public Cargo features"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("full"), "{error}");
+    }
+
+    #[test]
+    fn forwarding_contract_requires_the_dependency_capability_edge() {
+        let graph = graph(vec![package(
+            "merman-wasm",
+            &[("default", &[]), ("svg", &["dep:js-sys"])],
+        )]);
+        let contract = FeatureForwardingContract {
+            package: "merman-wasm",
+            dependency: "merman-bindings-core",
+            features: &["svg"],
+        };
+
+        let error = graph.validate_feature_forwarding(&[contract]).unwrap_err();
+        assert!(error.to_string().contains("must forward `svg`"), "{error}");
+    }
+
+    #[test]
+    fn forwarding_contract_follows_local_groups_and_cycles() {
+        let mut owner = package(
+            "merman-wasm",
+            &[
+                ("svg", &["renderer"]),
+                ("renderer", &["svg", "merman-bindings-core?/svg"]),
+            ],
+        );
+        let contract = FeatureForwardingContract {
+            package: "merman-wasm",
+            dependency: "merman-bindings-core",
+            features: &["svg"],
+        };
+        graph(vec![owner.clone()])
+            .validate_feature_forwarding(&[contract])
+            .unwrap();
+
+        owner.features.get_mut("renderer").unwrap().pop();
+        let error = graph(vec![owner])
+            .validate_feature_forwarding(&[contract])
+            .unwrap_err();
+        assert!(error.to_string().contains("must forward `svg`"), "{error}");
+    }
+
+    #[test]
+    fn default_build_cases_remain_distinct_from_empty_feature_builds() {
+        let no_defaults = BuildCase::new("merman", Vec::new(), None, "facade-base");
+        let defaults = BuildCase::with_defaults("merman", None, "facade-default");
+        let cases = BTreeSet::from([no_defaults, defaults]);
+
+        assert_eq!(cases.len(), 2);
+        assert!(cases.iter().any(|case| case.default_features));
+        assert!(cases.iter().any(|case| !case.default_features));
+    }
+
+    #[test]
+    fn strict_singletons_follow_declared_features_without_weakening_production_contracts() {
+        let mut graph = diagram_selector_contract_graph();
+        let partial = package(
+            "private-partial-package",
+            &[
+                ("all-diagrams", &["merman/all-diagrams"]),
+                ("diagram-flowchart", &["merman/diagram-flowchart"]),
+                ("diagram-gantt", &["merman/diagram-gantt"]),
+            ],
+        );
+        graph.packages.insert(partial.name.clone(), partial);
+        graph.validate_diagram_selectors().unwrap();
+        let cases = graph.build_cases(true, &[]).unwrap();
+        let singleton_features = |package_name: &str| {
+            cases
+                .iter()
+                .filter(|case| case.package == package_name && case.reason == "diagram-singleton")
+                .map(|case| {
+                    assert!(!case.default_features);
+                    assert_eq!(case.features.len(), 1);
+                    case.features[0].clone()
+                })
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(
+            singleton_features("private-partial-package"),
+            BTreeSet::from(["diagram-flowchart".to_string(), "diagram-gantt".to_string()])
+        );
+        let expected = merman::model::family::diagram_family_selectors()
+            .iter()
+            .map(|selector| selector.feature.to_string())
+            .collect::<BTreeSet<_>>();
+        for (package_name, _) in PUBLIC_FEATURE_ALLOWLIST_EXTRAS {
+            if matches!(
+                *package_name,
+                "merman-export" | "merman-markup" | "roughr-merman"
+            ) {
+                continue;
+            }
+            assert_eq!(singleton_features(package_name), expected, "{package_name}");
+        }
+
+        graph
+            .packages
+            .get_mut("merman-render")
+            .unwrap()
+            .features
+            .remove("diagram-block");
+        let error = graph.validate_diagram_selectors().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("required feature `diagram-block` is missing"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn markup_matrix_covers_empty_leaves_and_full_without_diagram_selectors() {
+        let graph = diagram_selector_contract_graph();
+        graph.validate_diagram_selectors().unwrap();
+        let cases = graph.build_cases(false, &[]).unwrap();
+        let markup = cases
+            .iter()
+            .filter(|case| case.package == "merman-markup")
+            .map(|case| {
+                assert!(!case.default_features);
+                case.features
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<BTreeSet<_>>()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            markup,
+            BTreeSet::from([
+                BTreeSet::new(),
+                BTreeSet::from(["html"]),
+                BTreeSet::from(["url"]),
+                BTreeSet::from(["color"]),
+                BTreeSet::from(["html", "url", "color"]),
+            ])
+        );
+        let mut model = cases.iter().filter(|case| case.package == "merman-model");
+        assert!(model.clone().any(|case| case.features.is_empty()));
+        assert!(model.clone().any(|case| case.features == ["all-diagrams"]));
+        assert!(model.any(|case| case.features == ["diagram-flowchart", "diagram-gantt"]));
+    }
+
+    #[test]
+    fn transport_cases_use_their_real_compile_targets_in_strict_mode() {
+        let graph = graph(Vec::new());
+        assert_eq!(
+            graph.build_target_for("merman-android-jni").as_deref(),
+            Some("aarch64-linux-android")
+        );
+        assert_eq!(
+            graph.build_target_for("merman-wasm").as_deref(),
+            Some("wasm32-unknown-unknown")
+        );
+        assert_eq!(
+            graph.build_target_for("merman-typst-plugin").as_deref(),
+            Some("wasm32-unknown-unknown")
+        );
+        assert_eq!(graph.build_target_for("merman-ffi"), None);
+        assert_eq!(transport_target("merman-wasi").unwrap(), "native");
+        assert_eq!(
+            graph.build_target_for("merman-wasi").as_deref(),
+            Some("wasm32-wasip1")
+        );
+    }
+
+    #[test]
+    fn wasi_build_cases_use_wasip1_without_expanding_the_representative_matrix() {
+        let graph = manifest_feature_graph();
+        let representative = graph.build_cases(false, &[]).unwrap();
+        assert!(
+            !representative
+                .iter()
+                .any(|case| case.package == "merman-wasi")
+        );
+
+        let strict = graph.build_cases(true, &[]).unwrap();
+        let wasi = strict
+            .iter()
+            .filter(|case| case.package == "merman-wasi")
+            .collect::<Vec<_>>();
+        assert!(!wasi.is_empty());
+        assert!(wasi.iter().all(|case| {
+            case.target.as_deref() == Some("wasm32-wasip1") && !case.default_features
+        }));
+        for features in [
+            vec![],
+            vec!["svg"],
+            vec!["native-fonts"],
+            vec!["png"],
+            vec!["all-diagrams"],
+        ] {
+            assert!(
+                wasi.iter().any(|case| case.features == features),
+                "{features:?}"
+            );
+        }
+        for selector in merman::model::family::diagram_family_selectors() {
+            assert!(wasi.iter().any(|case| case.features == [selector.feature]));
+        }
+    }
+}

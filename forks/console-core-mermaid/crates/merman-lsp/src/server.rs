@@ -1,0 +1,717 @@
+use crate::client_profile::ClientProtocolProfile;
+use crate::completion::{
+    completion_for_snapshot_with_profile, resolve_completion_item_with_profile,
+};
+use crate::diagnostics::unavailable_document_diagnostic_round_trip;
+use crate::protocol::{
+    CONFIG_SCHEMA_METHOD, ConfigSchemaResponse, RULE_CATALOG_METHOD, RuleCatalogResponse,
+    experimental_capabilities,
+};
+use crate::refresh_transport::{MermanClientSocket, RefreshClient};
+use crate::semantic_tokens::{
+    SemanticTokenError, semantic_token_plan_for_document_range_with_profile,
+    semantic_token_plan_for_document_with_profile, semantic_tokens_delta_result,
+    semantic_tokens_from_packed, semantic_tokens_options_with_profile, semantic_tokens_result_id,
+};
+use crate::session::{ClientEffects, LanguageSession, MermanLspService, commit_active_mutation};
+use crate::session::{
+    DocumentDiagnosticState, SemanticTokensState, analysis_options_with_lsp_resource_defaults,
+    default_lsp_analysis_options,
+};
+use crate::structure::{
+    document_symbols_with_hierarchy_support as structure_document_symbols_with_hierarchy_support,
+    folding_ranges as structure_folding_ranges, goto_definition as structure_goto_definition,
+    hover_with_profile as structure_hover_with_profile, prepare_rename as structure_prepare_rename,
+    references as structure_references,
+    rename_with_workspace_edit_encoding as structure_rename_with_workspace_edit_encoding,
+    selection_ranges as structure_selection_ranges,
+};
+use merman_analysis::options_json::analysis_options_from_json_value;
+use merman_editor_core::COMPLETION_TRIGGER_CHARACTERS;
+use merman_editor_core::DocumentKind;
+use std::sync::{Arc, OnceLock};
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::{
+    CodeActionKind, CodeActionOptions, CodeActionParams, CodeActionProviderCapability,
+    CodeActionResponse, CompletionItem, CompletionOptions, CompletionParams, CompletionResponse,
+    DiagnosticOptions, DiagnosticServerCapabilities, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeParams,
+    FoldingRangeProviderCapability, FullDocumentDiagnosticReport, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, MessageType, OneOf, PrepareRenameResponse, ReferenceParams,
+    RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, RenameOptions,
+    RenameParams, SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability,
+    SemanticTokens, SemanticTokensDeltaParams, SemanticTokensFullDeltaResult, SemanticTokensParams,
+    SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, UnchangedDocumentDiagnosticReport, WorkspaceEdit,
+};
+use tower_lsp_server::{Client, LanguageServer, LspService};
+
+const MISSING_DOCUMENT_DIAGNOSTIC_RESULT_ID: &str = "missing-document";
+
+#[derive(Debug, Clone)]
+pub struct MermanLanguageServer {
+    session: LanguageSession,
+    client_profile: Arc<OnceLock<ClientProtocolProfile>>,
+    client_effects: ClientEffects,
+}
+
+impl MermanLanguageServer {
+    fn new(client: Client, session: LanguageSession) -> Self {
+        let client_profile = Arc::new(OnceLock::new());
+        let client_effects =
+            ClientEffects::new(client.clone(), session.clone(), Arc::clone(&client_profile));
+        Self {
+            session,
+            client_profile,
+            client_effects,
+        }
+    }
+
+    /// Builds the service with a cancellation-safe, supervised client socket.
+    pub fn service() -> (MermanLspService, MermanClientSocket) {
+        let (service, socket, _) = Self::service_components();
+        (service, socket)
+    }
+
+    fn service_components() -> (MermanLspService, MermanClientSocket, RefreshClient) {
+        let (refresh_client, refresh_requests, refresh_responses) = RefreshClient::channel();
+        let refresh_handle = refresh_client.clone();
+        let session = LanguageSession::with_refresh_client(refresh_client);
+        let (service, socket) = Self::protocol_service(session.clone());
+        let service = MermanLspService::new(service, session.clone());
+        let socket = MermanClientSocket::new(
+            socket,
+            refresh_requests,
+            refresh_responses,
+            session.endpoint_guard(),
+        );
+        (service, socket, refresh_handle)
+    }
+
+    fn protocol_service(
+        session: LanguageSession,
+    ) -> (LspService<Self>, tower_lsp_server::ClientSocket) {
+        let backend_session = session.clone();
+        let (service, socket) =
+            LspService::build(move |client| Self::new(client, backend_session.clone()))
+                .custom_method(RULE_CATALOG_METHOD, Self::rule_catalog)
+                .custom_method(CONFIG_SCHEMA_METHOD, Self::config_schema)
+                .finish();
+        (service, socket)
+    }
+
+    /// Returns the server's full capability envelope without client-side negotiation.
+    ///
+    /// Live `initialize` responses are projected from the connecting client's capabilities.
+    pub fn capabilities() -> ServerCapabilities {
+        Self::capabilities_for_profile(&ClientProtocolProfile::permissive())
+    }
+
+    fn capabilities_for_profile(profile: &ClientProtocolProfile) -> ServerCapabilities {
+        ServerCapabilities {
+            text_document_sync: Some(TextDocumentSyncCapability::Options(
+                TextDocumentSyncOptions {
+                    open_close: Some(true),
+                    change: Some(TextDocumentSyncKind::INCREMENTAL),
+                    will_save: None,
+                    will_save_wait_until: None,
+                    save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                },
+            )),
+            selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+            hover_provider: Some(HoverProviderCapability::Simple(true)),
+            completion_provider: Some(CompletionOptions {
+                resolve_provider: Some(true),
+                trigger_characters: Some(
+                    COMPLETION_TRIGGER_CHARACTERS
+                        .iter()
+                        .map(char::to_string)
+                        .collect(),
+                ),
+                ..CompletionOptions::default()
+            }),
+            definition_provider: Some(OneOf::Left(true)),
+            references_provider: Some(OneOf::Left(true)),
+            rename_provider: Some(OneOf::Right(RenameOptions {
+                prepare_provider: Some(true),
+                work_done_progress_options: Default::default(),
+            })),
+            document_symbol_provider: Some(OneOf::Left(true)),
+            workspace_symbol_provider: None,
+            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
+                Self::diagnostic_options(),
+            )),
+            code_action_provider: profile
+                .code_actions
+                .as_ref()
+                .filter(|_| cfg!(feature = "fixes"))
+                .map(|_| {
+                    CodeActionProviderCapability::Options(CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        work_done_progress_options: Default::default(),
+                        resolve_provider: Some(false),
+                    })
+                }),
+            folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+            semantic_tokens_provider: semantic_tokens_options_with_profile(profile)
+                .map(SemanticTokensServerCapabilities::SemanticTokensOptions),
+            experimental: Some(experimental_capabilities()),
+            ..ServerCapabilities::default()
+        }
+    }
+
+    fn client_profile(&self) -> &ClientProtocolProfile {
+        match self.client_profile.get() {
+            Some(profile) => profile,
+            None => ClientProtocolProfile::conservative_ref(),
+        }
+    }
+
+    async fn rule_catalog(&self) -> Result<RuleCatalogResponse> {
+        Ok(RuleCatalogResponse::current())
+    }
+
+    async fn config_schema(&self) -> Result<ConfigSchemaResponse> {
+        Ok(ConfigSchemaResponse::current())
+    }
+
+    fn diagnostic_options() -> DiagnosticOptions {
+        DiagnosticOptions {
+            identifier: Some("merman".to_string()),
+            inter_file_dependencies: false,
+            workspace_diagnostics: false,
+            work_done_progress_options: Default::default(),
+        }
+    }
+
+    fn document_diagnostic_report(
+        diagnostics: Vec<tower_lsp_server::ls_types::Diagnostic>,
+        result_id: Option<String>,
+        previous_result_id: Option<&str>,
+    ) -> DocumentDiagnosticReportResult {
+        if let Some(result_id) = result_id.clone()
+            && previous_result_id == Some(result_id.as_str())
+        {
+            return DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Unchanged(
+                RelatedUnchangedDocumentDiagnosticReport {
+                    related_documents: None,
+                    unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
+                        result_id,
+                    },
+                },
+            ));
+        }
+
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
+            RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id,
+                    items: diagnostics,
+                },
+            },
+        ))
+    }
+
+    async fn apply_initialization_options(
+        &self,
+        initialization_options: Option<serde_json::Value>,
+    ) -> tower_lsp_server::jsonrpc::Result<()> {
+        let options = match initialization_options {
+            None => default_lsp_analysis_options(),
+            Some(value) => analysis_options_with_lsp_resource_defaults(
+                analysis_options_from_json_value(&value).map_err(|err| {
+                    tower_lsp_server::jsonrpc::Error::invalid_params(err.to_string())
+                })?,
+            ),
+        };
+        if self.session.update_configuration(options).await.accepted() {
+            Ok(())
+        } else {
+            let mut error = tower_lsp_server::jsonrpc::Error::internal_error();
+            error.message = "analysis configuration did not commit".into();
+            Err(error)
+        }
+    }
+}
+
+impl LanguageServer for MermanLanguageServer {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        let profile = ClientProtocolProfile::negotiate(&params.capabilities);
+        let capabilities = Self::capabilities_for_profile(&profile);
+        self.apply_initialization_options(params.initialization_options)
+            .await?;
+        self.client_profile
+            .set(profile)
+            .map_err(|_| tower_lsp_server::jsonrpc::Error::invalid_request())?;
+        Ok(InitializeResult {
+            capabilities,
+            ..InitializeResult::default()
+        })
+    }
+
+    async fn initialized(&self, _: tower_lsp_server::ls_types::InitializedParams) {
+        commit_active_mutation();
+        self.client_effects
+            .log_message(MessageType::INFO, "merman-lsp initialized")
+            .await;
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let doc = params.text_document;
+        let kind = document_kind_for_language_id(&doc.language_id, &doc.uri);
+        let uri = doc.uri;
+        let committed = self
+            .session
+            .open_document(uri.clone(), doc.version, doc.text, kind)
+            .await;
+        commit_active_mutation();
+        if committed {
+            self.client_effects.push_diagnostics(uri).await;
+        }
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let doc = params.text_document;
+        let update = self
+            .session
+            .change_document(doc.uri.clone(), doc.version, params.content_changes)
+            .await;
+        commit_active_mutation();
+        if update == Some(true) {
+            self.client_effects.push_diagnostics(doc.uri).await;
+        }
+    }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        commit_active_mutation();
+        self.client_effects.push_diagnostics(uri).await;
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        let uri = params.text_document.uri;
+        self.session.close_document(&uri).await;
+        commit_active_mutation();
+        self.client_effects.push_diagnostics(uri).await;
+    }
+
+    async fn did_change_configuration(
+        &self,
+        params: tower_lsp_server::ls_types::DidChangeConfigurationParams,
+    ) {
+        let options = if params.settings.is_null() {
+            default_lsp_analysis_options()
+        } else {
+            match analysis_options_from_json_value(&params.settings) {
+                Ok(options) => analysis_options_with_lsp_resource_defaults(options),
+                Err(err) => {
+                    commit_active_mutation();
+                    self.client_effects
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("invalid merman analysis settings: {err}"),
+                        )
+                        .await;
+                    return;
+                }
+            }
+        };
+
+        let change = self.session.update_configuration(options).await;
+        commit_active_mutation();
+        if change.failed() {
+            self.client_effects
+                .log_message(
+                    MessageType::ERROR,
+                    "failed to apply merman analysis settings",
+                )
+                .await;
+            return;
+        }
+        self.client_effects.configuration_changed(change).await;
+    }
+
+    async fn diagnostic(
+        &self,
+        params: DocumentDiagnosticParams,
+    ) -> Result<DocumentDiagnosticReportResult> {
+        let uri = params.text_document.uri;
+        let previous_result_id = params.previous_result_id.as_deref();
+        let profile = self.client_profile();
+        let state = self
+            .session
+            .pull_diagnostics(&uri, |context, analysis| {
+                let (diagnostics, result_id) =
+                    if let Some(round_trip) = unavailable_document_diagnostic_round_trip(context) {
+                        (
+                            round_trip.diagnostics_with_profile(profile),
+                            round_trip.result_id(),
+                        )
+                    } else {
+                        let round_trip = analysis
+                            .expect("available documents require an analysis context")
+                            .diagnostic_round_trip();
+                        (
+                            round_trip.diagnostics_with_profile(profile),
+                            round_trip.result_id(),
+                        )
+                    };
+                DocumentDiagnosticState {
+                    result_id,
+                    diagnostics,
+                }
+            })
+            .await?;
+        let Some(state) = state else {
+            let diagnostics = Vec::new();
+            return Ok(Self::document_diagnostic_report(
+                diagnostics,
+                Some(MISSING_DOCUMENT_DIAGNOSTIC_RESULT_ID.to_string()),
+                previous_result_id,
+            ));
+        };
+
+        Ok(Self::document_diagnostic_report(
+            state.diagnostics,
+            Some(state.result_id),
+            previous_result_id,
+        ))
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let profile = self.client_profile();
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(Some(CompletionResponse::List(
+                    completion_for_snapshot_with_profile(snapshot, position, profile),
+                )))
+            })
+            .await
+    }
+
+    async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
+        Ok(resolve_completion_item_with_profile(
+            item,
+            self.client_profile(),
+        ))
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let profile = self.client_profile();
+        let uri = params.text_document.uri.clone();
+        self.session
+            .query_code_actions(&uri, |context| {
+                Ok(context
+                    .diagnostic_round_trip()
+                    .code_actions_with_profile(&params, profile))
+            })
+            .await
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let profile = self.client_profile().clone();
+        let Some(projection) = profile
+            .semantic_tokens
+            .as_ref()
+            .filter(|projection| projection.supports_full())
+        else {
+            return Ok(None);
+        };
+        let supports_delta = projection.supports_delta();
+        let error_uri = uri.clone();
+        let index_budget = self.session.line_index_budget();
+        self.session
+            .query_semantic_tokens(&uri, None, move |document, _, cancellation| {
+                let Some(plan) = semantic_token_plan_for_document_with_profile(
+                    document,
+                    cancellation,
+                    &profile,
+                    &index_budget,
+                )
+                .map_err(|error| {
+                    semantic_token_planning_error(&error_uri, document.version(), error)
+                })?
+                else {
+                    return Ok(None);
+                };
+                let result_id =
+                    supports_delta.then(|| semantic_tokens_result_id(document, plan.packed()));
+                let tokens = SemanticTokens {
+                    result_id: result_id.clone(),
+                    data: semantic_tokens_from_packed(plan.packed()),
+                };
+                let state = result_id
+                    .map(|result_id| SemanticTokensState::new(result_id, plan.into_packed()));
+                Ok(Some((SemanticTokensResult::Tokens(tokens), state)))
+            })
+            .await
+    }
+
+    async fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> Result<Option<SemanticTokensFullDeltaResult>> {
+        let uri = params.text_document.uri;
+        let profile = self.client_profile().clone();
+        if !profile
+            .semantic_tokens
+            .as_ref()
+            .is_some_and(|projection| projection.supports_delta())
+        {
+            return Ok(None);
+        }
+        let error_uri = uri.clone();
+        let index_budget = self.session.line_index_budget();
+        self.session
+            .query_semantic_tokens(
+                &uri,
+                Some(params.previous_result_id.as_str()),
+                move |document, previous, cancellation| {
+                    let Some(current_plan) = semantic_token_plan_for_document_with_profile(
+                        document,
+                        cancellation,
+                        &profile,
+                        &index_budget,
+                    )
+                    .map_err(|error| {
+                        semantic_token_planning_error(&error_uri, document.version(), error)
+                    })?
+                    else {
+                        return Ok(None);
+                    };
+                    let current_result_id =
+                        semantic_tokens_result_id(document, current_plan.packed());
+                    let delta = match previous {
+                        Some(previous) => semantic_tokens_delta_result(
+                            &previous.packed,
+                            current_plan.packed(),
+                            current_result_id.clone(),
+                        ),
+                        None => SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                            result_id: Some(current_result_id.clone()),
+                            data: semantic_tokens_from_packed(current_plan.packed()),
+                        }),
+                    };
+                    let state =
+                        SemanticTokensState::new(current_result_id, current_plan.into_packed());
+                    Ok(Some((delta, Some(state))))
+                },
+            )
+            .await
+    }
+
+    async fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokensRangeResult>> {
+        let uri = params.text_document.uri;
+        let profile = self.client_profile().clone();
+        if !profile
+            .semantic_tokens
+            .as_ref()
+            .is_some_and(|projection| projection.supports_range())
+        {
+            return Ok(None);
+        }
+        let error_uri = uri.clone();
+        let index_budget = self.session.line_index_budget();
+        self.session
+            .query_semantic_tokens(&uri, None, move |document, _, cancellation| {
+                let Some(plan) = semantic_token_plan_for_document_range_with_profile(
+                    document,
+                    params.range,
+                    cancellation,
+                    &profile,
+                    &index_budget,
+                )
+                .map_err(|error| {
+                    semantic_token_planning_error(&error_uri, document.version(), error)
+                })?
+                else {
+                    return Ok(None);
+                };
+                let result = SemanticTokens {
+                    result_id: None,
+                    data: semantic_tokens_from_packed(plan.packed()),
+                };
+                Ok(Some((SemanticTokensRangeResult::from(result), None)))
+            })
+            .await
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let profile = self.client_profile();
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(structure_hover_with_profile(snapshot, position, profile))
+            })
+            .await
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = params.text_document.uri;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(structure_selection_ranges(snapshot, &params.positions))
+            })
+            .await
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = params.text_document.uri;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(Some(structure_folding_ranges(snapshot)))
+            })
+            .await
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+        let hierarchical_supported = self.client_profile().hierarchical_document_symbols;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(Some(structure_document_symbols_with_hierarchy_support(
+                    snapshot,
+                    hierarchical_supported,
+                )))
+            })
+            .await
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(structure_goto_definition(snapshot, position))
+            })
+            .await
+    }
+
+    async fn references(
+        &self,
+        params: ReferenceParams,
+    ) -> Result<Option<Vec<tower_lsp_server::ls_types::Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(structure_references(
+                    snapshot,
+                    position,
+                    params.context.include_declaration,
+                ))
+            })
+            .await
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                Ok(structure_prepare_rename(snapshot, position))
+            })
+            .await
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        let workspace_edit_encoding = self.client_profile().workspace_edit_encoding;
+
+        self.session
+            .query_structure(&uri, |snapshot| {
+                structure_rename_with_workspace_edit_encoding(
+                    snapshot,
+                    params,
+                    workspace_edit_encoding,
+                )
+            })
+            .await
+    }
+}
+
+fn semantic_token_planning_error(
+    uri: &tower_lsp_server::ls_types::Uri,
+    version: i32,
+    error: SemanticTokenError,
+) -> tower_lsp_server::jsonrpc::Error {
+    if error.is_invalid_range() {
+        return tower_lsp_server::jsonrpc::Error::invalid_params(error.to_string());
+    }
+    if error.is_cancelled() {
+        let mut response = tower_lsp_server::jsonrpc::Error::content_modified();
+        response.message = "semantic token syntax work was cancelled".into();
+        return response;
+    }
+
+    tracing::error!(
+        uri = uri.as_str(),
+        version,
+        %error,
+        "semantic token planning failed"
+    );
+    let mut response = tower_lsp_server::jsonrpc::Error::internal_error();
+    response.message = "semantic token planning failed".into();
+    response.data = Some(serde_json::json!({
+        "code": "merman.lsp.semantic_token_planning_failed",
+        "detail": error.to_string(),
+    }));
+    response
+}
+
+fn document_kind_for_language_id(
+    language_id: &str,
+    uri: &tower_lsp_server::ls_types::Uri,
+) -> DocumentKind {
+    match language_id {
+        "markdown" => DocumentKind::Markdown,
+        "mdx" => DocumentKind::Mdx,
+        "mermaid" => DocumentKind::Diagram,
+        _ => DocumentKind::from_path(uri.path().as_str()),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,148 @@
+repository = "https://github.com/Latias94/merman"
+branch = "main"
+revision = "af773bacc9e397f5b77a029f71d32c1b822aab59"
+version = "0.10.0-alpha.2"
+
+# Source paths are retained so upstream changes can be compared directly.
+
+# Original source directories and Rust import aliases are retained.
+
+[[packages]]
+upstream = "dugong"
+name = "console-core-mermaid-dagre"
+
+[[packages]]
+upstream = "dugong-graphlib"
+name = "console-core-mermaid-graph"
+
+[[packages]]
+upstream = "manatee"
+name = "console-core-mermaid-cytoscape"
+
+[[packages]]
+upstream = "merman"
+name = "console-core-mermaid"
+
+[[packages]]
+upstream = "merman-analysis"
+name = "console-core-mermaid-analysis"
+
+[[packages]]
+upstream = "merman-android-jni"
+name = "console-core-mermaid-android-jni"
+
+[[packages]]
+upstream = "merman-ascii"
+name = "console-core-mermaid-text"
+
+[[packages]]
+upstream = "merman-ascii-test-contracts"
+name = "console-core-mermaid-ascii-test-contracts"
+
+[[packages]]
+upstream = "merman-bindings-core"
+name = "console-core-mermaid-bindings"
+
+[[packages]]
+upstream = "merman-cli"
+name = "console-core-mermaid-cli"
+
+[[packages]]
+upstream = "merman-core"
+name = "console-core-mermaid-syntax"
+
+[[packages]]
+upstream = "merman-doc"
+name = "console-core-mermaid-documents"
+
+[[packages]]
+upstream = "merman-editor-core"
+name = "console-core-mermaid-editing"
+
+[[packages]]
+upstream = "merman-elk-layered"
+name = "console-core-mermaid-elk-layered"
+
+[[packages]]
+upstream = "merman-export"
+name = "console-core-mermaid-export"
+
+[[packages]]
+upstream = "merman-ffi"
+name = "console-core-mermaid-ffi"
+
+[[packages]]
+upstream = "merman-fixture-render-context"
+name = "console-core-mermaid-fixture-render-context"
+
+[[packages]]
+upstream = "merman-layout-elk"
+name = "console-core-mermaid-layout-elk"
+
+[[packages]]
+upstream = "merman-lsp"
+name = "console-core-mermaid-lsp"
+
+[[packages]]
+upstream = "merman-markup"
+name = "console-core-mermaid-markup"
+
+[[packages]]
+upstream = "merman-model"
+name = "console-core-mermaid-model"
+
+[[packages]]
+upstream = "merman-node-candidate"
+name = "console-core-mermaid-node"
+
+[[packages]]
+upstream = "merman-render"
+name = "console-core-mermaid-renderer"
+
+[[packages]]
+upstream = "merman-rustdoc"
+name = "console-core-mermaid-rustdoc"
+
+[[packages]]
+upstream = "merman-theme-acceptance"
+name = "console-core-mermaid-theme-acceptance"
+
+[[packages]]
+upstream = "merman-theme-authoring-fixtures"
+name = "console-core-mermaid-theme-authoring-fixtures"
+
+[[packages]]
+upstream = "merman-theme-contract"
+name = "console-core-mermaid-theme-contract"
+
+[[packages]]
+upstream = "merman-typst-plugin"
+name = "console-core-mermaid-typst-plugin"
+
+[[packages]]
+upstream = "merman-unicode-linebreak"
+name = "console-core-mermaid-line-breaks"
+
+[[packages]]
+upstream = "merman-uniffi"
+name = "console-core-mermaid-uniffi"
+
+[[packages]]
+upstream = "merman-wasi"
+name = "console-core-mermaid-wasi"
+
+[[packages]]
+upstream = "merman-wasm"
+name = "console-core-mermaid-wasm"
+
+[[packages]]
+upstream = "roughr-merman"
+name = "console-core-mermaid-sketches"
+
+[[packages]]
+upstream = "tree-sitter-mermaid"
+name = "console-core-mermaid-tree-sitter"
+
+[[packages]]
+upstream = "xtask"
+name = "console-core-mermaid-tools"

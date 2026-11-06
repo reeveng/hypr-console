@@ -1,0 +1,1256 @@
+use merman_core::{MermaidEngine, ParseOptions};
+use merman_render::LayoutOptions;
+use merman_render::environment::{
+    HostMeasurementResult, HostTextMeasurement, HostTextMeasurementRequest, HostTextMeasurer,
+    MeasurementProfileId, RenderEnvironment, TextMeasurementOperation, TextMeasurementPhase,
+    TextMeasurementPolicy, TextMeasurementProfileIdentity, TextMeasurementResultKind,
+};
+use merman_render::family;
+use merman_render::model::{SwimlaneDirection, SwimlaneLayout};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+#[path = "support/generated_graphs.rs"]
+mod generated_graphs;
+
+const EPSILON: f64 = 1.0e-6;
+
+#[test]
+fn generated_swimlane_graphs_preserve_membership_routes_and_determinism() {
+    use generated_graphs::{DIRECTIONS, SEEDS, Topology, generate};
+    for seed in SEEDS {
+        for direction in DIRECTIONS {
+            for topology in [
+                Topology::Dag,
+                Topology::NestedDag,
+                Topology::ParallelDag,
+                Topology::Cycle,
+            ] {
+                let graph = generate(seed, direction, topology, true);
+                let source = &graph.source;
+                let layout = try_layout_swimlane(source).unwrap_or_else(|error| {
+                    panic!("{error}, seed={seed} topology={topology:?}\n{source}")
+                });
+                let finite = |values: &[f64]| values.iter().all(|value| value.is_finite());
+                let node = |id: &str| {
+                    layout
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == id && !node.is_edge_label)
+                        .unwrap_or_else(|| panic!("missing {id}, seed={seed}\n{source}"))
+                };
+                assert_eq!(
+                    layout
+                        .nodes
+                        .iter()
+                        .filter(|node| !node.is_edge_label)
+                        .count(),
+                    graph.leaves.len(),
+                    "seed={seed}\n{source}"
+                );
+                for (id, expected_parent) in &graph.leaves {
+                    let node = node(id);
+                    assert!(
+                        finite(&[node.x, node.y, node.width, node.height])
+                            && node.width > 0.0
+                            && node.height > 0.0,
+                        "{id}, seed={seed}\n{source}"
+                    );
+                    if let Some(parent_id) = expected_parent {
+                        assert_eq!(
+                            node.parent_id.as_ref(),
+                            Some(parent_id),
+                            "{id}, seed={seed}\n{source}"
+                        );
+                        let lane = layout
+                            .lanes
+                            .iter()
+                            .find(|lane| &lane.id == parent_id)
+                            .expect("declared parent lane");
+                        assert!(
+                            contains_node(lane, node),
+                            "{parent_id} must contain {id}, seed={seed}\n{source}"
+                        );
+                    }
+                }
+                let rect = |x: f64, y: f64, width: f64, height: f64| {
+                    (
+                        x - width / 2.0,
+                        y - height / 2.0,
+                        x + width / 2.0,
+                        y + height / 2.0,
+                    )
+                };
+                let contains = |a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)| {
+                    a.0 <= b.0 + EPSILON
+                        && a.1 <= b.1 + EPSILON
+                        && a.2 + EPSILON >= b.2
+                        && a.3 + EPSILON >= b.3
+                };
+                let separate = |a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)| {
+                    a.2 <= b.0 + EPSILON
+                        || b.2 <= a.0 + EPSILON
+                        || a.3 <= b.1 + EPSILON
+                        || b.3 <= a.1 + EPSILON
+                };
+                for (id, parent_id) in &graph.groups {
+                    let lane = layout
+                        .lanes
+                        .iter()
+                        .find(|lane| &lane.id == id)
+                        .expect("declared lane");
+                    assert!(
+                        finite(&[lane.x, lane.y, lane.width, lane.height])
+                            && lane.width > 0.0
+                            && lane.height > 0.0,
+                        "{id}, seed={seed}\n{source}"
+                    );
+                    if let Some(parent_id) = parent_id {
+                        let parent = layout
+                            .lanes
+                            .iter()
+                            .find(|lane| &lane.id == parent_id)
+                            .expect("parent lane");
+                        assert_eq!(
+                            lane.parent_id.as_ref(),
+                            Some(parent_id),
+                            "seed={seed}\n{source}"
+                        );
+                        assert!(
+                            contains(
+                                rect(parent.x, parent.y, parent.width, parent.height),
+                                rect(lane.x, lane.y, lane.width, lane.height)
+                            ),
+                            "{parent_id} must contain {id}, seed={seed}\n{source}"
+                        );
+                    }
+                }
+                for (index, left) in layout.nodes.iter().enumerate() {
+                    for right in &layout.nodes[index + 1..] {
+                        if left.parent_id == right.parent_id
+                            && !left.is_edge_label
+                            && !right.is_edge_label
+                        {
+                            assert!(
+                                separate(
+                                    rect(left.x, left.y, left.width, left.height),
+                                    rect(right.x, right.y, right.width, right.height)
+                                ),
+                                "siblings {}/{} overlap, seed={seed}\n{source}",
+                                left.id,
+                                right.id
+                            );
+                        }
+                    }
+                }
+                for (index, left) in layout.lanes.iter().enumerate() {
+                    for right in &layout.lanes[index + 1..] {
+                        if left.parent_id == right.parent_id {
+                            assert!(
+                                separate(
+                                    rect(left.x, left.y, left.width, left.height),
+                                    rect(right.x, right.y, right.width, right.height)
+                                ),
+                                "sibling lanes {}/{} overlap, seed={seed}\n{source}",
+                                left.id,
+                                right.id
+                            );
+                        }
+                    }
+                }
+                let mut endpoints = layout
+                    .edges
+                    .iter()
+                    .map(|edge| (edge.from.clone(), edge.to.clone()))
+                    .collect::<Vec<_>>();
+                let mut expected = graph.edges.clone();
+                endpoints.sort();
+                expected.sort();
+                assert_eq!(
+                    endpoints, expected,
+                    "edge multiplicity and endpoints, seed={seed}\n{source}"
+                );
+                for edge in &layout.edges {
+                    assert!(
+                        edge.points.len() >= 2
+                            && edge.points.iter().all(|point| finite(&[point.x, point.y])),
+                        "route {}, seed={seed}\n{source}",
+                        edge.id
+                    );
+                    assert!(
+                        edge.points
+                            .windows(2)
+                            .all(|pair| (pair[0].x - pair[1].x).abs() <= EPSILON
+                                || (pair[0].y - pair[1].y).abs() <= EPSILON),
+                        "non-orthogonal {}, seed={seed}\n{source}",
+                        edge.id
+                    );
+                }
+                for pair in graph.chain.windows(2) {
+                    let (from, to) = (node(&pair[0]), node(&pair[1]));
+                    let ordered = match direction {
+                        "TB" => from.y < to.y,
+                        "BT" => from.y > to.y,
+                        "LR" => from.x < to.x,
+                        "RL" => from.x > to.x,
+                        _ => unreachable!(),
+                    };
+                    assert!(ordered, "chain direction, seed={seed}\n{source}");
+                }
+                let bounds = layout.bounds.as_ref().expect("nonempty graph bounds");
+                assert!(
+                    finite(&[bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y])
+                        && bounds.min_x < bounds.max_x
+                        && bounds.min_y < bounds.max_y,
+                    "seed={seed}\n{source}"
+                );
+                assert_eq!(
+                    serde_json::to_value(&layout).unwrap(),
+                    serde_json::to_value(try_layout_swimlane(source).unwrap()).unwrap(),
+                    "nondeterministic Swimlane seed={seed}\n{source}"
+                );
+            }
+        }
+    }
+}
+
+struct FixedTextMeasurer;
+
+impl HostTextMeasurer for FixedTextMeasurer {
+    fn measure(&self, request: HostTextMeasurementRequest<'_>) -> HostMeasurementResult {
+        let width = request.text.chars().count() as f64 * 8.0;
+        Ok(Some(match request.operation {
+            TextMeasurementOperation::RawBBoxWidth
+            | TextMeasurementOperation::SimpleBBoxWidth
+            | TextMeasurementOperation::TspanBBoxWidth
+            | TextMeasurementOperation::ComputedLength
+            | TextMeasurementOperation::CanvasMeasureTextWidth => {
+                HostTextMeasurement::Length(width)
+            }
+            TextMeasurementOperation::RawBBoxHeight
+            | TextMeasurementOperation::SimpleBBoxHeight
+            | TextMeasurementOperation::TspanBBoxHeight => HostTextMeasurement::Length(20.0),
+            TextMeasurementOperation::CreateTextBBoxYOffset => HostTextMeasurement::Length(0.0),
+            _ => HostTextMeasurement::Metrics(merman_render::text::TextMetrics {
+                width,
+                height: 20.0,
+                line_count: 1,
+            }),
+        }))
+    }
+}
+
+struct WidthAwareTextMeasurer;
+
+impl HostTextMeasurer for WidthAwareTextMeasurer {
+    fn measure(&self, request: HostTextMeasurementRequest<'_>) -> HostMeasurementResult {
+        let line_width = |line: &str| line.chars().count() as f64 * 8.0;
+        let width = request.text.lines().map(line_width).fold(0.0_f64, f64::max);
+        let line_count = request.text.split('\n').count().max(1);
+        Ok(Some(match request.operation {
+            TextMeasurementOperation::RawBBoxWidth
+            | TextMeasurementOperation::SimpleBBoxWidth
+            | TextMeasurementOperation::TspanBBoxWidth
+            | TextMeasurementOperation::ComputedLength
+            | TextMeasurementOperation::CanvasMeasureTextWidth => {
+                HostTextMeasurement::Length(width)
+            }
+            TextMeasurementOperation::RawBBoxHeight
+            | TextMeasurementOperation::SimpleBBoxHeight
+            | TextMeasurementOperation::TspanBBoxHeight => HostTextMeasurement::Length(20.0),
+            TextMeasurementOperation::CreateTextBBoxYOffset => HostTextMeasurement::Length(0.0),
+            _ => HostTextMeasurement::Metrics(merman_render::text::TextMetrics {
+                width,
+                height: line_count as f64 * 20.0,
+                line_count,
+            }),
+        }))
+    }
+}
+
+struct FontSizeAwareTextMeasurer;
+
+impl HostTextMeasurer for FontSizeAwareTextMeasurer {
+    fn measure(&self, request: HostTextMeasurementRequest<'_>) -> HostMeasurementResult {
+        let raw_width = request
+            .text
+            .lines()
+            .map(|line| line.chars().count() as f64 * request.style.font_size * 0.5)
+            .fold(0.0_f64, f64::max);
+        let max_width = request
+            .max_width
+            .filter(|width| width.is_finite() && *width > 0.0);
+        let line_count = max_width
+            .map(|width| (raw_width / width).ceil() as usize)
+            .unwrap_or(1)
+            .max(request.text.lines().count())
+            .max(1);
+        let metrics = merman_render::text::TextMetrics {
+            width: max_width.map_or(raw_width, |width| raw_width.min(width)),
+            height: line_count as f64 * request.style.font_size,
+            line_count,
+        };
+
+        Ok(Some(match request.operation.required_result_kind() {
+            TextMeasurementResultKind::Metrics => HostTextMeasurement::Metrics(metrics),
+            TextMeasurementResultKind::Length => {
+                let length = match request.operation {
+                    TextMeasurementOperation::RawBBoxHeight
+                    | TextMeasurementOperation::SimpleBBoxHeight
+                    | TextMeasurementOperation::TspanBBoxHeight => metrics.height,
+                    TextMeasurementOperation::CreateTextBBoxYOffset
+                    | TextMeasurementOperation::CreateTextMiddleBBoxYOffset => 0.0,
+                    _ => raw_width,
+                };
+                HostTextMeasurement::Length(length)
+            }
+            TextMeasurementResultKind::HorizontalExtents => {
+                HostTextMeasurement::HorizontalExtents {
+                    left: raw_width / 2.0,
+                    right: raw_width / 2.0,
+                }
+            }
+            TextMeasurementResultKind::WrappedWithRawWidth => {
+                HostTextMeasurement::WrappedWithRawWidth {
+                    metrics,
+                    raw_width: Some(raw_width),
+                }
+            }
+        }))
+    }
+}
+
+fn try_layout_swimlane(source: &str) -> Result<SwimlaneLayout, String> {
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(source, ParseOptions::strict())
+        .map_err(|error| format!("parse failed: {error}"))?
+        .ok_or_else(|| "no diagram detected".to_string())?
+        .into_presentation();
+    let identity = TextMeasurementProfileIdentity::new(
+        MeasurementProfileId::new("test.swimlane-fixed").unwrap(),
+        "1",
+    )
+    .unwrap();
+    let environment = RenderEnvironment::deterministic().with_text_measurement_policy(
+        TextMeasurementPolicy::host_display(
+            identity,
+            Arc::new(FixedTextMeasurer),
+            TextMeasurementPhase::ALL,
+        ),
+    );
+    let session = environment
+        .begin_session()
+        .map_err(|error| format!("render session failed: {error}"))?;
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .map_err(|error| format!("swimlane layout failed: {error}"))?;
+    let projection = artifact
+        .layout_json()
+        .map_err(|error| format!("swimlane projection failed: {error}"))?;
+    serde_json::from_value(projection["layout"]["SwimlaneDiagram"].clone())
+        .map_err(|error| format!("swimlane layout projection failed: {error}"))
+}
+
+fn layout_swimlane(source: &str) -> SwimlaneLayout {
+    try_layout_swimlane(source).expect("swimlane layout")
+}
+
+fn layout_swimlane_with_width_aware_measurer(source: &str) -> SwimlaneLayout {
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(source, ParseOptions::strict())
+        .expect("parse swimlane")
+        .expect("detect swimlane")
+        .into_presentation();
+    let identity = TextMeasurementProfileIdentity::new(
+        MeasurementProfileId::new("test.swimlane-width-aware").unwrap(),
+        "1",
+    )
+    .unwrap();
+    let environment = RenderEnvironment::deterministic().with_text_measurement_policy(
+        TextMeasurementPolicy::host_display(
+            identity,
+            Arc::new(WidthAwareTextMeasurer),
+            TextMeasurementPhase::ALL,
+        ),
+    );
+    let session = environment.begin_session().expect("render session");
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .expect("prepare swimlane layout");
+    let projection = artifact.layout_json().expect("swimlane projection");
+    serde_json::from_value(projection["layout"]["SwimlaneDiagram"].clone())
+        .expect("typed swimlane layout")
+}
+
+fn layout_swimlane_with_font_size_aware_measurer(source: &str) -> SwimlaneLayout {
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(source, ParseOptions::strict())
+        .expect("parse swimlane")
+        .expect("detect swimlane")
+        .into_presentation();
+    let identity = TextMeasurementProfileIdentity::new(
+        MeasurementProfileId::new("test.swimlane-font-size-aware").unwrap(),
+        "1",
+    )
+    .unwrap();
+    let environment = RenderEnvironment::deterministic().with_text_measurement_policy(
+        TextMeasurementPolicy::host_display(
+            identity,
+            Arc::new(FontSizeAwareTextMeasurer),
+            TextMeasurementPhase::ALL,
+        ),
+    );
+    let session = environment.begin_session().expect("render session");
+    let artifact = family::prepare(&parsed, &LayoutOptions::default(), session)
+        .expect("prepare swimlane layout");
+    let projection = artifact.layout_json().expect("swimlane projection");
+    serde_json::from_value(projection["layout"]["SwimlaneDiagram"].clone())
+        .expect("typed swimlane layout")
+}
+
+fn assert_orthogonal(points: &[merman_render::model::LayoutPoint]) {
+    assert!(points.len() >= 2, "an edge needs at least two route points");
+    for segment in points.windows(2) {
+        let horizontal = (segment[0].y - segment[1].y).abs() <= EPSILON;
+        let vertical = (segment[0].x - segment[1].x).abs() <= EPSILON;
+        assert!(
+            horizontal || vertical,
+            "non-orthogonal segment: {:?} -> {:?}",
+            segment[0],
+            segment[1]
+        );
+    }
+}
+
+fn contains_node(
+    lane: &merman_render::model::SwimlaneLaneLayout,
+    node: &merman_render::model::SwimlaneNodeLayout,
+) -> bool {
+    node.x - node.width / 2.0 >= lane.x - lane.width / 2.0 - EPSILON
+        && node.x + node.width / 2.0 <= lane.x + lane.width / 2.0 + EPSILON
+        && node.y - node.height / 2.0 >= lane.y - lane.height / 2.0 - EPSILON
+        && node.y + node.height / 2.0 <= lane.y + lane.height / 2.0 + EPSILON
+}
+
+fn point_on_polyline(point: (f64, f64), points: &[merman_render::model::LayoutPoint]) -> bool {
+    points.windows(2).any(|segment| {
+        let min_x = segment[0].x.min(segment[1].x) - EPSILON;
+        let max_x = segment[0].x.max(segment[1].x) + EPSILON;
+        let min_y = segment[0].y.min(segment[1].y) - EPSILON;
+        let max_y = segment[0].y.max(segment[1].y) + EPSILON;
+        let collinear = if (segment[0].x - segment[1].x).abs() <= EPSILON {
+            (point.0 - segment[0].x).abs() <= EPSILON
+        } else {
+            (point.1 - segment[0].y).abs() <= EPSILON
+        };
+        collinear && point.0 >= min_x && point.0 <= max_x && point.1 >= min_y && point.1 <= max_y
+    })
+}
+
+fn node_by_id<'a>(
+    layout: &'a SwimlaneLayout,
+    id: &str,
+) -> &'a merman_render::model::SwimlaneNodeLayout {
+    layout
+        .nodes
+        .iter()
+        .find(|node| node.id == id)
+        .unwrap_or_else(|| panic!("node {id}"))
+}
+
+#[test]
+fn disconnected_nodes_keep_source_order_in_tb_and_lr() {
+    // Mermaid 12.2 sourceOrder.spec.ts exercises the same non-alphabetical order.
+    let expected = ["Wednesday", "Tuesday", "Friday", "Monday", "Thursday"];
+    for direction in ["TB", "LR"] {
+        let source = format!(
+            "swimlane-beta {direction}\nsubgraph s1\n{}\nend\n",
+            expected.join("\n")
+        );
+        let layout = layout_swimlane(&source);
+        let mut nodes = layout.nodes.iter().collect::<Vec<_>>();
+        nodes.sort_by(|left, right| {
+            if direction == "LR" {
+                left.x.total_cmp(&right.x)
+            } else {
+                left.y.total_cmp(&right.y)
+            }
+        });
+        assert_eq!(
+            nodes
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "{direction}"
+        );
+    }
+}
+
+#[test]
+fn disconnected_nodes_in_separate_lanes_keep_each_lanes_source_order() {
+    let layout = layout_swimlane(
+        "swimlane-beta\nsubgraph s1\nSunday\nMonday\nend\nsubgraph s2\nZeta\nAlpha\nend\n",
+    );
+    assert!(node_by_id(&layout, "Sunday").y < node_by_id(&layout, "Monday").y);
+    assert!(node_by_id(&layout, "Zeta").y < node_by_id(&layout, "Alpha").y);
+}
+
+#[test]
+fn swimlane_content_nodes_apply_the_flowchart_minimum_with_circle_opt_out() {
+    for html_labels in [false, true] {
+        let source = format!(
+            "---\nconfig:\n  look: neo\n  flowchart:\n    htmlLabels: {html_labels}\n    minNodeWidth: 120\n---\nswimlane-beta TB\nR(X)\nD{{X}}\nC((X))\nB(((X)))\n"
+        );
+        let layout = layout_swimlane(&source);
+        let rectangle = node_by_id(&layout, "R");
+        let diamond = node_by_id(&layout, "D");
+        assert_eq!(rectangle.label_width, 120.0);
+        assert_eq!(rectangle.width, 150.0);
+        assert_eq!(diamond.label_width, 120.0);
+        assert_eq!(diamond.width, 170.0);
+        for id in ["C", "B"] {
+            let circle = node_by_id(&layout, id);
+            assert_eq!(circle.label_width, 8.0, "{id}: {circle:?}");
+            assert!(circle.width < 120.0, "{id}: {circle:?}");
+        }
+    }
+}
+
+#[test]
+fn basic_lr_uses_lane_owned_sugiyama_and_orthogonal_routes() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta LR
+subgraph Customer
+  request[Request service]
+  receive[Receive update]
+end
+subgraph Support
+  triage[Triage request]
+  answer[Send answer]
+end
+subgraph Engineering
+  investigate[Investigate issue]
+  fix[Prepare fix]
+end
+request --> triage
+triage -->|Known issue| answer
+triage -->|Needs code change| investigate
+investigate --> fix --> answer
+answer --> receive
+"#,
+    );
+
+    assert_eq!(layout.direction, SwimlaneDirection::Lr);
+    assert_eq!(
+        layout
+            .lanes
+            .iter()
+            .filter(|lane| lane.parent_id.is_none())
+            .count(),
+        3
+    );
+
+    let node = |id: &str| {
+        layout
+            .nodes
+            .iter()
+            .find(|node| node.id == id)
+            .unwrap_or_else(|| panic!("node {id}"))
+    };
+    assert_eq!(node("request").top_lane_id.as_deref(), Some("Customer"));
+    assert_eq!(node("triage").top_lane_id.as_deref(), Some("Support"));
+    assert_eq!(
+        node("investigate").top_lane_id.as_deref(),
+        Some("Engineering")
+    );
+    assert!(node("request").x < node("receive").x);
+    assert!(node("triage").x < node("answer").x);
+    assert!(node("investigate").x < node("fix").x);
+
+    assert_eq!(layout.edges.len(), 6);
+    for edge in &layout.edges {
+        assert_orthogonal(&edge.points);
+    }
+}
+
+#[test]
+fn loose_nodes_are_owned_by_the_synthetic_default_lane() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta TB
+A[Start] --> B[Finish]
+"#,
+    );
+
+    assert_eq!(layout.direction, SwimlaneDirection::Tb);
+    assert_eq!(layout.lanes.len(), 1);
+    let lane = &layout.lanes[0];
+    assert_eq!(lane.id, "__swimlane_default__");
+    assert!(lane.parent_id.is_none());
+    let title_rect = lane.title_rect.as_ref().expect("default lane title band");
+    assert!((title_rect.bottom - title_rect.top - 21.0).abs() <= EPSILON);
+
+    let a = layout.nodes.iter().find(|node| node.id == "A").expect("A");
+    let b = layout.nodes.iter().find(|node| node.id == "B").expect("B");
+    for node in [a, b] {
+        assert_eq!(node.parent_id.as_deref(), Some("__swimlane_default__"));
+        assert_eq!(node.top_lane_id.as_deref(), Some("__swimlane_default__"));
+        assert!(contains_node(lane, node));
+    }
+    assert!(a.y < b.y);
+    assert_orthogonal(&layout.edges[0].points);
+}
+
+#[test]
+fn explicit_default_lane_is_reused_without_losing_its_title() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta TB
+subgraph __swimlane_default__[Named lane]
+  A[Inside]
+end
+B[Loose]
+"#,
+    );
+
+    assert_eq!(layout.lanes.len(), 1);
+    let lane = &layout.lanes[0];
+    assert_eq!(lane.id, "__swimlane_default__");
+    assert_eq!(lane.title, "Named lane");
+    for id in ["A", "B"] {
+        let node = node_by_id(&layout, id);
+        assert_eq!(node.parent_id.as_deref(), Some("__swimlane_default__"));
+        assert_eq!(node.top_lane_id.as_deref(), Some("__swimlane_default__"));
+        assert!(contains_node(lane, node));
+    }
+}
+
+#[test]
+fn swimlane_layout_measures_render_sources_without_leaking_them_into_public_labels() {
+    let layout = layout_swimlane(
+        r#"---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+---
+swimlane-beta LR
+subgraph Lane["&nbsp;Lane&nbsp;"]
+  A["&nbsp;Node&nbsp;"]
+end
+A -->|"&nbsp;Edge&nbsp;"| B
+"#,
+    );
+    let source_width = |text: &str| text.chars().count() as f64 * 8.0;
+
+    let lane = layout
+        .lanes
+        .iter()
+        .find(|lane| lane.id == "Lane")
+        .expect("Lane");
+    assert_eq!(lane.title, "\u{00a0}Lane\u{00a0}");
+    assert_eq!(lane.title_label_width, source_width("&nbsp;Lane&nbsp;"));
+
+    let node = node_by_id(&layout, "A");
+    assert_eq!(node.label, "\u{00a0}Node\u{00a0}");
+    assert_eq!(node.label_width, 120.0);
+
+    let edge_label = layout
+        .nodes
+        .iter()
+        .find(|node| node.is_edge_label)
+        .expect("edge label node");
+    assert_eq!(edge_label.label, "\u{00a0}Edge\u{00a0}");
+    // The 120px createText limit splits the final semicolon onto a second retained row.
+    assert_eq!(edge_label.label_width, source_width("&nbsp;Edge&nbsp"));
+}
+
+#[test]
+fn swimlane_title_metrics_follow_the_flowchart_local_html_labels_setting() {
+    let html = layout_swimlane(
+        r#"---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: true
+---
+swimlane-beta LR
+subgraph Lane["&nbsp;Lane&nbsp;"]
+  A[Node]
+end
+"#,
+    );
+    let svg = layout_swimlane(
+        r#"---
+config:
+  htmlLabels: true
+  flowchart:
+    htmlLabels: false
+---
+swimlane-beta LR
+subgraph Lane["&nbsp;Lane&nbsp;"]
+  A[Node]
+end
+"#,
+    );
+
+    assert_eq!(html.lanes[0].title_label_width, 6.0 * 8.0);
+    assert_eq!(svg.lanes[0].title_label_width, 16.0 * 8.0);
+}
+
+#[test]
+fn swimlane_edge_label_metrics_follow_label_rect_root_html_labels() {
+    let layout = layout_swimlane(
+        r#"---
+config:
+  flowchart:
+    htmlLabels: false
+---
+swimlane-beta LR
+subgraph Lane
+  A[Node]
+end
+A -->|"&nbsp;Edge&nbsp;"| B
+"#,
+    );
+    let edge_label = layout
+        .nodes
+        .iter()
+        .find(|node| node.is_edge_label)
+        .expect("edge label node");
+
+    assert_eq!(edge_label.label, "\u{00a0}Edge\u{00a0}");
+    assert_eq!(
+        edge_label.label_width,
+        6.0 * 8.0,
+        "unexpected edge-label geometry: {edge_label:?}"
+    );
+}
+
+#[test]
+fn edge_curves_preserve_explicit_default_and_config_values() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta TB
+A e0@--> B
+B e1@--> C
+linkStyle default interpolate linear
+e1@{ curve: stepAfter }
+"#,
+    );
+    let curve = |id: &str| {
+        layout
+            .edges
+            .iter()
+            .find(|edge| edge.id == id)
+            .unwrap_or_else(|| panic!("edge {id}"))
+            .curve
+            .as_str()
+    };
+    assert_eq!(curve("e0"), "linear");
+    assert_eq!(curve("e1"), "stepAfter");
+
+    let configured = layout_swimlane(
+        r#"---
+config:
+  flowchart:
+    curve: cardinal
+---
+swimlane-beta TB
+A --> B
+"#,
+    );
+    assert_eq!(configured.edges[0].curve, "cardinal");
+
+    let implicit = layout_swimlane("swimlane-beta TB\nA --> B\n");
+    assert_eq!(implicit.edges[0].curve, "rounded");
+}
+
+#[test]
+fn edge_labels_reserve_space_without_creating_a_rank_and_anchor_to_the_original_edge() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta TB
+subgraph Team
+  A[Draft]
+  B[Ship]
+end
+A -->|approval| B
+"#,
+    );
+
+    let a = layout.nodes.iter().find(|node| node.id == "A").expect("A");
+    let b = layout.nodes.iter().find(|node| node.id == "B").expect("B");
+    let label = layout
+        .nodes
+        .iter()
+        .find(|node| node.is_edge_label)
+        .expect("edge label node");
+    assert_eq!(label.label, "approval");
+    assert_eq!(label.shape, "labelRect");
+    assert!(
+        (label.width - 64.0).abs() <= EPSILON,
+        "unexpected edge-label geometry: {label:?}"
+    );
+    assert!((label.height - 20.0).abs() <= EPSILON);
+    assert!((label.label_width - 64.0).abs() <= EPSILON);
+    assert_eq!(b.layer, a.layer + 1);
+    assert!(label.x.is_finite() && label.y.is_finite());
+
+    assert_eq!(layout.edges.len(), 1, "virtual edges must not render");
+    let edge = &layout.edges[0];
+    assert_eq!(edge.label_node_id.as_deref(), Some(label.id.as_str()));
+    assert!(point_on_polyline((label.x, label.y), &edge.points));
+    assert_orthogonal(&edge.points);
+}
+
+#[test]
+fn mermaid_12_3_labels_preserve_content_ranks_in_all_directions() {
+    for direction in ["TB", "BT", "LR", "RL"] {
+        for edges in [
+            "A -->|yes| B",
+            "A -->|yes| B\nA -->|cross| C\nB --> C",
+            "A -->|yes| B\nB -->|back| A",
+        ] {
+            let source = format!(
+                "swimlane-beta {direction}\nsubgraph first\nA\nB\nend\nsubgraph second\nC\nend\n{edges}\n"
+            );
+            let plain_source = source
+                .replace("|yes|", "")
+                .replace("|cross|", "")
+                .replace("|back|", "");
+            let labelled = layout_swimlane(&source);
+            let plain = layout_swimlane(&plain_source);
+            for id in ["A", "B", "C"] {
+                assert_eq!(
+                    node_by_id(&labelled, id).layer,
+                    node_by_id(&plain, id).layer,
+                    "{direction}: {source}"
+                );
+            }
+            for label in labelled.nodes.iter().filter(|node| node.is_edge_label) {
+                assert!(
+                    label.x.is_finite() && label.y.is_finite(),
+                    "{direction}: {label:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn mermaid_12_3_same_rank_cross_lane_label_keeps_content_flow_positions() {
+    for direction in ["TB", "BT", "LR", "RL"] {
+        let source = format!(
+            "swimlane-beta {direction}\nsubgraph first\nA\nend\nsubgraph second\nB\nend\nA -->|e| B\n"
+        );
+        let labelled = layout_swimlane(&source);
+        let plain = layout_swimlane(&source.replace("|e|", ""));
+        for id in ["A", "B"] {
+            let node = node_by_id(&labelled, id);
+            let baseline = node_by_id(&plain, id);
+            assert_eq!(node.layer, baseline.layer, "{direction}: {id}");
+            let (flow, plain_flow) = if matches!(direction, "LR" | "RL") {
+                (node.x, baseline.x)
+            } else {
+                (node.y, baseline.y)
+            };
+            assert!(
+                (flow - plain_flow).abs() < EPSILON,
+                "{direction}: {id}: {flow} != {plain_flow}"
+            );
+        }
+    }
+}
+
+#[test]
+fn mermaid_12_3_shared_member_prunes_only_the_lane_it_emptied() {
+    for direction in ["TB", "BT", "LR", "RL"] {
+        let source = format!(
+            "swimlane-beta {direction}\nsubgraph first\nsubgraph inner\nA\nend\nend\nsubgraph lost\nA\nend\nsubgraph authoredEmpty\nend\n"
+        );
+        let layout = layout_swimlane(&source);
+        assert!(
+            layout.lanes.iter().all(|lane| lane.id != "lost"),
+            "{direction}: {layout:?}"
+        );
+        assert!(layout.lanes.iter().any(|lane| lane.id == "authoredEmpty"));
+        assert_eq!(
+            node_by_id(&layout, "A").top_lane_id.as_deref(),
+            Some("first")
+        );
+        let with_edge = layout_swimlane(&format!("{source}\nA --> lost\n"));
+        assert!(with_edge.lanes.iter().any(|lane| lane.id == "lost"));
+        let with_member =
+            layout_swimlane(&source.replace("subgraph lost\nA\n", "subgraph lost\nA\nB\n"));
+        assert!(with_member.lanes.iter().any(|lane| lane.id == "lost"));
+    }
+}
+
+#[test]
+fn mermaid_12_3_nested_groups_are_sized_deepest_first_in_all_directions() {
+    for direction in ["TB", "BT", "LR", "RL"] {
+        let source = format!(
+            "swimlane-beta {direction}\nsubgraph lane\nsubgraph middle\nsubgraph inner\nA[Start]\nB[Finish]\nend\nend\nend\nA --> B\n"
+        );
+        let layout = layout_swimlane(&source);
+        let bounds = |id: &str| {
+            let lane = layout.lanes.iter().find(|lane| lane.id == id).unwrap();
+            (
+                lane.x - lane.width / 2.0,
+                lane.y - lane.height / 2.0,
+                lane.x + lane.width / 2.0,
+                lane.y + lane.height / 2.0,
+            )
+        };
+        for (parent, child) in [("lane", "middle"), ("middle", "inner")] {
+            let outer = bounds(parent);
+            let inner = bounds(child);
+            assert!(
+                outer.0 <= inner.0 + EPSILON
+                    && outer.1 <= inner.1 + EPSILON
+                    && outer.2 + EPSILON >= inner.2
+                    && outer.3 + EPSILON >= inner.3,
+                "{direction}: {parent} does not contain {child}: {layout:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn edge_label_nodes_use_plain_text_semantics_after_swimlane_conversion() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta LR
+A -->|`This is **bold**`| B
+"#,
+    );
+
+    let label = layout
+        .nodes
+        .iter()
+        .find(|node| node.is_edge_label)
+        .expect("edge label node");
+    assert_eq!(label.label_type, "text");
+    // The public layout projection retains the semantic source spelling. Rendering uses the
+    // parser-owned label source and the converted labelRect's plain-text label type.
+    assert_eq!(label.label, "`This is **bold**`");
+}
+
+#[test]
+fn edge_label_nodes_use_configured_flowchart_wrapping_width() {
+    fn label_for(width: usize) -> merman_render::model::SwimlaneNodeLayout {
+        let source = format!(
+            r#"---
+config:
+  htmlLabels: false
+  flowchart:
+    wrappingWidth: {width}
+---
+swimlane-beta LR
+A -->|one two three four five six seven eight nine ten| B
+"#
+        );
+        layout_swimlane_with_width_aware_measurer(&source)
+            .nodes
+            .into_iter()
+            .find(|node| node.is_edge_label)
+            .expect("edge label node")
+    }
+
+    let narrow = label_for(80);
+    let wide = label_for(240);
+    assert!(
+        narrow.label_height > wide.label_height,
+        "80px must wrap into more rows than 240px: narrow={narrow:?}, wide={wide:?}"
+    );
+    assert!(
+        narrow.label_width <= 80.0 && wide.label_width <= 240.0,
+        "label metrics must be bounded by the configured width: narrow={narrow:?}, wide={wide:?}"
+    );
+}
+
+#[test]
+fn edge_label_nodes_use_only_the_first_concatenated_mermaid_style() {
+    fn edge_label(source: &str) -> merman_render::model::SwimlaneNodeLayout {
+        layout_swimlane_with_font_size_aware_measurer(source)
+            .nodes
+            .into_iter()
+            .find(|node| node.is_edge_label)
+            .expect("edge label node")
+    }
+
+    let default_then_edge = edge_label(
+        r#"---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+    wrappingWidth: 1000
+---
+swimlane-beta LR
+A styled@-->|styled edge label| B
+linkStyle default font-size:24px,font-weight:bold
+linkStyle 0 font-size:12px,font-style:italic
+"#,
+    );
+    let edge_only = edge_label(
+        r#"---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+    wrappingWidth: 1000
+---
+swimlane-beta LR
+A styled@-->|styled edge label| B
+linkStyle 0 font-size:12px,font-style:italic
+"#,
+    );
+
+    assert!(
+        default_then_edge.label_width > edge_only.label_width * 1.9,
+        "Mermaid's labelRect conversion reads only the first concatenated style, so the 24px default must win over the 12px edge style: default_then_edge={default_then_edge:?}, edge_only={edge_only:?}"
+    );
+    assert!(
+        default_then_edge.label_height > edge_only.label_height * 1.9,
+        "the same first-style rule must drive label height"
+    );
+}
+
+#[test]
+fn cycles_reverse_only_the_layout_constraint_not_the_rendered_edge() {
+    let layout = layout_swimlane(
+        r#"swimlane-beta TB
+subgraph Lane
+  A --> B
+  B --> C
+  C --> A
+end
+"#,
+    );
+
+    assert_eq!(layout.edges.len(), 3);
+    assert_eq!(
+        layout
+            .edges
+            .iter()
+            .filter(|edge| edge.reversed_for_layout)
+            .count(),
+        1
+    );
+    let endpoints: std::collections::HashSet<_> = layout
+        .edges
+        .iter()
+        .map(|edge| (edge.from.as_str(), edge.to.as_str()))
+        .collect();
+    assert!(endpoints.contains(&("A", "B")));
+    assert!(endpoints.contains(&("B", "C")));
+    assert!(endpoints.contains(&("C", "A")));
+    for edge in &layout.edges {
+        assert_orthogonal(&edge.points);
+    }
+}
+
+#[test]
+fn cycles_use_stable_utf16_identifier_tie_breaks() {
+    let source = r#"swimlane-beta TB
+subgraph Lane
+  A --> a
+  a --> Z
+  Z --> A
+end
+"#;
+
+    let layout = layout_swimlane(source);
+    let expected = serde_json::to_value(&layout).expect("serialize layout");
+    for _ in 0..8 {
+        let repeated = serde_json::to_value(layout_swimlane(source)).expect("serialize layout");
+        assert_eq!(repeated, expected, "cycle removal must be deterministic");
+    }
+
+    let reversed: Vec<_> = layout
+        .edges
+        .iter()
+        .filter(|edge| edge.reversed_for_layout)
+        .map(|edge| (edge.from.as_str(), edge.to.as_str()))
+        .collect();
+    assert_eq!(reversed, [("Z", "A")]);
+}
+
+#[test]
+fn all_four_directions_are_mirrored_and_deterministic() {
+    const BODY: &str = r#"
+subgraph Customer
+  request[Request service]
+  receive[Receive update]
+end
+subgraph Support
+  triage[Triage request]
+  answer[Send answer]
+end
+subgraph Engineering
+  investigate[Investigate issue]
+  fix[Prepare fix]
+end
+request --> triage
+triage -->|Known issue| answer
+triage -->|Needs code change| investigate
+investigate --> fix --> answer
+answer --> receive
+"#;
+
+    for (header, expected_direction) in [
+        ("TB", SwimlaneDirection::Tb),
+        ("BT", SwimlaneDirection::Bt),
+        ("LR", SwimlaneDirection::Lr),
+        ("RL", SwimlaneDirection::Rl),
+    ] {
+        let source = format!("swimlane-beta {header}{BODY}");
+        let layout = layout_swimlane(&source);
+        assert_eq!(layout.direction, expected_direction);
+
+        let investigate = node_by_id(&layout, "investigate");
+        let fix = node_by_id(&layout, "fix");
+        match expected_direction {
+            SwimlaneDirection::Tb => assert!(investigate.y < fix.y),
+            SwimlaneDirection::Bt => assert!(investigate.y > fix.y),
+            SwimlaneDirection::Lr => assert!(investigate.x < fix.x),
+            SwimlaneDirection::Rl => assert!(investigate.x > fix.x),
+        }
+        for edge in &layout.edges {
+            assert_orthogonal(&edge.points);
+        }
+
+        let expected = serde_json::to_value(&layout).expect("serialize Swimlane layout");
+        for _ in 0..8 {
+            let repeated = serde_json::to_value(layout_swimlane(&source))
+                .expect("serialize repeated Swimlane layout");
+            assert_eq!(repeated, expected, "{header} layout must be deterministic");
+        }
+    }
+}
+
+#[test]
+fn upstream_swimlane_ddlt_corpus_has_finite_orthogonal_layouts() {
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures/swimlane/_upstream_ddlt");
+    let mut fixtures: Vec<_> = std::fs::read_dir(&corpus)
+        .expect("read Swimlane DDLT corpus")
+        .map(|entry| entry.expect("read corpus entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "mmd"))
+        .collect();
+    fixtures.sort();
+    assert_eq!(
+        fixtures.len(),
+        30,
+        "the Mermaid 11.16 DDLT sweep has 30 files"
+    );
+
+    let mut failures = Vec::new();
+    for fixture in fixtures {
+        let source = match std::fs::read_to_string(&fixture) {
+            Ok(source) => source,
+            Err(error) => {
+                failures.push(format!("{}: read failed: {error}", fixture.display()));
+                continue;
+            }
+        };
+        let layout = match std::panic::catch_unwind(|| try_layout_swimlane(&source)) {
+            Ok(Ok(layout)) => layout,
+            Ok(Err(error)) => {
+                failures.push(format!("{}: {error}", fixture.display()));
+                continue;
+            }
+            Err(_) => {
+                failures.push(format!("{}: layout panicked", fixture.display()));
+                continue;
+            }
+        };
+
+        if layout.nodes.is_empty() {
+            failures.push(format!("{}: layout has no nodes", fixture.display()));
+        }
+        if layout.lanes.is_empty() {
+            failures.push(format!("{}: layout has no lanes", fixture.display()));
+        }
+
+        let finite = |values: &[f64]| values.iter().all(|value| value.is_finite());
+        for node in &layout.nodes {
+            if !finite(&[
+                node.x,
+                node.y,
+                node.width,
+                node.height,
+                node.label_width,
+                node.label_height,
+            ]) || node.width <= 0.0
+                || node.height <= 0.0
+            {
+                failures.push(format!(
+                    "{}: node {} has invalid geometry",
+                    fixture.display(),
+                    node.id
+                ));
+            }
+        }
+        for lane in &layout.lanes {
+            if !finite(&[
+                lane.x,
+                lane.y,
+                lane.width,
+                lane.height,
+                lane.padding,
+                lane.title_label_width,
+                lane.title_label_height,
+            ]) || lane.width <= 0.0
+                || lane.height <= 0.0
+            {
+                failures.push(format!(
+                    "{}: lane {} has invalid geometry",
+                    fixture.display(),
+                    lane.id
+                ));
+            }
+        }
+        for edge in &layout.edges {
+            if edge
+                .points
+                .iter()
+                .any(|point| !point.x.is_finite() || !point.y.is_finite())
+            {
+                failures.push(format!(
+                    "{}: edge {} has a non-finite point",
+                    fixture.display(),
+                    edge.id
+                ));
+                continue;
+            }
+            if edge.points.len() < 2
+                || edge.points.windows(2).any(|segment| {
+                    (segment[0].x - segment[1].x).abs() > EPSILON
+                        && (segment[0].y - segment[1].y).abs() > EPSILON
+                })
+            {
+                failures.push(format!(
+                    "{}: edge {} is not orthogonal",
+                    fixture.display(),
+                    edge.id
+                ));
+            }
+        }
+
+        let Some(bounds) = &layout.bounds else {
+            failures.push(format!("{}: layout has no bounds", fixture.display()));
+            continue;
+        };
+        if !finite(&[bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y])
+            || bounds.max_x <= bounds.min_x
+            || bounds.max_y <= bounds.min_y
+        {
+            failures.push(format!("{}: layout has invalid bounds", fixture.display()));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Swimlane DDLT corpus failures:\n{}",
+        failures.join("\n")
+    );
+}

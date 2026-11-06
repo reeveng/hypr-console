@@ -1,0 +1,47 @@
+[package]
+name = "console-core-mermaid-tree-sitter"
+version = "0.3.3"
+edition.workspace = true
+authors.workspace = true
+license = "MIT"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Tolerant Tree-sitter grammar and editor queries for Mermaid"
+keywords = ["incremental", "mermaid", "parser", "tree-sitter"]
+categories = ["parsing", "text-editors"]
+build = "bindings/rust/build.rs"
+include = [
+    "/bindings/rust/**",
+    "/metadata/derivations.json",
+    "/metadata/provenance.json",
+    "/queries/portable/**",
+    "/src/**",
+    "/Cargo.toml",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/README.md",
+    "/THIRD_PARTY_LICENSES/**",
+    "/THIRD_PARTY_NOTICES.md",
+    "/tree-sitter.json",
+]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1.9"
+
+[build-dependencies]
+cc = "1.10.0"
+
+[dev-dependencies]
+merman-core = { package = "console-core-mermaid-syntax", path = "../../crates/merman-core", features = ["all-diagrams", "compat-json", "system-clock", "system-timezone"] }
+merman-model = { package = "console-core-mermaid-model", path = "../../crates/merman-model", default-features = false }
+merman-fixture-render-context = { package = "console-core-mermaid-fixture-render-context", path = "../../crates/merman-fixture-render-context" }
+serde.workspace = true
+serde_json.workspace = true
+tree-sitter = "=0.27.1"
+
+[package.metadata.merman-legal]
+third-party-bundle = true

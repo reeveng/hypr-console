@@ -1,0 +1,491 @@
+use crate::model::Bounds;
+use crate::svg::icon_registry::{IconIdScope, IconIdScopePrefix};
+use crate::text::TextMeasurer;
+use merman_model::families::architecture::{ArchitectureDiagramModel, ArchitectureNodeKind};
+
+use super::super::{SvgDiagramId, SvgOutput, escape_attr_into, escape_xml_into, fmt};
+use super::ArchitectureEmitCheckpoints;
+use super::geometry::{GroupRect, extend_bounds};
+use super::icons::{
+    arch_icon_needs_id_scope, write_arch_icon_svg, write_arch_icon_svg_with_registry,
+};
+use super::labels::{
+    ArchitectureTextAnchor, ArchitectureTextBaseline, architecture_svg_text_terminal_bounds,
+    wrap_svg_words_to_lines, write_architecture_service_title, write_svg_text_lines,
+};
+use super::settings::ArchitectureRenderSettings;
+
+pub(super) struct ArchitectureNodeRenderContext<'a, O: SvgOutput> {
+    pub(super) out: &'a mut O,
+    pub(super) diagram_id: SvgDiagramId<'a>,
+    pub(super) model: &'a ArchitectureDiagramModel,
+    pub(super) node_xy: &'a rustc_hash::FxHashMap<&'a str, (f64, f64)>,
+    pub(super) settings: &'a ArchitectureRenderSettings,
+    pub(super) text_measurer: &'a dyn TextMeasurer,
+    pub(super) sanitize_config: &'a merman_model::presentation::PresentationConfig,
+    pub(super) icon_registry: Option<&'a crate::svg::IconRegistry>,
+    pub(super) work_meter: &'a crate::resources::OperationWorkMeter,
+    pub(super) icon_scope_root: Option<IconIdScopePrefix>,
+    pub(super) service_icon_scope_prefix: Option<IconIdScopePrefix>,
+    pub(super) group_icon_scope_prefix: Option<IconIdScopePrefix>,
+    pub(super) content_bounds: &'a mut Option<Bounds>,
+    pub(super) surface_styles: Option<&'a mut crate::architecture::ArchitectureSurfaceRenderState>,
+    pub(super) typography_emission:
+        Option<&'a mut crate::architecture::ArchitectureTypographyEmission>,
+    pub(super) checkpoints: ArchitectureEmitCheckpoints<'a>,
+}
+
+fn architecture_icon_scope(
+    root: &mut Option<IconIdScopePrefix>,
+    branch: &mut Option<IconIdScopePrefix>,
+    diagram_id: SvgDiagramId<'_>,
+    branch_name: &'static str,
+    local_id: &str,
+    work_meter: &crate::resources::OperationWorkMeter,
+) -> crate::Result<IconIdScope> {
+    let root_prefix = match *root {
+        Some(prefix) => prefix,
+        None => {
+            let prefix = IconIdScopePrefix::from_parts(&[diagram_id.semantic_str()], work_meter)?;
+            *root = Some(prefix);
+            prefix
+        }
+    };
+    let branch_prefix = match *branch {
+        Some(prefix) => prefix,
+        None => {
+            let prefix = root_prefix.extend_parts(&[branch_name], work_meter)?;
+            *branch = Some(prefix);
+            prefix
+        }
+    };
+    branch_prefix.scope_parts(&[local_id, "-icon"], work_meter)
+}
+
+fn write_diagram_service_id(
+    out: &mut impl SvgOutput,
+    diagram_id: SvgDiagramId<'_>,
+    service_id: &str,
+) {
+    let _ = write!(out, "{diagram_id}");
+    out.push_str("-service-");
+    escape_xml_into(out, service_id);
+}
+
+fn write_diagram_node_id(out: &mut impl SvgOutput, diagram_id: SvgDiagramId<'_>, node_id: &str) {
+    let _ = write!(out, "{diagram_id}");
+    out.push_str("-node-");
+    escape_xml_into(out, node_id);
+}
+
+pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
+    ctx: &mut ArchitectureNodeRenderContext<'_, O>,
+) -> crate::Result<()> {
+    let checkpoints = ctx.checkpoints;
+    checkpoints.checkpoint()?;
+    let out = &mut *ctx.out;
+    let diagram_id = ctx.diagram_id;
+    let model = ctx.model;
+    let node_xy = ctx.node_xy;
+    let settings = ctx.settings;
+    let text_measurer = ctx.text_measurer;
+    let sanitize_config = ctx.sanitize_config;
+    let mut surface_styles = ctx.surface_styles.take();
+    let mut typography_emission = ctx.typography_emission.take();
+    let icon_registry = ctx.icon_registry;
+    let work_meter = ctx.work_meter;
+    let icon_scope_root = &mut ctx.icon_scope_root;
+    let service_icon_scope_prefix = &mut ctx.service_icon_scope_prefix;
+    if model.nodes.is_empty() {
+        out.push_str(r#"<g class="architecture-services"/>"#);
+    } else {
+        out.push_str(r#"<g class="architecture-services">"#);
+        for (service_index, svc) in model
+            .nodes
+            .iter()
+            .filter(|node| node.node_type == ArchitectureNodeKind::Service)
+            .enumerate()
+        {
+            checkpoints.checkpoint()?;
+            let (x, y) = node_xy.get(svc.id.as_str()).copied().unwrap_or((0.0, 0.0));
+
+            out.push_str(r#"<g id=""#);
+            write_diagram_service_id(out, diagram_id, &svc.id);
+            checkpoints.checkpoint()?;
+            let _ = write!(
+                out,
+                r#"" class="architecture-service" transform="translate({x},{y})">"#,
+                x = fmt(x),
+                y = fmt(y)
+            );
+
+            let has_icon_text = svc.icon.is_none()
+                && svc
+                    .icon_text
+                    .as_deref()
+                    .is_some_and(|text| !text.trim().is_empty());
+            let service_title_style = surface_styles
+                .as_deref()
+                .and_then(|styles| styles.service_title_style(service_index));
+            let service_background_style = surface_styles
+                .as_deref()
+                .and_then(|styles| styles.service_background_style(service_index));
+            let service_title_emission = svc
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(|title| {
+                    // Mermaid uses `width = iconSize * 1.5` for service titles.
+                    write_architecture_service_title(
+                        out,
+                        title,
+                        #[cfg(merman_internal_theme_acceptance)]
+                        x,
+                        #[cfg(merman_internal_theme_acceptance)]
+                        y,
+                        settings.icon_size_px,
+                        settings.icon_size_px * 1.5,
+                        text_measurer,
+                        &settings.text_style,
+                        service_title_style,
+                        #[cfg(merman_internal_theme_acceptance)]
+                        surface_styles.is_some(),
+                    )
+                });
+            let has_title = service_title_emission.is_some();
+            #[cfg(merman_internal_theme_acceptance)]
+            let service_title_bounds = service_title_emission
+                .as_ref()
+                .and_then(|emission| emission.bounds.as_ref());
+
+            out.push_str("<g>");
+            match (svc.icon.as_deref(), svc.icon_text.as_deref()) {
+                (Some(icon), _) => {
+                    out.push_str("<g>");
+                    if arch_icon_needs_id_scope(icon, icon_registry.is_some()) {
+                        let id_scope = architecture_icon_scope(
+                            icon_scope_root,
+                            service_icon_scope_prefix,
+                            diagram_id,
+                            "-service-",
+                            &svc.id,
+                            work_meter,
+                        )?;
+                        write_arch_icon_svg_with_registry(
+                            out,
+                            icon,
+                            settings.icon_size_px,
+                            icon_registry,
+                            id_scope,
+                            sanitize_config,
+                            work_meter,
+                        )?;
+                    } else {
+                        write_arch_icon_svg(out, icon, settings.icon_size_px, None)?;
+                    }
+                    out.push_str("</g>");
+                }
+                (None, Some(icon_text)) => {
+                    out.push_str("<g>");
+                    write_arch_icon_svg(out, "blank", settings.icon_size_px, None)?;
+                    out.push_str("</g>");
+
+                    // Mermaid computes `iconText` clamp from the DOM `font-size` applied to the
+                    // foreignObject content. That content inherits the diagram root CSS size;
+                    // `architecture.fontSize` remains a separate Cytoscape-layout setting.
+                    let line_clamp = ((settings.icon_size_px - 2.0) / settings.text_style.font_size)
+                        .floor()
+                        .max(1.0) as i64;
+                    let parse_work = std::cell::Cell::new(0);
+                    let sink = crate::html::HtmlSanitizeSink::new(
+                        work_meter
+                            .policy()
+                            .value(crate::resources::ResourceLimitId::MaxSvgBytes)
+                            .unwrap_or(usize::MAX),
+                        work_meter,
+                        &parse_work,
+                        merman_model::OperationPhase::Emit,
+                    );
+                    let sanitized = crate::html::resolve_svg_fragment(
+                        merman_markup::sanitize::sanitize_xhtml_in_svg_context_with_sink(
+                            icon_text.trim(),
+                            sanitize_config.as_config(),
+                            &sink,
+                        ),
+                        work_meter,
+                    )?;
+                    let _ = write!(
+                        out,
+                        r#"<g><foreignObject width="{w}" height="{h}"><div class="node-icon-text" style="height: {h}px;" xmlns="http://www.w3.org/1999/xhtml"><div style="-webkit-line-clamp: {clamp};">"#,
+                        w = fmt(settings.icon_size_px),
+                        h = fmt(settings.icon_size_px),
+                        clamp = line_clamp,
+                    );
+                    out.push_str(&sanitized);
+                    out.push_str("</div></div></foreignObject></g>");
+                }
+                (None, None) => {
+                    out.push_str(r#"<path class="node-bkg" id=""#);
+                    write_diagram_node_id(out, diagram_id, &svc.id);
+                    checkpoints.checkpoint()?;
+                    out.push('"');
+                    if let Some(style) = service_background_style {
+                        out.push_str(r#" style=""#);
+                        escape_attr_into(out, style);
+                        out.push('"');
+                    }
+                    let _ = write!(
+                        out,
+                        r#" d="M0,{s} V5 Q0,0 5,0 H{inner_s} Q{s},0 {s},5 V{s} Z"/>"#,
+                        s = fmt(settings.icon_size_px),
+                        inner_s = fmt(settings.icon_size_px - 5.0)
+                    );
+                }
+            }
+            out.push_str("</g>");
+
+            out.push_str("</g>");
+            out.checkpoint()?;
+            if (has_title || has_icon_text)
+                && let Some(emission) = typography_emission.as_deref_mut()
+            {
+                emission.record_visible_text();
+            }
+            if let Some(styles) = surface_styles.as_deref_mut() {
+                let background_emitted = svc.icon.is_none() && svc.icon_text.is_none();
+                styles.record_checkpointed_service(
+                    crate::architecture::ArchitectureServiceTerminalEmission {
+                        index: service_index,
+                        #[cfg(merman_internal_theme_acceptance)]
+                        id: svc.id.as_str().into(),
+                        background: crate::architecture::ArchitecturePaintTerminalEmission {
+                            emitted: background_emitted,
+                        },
+                        title: crate::architecture::ArchitectureTextTerminalEmission {
+                            emitted: has_title,
+                            #[cfg(merman_internal_theme_acceptance)]
+                            bounds: service_title_bounds.cloned(),
+                            #[cfg(merman_internal_theme_acceptance)]
+                            fragment_digest: service_title_emission
+                                .as_ref()
+                                .map(|emission| emission.facts.fragment_digest),
+                            #[cfg(merman_internal_theme_acceptance)]
+                            run_count: service_title_emission
+                                .as_ref()
+                                .map_or(0, |emission| emission.facts.run_count),
+                        },
+                    },
+                );
+            }
+        }
+
+        for junction in model
+            .nodes
+            .iter()
+            .filter(|node| node.node_type == ArchitectureNodeKind::Junction)
+        {
+            checkpoints.checkpoint()?;
+            let (x, y) = node_xy
+                .get(junction.id.as_str())
+                .copied()
+                .unwrap_or((0.0, 0.0));
+
+            let _ = write!(
+                out,
+                r#"<g class="architecture-junction" transform="translate({x},{y})"><g><rect id=""#,
+                x = fmt(x),
+                y = fmt(y),
+            );
+            write_diagram_node_id(out, diagram_id, &junction.id);
+            checkpoints.checkpoint()?;
+            let _ = write!(
+                out,
+                r#"" fill-opacity="0" width="{s}" height="{s}"/></g></g>"#,
+                s = fmt(settings.icon_size_px)
+            );
+            out.checkpoint()?;
+        }
+        out.push_str("</g>");
+    }
+    out.checkpoint()?;
+    ctx.surface_styles = surface_styles;
+    ctx.typography_emission = typography_emission;
+    Ok(())
+}
+
+pub(super) fn push_architecture_groups<'a, O: SvgOutput>(
+    ctx: &mut ArchitectureNodeRenderContext<'a, O>,
+    group_rects: &[GroupRect<'a>],
+    group_inline_style: Option<&str>,
+    group_emitted: &mut bool,
+) -> crate::Result<()> {
+    let checkpoints = ctx.checkpoints;
+    checkpoints.checkpoint()?;
+    let out = &mut *ctx.out;
+    let settings = ctx.settings;
+    let text_measurer = ctx.text_measurer;
+    let content_bounds = &mut *ctx.content_bounds;
+    let mut surface_styles = ctx.surface_styles.take();
+    let mut typography_emission = ctx.typography_emission.take();
+    let icon_registry = ctx.icon_registry;
+    let work_meter = ctx.work_meter;
+    let icon_scope_root = &mut ctx.icon_scope_root;
+    let group_icon_scope_prefix = &mut ctx.group_icon_scope_prefix;
+
+    if ctx.model.groups.is_empty() {
+        out.push_str(r#"<g class="architecture-groups"/>"#);
+    } else {
+        out.push_str(r#"<g class="architecture-groups">"#);
+
+        for (group_index, grp) in group_rects.iter().enumerate() {
+            checkpoints.checkpoint()?;
+            let x = grp.x;
+            let y = grp.y;
+            let w = grp.w;
+            let h = grp.h;
+            let group_icon_size_px = settings.padding_px * 0.75;
+            let x1 = x - settings.half_icon;
+            let y1 = y - settings.half_icon;
+
+            out.push_str(r#"<rect id=""#);
+            let _ = write!(out, "{}", ctx.diagram_id);
+            out.push_str("-group-");
+            escape_xml_into(out, grp.id);
+            checkpoints.checkpoint()?;
+            let _ = write!(
+                out,
+                r#"" x="{x}" y="{y}" width="{w}" height="{h}" class="node-bkg""#,
+                x = fmt(x),
+                y = fmt(y),
+                w = fmt(w.max(1.0)),
+                h = fmt(h.max(1.0))
+            );
+            if let Some(style) = group_inline_style {
+                out.push_str(r#" style=""#);
+                escape_attr_into(out, style);
+                out.push('"');
+            }
+            out.push_str("/>");
+
+            out.push_str("<g>");
+
+            let mut shifted_x1 = x1;
+            let mut shifted_y1 = y1;
+            if let Some(icon) = grp.icon.map(str::trim).filter(|t| !t.is_empty()) {
+                let _ = write!(
+                    out,
+                    r#"<g transform="translate({x}, {y})"><g>"#,
+                    x = fmt(shifted_x1 + settings.half_icon + 1.0),
+                    y = fmt(shifted_y1 + settings.half_icon + 1.0)
+                );
+                if arch_icon_needs_id_scope(icon, icon_registry.is_some()) {
+                    let id_scope = architecture_icon_scope(
+                        icon_scope_root,
+                        group_icon_scope_prefix,
+                        ctx.diagram_id,
+                        "-group-",
+                        grp.id,
+                        work_meter,
+                    )?;
+                    write_arch_icon_svg_with_registry(
+                        out,
+                        icon,
+                        group_icon_size_px,
+                        icon_registry,
+                        id_scope,
+                        ctx.sanitize_config,
+                        work_meter,
+                    )?;
+                } else {
+                    write_arch_icon_svg(out, icon, group_icon_size_px, None)?;
+                }
+                out.push_str("</g></g>");
+                shifted_x1 += group_icon_size_px;
+                // Mermaid uses `architecture.fontSize` for this alignment tweak (not the global SVG
+                // font size used for label rendering).
+                shifted_y1 += settings.arch_font_size_px / 2.0 - 3.0;
+            }
+
+            let has_title = grp.title.is_some_and(|title| !title.trim().is_empty());
+            let group_title_style = surface_styles
+                .as_deref()
+                .and_then(|styles| styles.group_title_style(group_index));
+            let (group_title_bounds, group_writer_facts) = if let Some(title) =
+                grp.title.map(str::trim).filter(|t| !t.is_empty())
+            {
+                let lines = wrap_svg_words_to_lines(title, w, text_measurer, &settings.text_style);
+                let title_x = shifted_x1 + settings.half_icon + 4.0;
+                let title_y = shifted_y1 + settings.half_icon + 2.0;
+                let terminal_bounds = architecture_svg_text_terminal_bounds(
+                    &lines,
+                    title_x,
+                    title_y,
+                    ArchitectureTextAnchor::Start,
+                    ArchitectureTextBaseline::Start,
+                    text_measurer,
+                    &settings.text_style,
+                );
+
+                // Group titles are SVG `<text>` (no explicit bbox geometry), so our SVG bbox pass
+                // cannot "see" their extents. Measure the emitted outer tspan DOM primitive so
+                // `setupGraphViewbox(svg.getBBox() + padding)` matches upstream in parity-root.
+                if terminal_bounds.max_x > terminal_bounds.min_x {
+                    // Keep Y extents within the group rect; we only need this to expand X.
+                    let title_bounds = Bounds {
+                        min_x: terminal_bounds.min_x,
+                        min_y: y,
+                        max_x: terminal_bounds.max_x,
+                        max_y: y + h,
+                    };
+                    extend_bounds(content_bounds, title_bounds);
+                }
+                let _ = write!(
+                    out,
+                    r#"<g dy="1em" alignment-baseline="middle" dominant-baseline="start" text-anchor="start" transform="translate({x}, {y})"><g><rect class="background" style="stroke: none"/>"#,
+                    x = fmt(title_x),
+                    y = fmt(title_y)
+                );
+                let writer_facts = write_svg_text_lines(out, &lines, group_title_style);
+                out.push_str("</g></g>");
+                (Some(terminal_bounds), Some(writer_facts))
+            } else {
+                (None, None)
+            };
+            #[cfg(not(merman_internal_theme_acceptance))]
+            let _ = (group_writer_facts, group_title_bounds);
+
+            out.push_str("</g>");
+            out.checkpoint()?;
+            // Clear consumes the successfully emitted baseline without an inline style.
+            *group_emitted = true;
+            if has_title && let Some(emission) = typography_emission.as_deref_mut() {
+                emission.record_visible_text();
+            }
+            if let Some(styles) = surface_styles.as_deref_mut() {
+                styles.record_checkpointed_group(
+                    crate::architecture::ArchitectureGroupTerminalEmission {
+                        index: group_index,
+                        #[cfg(merman_internal_theme_acceptance)]
+                        id: grp.id.into(),
+                        title: crate::architecture::ArchitectureTextTerminalEmission {
+                            emitted: has_title,
+                            #[cfg(merman_internal_theme_acceptance)]
+                            bounds: group_title_bounds,
+                            #[cfg(merman_internal_theme_acceptance)]
+                            fragment_digest: group_writer_facts.map(|facts| facts.fragment_digest),
+                            #[cfg(merman_internal_theme_acceptance)]
+                            run_count: group_writer_facts.map_or(0, |facts| facts.run_count),
+                        },
+                    },
+                );
+            }
+        }
+
+        out.push_str("</g>");
+    }
+    out.checkpoint()?;
+    ctx.surface_styles = surface_styles;
+    ctx.typography_emission = typography_emission;
+    Ok(())
+}

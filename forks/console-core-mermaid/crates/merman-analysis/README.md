@@ -1,0 +1,224 @@
+# merman-analysis
+
+[![Crates.io](https://img.shields.io/crates/v/merman-analysis.svg)](https://crates.io/crates/merman-analysis) [![Documentation](https://docs.rs/merman-analysis/badge.svg)](https://docs.rs/merman-analysis) [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-59636e.svg)](https://github.com/Latias94/merman/blob/main/LICENSE-MIT)
+
+Parser-backed Mermaid diagnostics, lint metadata, and document source mapping without SVG or export dependencies.
+
+Use `merman-analysis` directly when a Rust application needs to validate Mermaid, inspect diagnostics, analyze Markdown/MDX fences, or build editor tooling. Use [`merman`](https://crates.io/crates/merman) for rendering, [`merman-cli`](https://crates.io/crates/merman-cli) for command-line linting, or [`merman-lsp`](https://crates.io/crates/merman-lsp) for an editor protocol.
+
+This guide covers `merman-analysis 0.10.0-alpha.2`, with explicit fix generation and canonical model imports. See the [migration guide](../../docs/migrations/model-source-boundaries.md) when upgrading from `0.9.x` and the [host guide](../../docs/release/PREBUILT_PRODUCTS.md) for available versions and installation channels.
+
+## Source Feature Selection
+
+In the current checkout, defaults are empty. Select `all-diagrams` or the `diagram-*` families
+whose input the host accepts; for example, a direct dependency can use
+`default-features = false, features = ["diagram-flowchart"]`. Parser availability and richness of analysis/editor facts remain distinct;
+a known disabled family retains its original unsupported parse diagnostic.
+See the [migration guide](../../docs/FEATURES.md#select-diagram-families).
+
+## Quick Start
+
+```sh
+cargo add merman-analysis@=0.10.0-alpha.2 --features all-diagrams
+```
+
+Analyze one Mermaid diagram:
+
+```rust
+use merman_analysis::Analyzer;
+
+fn main() {
+    let result = Analyzer::new().analyze("flowchart TD\n  A[Start] -->");
+
+    for diagnostic in &result.diagnostics {
+        println!("{}: {}", diagnostic.id, diagnostic.message);
+    }
+
+    assert!(!result.valid);
+}
+```
+
+Choose the narrowest API that owns the result you need:
+
+| Need | API |
+| --- | --- |
+| Diagnostics and validity | `Analyzer::analyze()` |
+| Serializable editor and binding facts | `Analyzer::analyze_facts()` |
+| A reusable typed capture with multiple projections | `Analyzer::analyze_generation()` |
+| Shared source storage and cooperative cancellation | `Analyzer::analyze_generation_shared_cancellable()` |
+
+`Analyzer::analyze_generation` returns `AnalysisCaptureOutcome` so callers can distinguish a completed `AnalysisGeneration` from an `AnalysisRejection`. A rejection exposes a typed `AnalysisResourceLimit` and its canonical diagnostics payload. A generation is bound to the parser environment and snapshot policy used for capture, but retains only the opaque environment identity and source metadata needed after parsing. It does not retain the site/runtime policy or an initial diagnostics payload. Call `AnalysisGeneration::project` with a diagnostic policy when the same capture needs another diagnostics projection.
+
+Fix generation requires both the optional `fixes` Cargo feature and a per-projection request.
+`AnalysisDiagnosticPolicy::fix_generation` defaults to `FixGeneration::Omit`, including in
+fixes-enabled builds. An editor or command that needs replacement edits can reuse the generation:
+
+```rust
+# #[cfg(feature = "fixes")]
+# {
+use merman_analysis::{AnalysisRuleProfile, Analyzer, FixGeneration};
+
+let analyzer = Analyzer::new();
+let generation = analyzer
+    .analyze_generation("%%{ init: {theme: 'dark'} }%%\nflowchart TD\nA-->B\n")
+    .into_ready()
+    .expect("source is within the configured analysis limit");
+let mut policy = analyzer.options().diagnostic_policy().clone();
+policy.rule_config = policy.rule_config.with_profile(AnalysisRuleProfile::Recommended);
+let diagnostics = generation.project(&policy);
+let with_fixes = generation.project(&policy.with_fix_generation(FixGeneration::Generate));
+assert_eq!(diagnostics.diagnostics.len(), with_fixes.diagnostics.len());
+# }
+```
+
+`AnalysisOptions::with_fix_generation` selects the policy for convenience entry points such as
+`Analyzer::analyze`. The selection changes neither snapshot identity nor options JSON. Without
+`fixes`, `FixGeneration::Generate` is unavailable and the YAML writer dependency is absent;
+`DiagnosticFix`, `DiagnosticFixEdit`, and their wire fields remain available for construction,
+decoding, and forwarding.
+
+The configured `SourceDescriptor` selects the canonical capture path. `SourceKind::Diagram` analyzes the whole input as one Mermaid diagram, while `SourceKind::Markdown` and `SourceKind::Mdx` extract fences and enforce `max_document_diagrams`; Analyzer entry points cannot create a Markdown identity around whole-document Mermaid facts. The free `analyze_document*` functions remain useful when the source descriptor varies per call.
+
+Caller cancellation is exposed only by the `*_cancellable` entry points and remains outside `AnalysisCaptureOutcome`. Rich cancellable capture consumes caller-owned `Arc<str>` through `Analyzer::analyze_generation_shared_cancellable`; ownership promotion therefore happens before the cancellable operation instead of hiding an uninterruptible full-source copy inside it. Use `Analyzer::analyze_generation_shared` when a non-cancellable caller also wants to retain the same allocation. The borrowed `Analyzer::analyze_generation` entry point remains the non-cancellable convenience API.
+
+A parser-controlled path that returns outer cancellation to a non-cancellable facade violates that
+facade's contract: core exposes `Error::OperationCancelled`, while analysis projects the protected
+`merman.internal.parser_contract_violation` diagnostic. Use the cancellable lifecycle whenever
+cancellation is expected control flow.
+
+## Analyze Markdown And MDX
+
+`analyze_document_generation` extracts Mermaid fences and maps projected diagnostics back to the enclosing document:
+
+````rust
+use merman_analysis::{
+    Analyzer, analyze_document_generation, source_descriptor_for_markdown_path,
+};
+
+let markdown = "```mermaid\nflowchart TD\n  A -->\n```\n";
+let analyzer = Analyzer::new();
+let outcome = analyze_document_generation(
+    markdown,
+    &analyzer,
+    source_descriptor_for_markdown_path(Some("README.md")),
+);
+let generation = outcome
+    .into_ready()
+    .expect("source is within the configured analysis limit");
+let payload = generation.project(analyzer.options().diagnostic_policy());
+
+assert_eq!(generation.diagrams().len(), 1);
+assert!(!payload.diagnostics.is_empty());
+````
+
+Use `analyze_document` for the smaller diagnostics payload and `analyze_document_facts` for the versioned binding payload.
+
+Hosts can bound admission before source maps, fence objects, or parser state are created:
+
+```rust
+use merman_analysis::AnalysisOptions;
+
+let options = AnalysisOptions::default()
+    .with_max_source_bytes(Some(4 * 1024 * 1024))
+    .with_max_document_diagrams(Some(256));
+```
+
+`max_document_diagrams` applies only to Markdown and MDX host documents. The canonical fence scanner stops at the first excess Mermaid opener and rejects the whole generation; standalone Mermaid sources are unaffected. Rust callers choose both limits explicitly. The LSP supplies bounded defaults for unconfigured clients.
+
+`DiagnosticFix::edits` is shared immutable storage. Cloning a fix or projecting the same document-wide fix onto multiple diagnostics shares one edit allocation while JSON continues to serialize `edits` as the schema-1 array. Retained memory is therefore linear in the shared edit allocation, but schema-1 wire output still repeats the complete array for every diagnostic that owns the action; removing that wire repetition requires a future schema revision. Iterate or index the slice as before; construct fixes with `DiagnosticFix::new` instead of mutating the edit collection in place.
+
+With `fixes` enabled, canonical candidates retain bounded immutable authored values and source
+locations from the original parse. Projection applies rule filtering, suppression, and severity
+before constructing any replacement text. Each diagram's aggregate frontmatter migration is
+generated and mapped once per projection, sharing its edit allocation across diagnostic owners.
+Later projections reuse the captured evidence without reparsing or retaining a mutable fix cache.
+
+Init-directive migration fixes are advisory and resource-bounded independently from source admission. Analysis skips the fix, while retaining the diagnostic, when the captured source config overrides exceed their 1 MiB owned-value budget, existing frontmatter input or materialized YAML exceeds 1 MiB, nesting exceeds 64 levels, the action would require more than 128 edits, or the final replacement exceeds 2 MiB. Capture, rewrite scans, and output writes observe caller cancellation. Serializer-internal scalar formatting is a bounded atomic region constrained by those input, materialization, nesting, and output limits; the 2 MiB value is a final output-length bound rather than an exact peak-allocation claim.
+
+## What This Crate Owns
+
+- Stable diagnostic IDs, severities, protocol-neutral tags, metadata, fixes, and source ranges.
+- Plain Mermaid, Markdown, and MDX document extraction.
+- UTF-8 byte, line/column, and LSP-compatible source mapping.
+- Parser-backed semantic items, outline items, references, expected syntax, and provenance.
+- Rule catalogs and the policy for merging parser diagnostics with recovered editor facts.
+- Deterministic analysis options and explicit source-size and host-document diagram limits.
+
+The layer boundaries are deliberate:
+
+- `merman-core` emits structured parser facts and exact spans.
+- `merman-analysis` turns those facts into diagnostics and document-level results. It exposes
+  typed expected-syntax evidence, but does not select completion categories or items.
+- `merman-editor-core` queries typed analysis snapshots for editor behavior.
+- LSP, WASM, CLI, FFI, and UniFFI only project those results into their host protocols.
+
+## Runtime And Features
+
+The crate has no default features and does not depend on SVG, raster, PDF, or editor protocol implementations. Analysis is deterministic by default.
+
+`Analyzer::new` and `Analyzer::with_options` capture canonical semantics directly. They do not
+materialize Mermaid compatibility JSON or evaluate visual themes. For example, an invalid color
+inside `themeVariables` does not invalidate otherwise valid diagram semantics.
+
+Hosts that customize Mermaid detectors or compatibility parsers can enable `compat-json` and
+construct an analyzer with `Analyzer::with_mermaid_engine`. This explicit adapter preserves those
+registries and full presentation validation, including theme errors. Its runtime and site config
+still come from `AnalysisOptions`. Enabling the feature does not change default analyzers.
+
+The optional `system-clock`, `system-timezone`, `system-random`, and `system-timing` features only make their matching runtime adapters available. They do not change Mermaid language coverage or select ambient host state automatically.
+
+## Options JSON
+
+`AnalysisConfigContract` is the authority for the shared configuration root, its Draft 2020-12
+schema, and diagnostic-only versus snapshot-affecting change classification. It accepts options
+directly or under exactly one `merman` or `analysis` object; wrappers cannot be combined with
+each other or with direct analysis fields. Profile and severity strings are canonical lowercase
+values, including the reserved `strict` profile.
+
+`AnalysisOptionsJson` is the decoded forward-compatible root. Unknown fields at the root and
+inside `lint` are ignored so older configuration transports can read newer additive settings. The
+`resources` object and its limit IDs remain strict even when nested under the root. Calendar-date
+validity and fixed-date/fixed-offset instant representability are explicitly runtime-only
+constraints; the published standard schema names them instead of implementing a second date
+parser.
+
+Direct `serde_json` decoding of `LintOptionsJson`, `LintRuleSeverityOverrideJson`, or `ResourceOptionsJson` is intentionally strict and rejects unknown fields. Decode through `AnalysisOptionsJson` or `analysis_options_json_from_json_value` when forward compatibility is required; decode a nested type directly only when validating that exact nested schema is the goal.
+
+## Source Mapping And Shared Text
+
+`SourceMap` exposes behavior rather than its private adaptive line-index representation. Use `line_count()`, `line_start(index)`, and `line_bounds(index)` together with its byte, Unicode-scalar, and UTF-16 position APIs. `SourceMap::new` is a synchronous convenience constructor that scans the complete source; cancellable construction remains internal to analysis pipelines.
+
+`SharedTextSlice` retains an `Arc<str>` plus validated UTF-8 bounds. `whole` and `from_range` share the caller's allocation, `source_arc()` clones only the `Arc`, and `to_owned_text()` is the explicit copying boundary.
+
+## Payload Contracts
+
+The diagnostics-only `AnalysisPayload` and richer `AnalysisFactsPayload` are independent, versioned JSON contracts. Their current public versions are diagnostics `1` and facts `3`; consumers must validate the version belonging to the payload they decode. Diagnostic tags are optional additive schema-1 metadata: missing `tags` means no tags, while rule-backed diagnostics inherit tags from the canonical rule descriptor. Facts schema `3` contains generic parser/editor facts and required source appearance evidence; the removed Flowchart-only rich graph is not available through this wire contract.
+
+Every diagram has an `appearance` sibling of `syntax`. `{ "state": "unknown" }` means source appearance evidence is unavailable. The `known` state has nullable `theme`, `font`, and `look` declarations. Each declaration carries its string `value`, frontmatter or directive `origin`, and an original diagram-local UTF-8 half-open `construct_span`; it does not certify the rendered palette. See the [source appearance migration](../../docs/release/UNRELEASED_CONTRACT_VERSIONS.md#source-appearance-and-render-evidence-follow-up).
+
+Merman `0.10.0-alpha.2` uses facts schema `3`; published `0.10.0-alpha.1` retains facts schema `2`. Match the payload decoder to the package version; the older release's contract is unchanged.
+
+Facts use `fact_source: "unavailable"` when parser-backed body semantics do not exist. They do not invent body symbols, references, or rename targets. Current writers include `rename_policy` on each semantic item; older additive readers that do not see it must treat the item as non-renamable.
+
+`DocumentDiagram::text`, `AnalyzedDiagram::text()`, and editor `FenceSnapshot::text()` use `SharedTextSlice`, so fence bodies share immutable document storage. `AnalysisGeneration` and `AnalyzedDiagram` are read-only canonical outputs; obtain them from `Analyzer` or the document-analysis entry points.
+
+## Prerelease Completion Migration
+
+The analysis-owned cursor policy types were deleted. Rust editor hosts should query a
+`DocumentSnapshot` with `merman_editor_core::completion_for_snapshot`; adapters that only inspect
+analysis facts should consume `FenceTextIndex::expected_syntax()` and its parser provenance.
+
+```compile_fail
+use merman_analysis::FenceCursorCompletionKind;
+```
+
+```compile_fail
+use merman_analysis::FenceCursorContext;
+```
+
+## Related Documentation
+
+- [Diagnostics architecture](https://github.com/Latias94/merman/blob/main/docs/adr/0070-diagnostics-first-analysis-contract.md)
+- [Lint rule governance](https://github.com/Latias94/merman/blob/main/docs/adr/0072-lint-rule-governance.md)
+- [Editor and LSP capabilities](https://github.com/Latias94/merman/blob/main/docs/lsp/README.md)
+- [Project compatibility status](https://github.com/Latias94/merman/blob/main/docs/alignment/STATUS.md)

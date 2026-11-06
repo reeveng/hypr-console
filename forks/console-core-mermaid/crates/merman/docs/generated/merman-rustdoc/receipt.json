@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "generator": {
+    "package": "merman-cli",
+    "version": "0.10.0-alpha.2",
+    "merman_version": "0.10.0-alpha.2",
+    "mermaid_version": "12.3.0",
+    "capability_digest": "sha256:a979bad1c2c244a56d592eb0e6a261425edf031bb8f30235d739e62670b5cafb",
+    "profile": "rustdoc-static-v1"
+  },
+  "inputs": [
+    {
+      "kind": "config",
+      "path": "merman-rustdoc.toml",
+      "sha256": "741485746ea1914d9d425ceb4cbda19b3b92d3c9dcf59a2cbf5841a9d4a0d884"
+    },
+    {
+      "kind": "source",
+      "path": "docs/rustdoc-src/crate-overview.md",
+      "sha256": "ccc0985d3bd761e5094a7153b8abbff7f5eca444186693208bde18b390e4ba00"
+    },
+    {
+      "kind": "source",
+      "path": "docs/rustdoc-src/render-module.md",
+      "sha256": "92b677b53da30a34d38c567e3a7dd7afbe67e94dec065e4261e9e2da6e95cca5"
+    }
+  ],
+  "outputs": [
+    {
+      "fragment": "crate-overview",
+      "source": "docs/rustdoc-src/crate-overview.md",
+      "path": "crate-overview.md",
+      "sha256": "56f969e9c3db0d972abcd931bf90c90eb06443f466970c4d7aedd39587f7bc4c"
+    },
+    {
+      "fragment": "render-module",
+      "source": "docs/rustdoc-src/render-module.md",
+      "path": "render-module.md",
+      "sha256": "4bd2a9af69cb83b1fae49c9922cb47df7195b9318e175fad25c74a04363a5bab"
+    }
+  ],
+  "managed_files": [
+    "crate-overview.md",
+    "receipt.json",
+    "render-module.md"
+  ]
+}

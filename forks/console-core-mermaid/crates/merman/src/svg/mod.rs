@@ -1,0 +1,142 @@
+//! SVG target-local adapters and host-service types.
+//!
+//! Source parsing, operation ownership, cancellation, deadlines, and target dispatch live in
+//! [`crate::Renderer`]. This module deliberately exposes only the SVG adapter vocabulary needed
+//! to construct a typed [`crate::SvgRequest`]; it does not contain a second source-to-SVG
+//! orchestration path.
+
+pub use crate::SvgEnvironment;
+pub use merman_model::family::DiagramFamilyId;
+pub use merman_render::diagram_theme::{
+    BlendMode, CanvasLayer, CanvasPaint, CanvasSpec, DiagramEffectSet, DiagramTheme,
+    DiagramThemeCompiler, DiagramThemeSpec, EffectBinding, EffectColorSpace, EffectComposition,
+    EffectGraph, EffectInput, EffectPrimitive, FontAssetSpec, FontCatalog, FontCatalogError,
+    FontCatalogFingerprint, FontCatalogSpec, FontContainer, FontEmbeddingRequirement, FontSource,
+    FontSourcePolicy, FontStack, FontStyle, GenericFontFamily, GradientStop, InsetsPx, LineHeight,
+    LinearGradient, MAX_FONT_ALIASES_HARD_CAP, MAX_FONT_ASSET_COMPRESSED_BYTES_HARD_CAP,
+    MAX_FONT_ASSET_DECODED_BYTES_HARD_CAP, MAX_FONT_ASSETS_HARD_CAP,
+    MAX_FONT_CATALOG_DECODED_BYTES_HARD_CAP, MAX_FONT_DECODED_EXPANSION_RATIO_HARD_CAP,
+    MAX_FONT_FACES_HARD_CAP, MAX_FONT_TABLES_HARD_CAP, MAX_THEME_BASE64_BYTES_HARD_CAP,
+    MAX_THEME_ENCODED_BYTES_HARD_CAP, MermaidThemeCompatibility, MermaidThemeValue, OrdinalPalette,
+    OrdinalSelector, PatternKind, PatternSpec, RadialGradient, Specified, StrokeLineCap,
+    StrokeLineJoin, THEME_PRESET_CATALOG_SCHEMA_VERSION_V1, THEME_RESOURCE_LIMIT_COUNT,
+    THEME_RESOURCE_LIMIT_DESCRIPTORS, TextAlign, TextDecoration, TextLayoutCapability,
+    TextStylePatch, TextTransform, ThemeAdmissionError, ThemeAdmissionPolicy, ThemeAssets,
+    ThemeCapability, ThemeColorValue, ThemeCompileError, ThemeCompileValidationError,
+    ThemeDesignCompileError, ThemeEffectPatch, ThemeGeometryPatch, ThemeLength, ThemePaintPatch,
+    ThemePortabilityRequirement, ThemePreset, ThemePresetApplicationNoteV1, ThemePresetDescriptor,
+    ThemePresetFamilyDesignV1, ThemePresetMetadataV1, ThemePresetParseError,
+    ThemePresetQualifiedCell, ThemePresetQualifiedCellV1, ThemeRecipeFingerprint,
+    ThemeRecipeReport, ThemeRecipeV1, ThemeRequirements, ThemeResourceLimitDescriptor,
+    ThemeResourceLimitExceeded, ThemeResourceLimitId, ThemeResourceLimitOverride,
+    ThemeResourceLimitOverrideError, ThemeResourceLimitPhase, ThemeResourcePolicy,
+    ThemeResourcePolicyRestrictionError, ThemeRule, ThemeRuleSet, ThemeSpacingPatch,
+    ThemeStrokePatch, ThemeStylePatch, ThemeTarget, ThemeTextStyle, ThemeVariant, ThemeWrapMode,
+    TrustedThemeLane, TrustedThemeLanes, TypographySpec, WhiteSpace, describe_theme_presets,
+    theme_preset_descriptors, theme_resource_limit_descriptors,
+};
+pub use merman_render::environment::{
+    HostFallbackReason, HostMeasurementResult, HostTextMeasurement, HostTextMeasurementError,
+    HostTextMeasurementRequest, HostTextMeasurer, MeasurementProfileId,
+    TEXT_MEASUREMENT_PROTOCOL_VERSION, TextMeasurementOperation, TextMeasurementPhase,
+    TextMeasurementPolicy, TextMeasurementProfile, TextMeasurementProfileIdentity,
+    TextMeasurementReport, TextMeasurementResultKind, TextMeasurementRoute, TextMeasurementSource,
+    TextMeasurementSummary, validate_host_text_measurement,
+};
+pub use merman_render::family::RenderCapabilityPlan;
+pub use merman_render::resources::{
+    CLI_DEFAULT_RESOURCE_PROFILE, GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE, RenderResourceLimitId,
+    RenderResourcePolicy, RenderResourceProfile, RenderResourceProfileDescriptor,
+    ResourceLimitCause, ResourceLimitDescriptor, ResourceLimitExceeded, ResourceLimitId,
+    ResourceLimitOverride, ResourceLimitOverrideError, ResourceLimitPhase,
+    ResourcePolicyRestrictionError, SVG_BACKEND_TREE_DEPTH_HARD_CAP_ID,
+    WASM_RESVG_TREE_DEPTH_HARD_CAP, resource_limit_descriptors, resource_profile_descriptors,
+};
+pub use merman_render::svg::{
+    CssOverridePolicy, CssOverridePostprocessor, ForeignObjectFallbackPostprocessor, IconPack,
+    IconRegistry, IconRegistryBuildError, IconRegistryBuildErrorKind, IconRegistryBuilder,
+    IconRegistryResourceLimitDescriptor, IconRegistryResourceLimitId, ResvgCompatibleSvg,
+    RootBackgroundPostprocessor, SanitizeCssPostprocessor, SanitizeSvgAttributesPostprocessor,
+    ScopedCssPostprocessor, StripForeignObjectPostprocessor, SvgDebugOptions,
+    SvgFinalizationReport, SvgOutputPolicy, SvgPipeline, SvgPipelinePreset, SvgPostprocessContext,
+    SvgPostprocessMetadata, SvgPostprocessor, SvgRenderOptions, SvgResourceClosure,
+    finalize_resvg_svg, foreign_object_label_fallback_svg_text,
+    icon_registry_resource_limit_descriptors,
+};
+pub use merman_render::text::{
+    DeterministicTextMeasurer, TextMeasurer, TextMetrics, TextStyle, WrapMode,
+};
+pub use merman_render::{
+    Error as RenderError, LayoutAdaptation, LayoutAdaptationObservation, LayoutOptions,
+    RenderCapability, RenderCapabilityPolicy, Result as RenderResult, layout_cytoscape_available,
+    layout_elk_available, math_available,
+};
+
+/// Binary export APIs accept only terminally validated [`ResvgCompatibleSvg`] values.
+#[cfg(any(
+    feature = "native-fonts",
+    feature = "png",
+    feature = "jpeg",
+    feature = "pdf"
+))]
+pub mod export {
+    pub use merman_export::*;
+}
+
+/// Converts arbitrary text into a conservative SVG `id` token.
+pub fn sanitize_svg_id(raw: &str) -> String {
+    merman_render::svg::sanitize_svg_id(raw)
+}
+
+#[cfg(feature = "diagram-class")]
+pub use merman_render::ClassComplexity;
+
+#[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+pub use merman_render::FlowchartComplexity;
+
+#[cfg(feature = "diagram-mindmap")]
+pub use merman_render::MindmapComplexity;
+
+#[cfg(test)]
+mod sanitize_svg_id_tests {
+    use super::sanitize_svg_id;
+
+    #[test]
+    fn sanitize_svg_id_empty_is_untitled() {
+        assert_eq!(sanitize_svg_id(""), "m-untitled");
+        assert_eq!(sanitize_svg_id("   "), "m-untitled");
+    }
+
+    #[test]
+    fn sanitize_svg_id_trims_and_replaces() {
+        assert_eq!(sanitize_svg_id(" my diagram "), "my-diagram");
+        assert_eq!(sanitize_svg_id("a b\tc"), "a-b-c");
+    }
+
+    #[test]
+    fn sanitize_svg_id_prefixes_when_needed() {
+        assert_eq!(sanitize_svg_id("1a"), "m-1a");
+        assert_eq!(sanitize_svg_id("_a"), "m-_a");
+        assert_eq!(sanitize_svg_id("-a"), "m-a");
+    }
+
+    #[test]
+    fn sanitize_svg_id_collapses_and_trims_dashes() {
+        assert_eq!(sanitize_svg_id("a----b"), "a-b");
+        assert_eq!(sanitize_svg_id("abc--"), "abc");
+        assert_eq!(sanitize_svg_id("--"), "m-untitled");
+        assert_eq!(sanitize_svg_id("-"), "m-untitled");
+    }
+
+    #[test]
+    fn sanitize_svg_id_keeps_css_safe_punctuation() {
+        assert_eq!(sanitize_svg_id("a:b.c_d"), "a-b-c_d");
+    }
+
+    #[test]
+    fn sanitize_svg_id_m_is_reserved_for_untitled() {
+        assert_eq!(sanitize_svg_id("m"), "m-untitled");
+        assert_eq!(sanitize_svg_id("m-"), "m-untitled");
+        assert_eq!(sanitize_svg_id("m--"), "m-untitled");
+    }
+}

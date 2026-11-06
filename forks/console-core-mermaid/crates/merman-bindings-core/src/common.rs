@@ -1,0 +1,5238 @@
+use serde::Deserialize;
+use serde::Serialize;
+use serde::Serializer;
+#[cfg(feature = "svg")]
+use serde::de::{IgnoredAny, MapAccess, Visitor};
+#[cfg(feature = "svg")]
+use serde_json::value::RawValue;
+use serde_json::{Map, Value};
+use std::collections::BTreeMap;
+#[cfg(feature = "svg")]
+use std::fmt;
+use std::str::FromStr;
+use std::sync::Arc;
+
+use crate::artifact_contract::{DEFAULT_ARTIFACT_SNAPSHOT, ValidatedArtifactContract};
+use crate::option_contract::BindingOptionGroupKey;
+use crate::resource_contract::{
+    BINDING_OPTIONS_JSON_LIMIT_ID, BINDING_OPTIONS_JSON_MAX_BYTES, BindingResourceLimitDescriptor,
+    BindingResourceScope, binding_resource_contract, resource_limit_descriptor,
+    resource_profile_value,
+};
+
+/// Current schema for constructor and request options JSON.
+///
+/// Version 3 is intentionally not wire-compatible with the previous version 2 grammar: typed
+/// themes replaced presentation ownership, export paint fields moved to `matte`/`page_paint`, and
+/// general bindings reject raw CSS rather than silently trusting it. Omitted versions materialize
+/// the current grammar for convenience-only callers; durable SDK integrations should send this
+/// explicit version.
+pub const BINDING_OPTIONS_SCHEMA_VERSION: u32 = 3;
+pub const BINDING_RESULT_PAYLOAD_VERSION: u32 = 1;
+const BINDING_JSON_SAFE_INTEGER_MAX: u64 = crate::RUNTIME_CATALOG_MAX_SAFE_INTEGER;
+const BINDING_ANALYSIS_OPTION_KEYS: [&str; 5] = [
+    "fixed_today",
+    "fixed_local_offset_minutes",
+    "site_config",
+    "resources",
+    "lint",
+];
+
+/// Runtime policy selected explicitly for one binding engine or one-shot operation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BindingRuntimePolicy {
+    #[default]
+    Deterministic,
+    Native,
+}
+
+impl BindingRuntimePolicy {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::Native => "native",
+        }
+    }
+}
+
+/// Stable machine-readable classification carried by binding errors.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BindingErrorKind {
+    #[default]
+    Generic,
+    UnknownOperation,
+    MissingCapability,
+    Busy,
+    ReentrantCall,
+}
+
+impl BindingErrorKind {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Generic => "generic",
+            Self::UnknownOperation => "unknown-operation",
+            Self::MissingCapability => "missing-capability",
+            Self::Busy => "busy",
+            Self::ReentrantCall => "reentrant-call",
+        }
+    }
+}
+
+/// Stable machine-readable reason for a resource-limit failure.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum BindingResourceLimitCause {
+    #[default]
+    Ceiling,
+    ArithmeticOverflow,
+    /// A cause added by a newer engine that this binding layer does not yet classify.
+    Unknown,
+}
+
+impl BindingResourceLimitCause {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ceiling => "ceiling",
+            Self::ArithmeticOverflow => "arithmetic_overflow",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Structured cooperative-cancellation details carried by the additive error payload.
+///
+/// The binding layer projects the core operation error to stable strings so transports do not
+/// need to depend on the non-exhaustive core phase enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct BindingCancellationErrorDetails {
+    pub reason: &'static str,
+    pub phase: &'static str,
+}
+
+impl BindingCancellationErrorDetails {
+    #[must_use]
+    pub const fn from_operation(error: merman::OperationCancelled) -> Self {
+        Self {
+            reason: error.reason.as_str(),
+            phase: error.phase.as_str(),
+        }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingStatus {
+    Ok = 0,
+    InvalidArgument = 1,
+    Utf8Error = 2,
+    OptionsJsonError = 3,
+    NoDiagram = 4,
+    ParseError = 5,
+    RenderError = 6,
+    UnsupportedOperation = 7,
+    Panic = 8,
+    InternalError = 9,
+    ResourceLimitExceeded = 10,
+    Busy = 11,
+    Cancelled = 12,
+}
+
+impl BindingStatus {
+    pub const fn code(self) -> i32 {
+        self as i32
+    }
+
+    pub const fn code_name(self) -> &'static str {
+        match self {
+            Self::Ok => "MERMAN_OK",
+            Self::InvalidArgument => "MERMAN_INVALID_ARGUMENT",
+            Self::Utf8Error => "MERMAN_UTF8_ERROR",
+            Self::OptionsJsonError => "MERMAN_OPTIONS_JSON_ERROR",
+            Self::NoDiagram => "MERMAN_NO_DIAGRAM",
+            Self::ParseError => "MERMAN_PARSE_ERROR",
+            Self::RenderError => "MERMAN_RENDER_ERROR",
+            Self::UnsupportedOperation => "MERMAN_UNSUPPORTED_OPERATION",
+            Self::Panic => "MERMAN_PANIC",
+            Self::InternalError => "MERMAN_INTERNAL_ERROR",
+            Self::ResourceLimitExceeded => "MERMAN_RESOURCE_LIMIT_EXCEEDED",
+            Self::Busy => "MERMAN_BUSY",
+            Self::Cancelled => "MERMAN_CANCELLED",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindingError {
+    status: BindingStatus,
+    kind: BindingErrorKind,
+    capability_id: Option<&'static str>,
+    details: Option<Box<BindingErrorDetails>>,
+    message: Box<str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct BindingErrorDetails {
+    resource: Option<BindingResourceErrorDetails>,
+    diagnostic: Option<BindingDiagnosticErrorDetails>,
+    cancellation: Option<BindingCancellationErrorDetails>,
+    icon_registry: Option<BindingIconRegistryErrorDetails>,
+    #[cfg(feature = "svg")]
+    theme_authoring: Option<merman::diagram_theme::ThemeMaterializationErrorV1>,
+}
+
+/// Structured resource failure details carried by the additive error JSON payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct BindingResourceErrorDetails {
+    /// Stable reason for the failure: `ceiling` or `arithmetic_overflow`.
+    pub cause: BindingResourceLimitCause,
+    pub limit_id: &'static str,
+    pub phase: &'static str,
+    pub actual: u64,
+    pub max: u64,
+    pub profile: &'static str,
+}
+
+/// Byte span carried by a structured parser or renderer diagnostic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct BindingDiagnosticSpan {
+    pub start: u64,
+    pub end: u64,
+    pub kind: &'static str,
+}
+
+/// Stable machine-readable context for parse and ASCII render failures.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct BindingDiagnosticErrorDetails {
+    pub code: String,
+    pub span: Option<BindingDiagnosticSpan>,
+    pub field: Option<String>,
+    pub diagram_type: Option<String>,
+    pub requested_max_width: Option<u64>,
+    pub actual_width: Option<u64>,
+    pub width_profile: Option<String>,
+    pub fallback_reason: Option<String>,
+}
+
+impl BindingDiagnosticSpan {
+    pub const fn new(start: u64, end: u64, kind: &'static str) -> Self {
+        Self { start, end, kind }
+    }
+}
+
+impl BindingDiagnosticErrorDetails {
+    pub fn new(code: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            span: None,
+            field: None,
+            diagram_type: None,
+            requested_max_width: None,
+            actual_width: None,
+            width_profile: None,
+            fallback_reason: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_span(mut self, span: BindingDiagnosticSpan) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    #[must_use]
+    pub fn with_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_diagram_type(mut self, diagram_type: impl Into<String>) -> Self {
+        self.diagram_type = Some(diagram_type.into());
+        self
+    }
+}
+
+pub(crate) fn parse_error(error: impl Into<merman::TerminalDiagnostic>) -> BindingError {
+    let error = error.into();
+    let message = error.terminal_safe_message();
+    let status = match error.class() {
+        merman::TerminalDiagnosticClass::Parse => BindingStatus::ParseError,
+        merman::TerminalDiagnosticClass::ResourceLimit => BindingStatus::ResourceLimitExceeded,
+        merman::TerminalDiagnosticClass::Internal => BindingStatus::InternalError,
+        merman::TerminalDiagnosticClass::Cancelled => BindingStatus::Cancelled,
+        merman::TerminalDiagnosticClass::RuntimePolicy => BindingStatus::RenderError,
+        _ => BindingStatus::InternalError,
+    };
+    BindingError::new(status, message).with_diagnostic_details(binding_diagnostic_details(
+        error.terminal_diagnostic_details(),
+    ))
+}
+
+pub(crate) fn binding_diagnostic_details(
+    details: merman::TerminalDiagnosticDetails,
+) -> BindingDiagnosticErrorDetails {
+    let span = details.span.and_then(|span| {
+        Some(BindingDiagnosticSpan {
+            start: u64::try_from(span.start).ok()?,
+            end: u64::try_from(span.end).ok()?,
+            kind: match details.span_kind? {
+                merman::ParseDiagnosticSpanKind::Exact => "exact",
+                merman::ParseDiagnosticSpanKind::InsertionPoint => "insertion-point",
+                merman::ParseDiagnosticSpanKind::Fallback => "fallback",
+            },
+        })
+    });
+    BindingDiagnosticErrorDetails {
+        code: details.code,
+        span,
+        field: details.field,
+        diagram_type: details.diagram_type,
+        requested_max_width: details
+            .requested_max_width
+            .and_then(|value| u64::try_from(value).ok()),
+        actual_width: details
+            .actual_width
+            .and_then(|value| u64::try_from(value).ok()),
+        width_profile: details.width_profile,
+        fallback_reason: details.fallback_reason,
+    }
+}
+
+impl BindingResourceErrorDetails {
+    /// Projects exact resource counts into the lossless JSON representation used by JavaScript
+    /// transports without changing the native binding payload contract.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn js_safe_json(self) -> BindingJsSafeResourceErrorDetails {
+        BindingJsSafeResourceErrorDetails {
+            cause: self.cause,
+            limit_id: self.limit_id,
+            phase: self.phase,
+            actual: self.actual,
+            max: self.max,
+            profile: self.profile,
+        }
+    }
+}
+
+/// JavaScript-safe serialization projection for [`BindingResourceErrorDetails`].
+///
+/// Values through `Number.MAX_SAFE_INTEGER` remain JSON numbers. Wider `u64` values serialize as
+/// canonical decimal strings so Node and WebAssembly hosts retain the exact count.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BindingJsSafeResourceErrorDetails {
+    cause: BindingResourceLimitCause,
+    limit_id: &'static str,
+    phase: &'static str,
+    #[serde(serialize_with = "serialize_binding_resource_count")]
+    actual: u64,
+    #[serde(serialize_with = "serialize_binding_resource_count")]
+    max: u64,
+    profile: &'static str,
+}
+
+fn serialize_binding_resource_count<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if *value <= BINDING_JSON_SAFE_INTEGER_MAX {
+        serializer.serialize_u64(*value)
+    } else {
+        serializer.collect_str(value)
+    }
+}
+
+/// Structured failure details for transactional Iconify registry construction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct BindingIconRegistryErrorDetails {
+    pub kind_id: &'static str,
+    pub pack_index: Option<u64>,
+    pub registration_name: Option<String>,
+}
+
+impl BindingError {
+    fn classified(
+        status: BindingStatus,
+        kind: BindingErrorKind,
+        capability_id: Option<&'static str>,
+        details: Option<BindingErrorDetails>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            status,
+            kind,
+            capability_id,
+            details: details.map(Box::new),
+            message: message.into().into_boxed_str(),
+        }
+    }
+
+    pub fn new(status: BindingStatus, message: impl Into<String>) -> Self {
+        Self::classified(status, BindingErrorKind::Generic, None, None, message)
+    }
+
+    /// Creates a caller-owned invalid-argument failure without requiring status reconstruction.
+    pub fn invalid_argument(message: impl Into<String>) -> Self {
+        Self::new(BindingStatus::InvalidArgument, message)
+    }
+
+    /// Creates a caller-owned options-JSON failure without requiring status reconstruction.
+    pub fn invalid_options_json(message: impl Into<String>) -> Self {
+        Self::new(BindingStatus::OptionsJsonError, message)
+    }
+
+    /// Creates an internal implementation failure without requiring status reconstruction.
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::new(BindingStatus::InternalError, message)
+    }
+
+    pub fn unknown_operation(message: impl Into<String>) -> Self {
+        Self::classified(
+            BindingStatus::UnsupportedOperation,
+            BindingErrorKind::UnknownOperation,
+            None,
+            None,
+            message,
+        )
+    }
+
+    pub fn missing_capability(capability_id: &'static str, message: impl Into<String>) -> Self {
+        Self::classified(
+            BindingStatus::UnsupportedOperation,
+            BindingErrorKind::MissingCapability,
+            Some(capability_id),
+            None,
+            message,
+        )
+    }
+
+    /// Creates a caller-owned failure for a known operation or metadata endpoint that this
+    /// transport intentionally does not expose.
+    pub fn unsupported_operation(message: impl Into<String>) -> Self {
+        Self::new(BindingStatus::UnsupportedOperation, message)
+    }
+
+    pub fn reentrant_call(message: impl Into<String>) -> Self {
+        Self::classified(
+            BindingStatus::InvalidArgument,
+            BindingErrorKind::ReentrantCall,
+            None,
+            None,
+            message,
+        )
+    }
+
+    pub fn busy(message: impl Into<String>) -> Self {
+        Self::classified(
+            BindingStatus::Busy,
+            BindingErrorKind::Busy,
+            None,
+            None,
+            message,
+        )
+    }
+
+    pub fn resource_limit(
+        phase: &'static str,
+        limit_id: &'static str,
+        actual: u64,
+        max: u64,
+        profile: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::resource_limit_with_cause(
+            BindingResourceLimitCause::Ceiling,
+            phase,
+            limit_id,
+            actual,
+            max,
+            profile,
+            message,
+        )
+    }
+
+    /// Constructs a resource-limit error with an explicit stable failure cause.
+    pub fn resource_limit_with_cause(
+        cause: BindingResourceLimitCause,
+        phase: &'static str,
+        limit_id: &'static str,
+        actual: u64,
+        max: u64,
+        profile: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::classified(
+            BindingStatus::ResourceLimitExceeded,
+            BindingErrorKind::Generic,
+            None,
+            Some(BindingErrorDetails {
+                resource: Some(BindingResourceErrorDetails {
+                    cause,
+                    limit_id,
+                    phase,
+                    actual,
+                    max,
+                    profile,
+                }),
+                diagnostic: None,
+                cancellation: None,
+                icon_registry: None,
+                #[cfg(feature = "svg")]
+                theme_authoring: None,
+            }),
+            message,
+        )
+    }
+
+    /// Creates the canonical structured failure for UTF-8 rejected before registry ingestion.
+    #[cfg(feature = "svg")]
+    pub fn icon_registry_invalid_utf8(pack_index: usize, message: impl Into<String>) -> Self {
+        Self::icon_registry_preflight_failure(
+            merman::svg::IconRegistryBuildErrorKind::InvalidUtf8,
+            Some(pack_index),
+            None,
+            message,
+        )
+    }
+
+    /// Creates the canonical structured failure for a registry limit rejected before ingestion.
+    #[cfg(feature = "svg")]
+    pub fn icon_registry_resource_limit(
+        limit: crate::IconRegistryResourceLimitId,
+        actual: u64,
+        pack_index: Option<usize>,
+        message: impl Into<String>,
+    ) -> Self {
+        let descriptor = limit.descriptor();
+        Self::icon_registry_preflight_failure(
+            merman::svg::IconRegistryBuildErrorKind::ResourceLimitExceeded,
+            pack_index,
+            Some(BindingResourceErrorDetails {
+                cause: BindingResourceLimitCause::Ceiling,
+                limit_id: descriptor.stable_id,
+                phase: descriptor.phase,
+                actual,
+                max: limit.fixed_value(),
+                profile: "constructor-fixed",
+            }),
+            message,
+        )
+    }
+
+    #[cfg(feature = "svg")]
+    fn icon_registry_preflight_failure(
+        kind: merman::svg::IconRegistryBuildErrorKind,
+        pack_index: Option<usize>,
+        resource: Option<BindingResourceErrorDetails>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::classified(
+            icon_registry_error_status(kind),
+            BindingErrorKind::Generic,
+            None,
+            Some(BindingErrorDetails {
+                resource,
+                diagnostic: None,
+                cancellation: None,
+                icon_registry: Some(BindingIconRegistryErrorDetails {
+                    kind_id: kind.stable_id(),
+                    pack_index: pack_index.and_then(|index| u64::try_from(index).ok()),
+                    registration_name: None,
+                }),
+                theme_authoring: None,
+            }),
+            message,
+        )
+    }
+
+    pub const fn status(&self) -> BindingStatus {
+        self.status
+    }
+
+    pub const fn kind(&self) -> BindingErrorKind {
+        self.kind
+    }
+
+    pub const fn capability_id(&self) -> Option<&'static str> {
+        self.capability_id
+    }
+
+    pub fn resource_details(&self) -> Option<BindingResourceErrorDetails> {
+        self.details.as_deref().and_then(|details| details.resource)
+    }
+
+    pub fn with_diagnostic_details(mut self, details: BindingDiagnosticErrorDetails) -> Self {
+        self.details
+            .get_or_insert_with(|| Box::new(BindingErrorDetails::default()))
+            .diagnostic = Some(details);
+        self
+    }
+
+    pub fn diagnostic_details(&self) -> Option<&BindingDiagnosticErrorDetails> {
+        self.details
+            .as_deref()
+            .and_then(|details| details.diagnostic.as_ref())
+    }
+
+    /// Returns the exact contract-owned theme-authoring failure when one was projected by a
+    /// materialization operation.
+    #[cfg(feature = "svg")]
+    #[must_use]
+    pub fn theme_authoring_details(
+        &self,
+    ) -> Option<&merman::diagram_theme::ThemeMaterializationErrorV1> {
+        self.details
+            .as_deref()
+            .and_then(|details| details.theme_authoring.as_ref())
+    }
+
+    #[cfg(feature = "svg")]
+    #[must_use]
+    pub(crate) fn with_theme_authoring_details(
+        mut self,
+        error: merman::diagram_theme::ThemeMaterializationErrorV1,
+    ) -> Self {
+        self.details
+            .get_or_insert_with(|| Box::new(BindingErrorDetails::default()))
+            .theme_authoring = Some(error);
+        self
+    }
+
+    #[must_use]
+    pub fn cancellation_details(&self) -> Option<BindingCancellationErrorDetails> {
+        match self.details.as_deref() {
+            Some(details) => details.cancellation,
+            None => None,
+        }
+    }
+
+    /// Creates the canonical structured failure for cooperative cancellation or deadline expiry.
+    pub fn cancelled(error: merman::OperationCancelled) -> Self {
+        Self::classified(
+            BindingStatus::Cancelled,
+            BindingErrorKind::Generic,
+            None,
+            Some(BindingErrorDetails {
+                resource: None,
+                diagnostic: None,
+                cancellation: Some(BindingCancellationErrorDetails::from_operation(error)),
+                icon_registry: None,
+                #[cfg(feature = "svg")]
+                theme_authoring: None,
+            }),
+            error.to_string(),
+        )
+    }
+
+    pub fn icon_registry_details(&self) -> Option<&BindingIconRegistryErrorDetails> {
+        self.details
+            .as_deref()
+            .and_then(|details| details.icon_registry.as_ref())
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+pub(crate) fn input_resource_limit_error(
+    error: merman::model::resources::InputResourceLimitExceeded,
+) -> BindingError {
+    let message = error.to_string();
+    BindingError::resource_limit(
+        error.phase.as_str(),
+        error.limit,
+        error.actual as u64,
+        error.max as u64,
+        error.profile.id(),
+        message,
+    )
+}
+
+pub(crate) fn core_error(error: merman::Error) -> BindingError {
+    match error {
+        merman::Error::OperationCancelled(error) => BindingError::cancelled(error),
+        merman::Error::RuntimePolicy(error) => runtime_policy_error(error),
+        merman::Error::ThemeEvaluationLimit(error) => {
+            BindingError::new(BindingStatus::ResourceLimitExceeded, error.to_string())
+        }
+        error => parse_error(error),
+    }
+}
+
+#[cfg(feature = "svg")]
+impl From<merman::svg::IconRegistryBuildError> for BindingError {
+    fn from(error: merman::svg::IconRegistryBuildError) -> Self {
+        let error_kind = error.kind();
+        let limit = error.limit();
+        let message = error.to_string();
+        let details = BindingIconRegistryErrorDetails {
+            kind_id: error.kind().stable_id(),
+            pack_index: error
+                .pack_index()
+                .and_then(|index| u64::try_from(index).ok()),
+            registration_name: error.registration_name().map(str::to_owned),
+        };
+        let resource = match (limit, error.actual(), error.maximum()) {
+            (Some(limit), Some(actual), Some(max)) => {
+                let descriptor = limit.descriptor();
+                Some(BindingResourceErrorDetails {
+                    cause: match error_kind {
+                        merman::svg::IconRegistryBuildErrorKind::ArithmeticOverflow => {
+                            BindingResourceLimitCause::ArithmeticOverflow
+                        }
+                        _ => BindingResourceLimitCause::Ceiling,
+                    },
+                    limit_id: descriptor.stable_id,
+                    phase: descriptor.phase,
+                    actual,
+                    max,
+                    profile: "constructor-fixed",
+                })
+            }
+            _ => None,
+        };
+        Self::classified(
+            icon_registry_error_status(error_kind),
+            BindingErrorKind::Generic,
+            None,
+            Some(BindingErrorDetails {
+                resource,
+                diagnostic: None,
+                cancellation: None,
+                icon_registry: Some(details),
+                theme_authoring: None,
+            }),
+            message,
+        )
+    }
+}
+
+#[cfg(feature = "svg")]
+pub(crate) fn icon_registry_error_status(
+    kind: merman::svg::IconRegistryBuildErrorKind,
+) -> BindingStatus {
+    match kind {
+        merman::svg::IconRegistryBuildErrorKind::AllocationFailed
+        | merman::svg::IconRegistryBuildErrorKind::ArithmeticOverflow => {
+            BindingStatus::InternalError
+        }
+        merman::svg::IconRegistryBuildErrorKind::InvalidUtf8 => BindingStatus::Utf8Error,
+        merman::svg::IconRegistryBuildErrorKind::ResourceLimitExceeded => {
+            BindingStatus::ResourceLimitExceeded
+        }
+        _ => BindingStatus::InvalidArgument,
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorPayload<'a, R, D> {
+    version: u32,
+    ok: bool,
+    code: i32,
+    code_name: &'a str,
+    kind: &'a str,
+    capability_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<ErrorDetails<'a, R, D>>,
+    message: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorDetails<'a, R, D> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resource: Option<R>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<D>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon_registry: Option<&'a BindingIconRegistryErrorDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cancellation: Option<&'a BindingCancellationErrorDetails>,
+    #[cfg(feature = "svg")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    theme_authoring: Option<&'a merman::diagram_theme::ThemeMaterializationErrorV1>,
+}
+
+#[derive(Debug, Serialize)]
+struct RenderPayload<'a> {
+    version: u32,
+    ok: bool,
+    code: i32,
+    code_name: &'a str,
+    message: Option<&'a str>,
+    svg: Option<&'a str>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct BindingOptions {
+    #[allow(dead_code)]
+    pub(crate) version: Option<u32>,
+    pub(crate) runtime_policy: Option<BindingRuntimePolicy>,
+    #[serde(flatten)]
+    pub(crate) analysis: BindingAnalysisOptionsJson,
+    pub(crate) parse: Option<ParseOptionsJson>,
+    #[cfg(feature = "svg")]
+    #[serde(
+        default,
+        deserialize_with = "crate::theme::deserialize_validated_theme"
+    )]
+    pub(crate) theme: Option<crate::theme::BindingThemeOptionsJson>,
+    #[cfg(feature = "ascii")]
+    pub(crate) ascii: Option<AsciiOptionsJson>,
+    #[cfg(feature = "svg")]
+    pub(crate) layout: Option<LayoutOptionsJson>,
+    #[cfg(feature = "svg")]
+    pub(crate) environment: Option<RenderEnvironmentOptionsJson>,
+    #[cfg(feature = "svg")]
+    #[serde(skip)]
+    pub(crate) text_measurement_selector_explicit: bool,
+    #[cfg(feature = "svg")]
+    pub(crate) svg: Option<SvgOptionsJson>,
+    #[cfg(any(feature = "png", feature = "jpeg"))]
+    pub(crate) raster: Option<RasterOptionsJson>,
+    #[cfg(feature = "jpeg")]
+    pub(crate) jpeg: Option<JpegOptionsJson>,
+    #[cfg(feature = "pdf")]
+    pub(crate) pdf: Option<PdfOptionsJson>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct BindingAnalysisOptionsJson {
+    pub(crate) fixed_today: Option<String>,
+    pub(crate) fixed_local_offset_minutes: Option<i32>,
+    pub(crate) site_config: Option<Value>,
+    pub(crate) resources: Option<ResourceOptionsJson>,
+    #[cfg(feature = "analysis")]
+    pub(crate) lint: Option<merman_analysis::LintOptionsJson>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ParseOptionsJson {
+    pub(crate) suppress_errors: Option<bool>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResourceOptionsJson {
+    pub(crate) profile: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) limits: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct BaseBindingOptions {
+    normalized_wire: Arc<Value>,
+    resource_ceiling: ResourceOptionsJson,
+    #[cfg(feature = "svg")]
+    theme_resource_ceiling: merman::svg::ThemeResourcePolicy,
+}
+
+#[cfg(feature = "svg")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BindingThemeOverlay {
+    Inherit,
+    Clear,
+    Replace,
+}
+
+#[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "The overlay keeps the validated request payload and resource policy together."
+)]
+pub(crate) enum BindingRequestOverlay {
+    Unchanged,
+    Override {
+        normalized_wire: Value,
+        requested_resources: Option<ResourceOptionsJson>,
+        #[cfg(feature = "svg")]
+        theme: BindingThemeOverlay,
+        #[cfg(feature = "svg")]
+        theme_resources: merman::svg::ThemeResourcePolicy,
+    },
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AsciiOptionsJson {
+    pub(crate) charset: Option<String>,
+    #[serde(default, alias = "widthProfile")]
+    pub(crate) width_profile: Option<String>,
+    #[serde(default, alias = "defaultDirection")]
+    pub(crate) default_direction: Option<String>,
+    #[serde(default, alias = "colorMode")]
+    pub(crate) color_mode: Option<String>,
+    pub(crate) theme: Option<AsciiThemeOptionsJson>,
+    #[serde(default, alias = "boxBorderPadding")]
+    pub(crate) box_border_padding: Option<usize>,
+    #[serde(default, alias = "nodePaddingX")]
+    pub(crate) node_padding_x: Option<usize>,
+    #[serde(default, alias = "nodePaddingY")]
+    pub(crate) node_padding_y: Option<usize>,
+    #[serde(default, alias = "graphPaddingX")]
+    pub(crate) graph_padding_x: Option<usize>,
+    #[serde(default, alias = "graphPaddingY")]
+    pub(crate) graph_padding_y: Option<usize>,
+    #[serde(default, alias = "flowchartNodeLabelWrapWidth")]
+    pub(crate) flowchart_node_label_wrap_width: Option<usize>,
+    #[serde(default, alias = "sequenceParticipantSpacing")]
+    pub(crate) sequence_participant_spacing: Option<usize>,
+    #[serde(default, alias = "sequenceMessageSpacing")]
+    pub(crate) sequence_message_spacing: Option<usize>,
+    #[serde(default, alias = "sequenceSelfMessageWidth")]
+    pub(crate) sequence_self_message_width: Option<usize>,
+    #[serde(default, alias = "sequenceMirrorActors")]
+    pub(crate) sequence_mirror_actors: Option<bool>,
+    #[serde(default, alias = "xychartVerticalPlotHeight")]
+    pub(crate) xychart_vertical_plot_height: Option<usize>,
+    #[serde(default, alias = "xychartCategoryBandWidth")]
+    pub(crate) xychart_category_band_width: Option<usize>,
+    #[serde(default, alias = "xychartHorizontalPlotWidth")]
+    pub(crate) xychart_horizontal_plot_width: Option<usize>,
+    #[serde(default, alias = "relationSummaryDiagnostics")]
+    pub(crate) relation_summary_diagnostics: Option<bool>,
+    #[serde(default, alias = "maxWidth")]
+    pub(crate) max_width: Option<usize>,
+    pub(crate) overflow: Option<String>,
+    #[serde(default, alias = "trimTrailingSpaces")]
+    pub(crate) trim_trailing_spaces: Option<bool>,
+    #[serde(default, alias = "layoutProfile")]
+    pub(crate) layout_profile: Option<String>,
+}
+
+#[cfg(feature = "ascii")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AsciiThemeOptionsJson {
+    #[serde(default, alias = "fg")]
+    pub(crate) foreground: Option<String>,
+    #[serde(default, alias = "bg")]
+    pub(crate) background: Option<String>,
+    pub(crate) line: Option<String>,
+    pub(crate) accent: Option<String>,
+    pub(crate) muted: Option<String>,
+    pub(crate) surface: Option<String>,
+    pub(crate) border: Option<String>,
+}
+
+#[cfg(feature = "svg")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LayoutOptionsJson {
+    pub(crate) adaptation: Option<String>,
+    pub(crate) container_width: Option<f64>,
+    pub(crate) container_height: Option<f64>,
+    pub(crate) screen_available_width: Option<f64>,
+}
+
+#[cfg(feature = "svg")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RenderEnvironmentOptionsJson {
+    pub(crate) theme_portability: Option<String>,
+    pub(crate) text_measurement: Option<String>,
+    pub(crate) math_renderer: Option<String>,
+}
+
+#[cfg(feature = "svg")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SvgOptionsJson {
+    pub(crate) diagram_id: Option<String>,
+    #[serde(default, alias = "viewBoxPadding")]
+    pub(crate) viewbox_padding: Option<f64>,
+    pub(crate) pipeline: Option<String>,
+    pub(crate) root_background_color: Option<String>,
+    pub(crate) drop_native_duplicate_fallbacks: Option<bool>,
+}
+
+#[cfg(any(feature = "png", feature = "jpeg"))]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RasterOptionsJson {
+    pub(crate) scale: Option<f64>,
+    pub(crate) matte: Option<String>,
+    pub(crate) fit_to: Option<RasterFitOptionsJson>,
+}
+
+#[cfg(any(feature = "png", feature = "jpeg"))]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RasterFitOptionsJson {
+    pub(crate) width: Option<u32>,
+    pub(crate) height: Option<u32>,
+}
+
+#[cfg(feature = "jpeg")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct JpegOptionsJson {
+    pub(crate) quality: Option<u8>,
+}
+
+#[cfg(feature = "pdf")]
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PdfOptionsJson {
+    pub(crate) page_paint: Option<String>,
+    #[serde(default, alias = "filterScale")]
+    pub(crate) filter_scale: Option<f64>,
+    pub(crate) page_policy: Option<PdfPageOptionsJson>,
+}
+
+#[cfg(feature = "pdf")]
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum PdfPageOptionsJson {
+    FitSvg,
+    Fixed { width_pt: f64, height_pt: f64 },
+    FitCssWidth { max_width_px: f64 },
+}
+
+pub fn error_payload_json_bytes(status: BindingStatus, message: &str) -> Vec<u8> {
+    error_payload_json_bytes_with_details::<
+        &BindingResourceErrorDetails,
+        &BindingDiagnosticErrorDetails,
+    >(ErrorPayloadInput {
+        status,
+        kind: BindingErrorKind::Generic,
+        capability_id: None,
+        resource: None,
+        diagnostic: None,
+        icon_registry: None,
+        cancellation: None,
+        #[cfg(feature = "svg")]
+        theme_authoring: None,
+        message,
+    })
+}
+
+pub fn binding_error_payload_json_bytes(error: &BindingError) -> Vec<u8> {
+    let details = error.details.as_deref();
+    error_payload_json_bytes_with_details(ErrorPayloadInput {
+        status: error.status(),
+        kind: error.kind(),
+        capability_id: error.capability_id(),
+        resource: details.and_then(|details| details.resource.as_ref()),
+        diagnostic: details.and_then(|details| details.diagnostic.as_ref()),
+        icon_registry: details.and_then(|details| details.icon_registry.as_ref()),
+        cancellation: details.and_then(|details| details.cancellation.as_ref()),
+        #[cfg(feature = "svg")]
+        theme_authoring: details.and_then(|details| details.theme_authoring.as_ref()),
+        message: error.message(),
+    })
+}
+
+/// Serializes a binding error for JavaScript transports without losing wide resource counts.
+#[doc(hidden)]
+pub fn binding_error_js_payload_json_bytes(error: &BindingError) -> Vec<u8> {
+    let details = error.details.as_deref();
+    error_payload_json_bytes_with_details(ErrorPayloadInput {
+        status: error.status(),
+        kind: error.kind(),
+        capability_id: error.capability_id(),
+        resource: error
+            .resource_details()
+            .map(BindingResourceErrorDetails::js_safe_json),
+        diagnostic: details.and_then(|details| details.diagnostic.as_ref()),
+        icon_registry: details.and_then(|details| details.icon_registry.as_ref()),
+        cancellation: details.and_then(|details| details.cancellation.as_ref()),
+        #[cfg(feature = "svg")]
+        theme_authoring: details.and_then(|details| details.theme_authoring.as_ref()),
+        message: error.message(),
+    })
+}
+
+/// Projects complete error details with ordinary JSON integer counts.
+#[doc(hidden)]
+pub fn binding_error_details_json(
+    error: &BindingError,
+) -> Result<Option<serde_json::Value>, serde_json::Error> {
+    binding_error_details_json_with(error, std::convert::identity)
+}
+
+/// Projects the complete error details for JavaScript transports.
+///
+/// Resource counts above JavaScript's exact integer range use canonical decimal strings.
+#[doc(hidden)]
+pub fn binding_error_js_details_json(
+    error: &BindingError,
+) -> Result<Option<serde_json::Value>, serde_json::Error> {
+    binding_error_details_json_with(error, BindingResourceErrorDetails::js_safe_json)
+}
+
+fn binding_error_details_json_with<R: Serialize>(
+    error: &BindingError,
+    resource: impl FnOnce(BindingResourceErrorDetails) -> R,
+) -> Result<Option<serde_json::Value>, serde_json::Error> {
+    error
+        .details
+        .as_deref()
+        .map(|details| {
+            serde_json::to_value(ErrorDetails {
+                resource: details.resource.map(resource),
+                diagnostic: details.diagnostic.as_ref(),
+                icon_registry: details.icon_registry.as_ref(),
+                cancellation: details.cancellation.as_ref(),
+                #[cfg(feature = "svg")]
+                theme_authoring: details.theme_authoring.as_ref(),
+            })
+        })
+        .transpose()
+}
+
+struct ErrorPayloadInput<'a, R, D> {
+    status: BindingStatus,
+    kind: BindingErrorKind,
+    capability_id: Option<&'a str>,
+    resource: Option<R>,
+    diagnostic: Option<D>,
+    icon_registry: Option<&'a BindingIconRegistryErrorDetails>,
+    cancellation: Option<&'a BindingCancellationErrorDetails>,
+    #[cfg(feature = "svg")]
+    theme_authoring: Option<&'a merman::diagram_theme::ThemeMaterializationErrorV1>,
+    message: &'a str,
+}
+
+fn error_payload_json_bytes_with_details<R, D>(input: ErrorPayloadInput<'_, R, D>) -> Vec<u8>
+where
+    R: Serialize,
+    D: Serialize,
+{
+    let ErrorPayloadInput {
+        status,
+        kind,
+        capability_id,
+        resource,
+        diagnostic,
+        icon_registry,
+        cancellation,
+        #[cfg(feature = "svg")]
+        theme_authoring,
+        message,
+    } = input;
+    let has_details = resource.is_some()
+        || diagnostic.is_some()
+        || icon_registry.is_some()
+        || cancellation.is_some();
+    #[cfg(feature = "svg")]
+    let has_details = has_details || theme_authoring.is_some();
+    let payload = ErrorPayload {
+        version: BINDING_RESULT_PAYLOAD_VERSION,
+        ok: false,
+        code: status.code(),
+        code_name: status.code_name(),
+        kind: kind.id(),
+        capability_id,
+        details: has_details.then_some(ErrorDetails {
+            resource,
+            diagnostic,
+            icon_registry,
+            cancellation,
+            #[cfg(feature = "svg")]
+            theme_authoring,
+        }),
+        message,
+    };
+    serde_json::to_vec(&payload).unwrap_or_else(|_| {
+        format!(
+            r#"{{"version":{},"ok":false,"code":{},"code_name":"{}","kind":"generic","capability_id":null,"message":"internal error payload serialization failed"}}"#,
+            BINDING_RESULT_PAYLOAD_VERSION,
+            BindingStatus::InternalError.code(),
+            BindingStatus::InternalError.code_name()
+        )
+        .into_bytes()
+    })
+}
+
+pub fn render_payload_json_bytes(
+    status: BindingStatus,
+    message: Option<&str>,
+    svg: Option<&str>,
+) -> Vec<u8> {
+    let payload = RenderPayload {
+        version: BINDING_RESULT_PAYLOAD_VERSION,
+        ok: status == BindingStatus::Ok,
+        code: status.code(),
+        code_name: status.code_name(),
+        message,
+        svg,
+    };
+    serde_json::to_vec(&payload).unwrap_or_else(|_| {
+        error_payload_json_bytes(
+            BindingStatus::InternalError,
+            "render payload serialization failed",
+        )
+    })
+}
+
+#[cfg(feature = "analysis")]
+pub(crate) fn validation_payload_json_from_analysis(
+    payload: &merman_analysis::AnalysisPayload,
+) -> Result<Vec<u8>, BindingError> {
+    #[derive(Serialize)]
+    struct LegacyValidationPayload<'a> {
+        valid: bool,
+        error: Option<&'a str>,
+        message: Option<&'a str>,
+        code: i32,
+        code_name: &'a str,
+    }
+
+    let first_error = payload.diagnostics.iter().find(|diagnostic| {
+        matches!(
+            diagnostic.severity,
+            merman_analysis::DiagnosticSeverity::Error
+        )
+    });
+    let fallback_status = first_error
+        .map(legacy_validation_fallback_status)
+        .unwrap_or(BindingStatus::Ok);
+    let legacy = LegacyValidationPayload {
+        valid: payload.valid,
+        error: first_error.map(|diagnostic| diagnostic.message.as_str()),
+        message: first_error.map(|diagnostic| diagnostic.message.as_str()),
+        code: first_error
+            .and_then(|diagnostic| diagnostic.code)
+            .unwrap_or(fallback_status.code()),
+        code_name: first_error
+            .and_then(|diagnostic| diagnostic.code_name.as_deref())
+            .unwrap_or(fallback_status.code_name()),
+    };
+    serde_json::to_vec(&legacy).map_err(internal_json_error)
+}
+
+#[cfg(feature = "analysis")]
+fn legacy_validation_fallback_status(
+    diagnostic: &merman_analysis::AnalysisDiagnostic,
+) -> BindingStatus {
+    match diagnostic.category {
+        merman_analysis::DiagnosticCategory::Resource => BindingStatus::ResourceLimitExceeded,
+        merman_analysis::DiagnosticCategory::Render => BindingStatus::RenderError,
+        merman_analysis::DiagnosticCategory::Internal => BindingStatus::InternalError,
+        merman_analysis::DiagnosticCategory::Parse
+        | merman_analysis::DiagnosticCategory::Semantic
+        | merman_analysis::DiagnosticCategory::Config
+        | merman_analysis::DiagnosticCategory::Compatibility
+        | merman_analysis::DiagnosticCategory::Layout => BindingStatus::ParseError,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn parse_options(bytes: &[u8]) -> Result<BindingOptions, BindingError> {
+    parse_options_value(&options_json_value(bytes)?)
+}
+
+#[cfg(test)]
+pub(crate) fn parse_base_options(
+    bytes: &[u8],
+) -> Result<(BindingOptions, BaseBindingOptions), BindingError> {
+    parse_base_options_for_contract(bytes, &DEFAULT_ARTIFACT_SNAPSHOT)
+}
+
+pub(crate) fn parse_base_options_for_artifact(
+    bytes: &[u8],
+    artifact_contract: &ValidatedArtifactContract,
+) -> Result<(BindingOptions, BaseBindingOptions), BindingError> {
+    parse_base_options_for_contract(bytes, artifact_contract)
+}
+
+fn parse_base_options_for_contract(
+    bytes: &[u8],
+    artifact_contract: &ValidatedArtifactContract,
+) -> Result<(BindingOptions, BaseBindingOptions), BindingError> {
+    #[cfg(feature = "svg")]
+    let wire = options_json_value_with_theme_ceiling(bytes, None)?;
+    #[cfg(not(feature = "svg"))]
+    let wire = options_json_value(bytes)?;
+    let typed = parse_options_value_for_contract(&wire, artifact_contract)?;
+    let resource_ceiling = typed.analysis.resources.clone().unwrap_or_default();
+    #[cfg(feature = "svg")]
+    let theme_resource_ceiling = merman::svg::ThemeResourcePolicy::for_profile(
+        binding_resource_profile(typed.analysis.resources.as_ref())?,
+    );
+    let normalized_wire = normalize_analysis_wrapper(wire);
+    #[cfg(feature = "svg")]
+    let normalized_wire = {
+        let mut normalized_wire = normalized_wire;
+        normalized_wire
+            .as_object_mut()
+            .expect("validated binding options always normalize to an object")
+            .remove("theme");
+        normalized_wire
+    };
+    Ok((
+        typed,
+        BaseBindingOptions {
+            normalized_wire: Arc::new(normalized_wire),
+            resource_ceiling,
+            #[cfg(feature = "svg")]
+            theme_resource_ceiling,
+        },
+    ))
+}
+
+fn parse_options_value(value: &Value) -> Result<BindingOptions, BindingError> {
+    parse_options_value_for_contract(value, &DEFAULT_ARTIFACT_SNAPSHOT)
+}
+
+fn parse_options_value_for_contract(
+    value: &Value,
+    artifact_contract: &ValidatedArtifactContract,
+) -> Result<BindingOptions, BindingError> {
+    validate_options_schema_version(value)?;
+    reject_ambiguous_analysis_wrappers(value)?;
+    reject_removed_host_theme(value)?;
+    reject_removed_presentation(value)?;
+    reject_unavailable_option_groups(value, artifact_contract)?;
+    #[cfg(feature = "svg")]
+    crate::theme::validate_theme_wire(value.get("theme"))?;
+    #[cfg(feature = "svg")]
+    reject_removed_layout_fields(value)?;
+    reject_untrusted_binding_css_options(value)?;
+    #[cfg(feature = "ascii")]
+    reject_removed_ascii_resource_field(value)?;
+    reject_removed_nested_analysis_parse_option(value)?;
+    let mut options: BindingOptions = serde_json::from_value(binding_owned_options_value(value))
+        .map_err(|err| {
+            BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!("invalid options_json: {err}"),
+            )
+        })?;
+    options.version = Some(BINDING_OPTIONS_SCHEMA_VERSION);
+    #[cfg(feature = "svg")]
+    {
+        options.text_measurement_selector_explicit = value
+            .as_object()
+            .and_then(|root| root.get("environment"))
+            .and_then(Value::as_object)
+            .is_some_and(|environment| environment.contains_key("text_measurement"));
+    }
+    reject_unknown_options_json_fields(value)?;
+    options.analysis = binding_analysis_options_json_from_json_value(value)?;
+    validate_artifact_resource_options(options.analysis.resources.as_ref(), artifact_contract)?;
+    Ok(options)
+}
+
+fn binding_owned_options_value(value: &Value) -> Value {
+    let Value::Object(mut options) = value.clone() else {
+        return value.clone();
+    };
+    options.remove("analysis");
+    options.remove("merman");
+    for key in BINDING_ANALYSIS_OPTION_KEYS {
+        options.remove(key);
+    }
+    Value::Object(options)
+}
+
+fn reject_removed_host_theme(value: &Value) -> Result<(), BindingError> {
+    if value
+        .as_object()
+        .is_some_and(|options| options.contains_key("host_theme"))
+    {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "options group `host_theme` was removed; use top-level `theme` for compiled diagram themes, `site_config` for Mermaid behavior overrides, and `svg` for output policy",
+        ));
+    }
+    Ok(())
+}
+
+fn reject_removed_presentation(value: &Value) -> Result<(), BindingError> {
+    if value
+        .as_object()
+        .is_some_and(|options| options.contains_key("presentation"))
+    {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "options group `presentation` was removed; use top-level `theme`, `site_config`, layout configuration, and `svg` as independent owners",
+        ));
+    }
+    Ok(())
+}
+
+fn reject_untrusted_binding_css_options(value: &Value) -> Result<(), BindingError> {
+    let (options_value, _) = binding_analysis_options_root_value(value)?;
+    if let Some(site_config) = options_value
+        .as_object()
+        .and_then(|options| options.get("site_config"))
+        .and_then(Value::as_object)
+    {
+        if site_config.contains_key("themeCSS") {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                "site_config.themeCSS is not accepted by general bindings; use the typed `theme` schema instead, or let a trusted Rust or native CLI host own raw CSS explicitly",
+            ));
+        }
+        if site_config.contains_key("secure") {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                "site_config.secure is not accepted by general bindings because callers cannot replace the host security boundary; configure it only through a trusted Rust or native CLI host",
+            ));
+        }
+        for field in ["maxEdges", "max_edges"] {
+            if site_config.contains_key(field) {
+                return Err(BindingError::new(
+                    BindingStatus::OptionsJsonError,
+                    format!(
+                        "site_config.{field} is not accepted by general bindings because it can raise the parser edge budget beyond the host resource ceiling"
+                    ),
+                ));
+            }
+        }
+        for field in [
+            "securityLevel",
+            "security_level",
+            "dompurifyConfig",
+            "dompurify_config",
+        ] {
+            if site_config.contains_key(field) {
+                return Err(BindingError::new(
+                    BindingStatus::OptionsJsonError,
+                    format!(
+                        "site_config.{field} is not accepted by general bindings because it can replace the host SVG security policy"
+                    ),
+                ));
+            }
+        }
+        for field in ["themeVariables", "theme_variables"] {
+            if let Some(theme_variables) = site_config.get(field) {
+                let path = format!("site_config.{field}");
+                reject_untrusted_theme_variable_values(theme_variables, &path)?;
+            }
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    let Some(svg) = value
+        .as_object()
+        .and_then(|options| options.get("svg"))
+        .and_then(Value::as_object)
+    else {
+        return Ok(());
+    };
+
+    #[cfg(feature = "svg")]
+    for field in [
+        "scoped_css",
+        "scopedCss",
+        "css_override_policy",
+        "cssOverridePolicy",
+    ] {
+        if svg.contains_key(field) {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!(
+                    "svg.{field} is not accepted by general bindings; host-owned CSS controls are restricted to a trusted Rust or native CLI host, so use the typed `theme` schema or `svg.root_background_color` instead"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn reject_untrusted_theme_variable_values(value: &Value, path: &str) -> Result<(), BindingError> {
+    match value {
+        Value::String(value) if !is_safe_binding_css_value(value) => Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            format!(
+                "{path} contains a CSS value that is not accepted by general bindings; use a typed theme value or a trusted Rust or native CLI host"
+            ),
+        )),
+        Value::Array(values) => values.iter().enumerate().try_for_each(|(index, value)| {
+            reject_untrusted_theme_variable_values(value, &format!("{path}[{index}]"))
+        }),
+        Value::Object(values) => values.iter().try_for_each(|(key, value)| {
+            reject_untrusted_theme_variable_values(value, &format!("{path}.{key}"))
+        }),
+        _ => Ok(()),
+    }
+}
+
+fn is_safe_binding_css_value(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    !value.bytes().any(|byte| {
+        byte.is_ascii_control() || matches!(byte, b'<' | b'>' | b'{' | b'}' | b';' | b'\\')
+    }) && !value.contains("/*")
+        && !value.contains("*/")
+        && !lower.contains("url(")
+        && !lower.contains("expression(")
+        && !lower.contains("@import")
+        && !lower.contains("<!--")
+        && !lower.contains("-->")
+}
+
+fn validate_options_schema_version(value: &Value) -> Result<(), BindingError> {
+    let Some(raw_version) = value.get("version") else {
+        return Ok(());
+    };
+    let Some(version) = raw_version
+        .as_u64()
+        .and_then(|version| u32::try_from(version).ok())
+    else {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "options_json schema version must be an unsigned 32-bit integer",
+        ));
+    };
+    if version != BINDING_OPTIONS_SCHEMA_VERSION {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            format!(
+                "unsupported options_json schema version {version}; expected {BINDING_OPTIONS_SCHEMA_VERSION}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn reject_ambiguous_analysis_wrappers(value: &Value) -> Result<(), BindingError> {
+    let Some(root) = value.as_object() else {
+        return Ok(());
+    };
+    if root.contains_key("analysis") && root.contains_key("merman") {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "options JSON must not contain both `analysis` and `merman` wrappers",
+        ));
+    }
+    Ok(())
+}
+
+fn reject_unknown_options_json_fields(value: &Value) -> Result<(), BindingError> {
+    let Some(root) = value.as_object() else {
+        return Ok(());
+    };
+
+    for (key, nested) in root {
+        if matches!(key.as_str(), "analysis" | "merman") {
+            if !nested.is_object() {
+                return Err(BindingError::new(
+                    BindingStatus::OptionsJsonError,
+                    format!("options JSON `{key}` wrapper must be an object"),
+                ));
+            }
+            // The wrapped analysis root is forward-compatible. Its owner validates known fields
+            // and ignores future fields; the binding layer must not maintain a second key table.
+            continue;
+        }
+
+        let known = key == "version"
+            || key == "runtime_policy"
+            || key == "parse"
+            || BINDING_ANALYSIS_OPTION_KEYS.contains(&key.as_str())
+            || matches!(
+                key.as_str(),
+                "theme" | "ascii" | "layout" | "environment" | "svg" | "raster" | "jpeg" | "pdf"
+            );
+        if !known {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!(
+                    "unknown options_json field `{key}` for schema {BINDING_OPTIONS_SCHEMA_VERSION}"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn parse_request_overlay(
+    request_options_json: &[u8],
+    resource_scope: BindingResourceScope,
+) -> Result<BindingRequestOverlay, BindingError> {
+    #[cfg(feature = "svg")]
+    let theme_resource_ceiling = merman::svg::ThemeResourcePolicy::for_profile(
+        merman::model::resources::GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE,
+    );
+    parse_request_overlay_for_contract(
+        request_options_json,
+        resource_scope,
+        &DEFAULT_ARTIFACT_SNAPSHOT,
+        #[cfg(feature = "svg")]
+        &theme_resource_ceiling,
+    )
+}
+
+pub(crate) fn parse_request_overlay_for_artifact(
+    request_options_json: &[u8],
+    resource_scope: BindingResourceScope,
+    artifact_contract: &ValidatedArtifactContract,
+    #[cfg(feature = "svg")] theme_resource_ceiling: &merman::svg::ThemeResourcePolicy,
+) -> Result<BindingRequestOverlay, BindingError> {
+    parse_request_overlay_for_contract(
+        request_options_json,
+        resource_scope,
+        artifact_contract,
+        #[cfg(feature = "svg")]
+        theme_resource_ceiling,
+    )
+}
+
+fn parse_request_overlay_for_contract(
+    request_options_json: &[u8],
+    resource_scope: BindingResourceScope,
+    artifact_contract: &ValidatedArtifactContract,
+    #[cfg(feature = "svg")] theme_resource_ceiling: &merman::svg::ThemeResourcePolicy,
+) -> Result<BindingRequestOverlay, BindingError> {
+    #[cfg(feature = "svg")]
+    let request_value =
+        options_json_value_with_theme_ceiling(request_options_json, Some(theme_resource_ceiling))?;
+    #[cfg(not(feature = "svg"))]
+    let request_value = options_json_value(request_options_json)?;
+    if is_unchanged_request(&request_value) {
+        return Ok(BindingRequestOverlay::Unchanged);
+    }
+
+    validate_output_options_for_scope(&request_value, resource_scope)?;
+    if request_selects_runtime_policy(&request_value) {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "request options_json cannot set runtime_policy; configure it when creating the engine",
+        ));
+    }
+    #[cfg(feature = "svg")]
+    let (request_value, authoring_resources) =
+        if matches!(resource_scope, BindingResourceScope::ThemeAuthoring) {
+            let (normalized, policy) =
+                prepare_theme_authoring_options_value(request_value, Some(theme_resource_ceiling))?;
+            (normalized, Some(policy))
+        } else {
+            (request_value, None)
+        };
+    parse_options_value_for_contract(&request_value, artifact_contract)?;
+
+    #[cfg(feature = "svg")]
+    let theme = request_value
+        .as_object()
+        .and_then(|options| options.get("theme"))
+        .map_or(BindingThemeOverlay::Inherit, |theme| {
+            if theme.is_null() {
+                BindingThemeOverlay::Clear
+            } else {
+                BindingThemeOverlay::Replace
+            }
+        });
+    let mut normalized_wire = normalize_analysis_wrapper(request_value);
+    let requested_resources = take_request_resource_options(&mut normalized_wire, resource_scope)?;
+    #[cfg(feature = "svg")]
+    let theme_resources = match authoring_resources {
+        Some(policy) => policy,
+        None => {
+            restrict_theme_resource_policy(theme_resource_ceiling, requested_resources.as_ref())?
+        }
+    };
+    Ok(BindingRequestOverlay::Override {
+        normalized_wire,
+        requested_resources,
+        #[cfg(feature = "svg")]
+        theme,
+        #[cfg(feature = "svg")]
+        theme_resources,
+    })
+}
+
+#[cfg(feature = "svg")]
+impl BindingRequestOverlay {
+    pub(crate) fn validate_prepared_output(&self) -> Result<(), BindingError> {
+        if let Self::Override {
+            normalized_wire, ..
+        } = self
+        {
+            let fields = normalized_wire
+                .as_object()
+                .expect("request overlay is normalized");
+            if let Some(key) = fields
+                .keys()
+                .find(|key| !matches!(key.as_str(), "version" | "environment" | "layout" | "svg"))
+            {
+                return Err(BindingError::invalid_options_json(format!(
+                    "prepared output cannot set `{key}`; prepare a new source to change parse configuration or theme"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) const fn theme_overlay(&self) -> BindingThemeOverlay {
+        match self {
+            Self::Unchanged => BindingThemeOverlay::Inherit,
+            Self::Override { theme, .. } => *theme,
+        }
+    }
+
+    pub(crate) fn theme_resource_policy(&self) -> &merman::svg::ThemeResourcePolicy {
+        match self {
+            Self::Unchanged => {
+                unreachable!("unchanged request overlays borrow the base theme policy")
+            }
+            Self::Override {
+                theme_resources, ..
+            } => theme_resources,
+        }
+    }
+}
+
+impl BaseBindingOptions {
+    #[cfg(feature = "svg")]
+    pub(crate) fn prepared_output_defaults(
+        &self,
+        artifact: &ValidatedArtifactContract,
+    ) -> Result<(BindingOptions, Self), BindingError> {
+        let mut normalized = self.normalized_wire.as_ref().clone();
+        let fields = normalized
+            .as_object_mut()
+            .expect("base options are normalized objects");
+        fields.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "version" | "resources" | "environment" | "layout" | "svg"
+            )
+        });
+        let options = parse_options_value_for_contract(&normalized, artifact)?;
+        Ok((
+            options,
+            Self {
+                normalized_wire: Arc::new(normalized),
+                resource_ceiling: self.resource_ceiling.clone(),
+                theme_resource_ceiling: self.theme_resource_ceiling.clone(),
+            },
+        ))
+    }
+
+    #[cfg(feature = "svg")]
+    pub(crate) fn theme_resource_policy(&self) -> &merman::svg::ThemeResourcePolicy {
+        &self.theme_resource_ceiling
+    }
+
+    pub(crate) fn validate_unchanged_request(
+        &self,
+        artifact_contract: &ValidatedArtifactContract,
+    ) -> Result<(), BindingError> {
+        parse_options_value_for_contract(&self.normalized_wire, artifact_contract).map(drop)
+    }
+
+    pub(crate) fn apply_overlay(
+        &self,
+        overlay: BindingRequestOverlay,
+        artifact_contract: &ValidatedArtifactContract,
+    ) -> Result<BindingOptions, BindingError> {
+        let BindingRequestOverlay::Override {
+            normalized_wire,
+            requested_resources,
+            #[cfg(feature = "svg")]
+                theme: _,
+            #[cfg(feature = "svg")]
+                theme_resources: _,
+        } = overlay
+        else {
+            unreachable!("unchanged request overlays borrow the base engine");
+        };
+
+        let mut merged = self.normalized_wire.as_ref().clone();
+        merge_json_value(&mut merged, normalized_wire);
+        if let Some(requested_resources) = requested_resources {
+            let resources = tighten_resource_options(&self.resource_ceiling, &requested_resources)?;
+            merged
+                .as_object_mut()
+                .expect("validated binding options always normalize to an object")
+                .insert(
+                    "resources".to_string(),
+                    serde_json::to_value(resources).map_err(internal_json_error)?,
+                );
+        }
+        parse_options_value_for_contract(&merged, artifact_contract)
+    }
+}
+
+fn is_unchanged_request(value: &Value) -> bool {
+    let Some(options) = value.as_object() else {
+        return false;
+    };
+    options.is_empty()
+        || (options.len() == 1
+            && options
+                .get("version")
+                .and_then(Value::as_u64)
+                .is_some_and(|version| version == u64::from(BINDING_OPTIONS_SCHEMA_VERSION)))
+}
+
+fn reject_unavailable_option_groups(
+    value: &Value,
+    artifact_contract: &ValidatedArtifactContract,
+) -> Result<(), BindingError> {
+    let Some(options) = value.as_object() else {
+        return Ok(());
+    };
+    for key in BindingOptionGroupKey::ALL {
+        let group = key.id();
+        let present = options.contains_key(group)
+            || (group == "lint"
+                && ["analysis", "merman"].iter().any(|wrapper| {
+                    options
+                        .get(*wrapper)
+                        .and_then(Value::as_object)
+                        .is_some_and(|nested| nested.contains_key(group))
+                }));
+        let available = artifact_contract.exposes_option_group(*key);
+        if present && !available {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!(
+                    "options group `{group}` is not available because it is not exposed by target `{}`",
+                    artifact_contract.target().id()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_output_options_for_scope(
+    value: &Value,
+    scope: BindingResourceScope,
+) -> Result<(), BindingError> {
+    let Some(options) = value.as_object() else {
+        return Ok(());
+    };
+    for group in ["raster", "jpeg", "pdf"] {
+        let accepted = match group {
+            "raster" => matches!(
+                scope,
+                BindingResourceScope::Png | BindingResourceScope::Jpeg
+            ),
+            "jpeg" => matches!(scope, BindingResourceScope::Jpeg),
+            "pdf" => matches!(scope, BindingResourceScope::Pdf),
+            _ => unreachable!("output option groups are closed"),
+        };
+        if options.contains_key(group) && !accepted {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!("request options group `{group}` does not apply to this operation"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_artifact_resource_options(
+    resources: Option<&ResourceOptionsJson>,
+    artifact_contract: &ValidatedArtifactContract,
+) -> Result<(), BindingError> {
+    let Some(resources) = resources else {
+        return Ok(());
+    };
+    for (id, value) in &resources.limits {
+        let descriptor = compiled_resource_limit_descriptor(id)?;
+        if !artifact_contract.exposes_resource_limit(&descriptor) {
+            return Err(BindingError::new(
+                BindingStatus::InvalidArgument,
+                format!(
+                    "resource limit id `{id}` is not exposed by target `{}`",
+                    artifact_contract.target().id()
+                ),
+            ));
+        }
+        validate_resource_limit_override(id, *value, descriptor)?;
+    }
+    Ok(())
+}
+
+fn validate_compiled_resource_options(
+    resources: Option<&ResourceOptionsJson>,
+) -> Result<(), BindingError> {
+    let Some(resources) = resources else {
+        return Ok(());
+    };
+    for (id, value) in &resources.limits {
+        let descriptor = compiled_resource_limit_descriptor(id)?;
+        validate_resource_limit_override(id, *value, descriptor)?;
+    }
+    Ok(())
+}
+
+fn compiled_resource_limit_descriptor(
+    id: &str,
+) -> Result<BindingResourceLimitDescriptor, BindingError> {
+    resource_limit_descriptor(id).ok_or_else(|| {
+        BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!(
+                "resource limit id `{id}` is not part of resource contract schema {BINDING_OPTIONS_SCHEMA_VERSION}"
+            ),
+        )
+    })
+}
+
+fn validate_resource_limit_override(
+    id: &str,
+    value: usize,
+    descriptor: BindingResourceLimitDescriptor,
+) -> Result<(), BindingError> {
+    if !descriptor.overridable {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!("resource limit id `{id}` is not overridable"),
+        ));
+    }
+    if value < descriptor.minimum_value {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!(
+                "resources.limits.{id} must be at least {}",
+                descriptor.minimum_value
+            ),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_one_shot_resource_options(
+    options_json: &[u8],
+    resource_scope: BindingResourceScope,
+) -> Result<(), BindingError> {
+    let value = options_json_value(options_json)?;
+    validate_output_options_for_scope(&value, resource_scope)?;
+    let mut value = normalize_analysis_wrapper(value);
+    let _ = take_request_resource_options(&mut value, resource_scope)?;
+    Ok(())
+}
+
+/// Separates theme-authoring resource controls from the general binding options document.
+///
+/// General binding resource descriptors intentionally exclude theme compiler limits: render
+/// engines cannot safely advertise controls that only apply to an independent authoring input.
+/// Theme-authoring operations still accept those controls, so this helper derives their exact
+/// compiler policy and returns an otherwise equivalent options document suitable for ordinary
+/// artifact/runtime validation.
+///
+/// A transport can provide a host ceiling to ensure that an authoring request cannot widen its
+/// theme-resource budget. The returned JSON deliberately retains the caller's selected profile,
+/// but removes the unrelated theme selection and theme-only numeric limits before it reaches the
+/// general binding schema.
+#[cfg(feature = "svg")]
+#[doc(hidden)]
+pub fn prepare_theme_authoring_options_json(
+    options_json: &[u8],
+    host_ceiling: Option<&merman::svg::ThemeResourcePolicy>,
+) -> Result<(Vec<u8>, merman::svg::ThemeResourcePolicy), BindingError> {
+    let value = options_json_value_with_theme_ceiling(options_json, host_ceiling)?;
+    let (normalized, theme_policy) = prepare_theme_authoring_options_value(value, host_ceiling)?;
+    serde_json::to_vec(&normalized)
+        .map(|normalized| (normalized, theme_policy))
+        .map_err(internal_json_error)
+}
+
+#[cfg(feature = "svg")]
+fn prepare_theme_authoring_options_value(
+    value: Value,
+    host_ceiling: Option<&merman::svg::ThemeResourcePolicy>,
+) -> Result<(Value, merman::svg::ThemeResourcePolicy), BindingError> {
+    reject_ambiguous_analysis_wrappers(&value)?;
+    validate_output_options_for_scope(&value, BindingResourceScope::ThemeAuthoring)?;
+
+    let mut normalized = normalize_analysis_wrapper(value);
+    let requested_resources =
+        take_request_resource_options(&mut normalized, BindingResourceScope::ThemeAuthoring)?;
+    let theme_policy = theme_authoring_resource_policy(requested_resources.as_ref(), host_ceiling)?;
+
+    normalized
+        .as_object_mut()
+        .expect("theme-authoring resource admission requires an object options root")
+        .remove("theme");
+
+    if let Some(resources) = requested_resources {
+        let resources = ResourceOptionsJson {
+            profile: resources.profile,
+            limits: BTreeMap::new(),
+        };
+        normalized
+            .as_object_mut()
+            .expect("theme-authoring resource admission requires an object options root")
+            .insert(
+                "resources".to_string(),
+                serde_json::to_value(resources).map_err(internal_json_error)?,
+            );
+    }
+
+    Ok((normalized, theme_policy))
+}
+
+#[cfg(feature = "svg")]
+fn theme_authoring_resource_policy(
+    requested_resources: Option<&ResourceOptionsJson>,
+    host_ceiling: Option<&merman::svg::ThemeResourcePolicy>,
+) -> Result<merman::svg::ThemeResourcePolicy, BindingError> {
+    let selected_profile = requested_resources
+        .and_then(|resources| resources.profile.as_deref())
+        .map(|profile| {
+            merman::model::resources::ResourceProfile::from_id(profile).ok_or_else(|| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("unsupported resources.profile: {profile}"),
+                )
+            })
+        })
+        .transpose()?;
+
+    let mut requested = match selected_profile {
+        Some(profile) => merman::svg::ThemeResourcePolicy::for_profile(profile),
+        None => host_ceiling.cloned().unwrap_or_else(|| {
+            merman::svg::ThemeResourcePolicy::for_profile(
+                merman::model::resources::GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE,
+            )
+        }),
+    };
+
+    if let Some(resources) = requested_resources {
+        for (id, value) in &resources.limits {
+            let limit = merman::svg::ThemeResourceLimitId::from_stable_id(id).ok_or_else(|| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!(
+                        "resource limit id `{id}` is not available for the theme authoring operation"
+                    ),
+                )
+            })?;
+            requested.apply_limit(limit, *value).map_err(|error| {
+                BindingError::new(BindingStatus::InvalidArgument, error.to_string())
+            })?;
+        }
+    }
+
+    match host_ceiling {
+        Some(host) => host
+            .restrict_with(&requested)
+            .map_err(theme_resource_ceiling_error),
+        None => Ok(requested),
+    }
+}
+
+fn take_request_resource_options(
+    value: &mut Value,
+    resource_scope: BindingResourceScope,
+) -> Result<Option<ResourceOptionsJson>, BindingError> {
+    let root = value.as_object_mut().ok_or_else(|| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "invalid request options_json: options root must be an object",
+        )
+    })?;
+    let Some(resources) = root.remove("resources") else {
+        return Ok(None);
+    };
+    if resources.is_null() {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "request options_json cannot clear the engine resource ceiling",
+        ));
+    }
+    let resources = serde_json::from_value::<ResourceOptionsJson>(resources).map_err(|error| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            format!("invalid request options_json resources: {error}"),
+        )
+    })?;
+    validate_resource_limits_for_scope(&resources, resource_scope)?;
+    Ok(Some(resources))
+}
+
+fn validate_resource_limits_for_scope(
+    resources: &ResourceOptionsJson,
+    resource_scope: BindingResourceScope,
+) -> Result<(), BindingError> {
+    for id in resources.limits.keys() {
+        if resource_limit_descriptor(id).is_none() || resource_scope.accepts(id) {
+            continue;
+        }
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!(
+                "resource limit id `{id}` is not available for the {} operation",
+                resource_scope.description()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn request_selects_runtime_policy(value: &Value) -> bool {
+    value.as_object().is_some_and(|options| {
+        options.contains_key("runtime_policy")
+            || ["analysis", "merman"].iter().any(|wrapper| {
+                options
+                    .get(*wrapper)
+                    .and_then(Value::as_object)
+                    .is_some_and(|wrapped| wrapped.contains_key("runtime_policy"))
+            })
+    })
+}
+
+fn merge_json_object(
+    base: &mut serde_json::Map<String, Value>,
+    request: serde_json::Map<String, Value>,
+) {
+    for (key, value) in request {
+        match base.get_mut(&key) {
+            Some(base_value) => merge_json_value(base_value, value),
+            None => {
+                base.insert(key, value);
+            }
+        }
+    }
+}
+
+fn merge_json_value(base: &mut Value, request: Value) {
+    match (base, request) {
+        (Value::Object(base), Value::Object(request)) => {
+            merge_json_object(base, request);
+        }
+        (base, request) => *base = request,
+    }
+}
+
+fn normalize_analysis_wrapper(value: Value) -> Value {
+    let Value::Object(mut options) = value else {
+        return value;
+    };
+
+    let wrapper = ["merman", "analysis"]
+        .into_iter()
+        .find(|wrapper| options.get(*wrapper).is_some_and(Value::is_object));
+    let Some(wrapper) = wrapper else {
+        return Value::Object(options);
+    };
+    let Some(Value::Object(mut analysis)) = options.remove(wrapper) else {
+        unreachable!("selected wrapper has an object value");
+    };
+    for key in BINDING_ANALYSIS_OPTION_KEYS {
+        if let Some(value) = analysis.remove(key) {
+            options.insert(key.to_string(), value);
+        }
+    }
+    Value::Object(options)
+}
+
+#[cfg(feature = "svg")]
+fn reject_removed_layout_fields(value: &Value) -> Result<(), BindingError> {
+    let Some(layout) = value.get("layout").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    for (legacy, replacement) in [
+        ("text_measurer", "environment.text_measurement"),
+        ("math_renderer", "environment.math_renderer"),
+        ("viewport_width", "layout.container_width"),
+        ("viewport_height", "layout.container_height"),
+    ] {
+        if layout.contains_key(legacy) {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!("layout.{legacy} was removed; use {replacement}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "ascii")]
+fn reject_removed_ascii_resource_field(value: &Value) -> Result<(), BindingError> {
+    let Some(ascii) = value.get("ascii").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    if ascii.contains_key("max_grid_cells") || ascii.contains_key("maxGridCells") {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "ascii.max_grid_cells was removed; use resources.limits.max_ascii_grid_cells",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "analysis")]
+fn binding_analysis_options_json_from_json_value(
+    value: &Value,
+) -> Result<BindingAnalysisOptionsJson, BindingError> {
+    reject_removed_nested_analysis_parse_option(value)?;
+    let (options_value, wrapped) = binding_analysis_options_root_value(value)?;
+    let resources = options_value
+        .get("resources")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            serde_json::from_value(value.clone()).map_err(|err| {
+                BindingError::new(
+                    BindingStatus::OptionsJsonError,
+                    format!("invalid analysis options JSON: {err}"),
+                )
+            })
+        })
+        .transpose()?;
+
+    let mut analysis_value = options_value.clone();
+    let analysis = analysis_value.as_object_mut().ok_or_else(|| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "invalid analysis options JSON: analysis options JSON must be an object",
+        )
+    })?;
+    if !wrapped {
+        analysis.retain(|key, _| BINDING_ANALYSIS_OPTION_KEYS.contains(&key.as_str()));
+    }
+    let analysis_contract = merman_analysis::AnalysisConfigContract::current();
+    if let Some(resource_options) = analysis.get_mut("resources").and_then(Value::as_object_mut) {
+        resource_options.remove("profile");
+        if let Some(limits) = resource_options
+            .get_mut("limits")
+            .and_then(Value::as_object_mut)
+        {
+            limits.retain(|limit_id, _| analysis_contract.accepts_resource_limit(limit_id));
+        }
+    }
+    let decoded = analysis_contract
+        .decode_json(&analysis_value)
+        .map_err(BindingError::from)?;
+    Ok(BindingAnalysisOptionsJson {
+        fixed_today: decoded.fixed_today,
+        fixed_local_offset_minutes: decoded.fixed_local_offset_minutes,
+        site_config: decoded.site_config,
+        resources,
+        lint: decoded.lint,
+    })
+}
+
+#[cfg(not(feature = "analysis"))]
+fn binding_analysis_options_json_from_json_value(
+    value: &Value,
+) -> Result<BindingAnalysisOptionsJson, BindingError> {
+    reject_removed_nested_analysis_parse_option(value)?;
+    let (options_value, _) = binding_analysis_options_root_value(value)?;
+    serde_json::from_value(options_value.clone()).map_err(|err| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            format!("invalid analysis options JSON: {err}"),
+        )
+    })
+}
+
+fn binding_analysis_options_root_value(value: &Value) -> Result<(&Value, bool), BindingError> {
+    let Value::Object(map) = value else {
+        return Ok((value, false));
+    };
+
+    let wrapper = ["merman", "analysis"]
+        .into_iter()
+        .find(|key| map.contains_key(*key));
+    if binding_analysis_option_keys_present(map) {
+        if wrapper.is_some() {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                "options JSON must not mix top-level analysis options with `analysis` or `merman` wrappers",
+            ));
+        }
+        return Ok((value, false));
+    }
+
+    if let Some(key) = wrapper {
+        let wrapped = map
+            .get(key)
+            .expect("selected wrapper key must exist in the options object");
+        if !wrapped.is_object() {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!("options JSON `{key}` wrapper must be an object"),
+            ));
+        }
+        return Ok((wrapped, true));
+    }
+
+    Ok((value, false))
+}
+
+fn binding_analysis_option_keys_present(map: &Map<String, Value>) -> bool {
+    BINDING_ANALYSIS_OPTION_KEYS
+        .iter()
+        .any(|key| map.contains_key(*key))
+}
+
+fn reject_removed_nested_analysis_parse_option(value: &Value) -> Result<(), BindingError> {
+    let Value::Object(map) = value else {
+        return Ok(());
+    };
+
+    if ["merman", "analysis"].iter().any(|key| {
+        map.get(*key)
+            .and_then(Value::as_object)
+            .is_some_and(|options| options.contains_key("parse"))
+    }) {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "analysis option `parse` was removed; use top-level `parse` only for parse, render, or ASCII operations",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn source_text_utf8(bytes: &[u8]) -> Result<&str, BindingError> {
+    let source = std::str::from_utf8(bytes).map_err(|err| {
+        BindingError::new(
+            BindingStatus::Utf8Error,
+            format!("invalid source UTF-8: {err}"),
+        )
+    })?;
+    Ok(source)
+}
+
+#[cfg(feature = "analysis")]
+pub(crate) fn source_descriptor_for_uri(uri: &str) -> merman_analysis::SourceDescriptor {
+    merman_analysis::source_descriptor_for_uri(uri)
+}
+
+pub(crate) fn source_text(bytes: &[u8]) -> Result<&str, BindingError> {
+    let source = source_text_utf8(bytes)?;
+    if source.trim().is_empty() {
+        return Err(no_diagram_error());
+    }
+    Ok(source)
+}
+
+pub(crate) fn binding_site_config(
+    options: &BindingOptions,
+) -> Result<Option<merman::MermaidConfig>, BindingError> {
+    let Some(site_config) = options.analysis.site_config.as_ref() else {
+        return Ok(None);
+    };
+    if !site_config.is_object() {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            "site_config must be a JSON object",
+        ));
+    }
+    Ok(Some(merman::MermaidConfig::from_value(site_config.clone())))
+}
+
+pub(crate) fn binding_fixed_today(
+    options: &BindingOptions,
+) -> Result<Option<merman::model::time::CivilDate>, BindingError> {
+    let Some(today) = options.analysis.fixed_today.as_deref() else {
+        return Ok(None);
+    };
+    merman::model::time::CivilDate::from_str(today)
+        .map(Some)
+        .map_err(|_| {
+            BindingError::new(
+                BindingStatus::InvalidArgument,
+                "fixed_today must be a canonical civil date such as YYYY-MM-DD or +10000-MM-DD",
+            )
+        })
+}
+
+pub(crate) fn binding_fixed_local_offset_minutes(
+    options: &BindingOptions,
+) -> Result<Option<i32>, BindingError> {
+    let Some(offset_minutes) = options.analysis.fixed_local_offset_minutes else {
+        return Ok(None);
+    };
+    let valid = merman::model::time::UtcOffset::from_minutes(offset_minutes).is_some();
+    if !valid {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            "fixed_local_offset_minutes must be between -1439 and 1439",
+        ));
+    }
+    Ok(Some(offset_minutes))
+}
+
+pub(crate) fn binding_runtime_policy_from(
+    options: &BindingOptions,
+    mut runtime_policy: merman::model::runtime::RuntimePolicy,
+) -> Result<merman::model::runtime::RuntimePolicy, BindingError> {
+    let today = binding_fixed_today(options)?;
+    let offset_minutes = binding_fixed_local_offset_minutes(options)?;
+    if let Some(offset_minutes) = offset_minutes {
+        runtime_policy = runtime_policy
+            .try_with_fixed_local_offset_minutes(offset_minutes)
+            .map_err(|err| BindingError::new(BindingStatus::InvalidArgument, err.to_string()))?;
+    }
+
+    if let Some(today) = today {
+        runtime_policy = runtime_policy
+            .try_with_fixed_today_at_local_midnight(today)
+            .map_err(|err| BindingError::new(BindingStatus::InvalidArgument, err.to_string()))?;
+    }
+
+    Ok(runtime_policy)
+}
+
+pub(crate) fn runtime_policy_error(
+    error: impl Into<merman::TerminalRuntimePolicyError>,
+) -> BindingError {
+    let error = error.into();
+    let safe_message = error.terminal_safe_message();
+    if let Some(capability) = error.missing_capability() {
+        BindingError::missing_capability(capability.id(), safe_message).with_diagnostic_details(
+            binding_diagnostic_details(error.terminal_diagnostic_details()),
+        )
+    } else {
+        BindingError::new(BindingStatus::RenderError, safe_message).with_diagnostic_details(
+            binding_diagnostic_details(error.terminal_diagnostic_details()),
+        )
+    }
+}
+
+pub(crate) fn selected_runtime_policy(
+    options: &BindingOptions,
+) -> Result<(BindingRuntimePolicy, merman::model::runtime::RuntimePolicy), BindingError> {
+    let selection = options.runtime_policy.unwrap_or_default();
+    let runtime_policy = match selection {
+        BindingRuntimePolicy::Deterministic => {
+            merman::model::runtime::RuntimePolicy::deterministic()
+        }
+        BindingRuntimePolicy::Native => {
+            merman::model::runtime::RuntimePolicy::try_native().map_err(runtime_policy_error)?
+        }
+    };
+    Ok((selection, runtime_policy))
+}
+
+pub(crate) fn reject_selected_runtime_policy(
+    options: &BindingOptions,
+    constructor: &str,
+) -> Result<(), BindingError> {
+    if options.runtime_policy.is_some() {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!(
+                "runtime_policy cannot be combined with the `{constructor}` engine constructor"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "analysis")]
+pub(crate) fn artifact_analysis_options(
+    options: &BindingOptions,
+) -> Result<merman_analysis::AnalysisOptions, BindingError> {
+    let max_source_bytes = binding_input_resource_policy(options.analysis.resources.as_ref())?
+        .value(merman::model::resources::InputResourceLimitId::MaxSourceBytes);
+    let default_resources = ResourceOptionsJson::default();
+    let max_document_diagrams = effective_resource_limits(
+        options
+            .analysis
+            .resources
+            .as_ref()
+            .unwrap_or(&default_resources),
+    )?[merman_analysis::MAX_DOCUMENT_DIAGRAMS_RESOURCE_LIMIT_ID];
+    let mut limits = BTreeMap::new();
+    if let Some(max_source_bytes) = max_source_bytes {
+        limits.insert("max_source_bytes".to_string(), max_source_bytes);
+    }
+    if let Some(max_document_diagrams) = max_document_diagrams {
+        limits.insert(
+            merman_analysis::MAX_DOCUMENT_DIAGRAMS_RESOURCE_LIMIT_ID.to_string(),
+            max_document_diagrams,
+        );
+    }
+
+    let analysis = merman_analysis::AnalysisOptionsJson {
+        fixed_today: options.analysis.fixed_today.clone(),
+        fixed_local_offset_minutes: options.analysis.fixed_local_offset_minutes,
+        site_config: options.analysis.site_config.clone(),
+        resources: (!limits.is_empty()).then_some(merman_analysis::ResourceOptionsJson { limits }),
+        lint: options.analysis.lint.clone(),
+    };
+    analysis
+        .to_analysis_options()
+        .map_err(|err| BindingError::new(BindingStatus::InvalidArgument, err.to_string()))
+}
+
+pub(crate) fn binding_input_resource_policy(
+    resources: Option<&ResourceOptionsJson>,
+) -> Result<merman::model::resources::InputResourcePolicy, BindingError> {
+    let profile = resources
+        .and_then(|resources| resources.profile.as_deref())
+        .map(|id| {
+            merman::model::resources::ResourceProfile::from_id(id).ok_or_else(|| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("unsupported resources.profile: {id}"),
+                )
+            })
+        })
+        .transpose()?
+        .unwrap_or(merman::model::resources::GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE);
+    let mut policy = merman::model::resources::InputResourcePolicy::for_profile(profile);
+    if let Some(resources) = resources {
+        for (id, value) in &resources.limits {
+            if let Some(input_id) =
+                merman::model::resources::InputResourceLimitId::from_stable_id(id)
+            {
+                policy.apply_limit(input_id, *value).map_err(|error| {
+                    BindingError::new(BindingStatus::InvalidArgument, error.to_string())
+                })?;
+                continue;
+            }
+            if resource_limit_descriptor(id).is_some() {
+                continue;
+            }
+            return Err(BindingError::new(
+                BindingStatus::InvalidArgument,
+                format!("resource limit id `{id}` is not available for this artifact"),
+            ));
+        }
+    }
+    Ok(policy)
+}
+
+#[cfg(feature = "ascii")]
+pub(crate) fn binding_ascii_resource_policy(
+    resources: Option<&ResourceOptionsJson>,
+) -> Result<merman::ascii::AsciiResourcePolicy, BindingError> {
+    let profile = binding_resource_profile(resources)?;
+    let mut policy = merman::ascii::AsciiResourcePolicy::for_profile(profile);
+    if let Some(resources) = resources {
+        for (id, value) in &resources.limits {
+            let Some(ascii_id) = merman::ascii::AsciiResourceLimitId::from_stable_id(id) else {
+                continue;
+            };
+            policy.apply_limit(ascii_id, *value).map_err(|error| {
+                BindingError::new(BindingStatus::InvalidArgument, error.to_string())
+            })?;
+        }
+    }
+    Ok(policy)
+}
+
+#[cfg(feature = "svg")]
+pub(crate) fn binding_resource_policy(
+    resources: Option<&ResourceOptionsJson>,
+) -> Result<merman::svg::RenderResourcePolicy, BindingError> {
+    let profile = binding_resource_profile(resources)?;
+    let mut limits = merman::svg::RenderResourcePolicy::for_profile(profile);
+    if let Some(resources) = resources {
+        for (id, value) in &resources.limits {
+            if resource_limit_descriptor(id).is_some()
+                && merman::svg::ResourceLimitId::from_stable_id(id).is_none()
+            {
+                continue;
+            }
+            limits.apply_override(id, *value).map_err(|error| {
+                BindingError::new(BindingStatus::InvalidArgument, error.to_string())
+            })?;
+        }
+    }
+    Ok(limits)
+}
+
+#[cfg(any(
+    feature = "ascii",
+    feature = "svg",
+    feature = "png",
+    feature = "jpeg",
+    feature = "pdf"
+))]
+fn binding_resource_profile(
+    resources: Option<&ResourceOptionsJson>,
+) -> Result<merman::model::resources::ResourceProfile, BindingError> {
+    Ok(resources
+        .and_then(|resources| resources.profile.as_deref())
+        .map(|id| {
+            merman::model::resources::ResourceProfile::from_id(id).ok_or_else(|| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("unsupported resources.profile: {id}"),
+                )
+            })
+        })
+        .transpose()?
+        .unwrap_or(merman::model::resources::GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE))
+}
+
+#[cfg(any(feature = "png", feature = "jpeg", feature = "pdf"))]
+pub(crate) struct BindingExportResourceOptions {
+    #[cfg(any(feature = "png", feature = "jpeg"))]
+    pub(crate) raster_size_limit: merman::svg::export::RasterSizeLimit,
+    pub(crate) embedded_image_limit: merman::svg::export::EmbeddedImageLimit,
+    #[cfg(feature = "pdf")]
+    pub(crate) pdf_filter_image_limit: merman::svg::export::PdfFilterImageLimit,
+    pub(crate) conversion_limits: merman::svg::export::SvgConversionLimits,
+}
+
+#[cfg(any(feature = "png", feature = "jpeg", feature = "pdf"))]
+pub(crate) fn binding_export_resource_options(
+    resources: Option<&ResourceOptionsJson>,
+) -> Result<BindingExportResourceOptions, BindingError> {
+    let default_resources = ResourceOptionsJson::default();
+    let values = effective_resource_limits(resources.unwrap_or(&default_resources))?;
+    Ok(BindingExportResourceOptions {
+        #[cfg(any(feature = "png", feature = "jpeg"))]
+        raster_size_limit: merman::svg::export::RasterSizeLimit::new(
+            export_resource_u32(
+                &values,
+                merman::svg::export::MAX_RASTER_WIDTH_RESOURCE_LIMIT_ID,
+            )?,
+            export_resource_u32(
+                &values,
+                merman::svg::export::MAX_RASTER_HEIGHT_RESOURCE_LIMIT_ID,
+            )?,
+            export_resource_u64(
+                &values,
+                merman::svg::export::MAX_RASTER_PIXELS_RESOURCE_LIMIT_ID,
+            )?,
+        ),
+        embedded_image_limit: merman::svg::export::EmbeddedImageLimit::new(
+            export_resource_u64(
+                &values,
+                merman::svg::export::MAX_EMBEDDED_IMAGE_BYTES_RESOURCE_LIMIT_ID,
+            )?,
+            export_resource_u64(
+                &values,
+                merman::svg::export::MAX_TOTAL_EMBEDDED_IMAGE_BYTES_RESOURCE_LIMIT_ID,
+            )?,
+            export_resource_u64(
+                &values,
+                merman::svg::export::MAX_EMBEDDED_IMAGE_PIXELS_RESOURCE_LIMIT_ID,
+            )?,
+            export_resource_u64(
+                &values,
+                merman::svg::export::MAX_TOTAL_EMBEDDED_IMAGE_PIXELS_RESOURCE_LIMIT_ID,
+            )?,
+        ),
+        #[cfg(feature = "pdf")]
+        pdf_filter_image_limit: merman::svg::export::PdfFilterImageLimit::new(export_resource_u64(
+            &values,
+            merman::svg::export::MAX_PDF_FILTER_IMAGE_PIXELS_RESOURCE_LIMIT_ID,
+        )?),
+        conversion_limits: merman::svg::export::SvgConversionLimits::default_safe(),
+    })
+}
+
+#[cfg(any(feature = "png", feature = "jpeg", feature = "pdf"))]
+fn export_resource_value(
+    values: &BTreeMap<&'static str, Option<usize>>,
+    stable_id: &'static str,
+) -> Option<usize> {
+    values
+        .get(stable_id)
+        .copied()
+        .expect("compiled export resource descriptor must have a profile value")
+}
+
+#[cfg(any(feature = "png", feature = "jpeg"))]
+fn export_resource_u32(
+    values: &BTreeMap<&'static str, Option<usize>>,
+    stable_id: &'static str,
+) -> Result<Option<u32>, BindingError> {
+    export_resource_value(values, stable_id)
+        .map(|value| {
+            u32::try_from(value).map_err(|_| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("resources.limits.{stable_id} exceeds the u32 export boundary"),
+                )
+            })
+        })
+        .transpose()
+}
+
+#[cfg(any(feature = "png", feature = "jpeg", feature = "pdf"))]
+fn export_resource_u64(
+    values: &BTreeMap<&'static str, Option<usize>>,
+    stable_id: &'static str,
+) -> Result<Option<u64>, BindingError> {
+    export_resource_value(values, stable_id)
+        .map(|value| {
+            u64::try_from(value).map_err(|_| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("resources.limits.{stable_id} exceeds the u64 export boundary"),
+                )
+            })
+        })
+        .transpose()
+}
+
+pub fn resource_options_json(
+    profile_id: Option<&str>,
+    overrides: &[(&str, usize)],
+) -> Result<Vec<u8>, BindingError> {
+    serde_json::to_vec(&resource_options_value(profile_id, overrides)?).map_err(internal_json_error)
+}
+
+fn resource_options_value(
+    profile_id: Option<&str>,
+    overrides: &[(&str, usize)],
+) -> Result<Value, BindingError> {
+    let profile = profile_id
+        .map(|profile_id| {
+            merman::model::resources::ResourceProfile::from_id(profile_id).ok_or_else(|| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("unsupported resources.profile: {profile_id}"),
+                )
+            })
+        })
+        .transpose()?;
+    let mut limits = BTreeMap::new();
+    for &(id, value) in overrides {
+        if limits.insert(id, value).is_some() {
+            return Err(BindingError::new(
+                BindingStatus::InvalidArgument,
+                format!("duplicate resource limit override: {id}"),
+            ));
+        }
+        let Some(descriptor) = resource_limit_descriptor(id) else {
+            return Err(BindingError::new(
+                BindingStatus::InvalidArgument,
+                format!("resource limit id `{id}` is not available for this build"),
+            ));
+        };
+        if !descriptor.overridable {
+            return Err(BindingError::new(
+                BindingStatus::InvalidArgument,
+                format!("resource limit id `{id}` is not overridable"),
+            ));
+        }
+        if value < descriptor.minimum_value {
+            return Err(BindingError::new(
+                BindingStatus::InvalidArgument,
+                format!(
+                    "resource limit `{id}` must be at least {}",
+                    descriptor.minimum_value
+                ),
+            ));
+        }
+    }
+
+    let mut root = Map::new();
+    root.insert(
+        "version".to_string(),
+        Value::from(BINDING_OPTIONS_SCHEMA_VERSION),
+    );
+    if profile.is_some() || !limits.is_empty() {
+        let mut resources = Map::new();
+        if let Some(profile) = profile {
+            resources.insert("profile".to_string(), Value::from(profile.id()));
+        }
+        if !limits.is_empty() {
+            resources.insert(
+                "limits".to_string(),
+                serde_json::to_value(limits).map_err(internal_json_error)?,
+            );
+        }
+        root.insert("resources".to_string(), Value::Object(resources));
+    }
+    Ok(Value::Object(root))
+}
+
+/// Applies a transport-owned resource ceiling while preserving stricter caller limits.
+///
+/// The caller options may use direct analysis fields or exactly one `analysis`/`merman` wrapper.
+/// A caller-selected profile is accepted only when its effective limits are no looser than the
+/// transport ceiling. The returned JSON preserves an explicitly selected stricter profile so all
+/// downstream policy families, including theme compilation, observe the same restriction.
+pub fn apply_resource_ceiling_json(
+    options_json: &[u8],
+    ceiling_profile_id: &str,
+    ceiling_overrides: &[(&str, usize)],
+) -> Result<Vec<u8>, BindingError> {
+    let value =
+        options_value_with_resource_ceiling(options_json, ceiling_profile_id, ceiling_overrides)?;
+    let serialized = serde_json::to_vec(&value).map_err(internal_json_error)?;
+    enforce_options_json_byte_budget(&serialized)?;
+    #[cfg(feature = "svg")]
+    {
+        let text = std::str::from_utf8(&serialized)
+            .expect("serialized binding options are always valid UTF-8");
+        preflight_options_theme_json(text, &serialized, None)?;
+    }
+    parse_options_value(&value)?;
+    Ok(serialized)
+}
+
+/// Prepares typed analysis options under an explicit host resource ceiling.
+///
+/// The binding envelope and every compiled resource override are validated before projection.
+/// Analysis consumes only its own limits and configuration; top-level parse and output options
+/// retain their binding-owned validation without entering the analysis grammar. Byte admission
+/// applies to the original input, since this entry point produces no normalized JSON document.
+#[cfg(feature = "analysis")]
+pub fn analysis_options_with_resource_ceiling(
+    options_json: &[u8],
+    ceiling_profile_id: &str,
+    ceiling_overrides: &[(&str, usize)],
+) -> Result<merman_analysis::AnalysisOptions, BindingError> {
+    let value =
+        options_value_with_resource_ceiling(options_json, ceiling_profile_id, ceiling_overrides)?;
+    artifact_analysis_options(&parse_options_value(&value)?)
+}
+
+fn options_value_with_resource_ceiling(
+    options_json: &[u8],
+    ceiling_profile_id: &str,
+    ceiling_overrides: &[(&str, usize)],
+) -> Result<Value, BindingError> {
+    let ceiling_value = resource_options_value(Some(ceiling_profile_id), ceiling_overrides)?;
+    let ceiling = parse_options_value(&ceiling_value)?
+        .analysis
+        .resources
+        .ok_or_else(|| {
+            BindingError::new(
+                BindingStatus::InternalError,
+                "generated resource ceiling omitted resources",
+            )
+        })?;
+    #[cfg(feature = "svg")]
+    let ceiling_theme_resources =
+        merman::svg::ThemeResourcePolicy::for_profile(binding_resource_profile(Some(&ceiling))?);
+    #[cfg(feature = "svg")]
+    let mut value =
+        options_json_value_with_theme_ceiling(options_json, Some(&ceiling_theme_resources))?;
+    #[cfg(not(feature = "svg"))]
+    let mut value = options_json_value(options_json)?;
+    let root = value.as_object_mut().ok_or_else(|| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "invalid options_json: options root must be an object",
+        )
+    })?;
+
+    let wrappers = ["analysis", "merman"]
+        .into_iter()
+        .filter(|key| root.contains_key(*key))
+        .collect::<Vec<_>>();
+    for key in &wrappers {
+        if !root.get(*key).is_some_and(Value::is_object) {
+            return Err(BindingError::new(
+                BindingStatus::OptionsJsonError,
+                format!("invalid options_json: `{key}` wrapper must be an object"),
+            ));
+        }
+    }
+    if wrappers.len() > 1 {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "options JSON must not contain both `analysis` and `merman` wrappers",
+        ));
+    }
+    if !wrappers.is_empty() && root.contains_key("resources") {
+        return Err(BindingError::new(
+            BindingStatus::OptionsJsonError,
+            "options JSON must not mix top-level resources with an `analysis` or `merman` wrapper",
+        ));
+    }
+
+    let target = match wrappers.first() {
+        Some(key) => root
+            .get_mut(*key)
+            .and_then(Value::as_object_mut)
+            .expect("wrapper shape was validated"),
+        None => root,
+    };
+    let requested = target
+        .get("resources")
+        .cloned()
+        .map(|resources| {
+            serde_json::from_value::<ResourceOptionsJson>(resources).map_err(|error| {
+                BindingError::new(
+                    BindingStatus::OptionsJsonError,
+                    format!("invalid options_json resources: {error}"),
+                )
+            })
+        })
+        .transpose()?;
+    let resources = requested
+        .as_ref()
+        .map(|requested| tighten_resource_options(&ceiling, requested))
+        .transpose()?
+        .unwrap_or(ceiling);
+    target.insert(
+        "resources".to_string(),
+        serde_json::to_value(resources).map_err(internal_json_error)?,
+    );
+
+    Ok(value)
+}
+
+fn options_json_value(options_json: &[u8]) -> Result<Value, BindingError> {
+    #[cfg(feature = "svg")]
+    {
+        options_json_value_with_theme_ceiling(options_json, None)
+    }
+
+    #[cfg(not(feature = "svg"))]
+    options_json_value_unchecked(options_json)
+}
+
+#[cfg(not(feature = "svg"))]
+fn options_json_value_unchecked(options_json: &[u8]) -> Result<Value, BindingError> {
+    enforce_options_json_byte_budget(options_json)?;
+    if options_json.is_empty() {
+        return Ok(Value::Object(Map::new()));
+    }
+    let text = std::str::from_utf8(options_json).map_err(|error| {
+        BindingError::new(
+            BindingStatus::Utf8Error,
+            format!("invalid options_json UTF-8: {error}"),
+        )
+    })?;
+    serde_json::from_str(text).map_err(|error| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            format!("invalid options_json: {error}"),
+        )
+    })
+}
+
+#[cfg(feature = "svg")]
+fn options_json_value_with_theme_ceiling(
+    options_json: &[u8],
+    host_ceiling: Option<&merman::svg::ThemeResourcePolicy>,
+) -> Result<Value, BindingError> {
+    enforce_options_json_byte_budget(options_json)?;
+    if options_json.is_empty() {
+        return Ok(Value::Object(Map::new()));
+    }
+
+    let text = std::str::from_utf8(options_json).map_err(|error| {
+        BindingError::new(
+            BindingStatus::Utf8Error,
+            format!("invalid options_json UTF-8: {error}"),
+        )
+    })?;
+    preflight_options_theme_json(text, options_json, host_ceiling)?;
+    let value = serde_json::from_str(text).map_err(|error| {
+        BindingError::new(
+            BindingStatus::OptionsJsonError,
+            format!("invalid options_json: {error}"),
+        )
+    })?;
+    Ok(value)
+}
+
+#[cfg(feature = "svg")]
+fn preflight_options_theme_json(
+    text: &str,
+    options_json: &[u8],
+    host_ceiling: Option<&merman::svg::ThemeResourcePolicy>,
+) -> Result<(), BindingError> {
+    let hints = theme_resource_profile_hints(text);
+    let policy = theme_resource_preflight_policy(&hints, host_ceiling);
+    let compiler = merman::svg::DiagramThemeCompiler::new().with_resource_policy(policy);
+    crate::theme::validate_theme_input_json_with(&compiler, options_json)
+}
+
+#[doc(hidden)]
+pub fn enforce_options_json_byte_budget(options_json: &[u8]) -> Result<(), BindingError> {
+    enforce_options_json_byte_len(options_json.len())
+}
+
+#[doc(hidden)]
+pub fn enforce_options_json_byte_len(options_json_bytes: usize) -> Result<(), BindingError> {
+    if options_json_bytes > BINDING_OPTIONS_JSON_MAX_BYTES {
+        return Err(BindingError::resource_limit(
+            "options-json-preflight",
+            BINDING_OPTIONS_JSON_LIMIT_ID,
+            u64::try_from(options_json_bytes).unwrap_or(u64::MAX),
+            u64::try_from(BINDING_OPTIONS_JSON_MAX_BYTES).unwrap_or(u64::MAX),
+            "binding-json",
+            format!(
+                "options_json exceeds the preflight byte limit of {} bytes",
+                BINDING_OPTIONS_JSON_MAX_BYTES
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "svg")]
+#[derive(Default)]
+struct ThemeResourceProfileHints {
+    // The preflight only needs to distinguish zero, one, and multiple locations/profiles. Keep
+    // those counters saturated so malformed or adversarial input cannot amplify this probe.
+    locations: u8,
+    profile_count: u8,
+    profile_presence: [bool; merman::model::resources::RESOURCE_PROFILE_COUNT],
+    canonical_shape: bool,
+}
+
+#[cfg(feature = "svg")]
+impl ThemeResourceProfileHints {
+    fn record_profile(&mut self, profile: merman::model::resources::ResourceProfile) {
+        let Some(index) = merman::model::resources::ResourceProfile::ALL
+            .iter()
+            .position(|candidate| *candidate == profile)
+        else {
+            self.canonical_shape = false;
+            return;
+        };
+        self.profile_count = self.profile_count.saturating_add(1).min(2);
+        self.profile_presence[index] = true;
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.canonical_shape &= other.canonical_shape;
+        self.locations = self.locations.saturating_add(other.locations).min(2);
+        self.profile_count = self
+            .profile_count
+            .saturating_add(other.profile_count)
+            .min(2);
+        for (present, other_present) in self.profile_presence.iter_mut().zip(other.profile_presence)
+        {
+            *present |= other_present;
+        }
+    }
+
+    fn single_profile(&self) -> Option<merman::model::resources::ResourceProfile> {
+        if self.profile_count != 1 {
+            return None;
+        }
+        merman::model::resources::ResourceProfile::ALL
+            .into_iter()
+            .enumerate()
+            .find_map(|(index, profile)| self.profile_presence[index].then_some(profile))
+    }
+}
+
+#[cfg(feature = "svg")]
+#[derive(Clone, Copy)]
+enum ThemeProfileProbeField {
+    Resources,
+    Analysis,
+    Merman,
+    Profile,
+    Limits,
+    AnalysisOption,
+    Other,
+}
+
+#[cfg(feature = "svg")]
+impl<'de> Deserialize<'de> for ThemeProfileProbeField {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct FieldVisitor;
+
+        impl Visitor<'_> for FieldVisitor {
+            type Value = ThemeProfileProbeField;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an options JSON field")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(match value {
+                    "resources" => ThemeProfileProbeField::Resources,
+                    "analysis" => ThemeProfileProbeField::Analysis,
+                    "merman" => ThemeProfileProbeField::Merman,
+                    "profile" => ThemeProfileProbeField::Profile,
+                    "limits" => ThemeProfileProbeField::Limits,
+                    "fixed_today" | "fixed_local_offset_minutes" | "site_config" | "lint" => {
+                        ThemeProfileProbeField::AnalysisOption
+                    }
+                    _ => ThemeProfileProbeField::Other,
+                })
+            }
+        }
+
+        deserializer.deserialize_identifier(FieldVisitor)
+    }
+}
+
+#[cfg(feature = "svg")]
+fn theme_resource_profile_hints(options_json: &str) -> ThemeResourceProfileHints {
+    let mut deserializer = serde_json::Deserializer::from_str(options_json);
+    serde::Deserializer::deserialize_any(&mut deserializer, RootThemeProfileProbeVisitor)
+        .unwrap_or_default()
+}
+
+#[cfg(feature = "svg")]
+struct RootThemeProfileProbeVisitor;
+
+#[cfg(feature = "svg")]
+impl<'de> Visitor<'de> for RootThemeProfileProbeVisitor {
+    type Value = ThemeResourceProfileHints;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an options JSON object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut hints = ThemeResourceProfileHints {
+            canonical_shape: true,
+            ..ThemeResourceProfileHints::default()
+        };
+        let mut direct_analysis = false;
+        let mut wrapper_count = 0_u8;
+        while let Some(field) = map.next_key::<ThemeProfileProbeField>()? {
+            match field {
+                ThemeProfileProbeField::Resources => {
+                    direct_analysis = true;
+                    let raw = map.next_value::<&RawValue>()?;
+                    merge_resource_profile_scan(&mut hints, scan_resource_profile(raw));
+                }
+                ThemeProfileProbeField::Analysis | ThemeProfileProbeField::Merman => {
+                    wrapper_count = wrapper_count.saturating_add(1).min(2);
+                    let raw = map.next_value::<&RawValue>()?;
+                    hints.merge(scan_wrapped_resource_profiles(raw));
+                }
+                ThemeProfileProbeField::AnalysisOption => {
+                    direct_analysis = true;
+                    map.next_value::<IgnoredAny>()?;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        hints.canonical_shape &= wrapper_count <= 1 && !(wrapper_count > 0 && direct_analysis);
+        Ok(hints)
+    }
+}
+
+#[cfg(feature = "svg")]
+struct WrappedThemeProfileProbeVisitor;
+
+#[cfg(feature = "svg")]
+impl<'de> Visitor<'de> for WrappedThemeProfileProbeVisitor {
+    type Value = ThemeResourceProfileHints;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an analysis options wrapper")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut hints = ThemeResourceProfileHints {
+            canonical_shape: true,
+            ..ThemeResourceProfileHints::default()
+        };
+        while let Some(field) = map.next_key::<ThemeProfileProbeField>()? {
+            match field {
+                ThemeProfileProbeField::Resources => {
+                    let raw = map.next_value::<&RawValue>()?;
+                    merge_resource_profile_scan(&mut hints, scan_resource_profile(raw));
+                }
+                ThemeProfileProbeField::AnalysisOption => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+                _ => {
+                    hints.canonical_shape = false;
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        hints.canonical_shape &= hints.locations <= 1;
+        Ok(hints)
+    }
+}
+
+#[cfg(feature = "svg")]
+struct ResourceThemeProfileProbeVisitor;
+
+#[cfg(feature = "svg")]
+struct ResourceProfileIdVisitor;
+
+#[cfg(feature = "svg")]
+impl Visitor<'_> for ResourceProfileIdVisitor {
+    type Value = Option<merman::model::resources::ResourceProfile>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a resource profile ID")
+    }
+
+    fn visit_borrowed_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(merman::model::resources::ResourceProfile::from_id(value))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(merman::model::resources::ResourceProfile::from_id(value))
+    }
+}
+
+#[cfg(feature = "svg")]
+fn scan_known_resource_profile(
+    raw: &RawValue,
+) -> Result<Option<merman::model::resources::ResourceProfile>, ()> {
+    let encoded = raw.get().trim();
+    if encoded == "null" {
+        return Ok(None);
+    }
+    if !encoded.starts_with('"') {
+        return Err(());
+    }
+
+    // A matching ASCII ID cannot exceed six JSON bytes per decoded byte (`\uXXXX`). Keep the
+    // escaped-string allocation bounded before asking Serde to decode it.
+    let max_encoded_len = merman::model::resources::ResourceProfile::ALL
+        .iter()
+        .map(|profile| profile.id().len().saturating_mul(6).saturating_add(2))
+        .max()
+        .unwrap_or(2);
+    if encoded.len() > max_encoded_len {
+        return Ok(None);
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str(encoded);
+    serde::Deserializer::deserialize_str(&mut deserializer, ResourceProfileIdVisitor)
+        .map_err(|_| ())
+}
+
+#[cfg(feature = "svg")]
+impl<'de> Visitor<'de> for ResourceThemeProfileProbeVisitor {
+    type Value = ThemeResourceProfileHints;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a resources object or null")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut hints = ThemeResourceProfileHints {
+            locations: 1,
+            canonical_shape: true,
+            ..ThemeResourceProfileHints::default()
+        };
+        let mut profile_count = 0_u8;
+        while let Some(field) = map.next_key::<ThemeProfileProbeField>()? {
+            match field {
+                ThemeProfileProbeField::Profile => {
+                    profile_count = profile_count.saturating_add(1).min(2);
+                    let raw = map.next_value::<&RawValue>()?;
+                    match scan_known_resource_profile(raw) {
+                        Ok(Some(profile)) => hints.record_profile(profile),
+                        Ok(None) => {}
+                        Err(()) => hints.canonical_shape = false,
+                    }
+                }
+                ThemeProfileProbeField::Limits => {
+                    let raw = map.next_value::<&RawValue>()?;
+                    hints.canonical_shape &= raw.get().starts_with('{');
+                }
+                _ => {
+                    hints.canonical_shape = false;
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        hints.canonical_shape &= profile_count <= 1;
+        Ok(hints)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(ThemeResourceProfileHints {
+            locations: 1,
+            canonical_shape: true,
+            ..ThemeResourceProfileHints::default()
+        })
+    }
+}
+
+#[cfg(feature = "svg")]
+fn scan_wrapped_resource_profiles(raw: &RawValue) -> ThemeResourceProfileHints {
+    let mut deserializer = serde_json::Deserializer::from_str(raw.get());
+    serde::Deserializer::deserialize_any(&mut deserializer, WrappedThemeProfileProbeVisitor)
+        .unwrap_or(ThemeResourceProfileHints {
+            canonical_shape: false,
+            ..ThemeResourceProfileHints::default()
+        })
+}
+
+#[cfg(feature = "svg")]
+fn scan_resource_profile(raw: &RawValue) -> ThemeResourceProfileHints {
+    let mut deserializer = serde_json::Deserializer::from_str(raw.get());
+    serde::Deserializer::deserialize_any(&mut deserializer, ResourceThemeProfileProbeVisitor)
+        .unwrap_or(ThemeResourceProfileHints {
+            locations: 1,
+            canonical_shape: false,
+            ..ThemeResourceProfileHints::default()
+        })
+}
+
+#[cfg(feature = "svg")]
+fn merge_resource_profile_scan(
+    hints: &mut ThemeResourceProfileHints,
+    resource: ThemeResourceProfileHints,
+) {
+    hints.merge(resource);
+}
+
+#[cfg(feature = "svg")]
+fn theme_resource_preflight_policy(
+    hints: &ThemeResourceProfileHints,
+    host_ceiling: Option<&merman::svg::ThemeResourcePolicy>,
+) -> merman::svg::ThemeResourcePolicy {
+    if host_ceiling.is_none()
+        && hints.canonical_shape
+        && hints.locations == 1
+        && let Some(profile) = hints.single_profile()
+    {
+        return merman::svg::ThemeResourcePolicy::for_profile(profile);
+    }
+
+    let mut policy = host_ceiling.cloned().unwrap_or_else(|| {
+        merman::svg::ThemeResourcePolicy::for_profile(
+            merman::model::resources::GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE,
+        )
+    });
+    for (index, profile) in merman::model::resources::ResourceProfile::ALL
+        .into_iter()
+        .enumerate()
+    {
+        if hints.profile_presence[index] {
+            policy = policy.meet(&merman::svg::ThemeResourcePolicy::for_profile(profile));
+        }
+    }
+    policy
+}
+
+#[cfg(feature = "svg")]
+fn restrict_theme_resource_policy(
+    host: &merman::svg::ThemeResourcePolicy,
+    requested: Option<&ResourceOptionsJson>,
+) -> Result<merman::svg::ThemeResourcePolicy, BindingError> {
+    let Some(profile) = requested.and_then(|resources| resources.profile.as_deref()) else {
+        return Ok(host.clone());
+    };
+    let profile = merman::model::resources::ResourceProfile::from_id(profile).ok_or_else(|| {
+        BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!("unsupported resources.profile: {profile}"),
+        )
+    })?;
+    host.restrict_with(&merman::svg::ThemeResourcePolicy::for_profile(profile))
+        .map_err(theme_resource_ceiling_error)
+}
+
+#[cfg(feature = "svg")]
+fn theme_resource_ceiling_error(
+    error: merman::svg::ThemeResourcePolicyRestrictionError,
+) -> BindingError {
+    BindingError::new(
+        BindingStatus::OptionsJsonError,
+        format!(
+            "resources would loosen the transport ceiling for theme limit `{}`: requested {:?}, ceiling {:?}",
+            error.id.as_str(),
+            error.requested,
+            error.ceiling,
+        ),
+    )
+}
+
+fn tighten_resource_options(
+    ceiling: &ResourceOptionsJson,
+    requested: &ResourceOptionsJson,
+) -> Result<ResourceOptionsJson, BindingError> {
+    let ceiling_profile = binding_resource_profile_id(ceiling)?;
+    let requested_profile = binding_resource_profile_id(requested)?;
+    if requested.profile.is_some() && !requested_profile.is_no_looser_than(ceiling_profile) {
+        return Err(resource_profile_ceiling_error(
+            requested_profile,
+            ceiling_profile,
+        ));
+    }
+
+    let mut candidate = if requested.profile.is_none() {
+        ceiling.clone()
+    } else {
+        ResourceOptionsJson {
+            profile: requested.profile.clone(),
+            limits: BTreeMap::new(),
+        }
+    };
+    candidate.limits.extend(requested.limits.clone());
+
+    let ceiling_values = effective_resource_limits(ceiling)?;
+    let candidate_values = effective_resource_limits(&candidate)?;
+    for (id, ceiling_value) in ceiling_values {
+        let candidate_value = candidate_values
+            .get(id)
+            .copied()
+            .expect("resource policy projections use the same stable IDs");
+        match (ceiling_value, candidate_value) {
+            (Some(maximum), Some(requested)) if requested <= maximum => {}
+            (None, Some(_)) => {}
+            (None, None) => {}
+            (Some(maximum), Some(requested)) => {
+                return Err(resource_ceiling_error(id, requested.to_string(), maximum));
+            }
+            (Some(maximum), None) => {
+                return Err(resource_ceiling_error(id, "unbounded".to_string(), maximum));
+            }
+        }
+    }
+    Ok(candidate)
+}
+
+fn binding_resource_profile_id(
+    resources: &ResourceOptionsJson,
+) -> Result<merman::model::resources::ResourceProfile, BindingError> {
+    resources
+        .profile
+        .as_deref()
+        .map(|id| {
+            merman::model::resources::ResourceProfile::from_id(id).ok_or_else(|| {
+                BindingError::new(
+                    BindingStatus::InvalidArgument,
+                    format!("unsupported resources.profile: {id}"),
+                )
+            })
+        })
+        .transpose()
+        .map(|profile| {
+            profile.unwrap_or(merman::model::resources::GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE)
+        })
+}
+
+fn resource_profile_ceiling_error(
+    requested: merman::model::resources::ResourceProfile,
+    ceiling: merman::model::resources::ResourceProfile,
+) -> BindingError {
+    BindingError::new(
+        BindingStatus::OptionsJsonError,
+        format!(
+            "resources would loosen the transport ceiling profile: requested {requested}, ceiling {ceiling}"
+        ),
+    )
+}
+
+fn resource_ceiling_error(id: &str, requested: String, maximum: usize) -> BindingError {
+    BindingError::new(
+        BindingStatus::OptionsJsonError,
+        format!(
+            "resources would loosen the transport ceiling for `{id}`: requested {requested}, maximum {maximum}"
+        ),
+    )
+}
+
+fn effective_resource_limits(
+    resources: &ResourceOptionsJson,
+) -> Result<BTreeMap<&'static str, Option<usize>>, BindingError> {
+    let profile = binding_resource_profile_id(resources)?;
+    validate_compiled_resource_options(Some(resources))?;
+
+    let mut values = binding_resource_contract()
+        .limits
+        .into_iter()
+        .map(|descriptor| {
+            (
+                descriptor.stable_id,
+                resource_profile_value(profile, descriptor.stable_id)
+                    .expect("compiled resource descriptors must have profile values"),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for (id, value) in &resources.limits {
+        let stable_id = resource_limit_descriptor(id)
+            .expect("validated resource limit must have a compiled descriptor")
+            .stable_id;
+        values.insert(stable_id, Some(*value));
+    }
+    Ok(values)
+}
+
+pub fn render_resource_options_unavailable() -> BindingError {
+    BindingError::new(
+        BindingStatus::UnsupportedOperation,
+        "resource options requires at least one resource-aware operation",
+    )
+}
+
+#[cfg(feature = "analysis")]
+impl From<merman_analysis::AnalysisOptionsJsonError> for BindingError {
+    fn from(error: merman_analysis::AnalysisOptionsJsonError) -> Self {
+        BindingError::new(BindingStatus::InvalidArgument, error.to_string())
+    }
+}
+
+pub(crate) fn no_diagram_error() -> BindingError {
+    BindingError::new(BindingStatus::NoDiagram, "no Mermaid diagram detected")
+}
+
+pub(crate) fn internal_json_error(err: serde_json::Error) -> BindingError {
+    BindingError::new(
+        BindingStatus::InternalError,
+        format!("failed to serialize JSON output: {err}"),
+    )
+}
+
+#[cfg(feature = "svg")]
+pub(crate) fn finite_positive(value: f64, name: &'static str) -> Result<f64, BindingError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(value)
+    } else {
+        Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!("{name} must be a finite positive number"),
+        ))
+    }
+}
+
+#[cfg(feature = "svg")]
+pub(crate) fn normalize_option(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+#[cfg(feature = "svg")]
+pub(crate) fn css_declaration_value(value: &str, name: &str) -> Result<String, BindingError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!("{name} must be a non-empty CSS value"),
+        ));
+    }
+
+    let invalid = trimmed
+        .chars()
+        .any(|ch| ch.is_control() || matches!(ch, ';' | '"' | '\'' | '<' | '>' | '{' | '}'));
+    if invalid {
+        return Err(BindingError::new(
+            BindingStatus::InvalidArgument,
+            format!("{name} must be a single CSS declaration value"),
+        ));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+#[allow(dead_code)]
+pub(crate) fn feature_required_error(operation: &str, feature: &'static str) -> BindingError {
+    BindingError::missing_capability(
+        feature,
+        format!("{operation} requires the {feature} feature"),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn resolve_request_options(
+        base: &[u8],
+        request: &[u8],
+        scope: BindingResourceScope,
+    ) -> Result<BindingOptions, BindingError> {
+        let (_, base) = parse_base_options(base)?;
+        Ok(match parse_request_overlay(request, scope)? {
+            BindingRequestOverlay::Unchanged => {
+                base.validate_unchanged_request(&DEFAULT_ARTIFACT_SNAPSHOT)?;
+                parse_options_value(&base.normalized_wire)?
+            }
+            overlay => base.apply_overlay(overlay, &DEFAULT_ARTIFACT_SNAPSHOT)?,
+        })
+    }
+
+    #[test]
+    fn error_payload_json_uses_public_code_names() {
+        let payload = error_payload_json_bytes(BindingStatus::RenderError, "failed");
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(json["code"], BindingStatus::RenderError.code());
+        assert_eq!(json["code_name"], BindingStatus::RenderError.code_name());
+        assert_eq!(json["kind"], "generic");
+        assert!(json["capability_id"].is_null());
+        assert_eq!(json["message"], "failed");
+        assert!(json.get("details").is_none());
+
+        let error = BindingError::missing_capability("layout-elk", "ELK is unavailable");
+        let payload = binding_error_payload_json_bytes(&error);
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(json["kind"], "missing-capability");
+        assert_eq!(json["capability_id"], "layout-elk");
+
+        let error = BindingError::resource_limit(
+            "embedded_image_decode",
+            "max_embedded_image_bytes",
+            5,
+            4,
+            "constrained",
+            "embedded image is too large",
+        );
+        let payload = binding_error_payload_json_bytes(&error);
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(json["code_name"], "MERMAN_RESOURCE_LIMIT_EXCEEDED");
+        assert_eq!(
+            json["details"]["resource"]["limit_id"],
+            "max_embedded_image_bytes"
+        );
+        assert_eq!(
+            json["details"]["resource"]["phase"],
+            "embedded_image_decode"
+        );
+        assert_eq!(json["details"]["resource"]["actual"], 5);
+        assert_eq!(json["details"]["resource"]["max"], 4);
+        assert_eq!(json["details"]["resource"]["profile"], "constrained");
+        assert_eq!(json["details"]["resource"]["cause"], "ceiling");
+        let payload = binding_error_js_payload_json_bytes(&error);
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(json["details"]["resource"]["actual"], 5);
+        assert_eq!(json["details"]["resource"]["max"], 4);
+
+        let error = BindingError::resource_limit_with_cause(
+            BindingResourceLimitCause::ArithmeticOverflow,
+            "layout_model",
+            "max_layout_work_units",
+            u64::MAX,
+            800_000,
+            "interactive",
+            "layout work accounting overflowed",
+        );
+        let payload = binding_error_payload_json_bytes(&error);
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(json["details"]["resource"]["cause"], "arithmetic_overflow");
+        assert_eq!(
+            json["details"]["resource"]["actual"].as_u64(),
+            Some(u64::MAX)
+        );
+        assert_eq!(json["details"]["resource"]["max"], 800_000);
+
+        let payload = binding_error_js_payload_json_bytes(&error);
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(json["details"]["resource"]["cause"], "arithmetic_overflow");
+        assert_eq!(
+            json["details"]["resource"]["actual"],
+            "18446744073709551615"
+        );
+        assert_eq!(json["details"]["resource"]["max"], 800_000);
+        assert_eq!(std::mem::size_of::<BindingResourceLimitCause>(), 1);
+        assert!(std::mem::size_of::<BindingError>() < 128);
+    }
+
+    #[test]
+    fn runtime_policy_errors_are_terminal_safe_and_structured() {
+        let error =
+            runtime_policy_error(merman::model::runtime::RuntimePolicyError::SystemTimeZone(
+                "adapter\u{1b}\u{7}".to_string(),
+            ));
+
+        assert_eq!(error.status(), BindingStatus::RenderError);
+        assert!(!error.message().contains('\u{1b}'));
+        assert!(!error.message().contains('\u{7}'));
+        let details = error
+            .diagnostic_details()
+            .expect("runtime-policy errors expose diagnostic details");
+        assert_eq!(details.code, "merman.runtime_policy");
+
+        let missing = runtime_policy_error(
+            merman::model::runtime::RuntimePolicyError::MissingCapability(
+                merman::model::runtime::RuntimeCapability::SystemRandom,
+            ),
+        );
+        assert_eq!(missing.kind(), BindingErrorKind::MissingCapability);
+        assert_eq!(missing.capability_id(), Some("system-random"));
+        assert_eq!(
+            missing
+                .diagnostic_details()
+                .expect("missing-capability errors retain runtime diagnostics")
+                .code,
+            "merman.runtime_policy"
+        );
+    }
+
+    #[test]
+    fn internal_failures_remain_internal_across_binding_payloads() {
+        let error =
+            merman::Error::Internal(merman::InternalFailure::new("fixture subsystem failure"));
+        let error = core_error(error);
+
+        assert_eq!(error.status(), BindingStatus::InternalError);
+        let details = error
+            .diagnostic_details()
+            .expect("internal overlay failures expose diagnostic details");
+        assert_eq!(details.code, "merman.internal.failure");
+        assert_eq!(details.field, None);
+
+        let payload: Value = serde_json::from_slice(&binding_error_payload_json_bytes(&error))
+            .expect("binding payload JSON");
+        assert_eq!(payload["code_name"], "MERMAN_INTERNAL_ERROR");
+        assert_eq!(
+            payload["details"]["diagnostic"]["code"],
+            "merman.internal.failure"
+        );
+        assert!(payload["details"]["diagnostic"]["field"].is_null());
+    }
+
+    #[test]
+    fn error_details_projections_share_fields_and_preserve_transport_integer_encoding() {
+        let diagnostic = BindingDiagnosticErrorDetails::new("merman.parse.diagram_parse")
+            .with_span(BindingDiagnosticSpan::new(54, 55, "exact"))
+            .with_diagram_type("flowchart-v2");
+        let error = BindingError::resource_limit_with_cause(
+            BindingResourceLimitCause::ArithmeticOverflow,
+            "layout_model",
+            "max_layout_work_units",
+            u64::MAX,
+            BINDING_JSON_SAFE_INTEGER_MAX + 1,
+            "constrained",
+            "layout work accounting overflowed",
+        )
+        .with_diagnostic_details(diagnostic.clone());
+        let ordinary = binding_error_details_json(&error).unwrap().unwrap();
+        let javascript = binding_error_js_details_json(&error).unwrap().unwrap();
+
+        assert_eq!(
+            ordinary["diagnostic"],
+            serde_json::to_value(diagnostic).unwrap()
+        );
+        assert_eq!(ordinary["resource"]["actual"].as_u64(), Some(u64::MAX));
+        assert_eq!(
+            ordinary["resource"]["max"].as_u64(),
+            Some(BINDING_JSON_SAFE_INTEGER_MAX + 1),
+        );
+        let mut expected_javascript = ordinary.clone();
+        expected_javascript["resource"]["actual"] = serde_json::json!("18446744073709551615");
+        expected_javascript["resource"]["max"] = serde_json::json!("9007199254740992");
+        assert_eq!(javascript, expected_javascript);
+
+        let payload: Value = serde_json::from_slice(&binding_error_payload_json_bytes(&error))
+            .expect("ordinary error payload");
+        assert_eq!(ordinary, payload["details"]);
+        let payload: Value = serde_json::from_slice(&binding_error_js_payload_json_bytes(&error))
+            .expect("JavaScript error payload");
+        assert_eq!(javascript, payload["details"]);
+
+        let plain = BindingError::invalid_argument("invalid request");
+        assert_eq!(binding_error_details_json(&plain).unwrap(), None);
+        assert_eq!(binding_error_js_details_json(&plain).unwrap(), None);
+    }
+
+    #[test]
+    fn cancellation_payload_is_structured_and_disjoint_from_resource_details() {
+        let cancelled = core_error(merman::Error::OperationCancelled(
+            merman::OperationCancelled {
+                phase: merman::OperationPhase::Layout,
+                reason: merman::CancelReason::DeadlineExceeded,
+            },
+        ));
+        assert_eq!(cancelled.status(), BindingStatus::Cancelled);
+        assert_eq!(cancelled.status().code(), 12);
+        assert_eq!(cancelled.status().code_name(), "MERMAN_CANCELLED");
+        assert_eq!(cancelled.resource_details(), None);
+        assert_eq!(
+            cancelled.cancellation_details(),
+            Some(BindingCancellationErrorDetails {
+                reason: "deadline_exceeded",
+                phase: "layout",
+            })
+        );
+
+        let json: Value =
+            serde_json::from_slice(&binding_error_payload_json_bytes(&cancelled)).unwrap();
+        assert_eq!(json["code_name"], "MERMAN_CANCELLED");
+        assert_eq!(
+            json["details"]["cancellation"]["reason"],
+            "deadline_exceeded"
+        );
+        assert_eq!(json["details"]["cancellation"]["phase"], "layout");
+        assert!(json["details"].get("resource").is_none());
+    }
+
+    #[cfg(all(feature = "png", feature = "jpeg", feature = "pdf"))]
+    #[test]
+    fn output_option_groups_follow_constructor_and_request_scopes() {
+        parse_options(
+            br#"{
+                "raster":{"scale":2,"fit_to":{"width":640}},
+                "jpeg":{"quality":85},
+                "pdf":{"page_policy":{"kind":"fit-css-width","max_width_px":800}}
+            }"#,
+        )
+        .expect("the reusable constructor accepts the compiled artifact union");
+
+        let jpeg = resolve_request_options(
+            b"",
+            br#"{"raster":{"scale":2},"jpeg":{"quality":85}}"#,
+            BindingResourceScope::Jpeg,
+        )
+        .expect("JPEG accepts shared raster and JPEG-specific options");
+        assert_eq!(jpeg.jpeg.and_then(|options| options.quality), Some(85));
+
+        for (scope, request, group) in [
+            (
+                BindingResourceScope::Png,
+                br#"{"jpeg":{"quality":85}}"# as &[u8],
+                "jpeg",
+            ),
+            (
+                BindingResourceScope::Pdf,
+                br#"{"raster":{"scale":2}}"#,
+                "raster",
+            ),
+            (
+                BindingResourceScope::Svg,
+                br#"{"pdf":{"background":"white"}}"#,
+                "pdf",
+            ),
+        ] {
+            let error = resolve_request_options(b"", request, scope).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains(group), "{error:?}");
+        }
+    }
+
+    #[cfg(not(any(feature = "png", feature = "jpeg", feature = "pdf")))]
+    #[test]
+    fn uncompiled_output_option_groups_are_rejected() {
+        let error = parse_options(br#"{"raster":{"scale":2}}"#).unwrap_err();
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(error.message().contains("not exposed by target"));
+    }
+
+    #[test]
+    fn render_payload_json_returns_svg_or_error_shape() {
+        let payload = render_payload_json_bytes(BindingStatus::Ok, None, Some("<svg/>"));
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(json["version"], 1);
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["code"], BindingStatus::Ok.code());
+        assert_eq!(json["code_name"], BindingStatus::Ok.code_name());
+        assert!(json["message"].is_null());
+        assert_eq!(json["svg"], "<svg/>");
+
+        let payload =
+            render_payload_json_bytes(BindingStatus::RenderError, Some("render failed"), None);
+        let json: Value = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(json["version"], 1);
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["code"], BindingStatus::RenderError.code());
+        assert_eq!(json["code_name"], BindingStatus::RenderError.code_name());
+        assert_eq!(json["message"], "render failed");
+        assert!(json["svg"].is_null());
+    }
+
+    #[test]
+    fn request_options_deeply_override_engine_options() {
+        let options = resolve_request_options(
+            br#"{
+                "version": 3,
+                "parse": { "suppress_errors": false },
+                "resources": {
+                    "profile": "interactive",
+                    "limits": {
+                        "max_source_bytes": 4096,
+                        "max_model_items": 128
+                    }
+                }
+            }"#,
+            br#"{
+                "parse": { "suppress_errors": true },
+                "resources": {
+                    "limits": { "max_source_bytes": 2048 }
+                }
+            }"#,
+            BindingResourceScope::Model,
+        )
+        .unwrap();
+        assert_eq!(options.version, Some(BINDING_OPTIONS_SCHEMA_VERSION));
+        assert_eq!(
+            options.parse.and_then(|parse| parse.suppress_errors),
+            Some(true)
+        );
+        let resources = options.analysis.resources.unwrap();
+        assert_eq!(resources.profile.as_deref(), Some("interactive"));
+        assert_eq!(resources.limits.get("max_source_bytes"), Some(&2048));
+        assert_eq!(resources.limits.get("max_model_items"), Some(&128));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn request_theme_overlay_preserves_wire_level_intent() {
+        let (_, base) =
+            parse_base_options(br##"{"theme":{"spec":{"canvas":{"base":"#111827"}}}}"##).unwrap();
+        assert!(
+            base.normalized_wire.get("theme").is_none(),
+            "the compiled constructor theme must not remain in the generic request merge bag"
+        );
+
+        for (request, expected) in [
+            (
+                br#"{"svg":{"diagram_id":"inherit"}}"#.as_slice(),
+                BindingThemeOverlay::Inherit,
+            ),
+            (br#"{"theme":null}"#.as_slice(), BindingThemeOverlay::Clear),
+            (
+                br#"{"theme":{"preset":"editor-light"}}"#.as_slice(),
+                BindingThemeOverlay::Replace,
+            ),
+        ] {
+            let overlay = parse_request_overlay(request, BindingResourceScope::Svg).unwrap();
+            assert_eq!(overlay.theme_overlay(), expected, "request={request:?}");
+        }
+    }
+
+    #[test]
+    fn request_options_cannot_select_runtime_policy() {
+        let error = resolve_request_options(
+            br#"{"runtime_policy":"deterministic"}"#,
+            br#"{"runtime_policy":"native"}"#,
+            BindingResourceScope::Model,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(error.message().contains("cannot set runtime_policy"));
+    }
+
+    #[test]
+    fn wrapped_request_options_cannot_hide_runtime_policy() {
+        for wrapper in ["analysis", "merman"] {
+            let request = format!(r#"{{"{wrapper}":{{"runtime_policy":"native"}}}}"#);
+            let error = resolve_request_options(
+                b"",
+                request.as_bytes(),
+                BindingResourceScope::AnalysisDiagram,
+            )
+            .unwrap_err();
+
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains("cannot set runtime_policy"));
+        }
+    }
+
+    #[test]
+    fn request_options_normalize_wrapped_analysis_before_merging() {
+        let options = resolve_request_options(
+            br#"{"resources":{"limits":{"max_source_bytes":4096}}}"#,
+            br#"{"analysis":{"fixed_today":"2026-08-01","resources":{"limits":{"max_source_bytes":2048}}}}"#,
+            BindingResourceScope::AnalysisDiagram,
+        )
+        .unwrap();
+        assert_eq!(
+            options
+                .analysis
+                .resources
+                .as_ref()
+                .and_then(|resources| resources.limits.get("max_source_bytes")),
+            Some(&2048)
+        );
+        assert_eq!(options.analysis.fixed_today.as_deref(), Some("2026-08-01"));
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn analysis_document_limit_tightens_without_entering_core_policy() {
+        let base = br#"{
+            "resources": {
+                "profile": "interactive",
+                "limits": {
+                    "max_source_bytes": 4096,
+                    "max_document_diagrams": 32
+                }
+            }
+        }"#;
+        let options = resolve_request_options(
+            base,
+            br#"{"resources":{"limits":{"max_document_diagrams":16}}}"#,
+            BindingResourceScope::DocumentAnalysis,
+        )
+        .unwrap();
+        let resources = options.analysis.resources.as_ref().unwrap();
+        assert_eq!(
+            resources
+                .limits
+                .get(merman_analysis::MAX_DOCUMENT_DIAGRAMS_RESOURCE_LIMIT_ID),
+            Some(&16)
+        );
+        assert_eq!(
+            binding_input_resource_policy(Some(resources))
+                .unwrap()
+                .value(merman::model::resources::InputResourceLimitId::MaxSourceBytes),
+            Some(4096)
+        );
+
+        #[cfg(feature = "analysis")]
+        assert_eq!(
+            artifact_analysis_options(&options)
+                .unwrap()
+                .max_document_diagrams(),
+            Some(16)
+        );
+
+        let error = resolve_request_options(
+            base,
+            br#"{"resources":{"limits":{"max_document_diagrams":33}}}"#,
+            BindingResourceScope::DocumentAnalysis,
+        )
+        .unwrap_err();
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(error.message().contains("max_document_diagrams"));
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn analysis_document_limit_is_not_available_to_single_diagram_requests() {
+        let error = resolve_request_options(
+            b"",
+            br#"{"resources":{"limits":{"max_document_diagrams":16}}}"#,
+            BindingResourceScope::AnalysisDiagram,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.status(), BindingStatus::InvalidArgument);
+        assert!(error.message().contains("single-diagram analysis"));
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn analysis_document_limit_accepts_zero() {
+        let options = resolve_request_options(
+            br#"{"resources":{"profile":"interactive"}}"#,
+            br#"{"resources":{"limits":{"max_document_diagrams":0}}}"#,
+            BindingResourceScope::DocumentAnalysis,
+        )
+        .unwrap();
+
+        assert_eq!(
+            artifact_analysis_options(&options)
+                .unwrap()
+                .max_document_diagrams(),
+            Some(0)
+        );
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn analysis_document_limit_uses_the_selected_profile() {
+        let options = parse_options(br#"{"resources":{"profile":"constrained"}}"#).unwrap();
+
+        assert_eq!(
+            artifact_analysis_options(&options)
+                .unwrap()
+                .max_document_diagrams(),
+            Some(128)
+        );
+    }
+
+    #[test]
+    fn request_options_normalize_wrapped_engine_options_before_merging() {
+        let options = resolve_request_options(
+            br#"{"merman":{"resources":{"profile":"interactive","limits":{"max_source_bytes":4096}}}}"#,
+            br#"{"resources":{"limits":{"max_source_bytes":2048,"max_model_items":128}}}"#,
+            BindingResourceScope::Model,
+        )
+        .unwrap();
+        let resources = options.analysis.resources.unwrap();
+        assert_eq!(resources.profile.as_deref(), Some("interactive"));
+        assert_eq!(resources.limits.get("max_source_bytes"), Some(&2048));
+        assert_eq!(resources.limits.get("max_model_items"), Some(&128));
+    }
+
+    #[test]
+    fn options_reject_ambiguous_analysis_wrappers_at_the_input_boundary() {
+        for input in [
+            br#"{"merman":{},"analysis":{}}"#.as_slice(),
+            br#"{"merman":{"fixed_today":"2025-01-01"},"analysis":{}}"#.as_slice(),
+            br#"{"merman":{},"analysis":{"fixed_today":"2025-01-01"}}"#.as_slice(),
+        ] {
+            let error = parse_options(input).expect_err("dual wrappers are ambiguous");
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(
+                error
+                    .message()
+                    .contains("must not contain both `analysis` and `merman` wrappers"),
+                "unexpected error: {error:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "ascii")]
+    #[test]
+    fn request_ascii_alias_spelling_collisions_remain_duplicate_field_errors() {
+        for (base, request, field) in [
+            (
+                br#"{"ascii":{"default_direction":"leftToRight"}}"#.as_slice(),
+                br#"{"ascii":{"defaultDirection":"topDown"}}"#.as_slice(),
+                "default_direction",
+            ),
+            (
+                br#"{"ascii":{"colorMode":"none"}}"#.as_slice(),
+                br#"{"ascii":{"color_mode":"ansi"}}"#.as_slice(),
+                "color_mode",
+            ),
+            (
+                br#"{"ascii":{"colorMode":null}}"#.as_slice(),
+                br#"{"ascii":{"color_mode":"none"}}"#.as_slice(),
+                "color_mode",
+            ),
+        ] {
+            let error = resolve_request_options(base, request, BindingResourceScope::Model)
+                .expect_err("different wire spellings survive recursive object merge");
+
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(
+                error
+                    .message()
+                    .contains(&format!("duplicate field `{field}`")),
+                "field={field}, error={error:?}"
+            );
+        }
+
+        let options = resolve_request_options(
+            br#"{"ascii":{"colorMode":null}}"#,
+            br#"{"ascii":{"colorMode":"ansi"}}"#,
+            BindingResourceScope::Model,
+        )
+        .expect("the same raw key replaces its null base value");
+        assert_eq!(
+            options
+                .ascii
+                .as_ref()
+                .and_then(|ascii| ascii.color_mode.as_deref()),
+            Some("ansi")
+        );
+    }
+
+    #[cfg(feature = "ascii")]
+    #[test]
+    fn request_ascii_alias_collision_uses_merged_wire_order() {
+        let base = br#"{
+            "ascii": {
+                "default_direction": "leftToRight",
+                "color_mode": "none"
+            }
+        }"#;
+
+        for (request, first_duplicate) in [
+            (
+                br#"{"ascii":{"colorMode":"ansi","defaultDirection":"topDown"}}"#.as_slice(),
+                "color_mode",
+            ),
+            (
+                br#"{"ascii":{"defaultDirection":"topDown","colorMode":"ansi"}}"#.as_slice(),
+                "default_direction",
+            ),
+        ] {
+            let error = resolve_request_options(base, request, BindingResourceScope::Model)
+                .expect_err("both aliases collide after merge");
+
+            assert!(
+                error
+                    .message()
+                    .contains(&format!("duplicate field `{first_duplicate}`")),
+                "expected first duplicate {first_duplicate}, error={error:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "ascii")]
+    #[test]
+    fn request_ascii_nested_theme_alias_error_precedes_later_top_level_alias_error() {
+        let error = resolve_request_options(
+            br##"{
+                "ascii": {
+                    "color_mode": "none",
+                    "theme": {
+                        "foreground": "#ffffff",
+                        "background": "#000000"
+                    }
+                }
+            }"##,
+            br##"{
+                "ascii": {
+                    "colorMode": "ansi",
+                    "theme": { "fg": "#eeeeee" }
+                }
+            }"##,
+            BindingResourceScope::Model,
+        )
+        .expect_err("theme and top-level aliases both collide");
+
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(
+            error.message().contains("duplicate field `foreground`"),
+            "the in-place theme object is visited before the appended colorMode key: {error:?}"
+        );
+    }
+
+    #[cfg(feature = "ascii")]
+    #[test]
+    fn request_resource_ceiling_error_precedes_cross_document_alias_error() {
+        let error = resolve_request_options(
+            br#"{
+                "resources": {
+                    "profile": "constrained",
+                    "limits": { "max_source_bytes": 64 }
+                },
+                "ascii": { "color_mode": "none" }
+            }"#,
+            br#"{
+                "resources": { "limits": { "max_source_bytes": 65 } },
+                "ascii": { "colorMode": "ansi" }
+            }"#,
+            BindingResourceScope::Model,
+        )
+        .expect_err("resource tightening runs before merged options are reparsed");
+
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(
+            error.message().contains("loosen the transport ceiling"),
+            "unexpected error: {error:?}"
+        );
+        assert!(!error.message().contains("duplicate field"));
+    }
+
+    #[cfg(any(feature = "svg", feature = "ascii"))]
+    #[test]
+    fn parse_options_accepts_analysis_wrapper_without_dropping_binding_options() {
+        #[cfg(feature = "svg")]
+        let input = br#"{
+                "parse": { "suppress_errors": true },
+                "analysis": {
+                    "resources": { "limits": { "max_source_bytes": 4 } }
+                },
+                "version": 3,
+                "svg": { "pipeline": "resvg-safe" }
+            }"#;
+        #[cfg(all(not(feature = "svg"), feature = "ascii"))]
+        let input = br#"{
+                "parse": { "suppress_errors": true },
+                "analysis": {
+                    "resources": { "limits": { "max_source_bytes": 4 } }
+                },
+                "version": 3,
+                "ascii": { "color_mode": "none" }
+            }"#;
+        let options = parse_options(input).unwrap();
+
+        assert_eq!(options.version, Some(BINDING_OPTIONS_SCHEMA_VERSION));
+        assert_eq!(
+            options
+                .parse
+                .as_ref()
+                .and_then(|parse| parse.suppress_errors),
+            Some(true)
+        );
+        assert_eq!(
+            options
+                .analysis
+                .resources
+                .as_ref()
+                .and_then(|resources| resources.limits.get("max_source_bytes")),
+            Some(&4)
+        );
+        #[cfg(feature = "svg")]
+        assert_eq!(
+            binding_resource_policy(options.analysis.resources.as_ref())
+                .unwrap()
+                .value(merman::svg::ResourceLimitId::MaxSourceBytes),
+            Some(4)
+        );
+        #[cfg(feature = "svg")]
+        assert_eq!(
+            options.svg.as_ref().and_then(|svg| svg.pipeline.as_deref()),
+            Some("resvg-safe")
+        );
+        #[cfg(all(not(feature = "svg"), feature = "ascii"))]
+        assert_eq!(
+            options
+                .ascii
+                .as_ref()
+                .and_then(|ascii| ascii.color_mode.as_deref()),
+            Some("none")
+        );
+    }
+
+    #[test]
+    fn options_schema_v3_rejects_version_2() {
+        let version = parse_options(br#"{ "version": 2 }"#).unwrap_err();
+        assert_eq!(version.status(), BindingStatus::OptionsJsonError);
+        assert!(version.message().contains("expected 3"));
+
+        #[cfg(feature = "svg")]
+        {
+            let legacy = parse_options(br#"{ "version": 2, "layout": { "viewport_width": 640 } }"#)
+                .unwrap_err();
+            assert!(legacy.message().contains("expected 3"));
+        }
+        #[cfg(feature = "ascii")]
+        {
+            let legacy =
+                parse_options(br#"{ "version": 2, "ascii": { "maxGridCells": 42 } }"#).unwrap_err();
+            assert!(legacy.message().contains("expected 3"));
+        }
+    }
+
+    #[test]
+    fn options_schema_v3_rejects_unknown_and_malformed_fields() {
+        for input in [
+            br#"{ "version": 3, "tyop": true }"#.as_slice(),
+            br#"{ "version": 3, "parse": { "tyop": true } }"#.as_slice(),
+        ] {
+            let error = parse_options(input).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains("unknown"), "{error:?}");
+        }
+
+        #[cfg(feature = "analysis")]
+        {
+            for input in [
+                br#"{ "version": 3, "analysis": { "tyop": true } }"#.as_slice(),
+                br#"{ "version": 3, "lint": { "profiel": "strict" } }"#.as_slice(),
+                br#"{ "version": 3, "lint": { "rule_severities": [{ "rule_id": "merman.authoring.flowchart.explicit_direction", "severity": "warning", "tyop": true }] } }"#.as_slice(),
+            ] {
+                parse_options(input)
+                    .expect("analysis-owned forward-compatible fields must be ignored");
+            }
+        }
+
+        for input in [
+            br#"{ "version": "3" }"#.as_slice(),
+            br#"{ "version": 3.0 }"#.as_slice(),
+            br#"{ "version": -1 }"#.as_slice(),
+            br#"{ "version": 4294967296 }"#.as_slice(),
+        ] {
+            let error = parse_options(input).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains("unsigned 32-bit integer"));
+        }
+
+        let flat = parse_options(br#"{ "resources": { "max_source_bytes": 4 } }"#).unwrap_err();
+        assert_eq!(flat.status(), BindingStatus::OptionsJsonError);
+        assert!(flat.message().contains("unknown field `max_source_bytes`"));
+    }
+
+    #[test]
+    fn options_schema_v3_materializes_the_current_version_when_omitted() {
+        let explicit = parse_options(br#"{ "version": 3 }"#).unwrap();
+        assert_eq!(explicit.version, Some(BINDING_OPTIONS_SCHEMA_VERSION));
+
+        let implicit = parse_options(br#"{}"#).unwrap();
+        assert_eq!(implicit.version, Some(BINDING_OPTIONS_SCHEMA_VERSION));
+    }
+
+    #[cfg(all(feature = "png", feature = "pdf"))]
+    #[test]
+    fn options_schema_v3_accepts_current_theme_and_export_paint_fields() {
+        let options = parse_options(
+            br#"{
+                "version": 3,
+                "theme": { "preset": "editor-dark" },
+                "raster": { "matte": "white" },
+                "pdf": { "page_paint": "transparent" }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(options.version, Some(BINDING_OPTIONS_SCHEMA_VERSION));
+        assert_eq!(
+            options.raster.and_then(|raster| raster.matte),
+            Some("white".into())
+        );
+        assert_eq!(
+            options.pdf.and_then(|pdf| pdf.page_paint),
+            Some("transparent".into())
+        );
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn theme_union_and_payload_errors_preserve_option_validation_precedence() {
+        for (input, expected) in [
+            (
+                br#"{"theme":{"spec":null},"version":2}"#.as_slice(),
+                "unsupported options_json schema version",
+            ),
+            (
+                br#"{"theme":{"spec":null},"layout":{"text_measurer":"removed"}}"#.as_slice(),
+                "must not be null",
+            ),
+            (
+                br#"{"theme":{"spec":{}},"layout":{"text_measurer":"removed"}}"#.as_slice(),
+                "layout.text_measurer was removed",
+            ),
+            (
+                br#"{"theme":{"preset":"editor-dark","spec":{}},"layout":{"text_measurer":"removed"}}"#.as_slice(),
+                "must not contain both `preset` and `spec`",
+            ),
+            (
+                br#"{"theme":{"preset":false},"site_config":{"themeCSS":".node {}"}}"#.as_slice(),
+                "site_config.themeCSS",
+            ),
+            (
+                br#"{"theme":{"preset":false},"layout":{"text_measurer":"removed"}}"#.as_slice(),
+                "layout.text_measurer was removed",
+            ),
+            (
+                br#"{"theme":{"preset":false}}"#.as_slice(),
+                "invalid options_json: invalid type: boolean `false`, expected a string",
+            ),
+        ] {
+            let error = parse_options(input).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains(expected), "{error:?}");
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn theme_null_and_omission_leave_the_outer_theme_unset() {
+        for input in [b"{}".as_slice(), br#"{"theme":null}"#.as_slice()] {
+            assert!(parse_options(input).unwrap().theme.is_none());
+        }
+        let error = parse_options(br#"{"version":2,"theme":{"preset":false}}"#)
+            .expect_err("options schema admission precedes theme decoding");
+        assert!(
+            error
+                .message()
+                .contains("unsupported options_json schema version")
+        );
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn options_schema_v3_rejects_removed_presentation_and_raw_css_fields() {
+        for (input, rejected) in [
+            (
+                br#"{"version":3,"presentation":{}}"#.as_slice(),
+                "presentation",
+            ),
+            (
+                br#"{"version":3,"site_config":{"themeCSS":".node {}"}}"#.as_slice(),
+                "site_config.themeCSS",
+            ),
+            (
+                br#"{"version":3,"svg":{"scoped_css":".node {}"}}"#.as_slice(),
+                "svg.scoped_css",
+            ),
+        ] {
+            let error = parse_options(input).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains(rejected), "{input:?}: {error:?}");
+        }
+    }
+
+    #[test]
+    fn options_schema_v3_rejects_groups_not_compiled_into_the_artifact() {
+        for (group, compiled, input) in [
+            (
+                "lint",
+                cfg!(feature = "analysis"),
+                br#"{"version":3,"lint":{"profile":"strict"}}"#.as_slice(),
+            ),
+            (
+                "lint",
+                cfg!(feature = "analysis"),
+                br#"{"version":3,"analysis":{"lint":{"profile":"strict"}}}"#.as_slice(),
+            ),
+            (
+                "ascii",
+                cfg!(feature = "ascii"),
+                br#"{"version":3,"ascii":{}}"#.as_slice(),
+            ),
+            (
+                "theme",
+                cfg!(feature = "svg"),
+                br#"{"version":3,"theme":{"preset":"editor-dark"}}"#.as_slice(),
+            ),
+            (
+                "layout",
+                cfg!(feature = "svg"),
+                br#"{"version":3,"layout":{}}"#.as_slice(),
+            ),
+            (
+                "environment",
+                cfg!(feature = "svg"),
+                br#"{"version":3,"environment":{}}"#.as_slice(),
+            ),
+            (
+                "svg",
+                cfg!(feature = "svg"),
+                br#"{"version":3,"svg":{}}"#.as_slice(),
+            ),
+            (
+                "raster",
+                cfg!(any(feature = "png", feature = "jpeg")),
+                br#"{"version":3,"raster":{}}"#.as_slice(),
+            ),
+            (
+                "jpeg",
+                cfg!(feature = "jpeg"),
+                br#"{"version":3,"jpeg":{}}"#.as_slice(),
+            ),
+            (
+                "pdf",
+                cfg!(feature = "pdf"),
+                br#"{"version":3,"pdf":{}}"#.as_slice(),
+            ),
+        ] {
+            if compiled {
+                continue;
+            }
+            let error = parse_options(input).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains(group), "{error:?}");
+            assert!(error.message().contains("not available"), "{error:?}");
+        }
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn resource_ceiling_preserves_stricter_limits_and_wrapper_shape() {
+        for wrapper in [None, Some("analysis"), Some("merman")] {
+            let analysis = serde_json::json!({
+                "fixed_today": "2026-08-01",
+                "fixed_local_offset_minutes": 60,
+                "site_config": { "theme": "dark" },
+                "lint": { "profile": "recommended" },
+                "resources": { "limits": {
+                    "max_source_bytes": 4096,
+                    "max_document_diagrams": 64,
+                    "max_model_items": 1
+                } }
+            });
+            let mut input = wrapper
+                .map(|wrapper| serde_json::json!({ wrapper: analysis.clone() }))
+                .unwrap_or(analysis);
+            input["version"] = Value::from(3);
+            input["parse"] = serde_json::json!({ "suppress_errors": true });
+            let input = serde_json::to_vec(&input).unwrap();
+            let constrained = apply_resource_ceiling_json(&input, "constrained", &[]).unwrap();
+            let value: Value = serde_json::from_slice(&constrained).unwrap();
+            let resources = wrapper
+                .map(|wrapper| &value[wrapper]["resources"])
+                .unwrap_or(&value["resources"]);
+
+            assert_eq!(resources["profile"], "constrained");
+            assert_eq!(resources["limits"]["max_source_bytes"], 4096);
+            assert_eq!(resources["limits"]["max_document_diagrams"], 64);
+            assert_eq!(resources["limits"]["max_model_items"], 1);
+            assert_eq!(value["version"], 3);
+            assert_eq!(value["parse"]["suppress_errors"], true);
+            assert!(value.get("resources").is_some() == wrapper.is_none());
+            parse_options(&constrained).unwrap();
+
+            let typed = analysis_options_with_resource_ceiling(&input, "constrained", &[]).unwrap();
+            assert_eq!(typed.max_source_bytes(), Some(4096));
+            assert_eq!(typed.max_document_diagrams(), Some(64));
+            assert_eq!(typed.site_config().unwrap().as_value()["theme"], "dark");
+            assert_eq!(
+                typed.rule_config().profile(),
+                merman_analysis::AnalysisRuleProfile::Recommended
+            );
+            assert_eq!(
+                typed.runtime_policy().fixed_local_offset_minutes(),
+                Some(60)
+            );
+            let operation = typed.runtime_policy().begin_operation().unwrap();
+            let today = operation.today_local();
+            assert_eq!((today.year(), today.month(), today.day()), (2026, 8, 1));
+            assert!(operation.today_is_fixed());
+        }
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn analysis_resource_ceiling_projects_default_stricter_and_zero_limits() {
+        for (input, source_bytes, document_diagrams) in [
+            (b"".as_slice(), 2 * 1024 * 1024, 256),
+            (br#"{"resources":{}}"#.as_slice(), 2 * 1024 * 1024, 256),
+            (
+                br#"{"resources":{"profile":null,"limits":{}}}"#.as_slice(),
+                2 * 1024 * 1024,
+                256,
+            ),
+            (
+                br#"{"resources":{"profile":"constrained"}}"#.as_slice(),
+                1024 * 1024,
+                128,
+            ),
+            (
+                br#"{"merman":{"resources":{"limits":{"max_source_bytes":1,"max_document_diagrams":0}}}}"#.as_slice(),
+                1,
+                0,
+            ),
+        ] {
+            let options = analysis_options_with_resource_ceiling(input, "interactive", &[]).unwrap();
+            assert_eq!(options.max_source_bytes(), Some(source_bytes));
+            assert_eq!(options.max_document_diagrams(), Some(document_diagrams));
+        }
+
+        let options = analysis_options_with_resource_ceiling(
+            br#"{"analysis":{"resources":{"limits":{"max_document_diagrams":0}}}}"#,
+            "interactive",
+            &[("max_source_bytes", 32), ("max_document_diagrams", 2)],
+        )
+        .unwrap();
+        assert_eq!(options.max_source_bytes(), Some(32));
+        assert_eq!(options.max_document_diagrams(), Some(0));
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn analysis_resource_ceiling_preserves_binding_error_status_and_order() {
+        for (input, status, message) in [
+            (
+                b"\xff".as_slice(),
+                BindingStatus::Utf8Error,
+                "invalid options_json UTF-8",
+            ),
+            (
+                br#"{"analysis":[],"resources":{"profile":"trusted-native"}}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "`analysis` wrapper must be an object",
+            ),
+            (
+                br#"{"analysis":{},"merman":{},"version":2}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "must not contain both `analysis` and `merman` wrappers",
+            ),
+            (
+                br#"{"analysis":{},"resources":{"profile":"missing"}}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "must not mix top-level resources",
+            ),
+            (
+                br#"{"analysis":{},"fixed_today":"bad"}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "must not mix top-level analysis options",
+            ),
+            (
+                br#"{"version":2,"resources":{"limits":{"max_source_bytes":2097153}}}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "loosen the transport ceiling",
+            ),
+            (
+                br#"{"version":2,"fixed_today":"bad"}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "unsupported options_json schema version",
+            ),
+            (
+                br#"{"merman":{"parse":{"suppress_errors":true}}}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "analysis option `parse` was removed",
+            ),
+            (
+                br#"{"parse":{"suppress_errors":"yes"},"fixed_today":"bad"}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "expected a boolean",
+            ),
+            (
+                br#"{"resources":{"max_source_bytes":1}}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "unknown field `max_source_bytes`",
+            ),
+            (
+                br#"{"resources":{"limits":null}}"#.as_slice(),
+                BindingStatus::OptionsJsonError,
+                "invalid options_json resources",
+            ),
+            (
+                br#"{"resources":{"limits":{"max_source_bytes":0}}}"#.as_slice(),
+                BindingStatus::InvalidArgument,
+                "resources.limits.max_source_bytes must be at least 1",
+            ),
+            (
+                br#"{"resources":{"profile":"Constrained"}}"#.as_slice(),
+                BindingStatus::InvalidArgument,
+                "unsupported resources.profile: Constrained",
+            ),
+            (
+                br#"{"resources":{"limits":{"unknown_limit":1}}}"#.as_slice(),
+                BindingStatus::InvalidArgument,
+                "resource limit id `unknown_limit`",
+            ),
+        ] {
+            let typed_error =
+                analysis_options_with_resource_ceiling(input, "interactive", &[]).unwrap_err();
+            let wire_error = apply_resource_ceiling_json(input, "interactive", &[]).unwrap_err();
+            assert_eq!(typed_error.status(), status, "input={input:?}");
+            assert!(typed_error.message().contains(message), "{typed_error:?}");
+            assert_eq!(wire_error.status(), status, "input={input:?}");
+            assert_eq!(
+                typed_error.message(),
+                wire_error.message(),
+                "input={input:?}"
+            );
+        }
+
+        for input in [
+            br#"{"resources":{"limits":{"max_source_bytes":33}}}"#.as_slice(),
+            br#"{"analysis":{"resources":{"profile":"constrained","limits":{"max_source_bytes":33}}}}"#.as_slice(),
+        ] {
+            let error = analysis_options_with_resource_ceiling(
+                input,
+                "interactive",
+                &[("max_source_bytes", 32)],
+            )
+            .unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains("requested 33, maximum 32"));
+        }
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn resource_ceiling_json_enforces_the_normalized_wire_byte_budget() {
+        let prefix = r#"{"site_config":{"padding":""#;
+        let suffix = r#""}}"#;
+        let input = format!(
+            "{prefix}{}{suffix}",
+            "x".repeat(BINDING_OPTIONS_JSON_MAX_BYTES - prefix.len() - suffix.len())
+        );
+        assert_eq!(input.len(), BINDING_OPTIONS_JSON_MAX_BYTES);
+
+        let error = apply_resource_ceiling_json(input.as_bytes(), "interactive", &[]).unwrap_err();
+        assert_eq!(error.status(), BindingStatus::ResourceLimitExceeded);
+        assert_eq!(
+            error.resource_details().unwrap().limit_id,
+            BINDING_OPTIONS_JSON_LIMIT_ID
+        );
+        let options =
+            analysis_options_with_resource_ceiling(input.as_bytes(), "interactive", &[]).unwrap();
+        assert_eq!(options.max_source_bytes(), Some(2 * 1024 * 1024));
+        assert_eq!(options.max_document_diagrams(), Some(256));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn resource_ceiling_preserves_a_stricter_profile_for_theme_compilation() {
+        let constrained = apply_resource_ceiling_json(
+            br#"{"resources":{"profile":"constrained"}}"#,
+            "interactive",
+            &[],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&constrained).unwrap();
+
+        assert_eq!(value["resources"]["profile"], "constrained");
+    }
+
+    #[cfg(all(feature = "analysis", feature = "svg"))]
+    #[test]
+    fn analysis_resource_ceiling_preserves_theme_admission_and_error_order() {
+        for wrapper in [None, Some("analysis"), Some("merman")] {
+            let mut input = wrapper
+                .map(|wrapper| serde_json::json!({ wrapper: {} }))
+                .unwrap_or_else(|| serde_json::json!({}));
+            input["theme"] = serde_json::json!({ "preset": "editor-light" });
+            let input = serde_json::to_vec(&input).unwrap();
+            let options =
+                analysis_options_with_resource_ceiling(&input, "constrained", &[]).unwrap();
+            assert_eq!(options.max_source_bytes(), Some(1024 * 1024));
+            assert_eq!(options.max_document_diagrams(), Some(128));
+        }
+
+        for (input, message) in [
+            (
+                br#"{"version":2,"theme":{"spec":null}}"#.as_slice(),
+                "unsupported options_json schema version",
+            ),
+            (
+                br#"{"theme":{"spec":null},"fixed_today":"invalid"}"#.as_slice(),
+                "must not be null",
+            ),
+            (
+                br#"{"theme":{"preset":"editor-dark","spec":{}},"fixed_today":"invalid"}"#
+                    .as_slice(),
+                "must not contain both `preset` and `spec`",
+            ),
+        ] {
+            let typed_error =
+                analysis_options_with_resource_ceiling(input, "constrained", &[]).unwrap_err();
+            let wire_error = apply_resource_ceiling_json(input, "constrained", &[]).unwrap_err();
+            assert_eq!(typed_error.status(), BindingStatus::OptionsJsonError);
+            assert!(typed_error.message().contains(message), "{typed_error:?}");
+            assert_eq!(typed_error.message(), wire_error.message());
+        }
+
+        let maximum = merman::svg::ThemeResourcePolicy::constrained()
+            .value(merman::svg::ThemeResourceLimitId::MaxThemeEncodedBytes)
+            .unwrap();
+        let input = format!(
+            r#"{{"version":2,"theme":{{{}"preset":"editor-light"}}}}"#,
+            " ".repeat(maximum)
+        );
+        let error = analysis_options_with_resource_ceiling(input.as_bytes(), "constrained", &[])
+            .unwrap_err();
+        assert_eq!(error.status(), BindingStatus::ResourceLimitExceeded);
+        let details = error.resource_details().unwrap();
+        assert_eq!(details.limit_id, "max_theme_encoded_bytes");
+        assert_eq!(details.profile, "constrained");
+        assert_eq!(details.max, u64::try_from(maximum).unwrap());
+    }
+
+    #[test]
+    fn resource_ceiling_rejects_a_looser_profile_hidden_by_generic_overrides() {
+        let constrained = ResourceOptionsJson {
+            profile: Some("constrained".to_string()),
+            limits: BTreeMap::new(),
+        };
+        let requested = ResourceOptionsJson {
+            profile: Some("interactive".to_string()),
+            limits: effective_resource_limits(&constrained)
+                .unwrap()
+                .into_iter()
+                .filter_map(|(id, value)| value.map(|value| (id.to_string(), value)))
+                .collect(),
+        };
+
+        let error = tighten_resource_options(&constrained, &requested).unwrap_err();
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(error.message().contains("requested interactive"));
+        assert!(error.message().contains("ceiling constrained"));
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn constrained_theme_limit_runs_before_typed_theme_allocation() {
+        let max = merman::svg::ThemeResourcePolicy::constrained()
+            .value(merman::svg::ThemeResourceLimitId::MaxThemeEncodedBytes)
+            .expect("constrained encoded-theme ceiling");
+        let padding = " ".repeat(max);
+        for profile in [r#""constrained""#, r#""constr\u0061ined""#] {
+            let options = format!(
+                r#"{{"resources":{{"profile":{profile}}},"theme":{{{padding}"preset":"editor-light"}}}}"#
+            );
+
+            let error = parse_options(options.as_bytes()).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::ResourceLimitExceeded);
+            let details = error.resource_details().expect("theme limit details");
+            assert_eq!(details.limit_id, "max_theme_encoded_bytes");
+            assert_eq!(details.max, u64::try_from(max).unwrap());
+            assert_eq!(details.profile, "constrained");
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn mixed_resource_profiles_use_the_strictest_raw_theme_preflight() {
+        let max = merman::svg::ThemeResourcePolicy::constrained()
+            .value(merman::svg::ThemeResourceLimitId::MaxThemeEncodedBytes)
+            .expect("constrained encoded-theme ceiling");
+        let padding = " ".repeat(max);
+        let oversized = format!(
+            r#"{{
+                "resources": {{ "profile": "constrained" }},
+                "analysis": {{ "resources": {{ "profile": "interactive" }} }},
+                "theme": {{{padding}"preset":"editor-light"}}
+            }}"#
+        );
+
+        let error = parse_options(oversized.as_bytes()).unwrap_err();
+        assert_eq!(error.status(), BindingStatus::ResourceLimitExceeded);
+        let details = error.resource_details().expect("theme limit details");
+        assert_eq!(details.limit_id, "max_theme_encoded_bytes");
+        assert_eq!(details.max, u64::try_from(max).unwrap());
+        assert_eq!(details.profile, "constrained");
+
+        let malformed_but_small = br#"{
+            "resources": { "profile": "constrained" },
+            "analysis": { "resources": { "profile": "interactive" } },
+            "theme": { "preset": "editor-light" }
+        }"#;
+        let error = parse_options(malformed_but_small).unwrap_err();
+        assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        assert!(
+            error
+                .message()
+                .contains("must not mix top-level analysis options"),
+            "unexpected error: {error:?}"
+        );
+
+        let duplicate_profile = format!(
+            r#"{{
+                "resources": {{
+                    "profile": "constrained",
+                    "profile": "interactive"
+                }},
+                "theme": {{{padding}"preset":"editor-light"}}
+            }}"#
+        );
+        let error = parse_options(duplicate_profile.as_bytes()).unwrap_err();
+        assert_eq!(error.status(), BindingStatus::ResourceLimitExceeded);
+        assert_eq!(
+            error
+                .resource_details()
+                .expect("duplicate-profile limit details")
+                .max,
+            u64::try_from(max).unwrap()
+        );
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn repeated_profile_occurrences_keep_the_strictest_preflight_policy() {
+        let repeated_profiles = std::iter::repeat_n(r#""profile":"constrained""#, 64)
+            .collect::<Vec<_>>()
+            .join(",");
+        let input = format!(r#"{{"resources":{{{repeated_profiles}}}}}"#);
+        let hints = theme_resource_profile_hints(&input);
+        let expected = merman::svg::ThemeResourcePolicy::interactive()
+            .meet(&merman::svg::ThemeResourcePolicy::constrained());
+
+        assert_eq!(theme_resource_preflight_policy(&hints, None), expected);
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn distinct_profile_presence_matches_ordered_policy_reduction() {
+        for (first, second) in [
+            (
+                merman::model::resources::ResourceProfile::Constrained,
+                merman::model::resources::ResourceProfile::TrustedNative,
+            ),
+            (
+                merman::model::resources::ResourceProfile::TrustedNative,
+                merman::model::resources::ResourceProfile::Constrained,
+            ),
+        ] {
+            let input = [
+                r#"{"resources":{"profile":""#,
+                first.id(),
+                r#""},"analysis":{"resources":{"profile":""#,
+                second.id(),
+                r#""}}}"#,
+            ]
+            .concat();
+            let hints = theme_resource_profile_hints(&input);
+            let expected = merman::svg::ThemeResourcePolicy::interactive()
+                .meet(&merman::svg::ThemeResourcePolicy::for_profile(first))
+                .meet(&merman::svg::ThemeResourcePolicy::for_profile(second));
+
+            assert_eq!(theme_resource_preflight_policy(&hints, None), expected);
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn unknown_or_null_profile_falls_back_without_single_profile_panic() {
+        for encoded_profile in ["null", r#""future-profile""#] {
+            let input = format!(r#"{{"resources":{{"profile":{encoded_profile}}}}}"#);
+            let hints = theme_resource_profile_hints(&input);
+
+            assert_eq!(
+                theme_resource_preflight_policy(&hints, None),
+                merman::svg::ThemeResourcePolicy::interactive()
+            );
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn theme_profile_probe_preserves_canonical_structure_errors() {
+        for input in [
+            br#"{"analysis":[],"theme":{"preset":"editor-light"}}"#.as_slice(),
+            br#"{"merman":null,"theme":{"preset":"editor-light"}}"#.as_slice(),
+            br#"{"resources":[],"theme":{"preset":"editor-light"}}"#.as_slice(),
+            br#"{"resources":{"profile":[]},"theme":{"preset":"editor-light"}}"#.as_slice(),
+        ] {
+            let value: Value = serde_json::from_slice(input).expect("syntactically valid JSON");
+            let canonical = parse_options_value(&value).unwrap_err();
+            let observed = parse_options(input).unwrap_err();
+
+            assert_eq!(observed.status(), canonical.status(), "input={input:?}");
+            assert_eq!(observed.message(), canonical.message(), "input={input:?}");
+        }
+    }
+
+    #[test]
+    fn resource_ceiling_rejects_looser_profiles_and_overrides() {
+        for input in [
+            br#"{"resources":{"profile":"trusted-native"}}"#.as_slice(),
+            br#"{"resources":{"limits":{"max_source_bytes":2097152}}}"#.as_slice(),
+        ] {
+            let error = apply_resource_ceiling_json(input, "constrained", &[]).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+            assert!(error.message().contains("loosen the transport ceiling"));
+        }
+    }
+
+    #[test]
+    fn resource_ceiling_rejects_ambiguous_or_malformed_wrappers() {
+        for input in [
+            br#"{"analysis":{},"merman":{}}"#.as_slice(),
+            br#"{"analysis":[]}"#.as_slice(),
+            br#"{"merman":null}"#.as_slice(),
+            br#"{"resources":{"profile":"constrained"},"analysis":{}}"#.as_slice(),
+        ] {
+            let error = apply_resource_ceiling_json(input, "constrained", &[]).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError);
+        }
+    }
+
+    #[cfg(feature = "svg")]
+    #[test]
+    fn resource_options_builder_uses_the_descriptor_and_rejects_invalid_overrides() {
+        let json = resource_options_json(
+            Some("constrained"),
+            &[("max_source_bytes", 4096), ("max_svg_bytes", 8192)],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(value["version"], BINDING_OPTIONS_SCHEMA_VERSION);
+        assert_eq!(value["resources"]["profile"], "constrained");
+        assert_eq!(value["resources"]["limits"]["max_source_bytes"], 4096);
+
+        for error in [
+            resource_options_json(Some("missing"), &[]).unwrap_err(),
+            resource_options_json(Some("interactive"), &[("unknown_limit", 1)]).unwrap_err(),
+            resource_options_json(
+                Some("interactive"),
+                &[("max_source_bytes", 1), ("max_source_bytes", 2)],
+            )
+            .unwrap_err(),
+        ] {
+            assert_eq!(error.status(), BindingStatus::InvalidArgument);
+        }
+    }
+
+    #[cfg(any(feature = "png", feature = "jpeg", feature = "pdf"))]
+    #[test]
+    fn export_backend_hard_caps_cannot_be_overridden() {
+        let hard_cap = merman::svg::export::MAX_SVG_CONVERSION_ISOLATION_DEPTH_RESOURCE_LIMIT_ID;
+        for error in [
+            resource_options_json(Some("interactive"), &[(hard_cap, 1)]).unwrap_err(),
+            parse_options(format!(r#"{{"resources":{{"limits":{{"{hard_cap}":1}}}}}}"#).as_bytes())
+                .unwrap_err(),
+        ] {
+            assert_eq!(error.status(), BindingStatus::InvalidArgument);
+            assert!(error.message().contains("not overridable"));
+        }
+    }
+
+    #[cfg(all(
+        not(feature = "svg"),
+        not(feature = "analysis"),
+        not(feature = "ascii")
+    ))]
+    #[test]
+    fn semantic_only_resource_options_accept_all_semantic_limits() {
+        let json = resource_options_json(
+            Some("constrained"),
+            &[("max_source_bytes", 4096), ("max_model_items", 1)],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(value["resources"]["limits"]["max_source_bytes"], 4096);
+        assert_eq!(value["resources"]["limits"]["max_model_items"], 1);
+    }
+
+    #[cfg(all(feature = "analysis", not(feature = "svg"), not(feature = "ascii")))]
+    #[test]
+    fn analysis_artifact_resource_options_include_semantic_model_limits() {
+        let json = resource_options_json(
+            Some("constrained"),
+            &[("max_source_bytes", 4096), ("max_model_items", 1)],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(value["resources"]["limits"]["max_source_bytes"], 4096);
+        assert_eq!(value["resources"]["limits"]["max_model_items"], 1);
+    }
+
+    #[cfg(all(
+        not(feature = "svg"),
+        not(feature = "analysis"),
+        not(feature = "ascii")
+    ))]
+    #[test]
+    fn semantic_only_build_accepts_top_level_parse_options() {
+        let options = parse_options(br#"{ "parse": { "suppress_errors": true } }"#).unwrap();
+        assert_eq!(
+            options
+                .parse
+                .as_ref()
+                .and_then(|parse| parse.suppress_errors),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn parse_options_rejects_removed_nested_analysis_parse_option() {
+        for wrapper in ["analysis", "merman"] {
+            let input =
+                format!(r#"{{ "{wrapper}": {{ "parse": {{ "suppress_errors": true }} }} }}"#);
+            let err = parse_options(input.as_bytes()).unwrap_err();
+            assert_eq!(err.status(), BindingStatus::OptionsJsonError);
+            assert!(
+                err.message()
+                    .contains("analysis option `parse` was removed"),
+                "unexpected error: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_binding_artifact_rejects_site_config_trust_controls() {
+        for input in [
+            r#"{"site_config":{"themeCSS":".node {}"}}"#,
+            r#"{"site_config":{"secure":[]}}"#,
+            r#"{"site_config":{"maxEdges":1000000}}"#,
+            r#"{"site_config":{"securityLevel":"loose"}}"#,
+            r#"{"site_config":{"dompurifyConfig":{"ADD_ATTR":["onclick"]}}}"#,
+            r#"{"analysis":{"site_config":{"themeCSS":".node {}"}}}"#,
+            r#"{"analysis":{"site_config":{"secure":[]}}}"#,
+            r#"{"analysis":{"site_config":{"maxEdges":1000000}}}"#,
+            r#"{"analysis":{"site_config":{"securityLevel":"loose"}}}"#,
+            r#"{"analysis":{"site_config":{"dompurifyConfig":{"ADD_URI_SAFE_ATTR":["href"]}}}}"#,
+            r#"{"merman":{"site_config":{"themeCSS":".node {}"}}}"#,
+            r#"{"merman":{"site_config":{"secure":[]}}}"#,
+            r#"{"merman":{"site_config":{"max_edges":1000000}}}"#,
+            r#"{"merman":{"site_config":{"security_level":"loose"}}}"#,
+            r#"{"merman":{"site_config":{"dompurify_config":{"ADD_ATTR":["onclick"]}}}}"#,
+        ] {
+            let error = parse_options(input.as_bytes()).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError, "{input}");
+            assert!(
+                error.message().contains("site_config.themeCSS")
+                    || error.message().contains("site_config.secure")
+                    || error.message().contains("site_config.maxEdges")
+                    || error.message().contains("site_config.max_edges")
+                    || error.message().contains("site_config.securityLevel")
+                    || error.message().contains("site_config.security_level")
+                    || error.message().contains("site_config.dompurifyConfig")
+                    || error.message().contains("site_config.dompurify_config"),
+                "{input}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn options_json_byte_budget_is_checked_before_materialization() {
+        enforce_options_json_byte_len(BINDING_OPTIONS_JSON_MAX_BYTES)
+            .expect("the documented maximum must remain admissible");
+        let oversized = vec![b' '; BINDING_OPTIONS_JSON_MAX_BYTES + 1];
+        let error = parse_options(&oversized).expect_err("oversized options must fail closed");
+        assert_eq!(error.status(), BindingStatus::ResourceLimitExceeded);
+        let details = error
+            .resource_details()
+            .expect("options byte-limit details");
+        assert_eq!(details.limit_id, BINDING_OPTIONS_JSON_LIMIT_ID);
+        assert_eq!(details.phase, "options-json-preflight");
+        assert_eq!(details.max, BINDING_OPTIONS_JSON_MAX_BYTES as u64);
+    }
+
+    #[test]
+    fn every_binding_artifact_rejects_unsafe_site_config_theme_variables() {
+        for input in [
+            r##"{"site_config":{"themeVariables":{"mainBkg":"#fff;}</style><script>alert(1)</script>"}}}"##,
+            r#"{"site_config":{"themeVariables":{"nodeBorder":"url(javascript:alert(1))"}}}"#,
+            r#"{"analysis":{"site_config":{"themeVariables":{"fontFamily":"u\\72l(javascript:alert(1))"}}}}"#,
+            r#"{"merman":{"site_config":{"themeVariables":{"nested":["red;stroke:blue"]}}}}"#,
+        ] {
+            let error = parse_options(input.as_bytes()).unwrap_err();
+            assert_eq!(error.status(), BindingStatus::OptionsJsonError, "{input}");
+            assert!(
+                error.message().contains("themeVariables")
+                    || error.message().contains("theme_variables"),
+                "{input}: {error:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn parse_options_accepts_merman_wrapper() {
+        let options = parse_options(
+            br#"{
+                "merman": {
+                    "lint": {
+                        "profile": "recommended"
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            options
+                .analysis
+                .lint
+                .as_ref()
+                .and_then(|lint| lint.profile.as_deref()),
+            Some("recommended")
+        );
+    }
+
+    #[cfg(feature = "analysis")]
+    #[test]
+    fn parse_options_delegates_forward_compatible_lint_fields_to_analysis_contract() {
+        let options = parse_options(
+            br#"{
+                "analysis": {
+                    "lint": {
+                        "profile": "recommended",
+                        "future_lint": { "enabled": true },
+                        "rule_severities": [{
+                            "rule_id": "merman.parse.no_diagram",
+                            "severity": "warning",
+                            "future_override": "accepted"
+                        }]
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let lint = options.analysis.lint.expect("analysis lint options");
+        assert_eq!(lint.profile.as_deref(), Some("recommended"));
+        assert_eq!(lint.rule_severities.len(), 1);
+        assert_eq!(lint.rule_severities[0].rule_id, "merman.parse.no_diagram");
+        assert_eq!(lint.rule_severities[0].severity, "warning");
+    }
+
+    #[test]
+    fn parse_options_rejects_mixed_direct_and_wrapped_analysis_options() {
+        let err = parse_options(
+            br#"{
+                "resources": { "limits": { "max_source_bytes": 4 } },
+                "analysis": {
+                    "resources": { "limits": { "max_model_items": 4 } }
+                }
+            }"#,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.status(), BindingStatus::OptionsJsonError);
+        assert!(
+            err.message()
+                .contains("must not mix top-level analysis options"),
+            "{err:?}"
+        );
+    }
+}

@@ -24,15 +24,21 @@ console-core-fonts.workspace = true
 console-core-geometry.workspace = true
 console-core-internal-programs.workspace = true
 console-core-iteration.workspace = true
+console-core-mermaid.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-core-path-rasterizer.workspace = true
 console-core-places.workspace = true
+console-core-scalable-vector-graphics = { workspace = true, features = ["text", "system-fonts"] }
+console-core-scalable-vector-graphics-rasterizer.workspace = true
 console-core-shapes.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true
+console-input-keyboard = { path = "../console-input-keyboard", default-features = false }
 console-input-text.workspace = true
 console-panel.workspace = true
 console-program-lifetime.workspace = true
+pulldown-cmark = { version = "0.13.6", default-features = false }
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true

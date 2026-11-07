@@ -15,7 +15,6 @@ mod codec;
 mod demux;
 mod error;
 mod mux;
-mod source;
 
 pub use bytes::FourCc;
 pub use codec::{
@@ -25,4 +24,4 @@ pub use codec::{
 pub use demux::{Edit, Metadata, Mp4File, Sample, SampleGroup, Track, TrackKind, open};
 pub use error::{Error, Result};
 pub use mux::{Brand, FragmentedWriter, Mp4Writer, TrackConfig, WriteSample, WriterOptions};
-pub use source::ByteSource;
+pub use console_core_byte_sources::ByteSource;

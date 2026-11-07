@@ -64,6 +64,8 @@
 //! pointer rests in the middle of the glass -- was a panel opening halfway
 //! down itself. So entering says where the pointer is and nothing more, and
 //! the highlight follows it once it moves, as a menu opened under a mouse does.
+//! Hyprland also sends a motion at the entered position when a layer opens.
+//! That is still a resting pointer: only a change in position is a move.
 //!
 //! ## A key arrives as a code and is read through the person's own keymap
 //!
@@ -1584,6 +1586,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Bound {
     }
 }
 
+fn pointer_moved(was: &mut (f64, f64), at: (f64, f64)) -> Result<Option<PointerEvent>, Never> {
+    let moved = match *was == at {
+        true => None,
+        false => Some(PointerEvent::Moved { at }),
+    };
+
+    *was = at;
+
+    Ok(moved)
+}
+
 impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
     #[cfg_attr(
         dylint_lib = "explicit016_no_wildcard_arm",
@@ -1605,9 +1618,9 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
                 bound.pointer_at = (surface_x, surface_y);
             }
             wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
-                bound.pointer_at = (surface_x, surface_y);
+                let Ok(moved) = pointer_moved(&mut bound.pointer_at, (surface_x, surface_y));
 
-                bound.pointer_events.push(PointerEvent::Moved { at: bound.pointer_at });
+                bound.pointer_events.extend(moved);
             }
             wl_pointer::Event::Leave { .. } => bound.pointer_events.push(PointerEvent::Left),
             wl_pointer::Event::Axis { axis, value, .. } => match axis {
@@ -1628,6 +1641,32 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Bound {
             },
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use super::*;
+
+    #[test]
+    fn a_motion_at_the_entered_position_leaves_the_highlight_alone() {
+        let mut at = (512.0, 280.0);
+        let Ok(moved) = pointer_moved(&mut at, (512.0, 280.0));
+
+        assert_eq!(moved, None);
+    }
+
+    #[test]
+    fn moving_after_entering_still_reaches_the_panel() {
+        let mut at = (512.0, 280.0);
+        let Ok(moved) = pointer_moved(&mut at, (512.0, 281.0));
+        let Ok(resting) = pointer_moved(&mut at, (512.0, 281.0));
+        let Ok(back) = pointer_moved(&mut at, (512.0, 280.0));
+
+        assert_eq!(moved, Some(PointerEvent::Moved { at: (512.0, 281.0) }));
+        assert_eq!(resting, None);
+        assert_eq!(back, Some(PointerEvent::Moved { at: (512.0, 280.0) }));
+        assert_eq!(at, (512.0, 280.0));
     }
 }
 

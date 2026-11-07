@@ -290,7 +290,7 @@ impl<'a> SliceDecoder<'a> {
             left -= 16;
         }
         // (bits beyond 32 shift out, as the bin-by-bin loop did)
-        v.checked_shl(left).unwrap_or(0) | self.c.decode_bypass_bits(left)
+        v.checked_shl(left).unwrap_or(0) | self.c.decode_bypass_bits(left as u8)
     }
 
     /// Decode the slice segment `job` into `pic`.

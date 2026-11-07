@@ -32,12 +32,12 @@
 
 mod colour;
 mod decoders;
-mod source;
 mod tracks;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+use console_core_byte_sources::FileSource;
 use console_core_geometry::Size;
 use console_core_iteration::Step;
 use console_core_never::Never;
@@ -48,7 +48,6 @@ pub use decoders::DecodeFault;
 pub use tracks::{ContainerFault, Language, Subtitles, Turn};
 
 use decoders::Decoder;
-use source::Opened;
 use tracks::{Container, Video};
 
 #[derive(Debug)]
@@ -87,7 +86,7 @@ pub struct Facts {
 
 pub struct Film {
     at: PathBuf,
-    opened: Opened,
+    opened: FileSource,
     container: Container,
     video: Option<Video>,
     sound: Sound,
@@ -97,7 +96,7 @@ pub struct Film {
 
 pub fn open(at: &Path) -> Result<Option<Film>, FilmError> {
     let file = File::open(at).map_err(|fault| FilmError::Unopened(at.to_path_buf(), fault))?;
-    let opened = Opened::from(file);
+    let opened = FileSource::new(file).map_err(|fault| FilmError::Unopened(at.to_path_buf(), fault))?;
     let read = tracks::read(&opened);
 
     let read = match read {

@@ -2,8 +2,14 @@
 
 Clean-room, pure-Rust (no `unsafe`) H.264 / AVC decoder, implemented from the public ITU-T
 Rec. H.264 (ISO/IEC 14496-10) specification. It is an L0 crate: it depends only on
-`filmcraft-bitstream`, `thiserror`, and optionally `rayon` (default feature `threads`), and builds
+`console-core-video-decoding-bitstream`, `console-core-adaptive-arithmetic-decoding`, `thiserror`,
+and optionally `rayon` (default feature `threads`), and builds
 for `wasm32-unknown-unknown`.
+
+The CABAC arithmetic engine and range transitions now live under
+[`crates/console-core-adaptive-arithmetic-decoding`](../../crates/console-core-adaptive-arithmetic-decoding).
+This fork keeps AVC context initialization, storage and syntax, converting its
+bit positions to the shared engine's named byte positions.
 
 All syntax tables (CAVLC code tables, the 1024 CABAC `(m, n)` context initialisation pairs,
 `rangeTabLPS`, scaling defaults, deblocking thresholds, the 8x8 significance-map tables) were

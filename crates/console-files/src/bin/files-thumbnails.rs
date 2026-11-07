@@ -143,7 +143,9 @@ fn make_thumbnail(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
         None => return Ok(()),
     };
 
-    let png = match thumbnails::drawn(thing, kind) {
+    let Ok(changed) = changed_at(thing);
+    let stamp = thumbnails::Stamp { address: &address, changed: &changed };
+    let png = match thumbnails::drawn(thing, kind, Some(stamp)) {
         Ok(Some(png)) => png,
         Ok(None) => return Ok(()),
         Err(fault) => {
@@ -153,19 +155,7 @@ fn make_thumbnail(thing: &Path, kind: &str, store: &Path) -> Result<(), Never> {
         }
     };
 
-    let Ok(changed) = changed_at(thing);
-    let said = thumbnails::stamped(&png, thumbnails::Stamp { address: &address, changed: &changed })?;
-
-    let said = match said {
-        Some(said) => said,
-        None => {
-            eprintln!("files-thumbnails: {}: the picture made of it is not a PNG", thing.display());
-
-            return Ok(());
-        }
-    };
-
-    match console_core_atomic_writes::whole(&kept, &said) {
+    match console_core_atomic_writes::whole(&kept, &png) {
         Ok(()) => {},
         Err(fault) => eprintln!("files-thumbnails: {}: writing the picture: {fault}", kept.display()),
     }

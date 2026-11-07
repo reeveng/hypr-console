@@ -1,10 +1,24 @@
 # Which crate owns a thing
 
+The [duplicate responsibility audit](duplicate-responsibilities.md) records
+where ownership still overlaps across the workspace and the carried forks,
+and where each extracted responsibility is moving.
+
+`console-core-mq-decoding` owns the MQ arithmetic engine and probability states
+shared by the JBIG2 and JPEG 2000 forks. The codecs keep context selection and
+bitplane interpretation; the shared crate needs neither allocation nor `std`.
+
+`console-core-adaptive-arithmetic-decoding` owns the context-adaptive binary
+arithmetic decoder shared by the AVC and HEVC forks. The codecs keep
+initialization, context storage and slice policy. Starts name byte positions
+and consumed input names bit positions; the shared crate needs neither
+allocation nor `std`.
+
 The names are settled elsewhere: `console-*`, a family sharing the word after
-the prefix, a crate named for what it does. This is the question that comes
-after the name, and it is the one that goes wrong quietly — when two crates
-want the same knowledge, which of them keeps it, and what does the other one
-ask for.
+the prefix, a crate named for what it does, with terms spelled out rather than
+abbreviated. This is the question that comes after the name, and it is the one
+that goes wrong quietly — when two crates want the same knowledge, which of
+them keeps it, and what does the other one ask for.
 
 ## Arithmetic no one owned
 

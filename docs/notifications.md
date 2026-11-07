@@ -27,8 +27,16 @@ The package cannot be removed without taking the login manager with it, so the
 name is taken instead. `/usr/local/share/dbus-1/services/` is searched before
 `/usr/share/`, and the file there names `console-notify.service`, so anything
 that asks for the name before the desktop is up starts this desktop's own
-daemon rather than KDE's dead one. With the desktop up the question never
-arises: the target has already started it and it already holds the name.
+daemon rather than KDE's dead one, once the session has handed its display to
+the user manager. With the desktop up the question never arises: the target
+has already started it and it already holds the name.
+
+The unit requires `WAYLAND_DISPLAY` in that manager's environment. An update
+check running as root once raised a notification on root's own bus, where
+there is no screen. D-Bus started this unit there, it failed to connect, and
+the restart policy kept starting it again while the desktop's own daemon was
+fine. A session without a display now leaves the unit unstarted; the desktop's
+`session-start` imports its display before starting the target.
 
 ## One unit may watch a bus name
 

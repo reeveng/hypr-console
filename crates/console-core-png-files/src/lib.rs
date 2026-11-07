@@ -57,6 +57,7 @@ pub enum PngError {
     Corrupt,
     TooLarge,
     Mismatched,
+    InvalidText,
     Deflate(ZipError),
 }
 
@@ -68,6 +69,7 @@ impl std::fmt::Display for PngError {
             PngError::Corrupt => write!(to, "the picture in here is damaged"),
             PngError::TooLarge => write!(to, "this picture would take more memory than any picture"),
             PngError::Mismatched => write!(to, "the pixels handed over are not the picture their size says"),
+            PngError::InvalidText => write!(to, "the text is not a PNG keyword and Latin-1 value"),
             PngError::Deflate(why) => write!(to, "the pixels could not be deflated: {why}"),
         }
     }
@@ -79,6 +81,12 @@ impl std::error::Error for PngError {}
 pub struct Picture {
     pub size: Size<u32>,
     pub rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Text<'a> {
+    pub keyword: &'a str,
+    pub value: &'a str,
 }
 
 pub fn measured(bytes: &[u8]) -> Result<Size<u32>, PngError> {
@@ -100,6 +108,10 @@ pub fn decoded(bytes: &[u8]) -> Result<Picture, PngError> {
 }
 
 pub fn encoded(picture: &Picture) -> Result<Vec<u8>, PngError> {
+    encoded_with_text(picture, &[])
+}
+
+pub fn encoded_with_text(picture: &Picture, text: &[Text<'_>]) -> Result<Vec<u8>, PngError> {
     let Picture { size, rgba } = picture;
     let area = u64::from(size.width).saturating_mul(u64::from(size.height));
 
@@ -119,7 +131,7 @@ pub fn encoded(picture: &Picture) -> Result<Vec<u8>, PngError> {
     let Ok(filtered) = filters::filtered(&raw, &header);
     let packed = packed(&filtered)?;
 
-    chunks::written(&header, &packed)
+    chunks::written(&header, &packed, text)
 }
 
 fn packed(filtered: &[u8]) -> Result<Vec<u8>, PngError> {

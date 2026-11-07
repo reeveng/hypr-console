@@ -11,10 +11,16 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-never.workspace = true
-console-core-external-programs.workspace = true
+
+[target.'cfg(unix)'.dependencies]
 rustix.workspace = true
 
-[dev-dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
+console-program-lifetime-linux.workspace = true
+console-program-scopes-systemd.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+console-core-external-programs.workspace = true
 console-waiting.workspace = true
 
 [lints]

@@ -1,8 +1,10 @@
 # filmcraft-isobmff
 
 A clean-room ISO Base Media File Format (MP4, ISO/IEC 14496-12/14/15) and QuickTime (MOV) demuxer and muxer,
-written from the public specifications. Layer L0: it depends only on `filmcraft-bitstream` and `thiserror`,
-has no `unsafe`, and builds for `wasm32-unknown-unknown`.
+written from the public specifications. Byte access is owned by
+[`console-core-byte-sources`](../../crates/console-core-byte-sources/src/lib.rs),
+shared with the Matroska reader. The crate also depends on the bitstream fork
+and `thiserror`, has no `unsafe`, and builds for `wasm32-unknown-unknown`.
 
 ## Demuxing
 
@@ -20,6 +22,8 @@ let bytes = mp4.read_sample(&file, v, key)?;    // raw sample (AVCC/HVCC length-
 
 - `ByteSource` (`len`, `read_at(offset, buf)`) is the input abstraction. Implementations exist for `[u8]`,
   `Vec<u8>`, `&T`, `Arc<T>`, `Box<T>`, and `std::fs::File` on non-wasm targets.
+  It is re-exported from `console-core-byte-sources`; `len` returns `std::io::Result<u64>`.
+  That crate's `FileSource` caches the measured length and `ReadSeekSource` adapts a seekable reader.
 - `open` reads only top-level box headers, `ftyp`, `moov` and every `moof`. It never reads `mdat`.
   The one exception is the first sample of a `tmcd` track, which it reads (4 bytes) to get the timecode
   start frame.

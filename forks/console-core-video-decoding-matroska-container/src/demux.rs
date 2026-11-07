@@ -6,7 +6,7 @@ use crate::ebml::{self, Children, Lacing, Size, parse_lacing, read_id, read_size
 use crate::error::{Error, Result};
 use crate::ids::*;
 use crate::meta::*;
-use crate::source::{ByteSource, ReadSeekSource};
+use crate::{ByteSource, ReadSeekSource};
 use crate::track::{Sample, Track, TrackKind, gcd};
 
 const WIN: usize = 64 * 1024;
@@ -163,9 +163,9 @@ impl Hdr {
 }
 
 impl<'a, S: ByteSource + ?Sized> Io<'a, S> {
-    fn new(src: &'a S, cache: &'a mut Cache) -> Self {
-        let len = src.len();
-        Self { src, len, cache }
+    fn new(src: &'a S, cache: &'a mut Cache) -> Result<Self> {
+        let len = src.len()?;
+        Ok(Self { src, len, cache })
     }
 
     /// Up to `n` (≤ WIN) bytes at `pos` (fewer at EOF).
@@ -521,7 +521,7 @@ pub fn open_with<S: ByteSource>(src: S, opts: &OpenOptions) -> Result<MkvFile> {
 }
 
 fn open_impl<S: ByteSource + ?Sized>(src: &S, opts: &OpenOptions, cache: &mut Cache) -> Result<MkvFile> {
-    let mut io = Io::new(src, cache);
+    let mut io = Io::new(src, cache)?;
     let len = io.len;
     // EBML header (tolerate leading junk in the first 64 KiB)
     let start = {
@@ -997,7 +997,7 @@ impl<S: ByteSource> Demuxer<S> {
 
     fn seek_via_cue(&mut self, track: usize, ticks: i64, cluster_position: u64) -> Result<Option<SeekPoint>> {
         let abs = self.file.segment_data_start + cluster_position;
-        let mut io = Io::new(&self.src, &mut self.cache);
+        let mut io = Io::new(&self.src, &mut self.cache)?;
         let Some(h) = io.header(abs, self.file.segment_end)? else { return Ok(None) };
         if h.id != CLUSTER {
             self.file.warnings.push(format!("cue points at {abs}, which is not a Cluster"));
@@ -1035,7 +1035,7 @@ impl<S: ByteSource> Demuxer<S> {
         let mut data = if t.frames_readable() { t.frame_prefix(f.size as u64) } else { Vec::new() };
         let at = data.len();
         data.resize(at + f.size as usize, 0);
-        let mut io = Io::new(&self.src, &mut self.cache);
+        let mut io = Io::new(&self.src, &mut self.cache)?;
         if (f.size as usize) <= WIN / 2 {
             let b = io.peek(f.offset, f.size as usize)?;
             if b.len() != f.size as usize {
@@ -1066,7 +1066,7 @@ impl<S: ByteSource> Demuxer<S> {
     fn fill(&mut self) -> Result<bool> {
         let seg_end = self.file.segment_end;
         let scale = self.file.info.timestamp_scale;
-        let mut io = Io::new(&self.src, &mut self.cache);
+        let mut io = Io::new(&self.src, &mut self.cache)?;
         let lookup = track_lookup(&self.file.tracks);
         loop {
             if let Some(c) = self.cluster {

@@ -52,6 +52,9 @@ std = []
 name = "console_core_black_and_white_images"
 path = "src/lib.rs"
 
+[dependencies.console-core-mq-decoding]
+path = "../../crates/console-core-mq-decoding"
+
 [dependencies.fearless_simd]
 version = "0.4.0"
 optional = true
@@ -67,3 +70,7 @@ default-features = false
 
 [lints.rust]
 warnings = "allow"
+
+[[test]]
+name = "the_pixels"
+path = "tests/the_pixels.rs"

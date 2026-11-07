@@ -13,14 +13,9 @@
 //! moment of a film is a black screen or a title more often than it is the film.
 //! A film shorter than that is drawn from its start.
 //!
-//! What it also does is say what the picture is of. The standard asks for two
-//! lines of text inside the PNG -- the address of the thing and when that thing
-//! last changed -- and they are how every other file manager decides whether
-//! what it found is still about the file it is looking at. gdk-pixbuf wrote
-//! them as it wrote the file; `console-core-png-files` writes a picture and
-//! nothing else, so they are put in here, as the one chunk the format was
-//! designed to carry and this tree can write: a length, a name, the bytes, and a
-//! CRC32 of the two.
+//! What the picture is of is supplied as text to `console-core-png-files`:
+//! the address of the thing and when it last changed. The thumbnail standard
+//! names those fields; the PNG crate owns how they are written into a file.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -29,11 +24,10 @@ use console_concurrency::Cores;
 use console_films::{FilmError, open};
 use console_core_geometry::Size;
 use console_core_never::Never;
-use console_core_number_conversion::index;
-use console_core_png_files::{Picture, PngError, encoded};
+use console_core_png_files::{Picture, PngError, Text, encoded_with_text};
 use console_pictures::{PictureError, decoded, fit_within};
 
-use console_core_checksums::{crc32, md5};
+use console_core_checksums::md5;
 
 pub const SIDE: u32 = 128;
 
@@ -84,7 +78,7 @@ pub fn of(store: &Path, address: &str) -> Result<Option<PathBuf>, Never> {
     Ok(Some(store.join(format!("{digest}.png"))))
 }
 
-pub fn drawn(thing: &Path, kind: &str) -> Result<Option<Vec<u8>>, ThumbnailError> {
+pub fn drawn(thing: &Path, kind: &str, stamp: Option<Stamp<'_>>) -> Result<Option<Vec<u8>>, ThumbnailError> {
     let within = Size { width: SIDE, height: SIDE };
 
     let into_it = match kind.starts_with("video/") {
@@ -103,8 +97,16 @@ pub fn drawn(thing: &Path, kind: &str) -> Result<Option<Vec<u8>>, ThumbnailError
         },
     };
 
+    let text = match stamp {
+        Some(Stamp { address, changed }) => vec![
+            Text { keyword: URI, value: address },
+            Text { keyword: CHANGED, value: changed },
+        ],
+        None => Vec::new(),
+    };
+
     match picture {
-        Some(picture) => encoded(&picture).map(Some).map_err(ThumbnailError::Unwritten),
+        Some(picture) => encoded_with_text(&picture, &text).map(Some).map_err(ThumbnailError::Unwritten),
         None => Ok(None),
     }
 }
@@ -138,92 +140,14 @@ fn into_a_film(thing: &Path, within: Size<u32>) -> Result<Option<Picture>, FilmE
     Ok(Some(Picture { size: drawn.size, rgba: drawn.rgba }))
 }
 
-const HEAD: u32 = 8;
-
-const SIZE: u32 = 4;
-
-const NAME: u32 = 4;
-
-const IMAGE_HEADER: &[u8] = b"IHDR";
-
-const TEXT: &[u8] = b"tEXt";
-
 pub const URI: &str = "Thumb::URI";
 
 pub const CHANGED: &str = "Thumb::MTime";
-
-fn chunk(name: &[u8], said: &[u8]) -> Result<Vec<u8>, Never> {
-    let mut out = Vec::new();
-    let Ok(long) = u32::try_from(said.len()).map_or_else(|_| Ok::<u32, Never>(0), Ok);
-
-    out.extend_from_slice(&long.to_be_bytes());
-    out.extend_from_slice(name);
-    out.extend_from_slice(said);
-
-    let mut over = name.to_vec();
-
-    over.extend_from_slice(said);
-
-    let Ok(check) = crc32::of(&over);
-
-    out.extend_from_slice(&check.to_be_bytes());
-
-    Ok(out)
-}
-
-struct Text<'a> {
-    key: &'a str,
-    value: &'a str,
-}
-
-fn encode_text_chunk(text: Text<'_>) -> Result<Vec<u8>, Never> {
-    let Text { key, value } = text;
-    let mut out = key.as_bytes().to_vec();
-
-    out.push(0);
-    out.extend_from_slice(value.as_bytes());
-
-    chunk(TEXT, &out)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stamp<'a> {
     pub address: &'a str,
     pub changed: &'a str,
-}
-
-pub fn stamped(png: &[u8], stamp: Stamp<'_>) -> Result<Option<Vec<u8>>, Never> {
-    let Stamp { address, changed } = stamp;
-    let Ok(from) = index(HEAD);
-    let Ok(to) = index(HEAD.saturating_add(SIZE).saturating_add(NAME));
-    let header = png.get(from..to);
-
-    let long = match header {
-        Some([one, two, three, four, name @ ..]) => match name == IMAGE_HEADER {
-            true => u32::from_be_bytes([*one, *two, *three, *four]),
-            false => return Ok(None),
-        },
-        Some(_shorter) => return Ok(None),
-        None => return Ok(None),
-    };
-
-    let Ok(after) =
-        index(HEAD.saturating_add(SIZE).saturating_add(NAME).saturating_add(long).saturating_add(SIZE));
-
-    let (before, rest) = match (png.get(..after), png.get(after..)) {
-        (Some(before), Some(rest)) => (before, rest),
-        (None, _) | (_, None) => return Ok(None),
-    };
-
-    let mut out = before.to_vec();
-    let Ok(uri) = encode_text_chunk(Text { key: URI, value: address });
-    let Ok(when) = encode_text_chunk(Text { key: CHANGED, value: changed });
-
-    out.extend_from_slice(&uri);
-    out.extend_from_slice(&when);
-    out.extend_from_slice(rest);
-
-    Ok(Some(out))
 }
 
 pub fn fresh(made: SystemTime, changed: SystemTime) -> Result<Fresh, Never> {
@@ -275,53 +199,28 @@ pub fn find_thumbnail(store: &Path, path: &Path) -> Result<Option<PathBuf>, Neve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use console_core_number_conversion::index;
     use std::error::Error;
     use std::time::Duration;
 
-    const A_PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
-
-    fn a_picture() -> Result<Vec<u8>, Never> {
-        let mut png = A_PNG.to_vec();
-        let Ok(header) = chunk(IMAGE_HEADER, &[0; 13]);
-        let Ok(end) = chunk(b"IEND", &[]);
-
-        png.extend_from_slice(&header);
-        png.extend_from_slice(&end);
-
-        Ok(png)
-    }
-
     #[test]
-    fn what_the_picture_is_of_is_written_into_it_where_the_standard_looks() -> Result<(), Box<dyn Error>> {
-        let Ok(png) = a_picture();
-        let Ok(said) = stamped(&png, Stamp { address: "file:///home/ada/beach.jpg", changed: "1700000000" });
-        let said = said.ok_or("a PNG this test just built")?;
+    fn what_the_picture_is_of_is_written_into_it_without_changing_the_pixels() -> Result<(), Box<dyn Error>> {
+        let at = Path::new(env!("CARGO_MANIFEST_DIR")).join("../console-core-png-files/tests/pictures/rgba-8.png");
+        let stamp = Stamp { address: "file:///home/ada/beach.jpg", changed: "1700000000" };
+        let stamped = drawn(&at, "image/png", Some(stamp))?;
+        let png = stamped.ok_or("no thumbnail")?;
+        let unstamped = drawn(&at, "image/png", None)?;
+        let plain = unstamped.ok_or("no thumbnail")?;
+        let picture = console_core_png_files::decoded(&png)?;
+        let original = console_core_png_files::decoded(&plain)?;
+        let uri = format!("{URI}\0{}", stamp.address);
+        let changed = format!("{CHANGED}\0{}", stamp.changed);
 
-        assert!(said.windows(URI.len()).any(|said| said == URI.as_bytes()));
-        assert!(said.windows(CHANGED.len()).any(|said| said == CHANGED.as_bytes()));
-        assert!(said.len() > png.len());
-        assert_eq!(said.get(..8).map(<[u8]>::to_vec), Some(A_PNG.to_vec()));
+        assert_eq!(picture, original);
+        assert!(png.windows(uri.len()).any(|bytes| bytes == uri.as_bytes()));
+        assert!(png.windows(changed.len()).any(|bytes| bytes == changed.as_bytes()));
 
         Ok(())
-    }
-
-    #[test]
-    fn the_two_lines_go_after_the_header_and_before_everything_else() -> Result<(), Box<dyn Error>> {
-        let Ok(png) = a_picture();
-        let Ok(said) = stamped(&png, Stamp { address: "file:///x", changed: "1" });
-        let said = said.ok_or("a PNG this test just built")?;
-        let before_the_end: Vec<&[u8]> = said.windows(4).take_while(|four| *four != b"IEND").collect();
-
-        assert!(said.windows(4).any(|four| four == b"IEND"));
-        assert!(before_the_end.contains(&b"tEXt".as_slice()));
-
-        Ok(())
-    }
-
-    #[test]
-    fn a_file_that_is_not_a_png_is_left_alone() {
-        assert_eq!(stamped(b"this is not a picture", Stamp { address: "file:///x", changed: "1" }), Ok(None));
-        assert_eq!(stamped(&[], Stamp { address: "file:///x", changed: "1" }), Ok(None));
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,7 +233,7 @@ mod tests {
     fn drawn_from(file: (&str, &str)) -> Result<console_core_png_files::Picture, Box<dyn Error>> {
         let (named, kind) = file;
         let at = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(named);
-        let made = drawn(&at, kind)?;
+        let made = drawn(&at, kind, None)?;
         let png = made.ok_or(format!("nothing was drawn of {named}"))?;
         let picture = console_core_png_files::decoded(&png)?;
 

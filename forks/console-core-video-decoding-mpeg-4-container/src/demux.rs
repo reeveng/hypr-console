@@ -3,7 +3,7 @@
 use crate::bytes::{Cur, FourCc, boxes, find, parse_box_header};
 use crate::codec::{CodecConfig, SampleEntry, parse_sample_entry};
 use crate::error::{Error, Result, invalid};
-use crate::source::ByteSource;
+use crate::ByteSource;
 use std::collections::HashMap;
 
 /// Hard cap on per-track sample count (after PCM chunk merging).
@@ -222,7 +222,7 @@ impl Mp4File {
 
 fn read_range<S: ByteSource + ?Sized>(src: &S, offset: u64, size: u64) -> Result<Vec<u8>> {
     let end = offset.checked_add(size).ok_or(Error::Truncated("sample"))?;
-    if end > src.len() {
+    if end > src.len()? {
         return Err(Error::Truncated("sample data"));
     }
     let mut v = vec![0u8; size as usize];
@@ -232,7 +232,7 @@ fn read_range<S: ByteSource + ?Sized>(src: &S, offset: u64, size: u64) -> Result
 
 /// Parse an MP4/MOV file. Only box headers, `ftyp`, `moov` and `moof` boxes are read.
 pub fn open<S: ByteSource>(src: S) -> Result<Mp4File> {
-    let len = src.len();
+    let len = src.len()?;
     let mut offset = 0u64;
     let mut ftyp: Option<Vec<u8>> = None;
     let mut moov: Option<(u64, Vec<u8>)> = None;

@@ -12,6 +12,7 @@ name = "console_core_video_decoding_mpeg_4_container"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-byte-sources = { path = "../../crates/console-core-byte-sources" }
 console-core-video-decoding-bitstream = { path = "../console-core-video-decoding-bitstream" }
 thiserror = "2"
 

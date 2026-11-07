@@ -16,6 +16,7 @@ default = ["threads"]
 threads = ["dep:rayon"]
 
 [dependencies]
+console-core-adaptive-arithmetic-decoding = { path = "../../crates/console-core-adaptive-arithmetic-decoding" }
 console-core-video-decoding-bitstream = { path = "../console-core-video-decoding-bitstream" }
 thiserror = "2"
 rayon = { version = "1", optional = true }

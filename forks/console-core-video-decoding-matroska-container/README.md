@@ -2,11 +2,17 @@
 
 A clean-room Matroska (MKV) and WebM demuxer, plus a minimal muxer, written from the public
 specifications: RFC 8794 (EBML), RFC 9559 (Matroska), the Matroska codec mappings and the WebM
-container guidelines. Layer L0: it depends only on `std`, has no `unsafe`, and builds for
+container guidelines. Byte access is owned by
+[`console-core-byte-sources`](../../crates/console-core-byte-sources/src/lib.rs),
+shared with the MPEG-4 reader. The crate has no `unsafe` and builds for
 `wasm32-unknown-unknown`. No GPL/LGPL code (FFmpeg, libmatroska, mkvtoolnix) was consulted;
 FFmpeg is used only as an external test oracle.
 
 ## Demuxing
+
+`ByteSource` and `ReadSeekSource` are re-exported from `console-core-byte-sources`.
+Length queries return `std::io::Result<u64>` so a failed measurement reaches the
+caller as an I/O error. `ReadSeekSource::into_inner` returns `Result<R, Never>`.
 
 ```rust
 use filmcraft_matroska::{Demuxer, TrackKind, open};

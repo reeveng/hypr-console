@@ -4,7 +4,9 @@
 //! its contents are what was written, so the folder reads the same in any
 //! editor and goes anywhere Syncthing or a copy takes it, with no database
 //! beside it to lose. [`folder`] is the files, [`pages`] is which rows of a
-//! note are on the page being written, and the `notes` program draws both.
+//! note are on the page being written, and [`diagrams`] draws its fenced
+//! Mermaid blocks. The `notes` program puts them on the screen.
 
+pub mod diagrams;
 pub mod folder;
 pub mod pages;

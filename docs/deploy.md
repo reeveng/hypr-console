@@ -9,14 +9,28 @@ device keeps at `/etc/console`, and then the machine's own `console apply`.
 Everything clever happens on the handheld, out of the manifest it was just
 handed. Nothing compiled travels, and no file is copied into place from here.
 
-That is why the tree has to be committed before anything is sent. What reaches
-the device is the history, so what is deployed is what someone can look at
-afterwards and read. `console-deploy` refuses a dirty tree for that
-reason, and its escape hatch is a clone: when other work is uncommitted in this
-checkout, send the history alone out of a copy no one is working in.
+What reaches the device is the history, so what is deployed is what someone
+can look at afterwards and read -- and what `just ready` is asked of has to be
+that commit and nothing beside it. So a deploy is not run in this checkout at
+all. `console-deploy` keeps a worktree of its own at `console-deploy.tree` in
+the git directory, beside its lock, places the commit being sent in it at the
+start of every run, clears it of everything git does not ignore, and runs the
+gate, the fetch, the push and the checks after the apply from inside it.
+Whatever is uncommitted here is named on the way past, so somebody who forgot
+to commit is told, and it is left where it is rather than refused.
 
-    clone=$(mktemp -d)/console && git clone . "$clone" && cd "$clone"
-    just deploy
+It used to be refused. Several sessions share this checkout, so the refusal
+was most deploys, and the way round it was a clone made by hand somewhere no
+one was working. That clone was the whole cost of the gate: it had no `target`
+to build on, and no record of the last tree that passed, because that record
+lives in the git directory and went with the clone -- so every deploy out of
+one built and tested the whole workspace from nothing. The one this page used
+to suggest was made under `/tmp`, which is memory on the laptop this runs on,
+and once ran out of it in the middle of a build. A worktree shares the git
+directory, so the tree that last passed is the one both it and this checkout
+narrow from, and the `target` inside it is warm from the deploy before. The
+first deploy into a machine that has never had one makes the tree and pays the
+whole build once.
 
 ## Who is asked
 
@@ -91,19 +105,18 @@ know it, which is not the same as answering no, and the deploy goes on.
 Then the device is asked what it has that this does not. Anything committed on
 the machine by `console save` shows up here as itself rather than arriving days
 later as a push refused for not fast-forwarding, and `just pull` is the answer
-to it. The tree is asked once more at the last moment too: `just ready` and the
-fetch are minutes, and a file written in this checkout while they ran is exactly
-the fault that check exists for.
+to it. The deploy tree is asked once more at the last moment too, and its commit
+compared with the one placed. Nobody works in it, so what that asks now is
+whether the gate wrote into the tree it was passing -- which it did once, when a
+newer graphviz redrew the picture of the map and nothing committed said so.
 
 A deploy is held against another deploy as well. `console-deploy` takes
 `.git/console-deploy.lock` with `mkdir` and keeps it for the whole run,
 `--check` included, so a second one is refused and told who is holding it and
 since when; a lock left behind by a killed deploy is taken over, but only where
-the pid it names is one this machine could have been running. What a lock cannot
-do is hold a checkout still. Several sessions share this one and a session
-editing a file is not running `console-deploy`, so the refusal is not what keeps
-a deploy honest -- the tree being asked again immediately before the push is,
-and that is why it is asked twice rather than once.
+the pid it names is one this machine could have been running. The lock is also
+what keeps the deploy tree to one run at a time, since the tree is placed afresh
+at the start of every one.
 
 ## What `console apply` does with each kind of thing
 

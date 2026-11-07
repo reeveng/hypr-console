@@ -12,6 +12,7 @@ name = "console_core_video_decoding_matroska_container"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-byte-sources = { path = "../../crates/console-core-byte-sources" }
 
 [lints.rust]
 warnings = "allow"

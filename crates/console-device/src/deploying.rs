@@ -5,15 +5,36 @@
 //! change was made here or made there and saved. Everything after the push is
 //! the machine's own `console` doing what it always does.
 //!
-//! ## The two moments the tree is looked at
+//! ## The tree a deploy is asked of
 //!
-//! A deploy reads the tree, decides it is still, and then spends minutes in
-//! `just ready` and an ssh round trip before it pushes. Twice it has been
-//! beaten in that window by a file appearing from a session that had no way to
-//! know, and what went to the device was not what was looked at. So the tree
-//! is asked again at the last moment it could still change anything, and the
-//! commit it was on is compared as well: a branch that moved is a set of
-//! commits `just ready` never saw.
+//! What reaches the device is the history, so what `just ready` is asked of
+//! has to be a commit and nothing beside it. That used to be the checkout this
+//! runs in, refused whenever anything in it was uncommitted -- and several
+//! sessions share that checkout, so it was refused most of the time, and the
+//! way out was a clone made by hand somewhere no one was working. A clone made
+//! by hand is a clone made cold: no `target` to build on, and no record of the
+//! last tree that passed, because that lives in the clone's own git directory
+//! and went with it. Every deploy out of one paid for the whole workspace, and
+//! the one the documentation suggested was made under `/tmp`, which on the
+//! laptop this runs on is memory and ran out in the middle of a build.
+//!
+//! So the clone is this program's own and it stays: a worktree at
+//! `console-deploy.tree` in the git common directory, beside the lock and the
+//! record of what passed, placed on the commit being sent at the start of
+//! every deploy and cleared of everything but what git ignores. The `target`
+//! inside it is warm from the last deploy, and a worktree shares the common
+//! directory, so the tree that last passed is the one this checkout's own
+//! `just ready` narrows from as well. Everything from the gate to the checks
+//! after the apply runs inside it, which is the promise worth holding: no word
+//! of the checkout people are working in is built, tested or sent. What is
+//! uncommitted there is named, so somebody who forgot to commit is told, and
+//! left where it is.
+//!
+//! The tree is still asked again at the last moment it could change anything,
+//! and its commit compared with the one placed. Nobody works in it, so what is
+//! asked now is whether the gate wrote into the tree it was passing -- which it
+//! did, once, when the picture of the map was redrawn by a newer graphviz and
+//! nothing had been committed to say so.
 //!
 //! ## What is asked before anything is spent
 //!
@@ -68,11 +89,11 @@
 //! the checks behind it. The gate is the default because a deploy nobody
 //! thought about should still have passed it; this is for the person who has
 //! thought about it and is waiting on minutes of tests for a change they can
-//! see. What it does not skip is the committed tree, the toolchain and the
+//! see. What it does not skip is the tree being placed, the toolchain and the
 //! room on the device, which are seconds and are the ones that fail halfway
 //! through an apply.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
@@ -87,6 +108,8 @@ use console_device_name::HOST;
 pub const TREE: &str = console_repository::DEVICE_ROOT;
 
 pub const LOCK: &str = "console-deploy.lock";
+
+pub const DEPLOY_TREE: &str = "console-deploy.tree";
 
 pub const CHECK: Flag = Flag { spelling: "--check", takes: Takes::None, about: "ask the device what this would change, and send nothing" };
 
@@ -153,6 +176,7 @@ pub struct Going {
     pub host: String,
     pub how: How,
     pub lock: PathBuf,
+    pub tree: PathBuf,
     pub was: String,
     pub whom: String,
     pub toolchain: String,
@@ -212,6 +236,9 @@ pub enum Step {
     Retaking,
     Still,
     Marking,
+    Placing,
+    Adding,
+    Clearing,
     Toolchain(Side),
     Room,
     Ready,
@@ -295,6 +322,7 @@ fn initial(deployment: &Deployment) -> Result<Transition<Deploying, Effect<Deplo
                 host: deployment.host.clone(),
                 how: deployment.how,
                 lock: PathBuf::new(),
+                tree: PathBuf::new(),
                 was: String::new(),
                 whom: String::new(),
                 toolchain: String::new(),
@@ -338,8 +366,9 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
         (Step::Rooting, Event::Replied(answer)) => match answer.status {
             ExitStatus::Failure(_) => stopped_at(step, going, "this is not a git repository"),
             ExitStatus::Success => {
-                let lock = PathBuf::from(answer.output.trim()).join(LOCK);
-                let going = Going { lock: lock.clone(), ..going.clone() };
+                let common = PathBuf::from(answer.output.trim());
+                let lock = common.join(LOCK);
+                let going = Going { lock: lock.clone(), tree: common.join(DEPLOY_TREE), ..going.clone() };
 
                 Transition::new(Deploying::At(Step::Taking, going), vec![Effect::Custom(DeployingEffect::Take(lock))])
             }
@@ -365,40 +394,67 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
 
         (Step::Reading, Event::Custom(DeployingEvent::Holder(holder))) => whose(going, holder),
 
-        (Step::Still, Event::Replied(answer)) => match answer.output.trim().is_empty() {
-            true => {
-                let Ok(marking) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
+        (Step::Still, Event::Replied(answer)) => {
+            let Ok(marking) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-                Transition::new(
-                    Deploying::At(Step::Marking, going.clone()),
-                    vec![Effect::Run(marking)],
-                )
+            let mut effects = match answer.output.trim().is_empty() {
+                true => Vec::new(),
+                false => vec![Effect::Print(format!(
+                    "not committed here, so not sent -- what is sent is the history:\n{}",
+                    answer.output.trim_end()
+                ))],
+            };
+
+            effects.push(Effect::Run(marking));
+
+            Transition::new(Deploying::At(Step::Marking, going.clone()), effects)
+        },
+
+        (Step::Marking, Event::Replied(answer)) => {
+            let going = Going { was: answer.output.trim().to_string(), ..going.clone() };
+            let Ok(placed) = placing(&going.tree, &going.was);
+
+            Transition::new(Deploying::At(Step::Placing, going), vec![Effect::Run(placed)])
+        }
+
+        (Step::Placing, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(clearing) = within(&going.tree, ExternalProgram::Git, &["clean", "-d", "--force", "--quiet"]);
+
+                Transition::new(Deploying::At(Step::Clearing, going.clone()), vec![Effect::Run(clearing)])
             },
-            false => {
-                let Ok(asked) = out_of_a_clone(
-                        "commit them first: what is deployed is what is in the history",
-                        going,
-                    );
+            ExitStatus::Failure(_) => {
+                let Ok(added) = adding(&going.tree, &going.was);
 
                 Transition::new(
-                    Deploying::At(step, going.clone()),
+                    Deploying::At(Step::Adding, going.clone()),
                     vec![
                         Effect::Print(format!(
-                            "there are changes here that are not committed:\n{}",
-                            answer.output.trim_end()
+                            "  the tree a deploy is asked of is made, at {}, and this once its gate builds from nothing",
+                            going.tree.display()
                         )),
-                        Effect::Stop(Exit::Failure(asked)),
+                        Effect::Run(added),
                     ],
                 )
             },
         },
 
-        (Step::Marking, Event::Replied(answer)) => {
-            let going = Going { was: answer.output.trim().to_string(), ..going.clone() };
-            let Ok(asked) = Command::external(ExternalProgram::Cargo, &["--version"]);
+        (Step::Adding | Step::Clearing, Event::Replied(answer)) => match answer.status {
+            ExitStatus::Success => {
+                let Ok(asked) = within(&going.tree, ExternalProgram::Cargo, &["--version"]);
 
-            Transition::new(Deploying::At(Step::Toolchain(Side::Here), going), vec![Effect::Run(asked)])
-        }
+                Transition::new(Deploying::At(Step::Toolchain(Side::Here), going.clone()), vec![Effect::Run(asked)])
+            },
+            ExitStatus::Failure(_) => stopped_at(
+                step,
+                going,
+                &format!(
+                    "the tree a deploy is asked of could not be placed at {tree}; \
+                     `git worktree remove --force {tree}` lets the next deploy make it again",
+                    tree = going.tree.display()
+                ),
+            ),
+        },
 
         (Step::Toolchain(Side::Here), Event::Replied(answer)) => {
             let going = Going { toolchain: answer.output.trim().to_string(), ..going.clone() };
@@ -433,7 +489,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
         }
 
         (Step::Room, Event::Replied(answer)) => {
-            let Ok(ready) = Command::external(ExternalProgram::Just, &["ready"]);
+            let Ok(ready) = gate(&going.tree);
             let onward = |going: &Going, first: Vec<Effect<DeployingEffect>>| {
                 let mut effects = first;
 
@@ -485,7 +541,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
         (Step::Fetching, Event::Replied(answer)) => match answer.status {
             ExitStatus::Failure(_) => stopped_at(step, going, "the device would not say what it has"),
             ExitStatus::Success => {
-                let Ok(runs) = git_log("HEAD..FETCH_HEAD");
+                let Ok(runs) = git_log(&going.tree, "HEAD..FETCH_HEAD");
 
                 Transition::new(
                     Deploying::At(Step::Behind, going.clone()),
@@ -496,7 +552,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
 
         (Step::Behind, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
-                let Ok(runs) = git_log("FETCH_HEAD..HEAD");
+                let Ok(runs) = git_log(&going.tree, "FETCH_HEAD..HEAD");
 
                 Transition::new(
                     Deploying::At(Step::Ahead, going.clone()),
@@ -517,7 +573,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
         },
 
         (Step::Ahead, Event::Replied(answer)) => {
-            let Ok(spread) = Command::external(ExternalProgram::Git, &["diff", "--stat", "FETCH_HEAD..HEAD"]);
+            let Ok(spread) = within(&going.tree, ExternalProgram::Git, &["diff", "--stat", "FETCH_HEAD..HEAD"]);
 
             Transition::new(
                 Deploying::At(Step::Spread, going.clone()),
@@ -542,7 +598,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
                     )
                 },
                 How::Yes => {
-                    let Ok(runs) = git_status();
+                    let Ok(runs) = standing(&going.tree);
 
                     Transition::new(
                         Deploying::At(Step::Settling, going.clone()),
@@ -611,31 +667,27 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
 
         (Step::Settling, Event::Replied(answer)) => match answer.output.trim().is_empty() {
             true => {
-                let Ok(moved) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
+                let Ok(moved) = within(&going.tree, ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
                 Transition::new(
                     Deploying::At(Step::Moved, going.clone()),
                     vec![Effect::Run(moved)],
                 )
             },
-            false => {
-                let Ok(asked) = out_of_a_clone(
-                        "nothing sent. What was checked above is no longer what is here. \
-                         Commit it and start again",
-                        going,
-                    );
-
-                Transition::new(
-                    Deploying::At(step, going.clone()),
-                    vec![
-                        Effect::Print(format!(
-                            "\nsomething appeared here while this deploy was running:\n{}",
-                            answer.output.trim_end()
-                        )),
-                        Effect::Stop(Exit::Failure(asked)),
-                    ],
-                )
-            },
+            false => Transition::new(
+                Deploying::At(step, going.clone()),
+                vec![
+                    Effect::Print(format!(
+                        "\nthe tree `just ready` was asked of was written to while it ran:\n{}",
+                        answer.output.trim_end()
+                    )),
+                    Effect::Stop(Exit::Failure(
+                        "nothing sent. What passed is not what is committed: commit what the gate \
+                         wrote, or find out why it writes"
+                            .to_string(),
+                    )),
+                ],
+            ),
         },
 
         (Step::Moved, Event::Replied(answer)) => match answer.output.trim() == going.was {
@@ -650,7 +702,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
                 )
             },
             false => {
-                let Ok(runs) = git_log(&format!("{}..HEAD", going.was));
+                let Ok(runs) = git_log(&going.tree, &format!("{}..HEAD", going.was));
 
                 Transition::new(
                     Deploying::At(Step::Moving, going.clone()),
@@ -663,7 +715,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
             Deploying::At(step, going.clone()),
             vec![
                 Effect::Print(format!(
-                    "\nthe branch moved while this deploy was running:\n{}",
+                    "\nthe tree `just ready` was asked of moved while it ran:\n{}",
                     answer.output.trim_end()
                 )),
                 Effect::Stop(Exit::Failure(
@@ -676,7 +728,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
         (Step::Allowing, Event::Replied(_)) => {
             let Ok(said) = into(&going.host);
 
-            let Ok(pushing) = Command::external(ExternalProgram::Git, &["push", &said, "HEAD:master"]);
+            let Ok(pushing) = within(&going.tree, ExternalProgram::Git, &["push", &said, "HEAD:master"]);
 
             Transition::new(
                 Deploying::At(Step::Pushing, going.clone()),
@@ -739,7 +791,7 @@ fn at(step: Step, going: &Going, event: &Event<DeployingEvent>) -> Result<Transi
 }
 
 fn fetched(going: &Going, first: Vec<Effect<DeployingEffect>>) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
-    let Ok(runs) = fetching(&going.host);
+    let Ok(runs) = fetching(&going.tree, &going.host);
     let mut effects = first;
 
     effects.push(Effect::Print("\n== what the device has that this does not".to_string()));
@@ -791,7 +843,7 @@ fn pressing(going: &Going) -> Result<Transition<Deploying, Effect<DeployingEffec
             vec![Effect::Stop(Exit::Success)],
         ),
         (Tests::Run, How::Yes) => {
-            let Ok(runs) = checking();
+            let Ok(runs) = checking(&going.tree);
 
             Transition::new(
                 Deploying::At(Step::Pressing, going.clone()),
@@ -820,7 +872,7 @@ fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Transition<
         ),
 
         (Whether::Send, Choice::Yes) => {
-            let Ok(runs) = git_status();
+            let Ok(runs) = standing(&going.tree);
 
             Transition::new(
                 Deploying::At(Step::Settling, going.clone()),
@@ -837,7 +889,7 @@ fn on_choice(which: Whether, chose: Choice, going: &Going) -> Result<Transition<
         ),
 
         (Whether::Check, Choice::Yes) => {
-            let Ok(runs) = checking();
+            let Ok(runs) = checking(&going.tree);
 
             Transition::new(
                 Deploying::At(Step::Pressing, going.clone()),
@@ -931,24 +983,48 @@ pub fn carding(going: &Going, which: Whether) -> Result<Command, Never> {
     on(going, &in_session)
 }
 
-pub fn fetching(host: &str) -> Result<Command, Never> {
+pub fn fetching(tree: &Path, host: &str) -> Result<Command, Never> {
     let Ok(said) = into(host);
-    Command::external(ExternalProgram::Git, &["fetch", "--quiet", &said, "master"])
+
+    within(tree, ExternalProgram::Git, &["fetch", "--quiet", &said, "master"])
 }
 
-fn checking() -> Result<Command, Never> {
-    Command::external(
-        ExternalProgram::Cargo,
-        &["run", "--quiet", "--bin", "console-check", "--", "--stage", "device", "--yes"],
-    )
+pub fn within(tree: &Path, program: ExternalProgram, arguments: &[&str]) -> Result<Command, Never> {
+    let Ok(name) = program.name();
+    let at = tree.display().to_string();
+    let words: Vec<&str> = ["-C", at.as_str(), name].into_iter().chain(arguments.iter().copied()).collect();
+
+    Command::external(ExternalProgram::Env, &words)
+}
+
+pub fn placing(tree: &Path, commit: &str) -> Result<Command, Never> {
+    within(tree, ExternalProgram::Git, &["checkout", "--quiet", "--force", "--detach", commit])
+}
+
+pub fn adding(tree: &Path, commit: &str) -> Result<Command, Never> {
+    let at = tree.display().to_string();
+
+    Command::external(ExternalProgram::Git, &["worktree", "add", "--quiet", "--force", "--detach", &at, commit])
+}
+
+pub fn gate(tree: &Path) -> Result<Command, Never> {
+    within(tree, ExternalProgram::Just, &["ready"])
+}
+
+pub fn checking(tree: &Path) -> Result<Command, Never> {
+    within(tree, ExternalProgram::Cargo, &["run", "--quiet", "--bin", "console-check", "--", "--stage", "device", "--yes"])
 }
 
 fn git_status() -> Result<Command, Never> {
     Command::external(ExternalProgram::Git, &["status", "--porcelain"])
 }
 
-fn git_log(range: &str) -> Result<Command, Never> {
-    Command::external(ExternalProgram::Git, &["log", "--oneline", range])
+fn standing(tree: &Path) -> Result<Command, Never> {
+    within(tree, ExternalProgram::Git, &["status", "--porcelain"])
+}
+
+fn git_log(tree: &Path, range: &str) -> Result<Command, Never> {
+    within(tree, ExternalProgram::Git, &["log", "--oneline", range])
 }
 
 fn on(going: &Going, command: &str) -> Result<Command, Never> {
@@ -957,16 +1033,6 @@ fn on(going: &Going, command: &str) -> Result<Command, Never> {
 
 fn into(host: &str) -> Result<String, Never> {
     Ok(format!("ssh://{host}{TREE}"))
-}
-
-fn out_of_a_clone(first: &str, going: &Going) -> Result<String, Never> {
-    let host = &going.host;
-
-    Ok(format!(
-        "{first}, or send the history alone out of a clone no one is working in:\n  \
-         clone=$(mktemp -d)/console && git clone . \"$clone\" && cd \"$clone\"\n  \
-         {HOST}={host} just deploy"
-    ))
 }
 
 fn stopped(state: &Deploying, why: &str) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
@@ -1027,8 +1093,13 @@ mod tests {
     struct Outcome {
         effects: Vec<Effect<DeployingEffect>>,
         asks: Vec<Command>,
+        printed: Vec<String>,
         pushes: u32,
         failure: Option<String>,
+    }
+
+    fn deploy_tree() -> Result<PathBuf, Never> {
+        Ok(PathBuf::from(".git").join(DEPLOY_TREE))
     }
 
     fn told(said: &Trace<Deploying, Event<DeployingEvent>, Effect<DeployingEffect>>) -> Result<Outcome, Never> {
@@ -1050,9 +1121,29 @@ mod tests {
             })
             .collect();
 
+        let printed: Vec<String> = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Print(line) => Some(line.clone()),
+                Effect::Run(_)
+                | Effect::Stream(_)
+                | Effect::Spawn(_)
+                | Effect::Prompt(_)
+                | Effect::Subscribe(_)
+                | Effect::Unsubscribe(_)
+                | Effect::Write(_)
+                | Effect::Notify(_)
+                | Effect::Stop(_)
+                | Effect::Custom(_) => None,
+            })
+            .collect();
+
         let pushes = asks
             .iter()
-            .filter(|runs| runs.arguments.first().map(String::as_str) == Some("push"))
+            .filter(|runs| match runs.arguments.as_slice() {
+                [_dash_c, _tree, _git, verb, ..] => verb == "push",
+                _shorter => false,
+            })
             .fold(0_u32, |pushes, _| pushes.saturating_add(1));
 
         let failure = effects.iter().rev().find_map(|effect| match effect {
@@ -1070,7 +1161,7 @@ mod tests {
             | Effect::Custom(_) => None,
         });
 
-        Ok(Outcome { effects, asks, pushes, failure })
+        Ok(Outcome { effects, asks, printed, pushes, failure })
     }
 
     fn run_with(given: &[&str], steps: Vec<Step>) -> Result<Outcome, Never> {
@@ -1082,7 +1173,7 @@ mod tests {
         let line = match console_core_arguments::read(&COMMAND, flags) {
             Ok(line) => line,
             Err(refusal) => {
-                return Ok(Outcome { effects: Vec::new(), asks: Vec::new(), pushes: 0, failure: Some(refusal.to_string()) });
+                return Ok(Outcome { effects: Vec::new(), asks: Vec::new(), printed: Vec::new(), pushes: 0, failure: Some(refusal.to_string()) });
             }
         };
         let Ok(deployment) = Deployment::of(host, &line);
@@ -1102,7 +1193,7 @@ mod tests {
             Step::Success(".git"),
             Step::Custom(DeployingEvent::Took),
             Step::Success(""),
-            Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+            Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
             Step::Success(""),
             Step::Success(""),
             Step::Success(""),
@@ -1198,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tree_with_uncommitted_work_is_refused_before_anything_is_made_to_hold() {
+    fn work_left_uncommitted_here_is_named_and_is_not_what_is_sent() {
         let Ok(said) = run_with(
             &["root@handheld", "--yes"],
             vec![
@@ -1206,28 +1297,110 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(" M crates/console-panel/src/panel.rs\n"),
+                Step::Success("abc123"),
             ],
         );
 
-        let Ok(runs) = git_status();
-        let Ok(rooting) = Command::external(ExternalProgram::Git, &["rev-parse", "--git-common-dir"]);
+        let Ok(tree) = deploy_tree();
+        let Ok(placed) = placing(&tree, "abc123");
 
-        assert_eq!(said.asks, vec![rooting, runs], "it went past a dirty tree");
-        assert!(said.failure.as_deref().is_some_and(|why| why.contains("clone")));
+        assert_eq!(said.failure, None, "work nobody committed stopped a deploy it could never have reached");
+        assert!(
+            said.printed.iter().any(|line| line.contains("crates/console-panel/src/panel.rs")),
+            "the work left behind was not named: {:?}",
+            said.printed
+        );
+        assert_eq!(said.asks.last(), Some(&placed), "what is sent is not the commit, placed in a tree of its own");
+    }
+
+    #[test]
+    fn nothing_after_the_tree_is_placed_runs_in_the_checkout_people_work_in() {
+        let Ok(said) = as_far_as(
+            &["--yes"],
+            vec![Step::Success(""), Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success(""), Step::Success("")],
+        );
+
+        let Ok(tree) = deploy_tree();
+        let Ok(placed) = placing(&tree, "abc123");
+        let at = tree.display().to_string();
+        let after: Vec<&Command> = said.asks.iter().skip_while(|runs| **runs != placed).collect();
+        let elsewhere: Vec<&Command> = after
+            .iter()
+            .copied()
+            .filter(|runs| runs.program != Executable::External(ExternalProgram::Ssh))
+            .filter(|runs| !(runs.program == Executable::External(ExternalProgram::Env) && runs.arguments.get(1) == Some(&at)))
+            .collect();
+
+        assert!(after.len() > 1, "the tree was never placed, or nothing came after it");
+        assert_eq!(elsewhere, Vec::<&Command>::new(), "these ran in the checkout people are working in");
+        assert_eq!(said.pushes, 1);
+    }
+
+    #[test]
+    fn a_deploy_tree_that_is_not_there_yet_is_added_and_the_deploy_goes_on() {
+        let Ok(said) = run_with(
+            &["root@handheld", "--yes"],
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Failure(125),
+                Step::Success(""),
+            ],
+        );
+
+        let Ok(tree) = deploy_tree();
+        let Ok(added) = adding(&tree, "abc123");
+        let Ok(asked) = within(&tree, ExternalProgram::Cargo, &["--version"]);
+
+        assert!(said.asks.contains(&added), "a tree that was not there was never made");
+        assert_eq!(said.asks.last(), Some(&asked), "the deploy did not go on once the tree was made");
+        assert_eq!(said.failure, None);
+    }
+
+    #[test]
+    fn a_deploy_tree_that_cannot_be_made_stops_before_a_minute_is_spent() {
+        let Ok(said) = run_with(
+            &["root@handheld", "--yes"],
+            vec![
+                Step::Opened,
+                Step::Success(".git"),
+                Step::Custom(DeployingEvent::Took),
+                Step::Success(""),
+                Step::Success("abc123"),
+                Step::Failure(125),
+                Step::Failure(128),
+            ],
+        );
+
+        let Ok(tree) = deploy_tree();
+        let Ok(ready) = gate(&tree);
+
+        assert_eq!(said.pushes, 0);
+        assert!(!said.asks.contains(&ready), "a tree that could not be placed was handed to the gate anyway");
+        assert!(
+            said.failure.as_deref().is_some_and(|why| why.contains("git worktree remove --force")),
+            "it did not say how to let the next deploy make the tree again: {:?}",
+            said.failure
+        );
     }
 
     #[test]
     fn the_only_thing_asked_of_the_device_before_what_must_hold_is_how_much_room_it_has() {
         let Ok(said) = as_far_as(&["--yes"], vec![]);
         let asked = said.asks;
-        let Ok(ready) = position(&asked, |runs| runs.program == Executable::External(ExternalProgram::Just));
-        let Ok(told) = fetching("root@handheld");
+        let Ok(tree) = deploy_tree();
+        let Ok(must_hold) = gate(&tree);
+        let Ok(ready) = position(&asked, |runs| *runs == must_hold);
+        let Ok(told) = fetching(&tree, "root@handheld");
         let Ok(fetch) = position(&asked, |runs| *runs == told);
         assert!(ready.is_some(), "`just ready` was never run");
 
         let before: Vec<&Command> = asked
             .iter()
-            .take_while(|runs| runs.program != Executable::External(ExternalProgram::Just))
+            .take_while(|runs| **runs != must_hold)
             .filter(|runs| runs.program == Executable::External(ExternalProgram::Ssh))
             .collect();
 
@@ -1251,15 +1424,18 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Failure(NO_ROOM),
             ],
         );
 
+        let Ok(tree) = deploy_tree();
+        let Ok(must_hold) = gate(&tree);
+
         assert_eq!(said.pushes, 0);
         assert!(said.failure.as_deref().is_some_and(|why| why.contains("room on the device")));
         assert!(
-            !said.asks.iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
+            !said.asks.contains(&must_hold),
             "the device had no room and this machine went on to spend minutes proving itself"
         );
     }
@@ -1273,16 +1449,16 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Failure(NOT_ASKED),
             ],
         );
 
+        let Ok(tree) = deploy_tree();
+        let Ok(must_hold) = gate(&tree);
+
         assert!(said.failure.is_none(), "an old engine stopped a deploy that would have worked");
-        assert!(
-            said.asks.iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
-            "`just ready` was never reached"
-        );
+        assert!(said.asks.contains(&must_hold), "`just ready` was never reached");
     }
 
     #[test]
@@ -1294,7 +1470,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Failure(255),
             ],
         );
@@ -1312,7 +1488,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Success(""),
                 Step::Failure(1),
             ],
@@ -1331,7 +1507,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Success(""),
                 Step::Success(""),
                 Step::Success(""),
@@ -1482,21 +1658,22 @@ mod tests {
     #[test]
     fn a_yes_on_the_device_carries_on_into_the_second_look_at_the_tree() {
         let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Success("")]);
-        let Ok(standing) = git_status();
+        let Ok(tree) = deploy_tree();
+        let Ok(looked) = standing(&tree);
 
-        assert_eq!(said.asks.last(), Some(&standing));
+        assert_eq!(said.asks.last(), Some(&looked));
     }
 
     #[test]
-    fn a_file_that_appeared_while_the_deploy_ran_sends_nothing() {
-        let Ok(said) = as_far_as(&["--yes"], vec![Step::Success(" M justfile\n")]);
+    fn a_gate_that_wrote_into_the_tree_it_passed_sends_nothing() {
+        let Ok(said) = as_far_as(&["--yes"], vec![Step::Success(" M docs/architecture/map.svg\n")]);
 
         assert_eq!(said.pushes, 0);
-        assert!(said.failure.as_deref().is_some_and(|why| why.contains("no longer what is here")));
+        assert!(said.failure.as_deref().is_some_and(|why| why.contains("not what is committed")), "{:?}", said.failure);
     }
 
     #[test]
-    fn a_branch_that_moved_while_the_deploy_ran_sends_nothing() {
+    fn a_tree_that_moved_while_the_gate_ran_sends_nothing() {
         let Ok(said) = as_far_as(
             &["--yes"],
             vec![Step::Success(""), Step::Success("def456"), Step::Success("def456 something else entirely")],
@@ -1545,7 +1722,7 @@ mod tests {
                 Step::Success(".git"),
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
-                Step::Success("abc123"), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
+                Step::Success("abc123"), Step::Success(""), Step::Success(""), Step::Success(TOOLCHAIN), Step::Success(TOOLCHAIN),
                 Step::Success(""),
                 Step::Success(""),
                 Step::Success(""),
@@ -1556,9 +1733,11 @@ mod tests {
         );
 
         let asked = said.asks;
-        let Ok(ready) = position(&asked, |runs| runs.program == Executable::External(ExternalProgram::Just));
+        let Ok(tree) = deploy_tree();
+        let Ok(must_hold) = gate(&tree);
+        let Ok(ready) = position(&asked, |runs| *runs == must_hold);
         let Ok(applied) = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
-        let Ok(told) = checking();
+        let Ok(told) = checking(&tree);
         let Ok(pressed) = position(&asked, |runs| *runs == told);
 
         assert_eq!((ready, pressed), (None, None));
@@ -1574,8 +1753,9 @@ mod tests {
         );
 
         let asked = said.asks;
+        let Ok(tree) = deploy_tree();
         let Ok(applied) = position(&asked, |runs| runs.arguments.last().map(String::as_str) == Some("console apply"));
-        let Ok(told) = checking();
+        let Ok(told) = checking(&tree);
         let Ok(pressed) = position(&asked, |runs| *runs == told);
 
         assert!(applied.is_some_and(|applied| pressed.is_some_and(|pressed| applied < pressed)));
@@ -1626,15 +1806,20 @@ mod tests {
                 Step::Custom(DeployingEvent::Took),
                 Step::Success(""),
                 Step::Success("abc123"),
+                Step::Success(""),
+                Step::Success(""),
                 Step::Success(TOOLCHAIN),
                 Step::Success("cargo 1.97.2 (0a1b2c3d4 2026-07-02)"),
             ],
         );
 
+        let Ok(tree) = deploy_tree();
+        let Ok(must_hold) = gate(&tree);
+
         assert_eq!(said.pushes, 0);
         assert!(said.failure.as_deref().is_some_and(|why| why.contains("pacman -Syu")), "{:?}", said.failure);
         assert!(
-            !said.asks.iter().any(|runs| runs.program == Executable::External(ExternalProgram::Just)),
+            !said.asks.contains(&must_hold),
             "the device could not have built it and this machine went on to spend minutes proving itself"
         );
     }

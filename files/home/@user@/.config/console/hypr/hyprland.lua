@@ -196,10 +196,13 @@ hl.config({
     },
     -- Windows sharing a place stand side by side and are never stacked. Dwindle
     -- stacks a split when its height times this number is more than its width,
-    -- and no window on this screen is ten times taller than it is wide.
+    -- and no window on this screen is eight times taller than it is wide. An
+    -- eighth rather than a tenth because 0.57 holds its minimum of 0.1 as a
+    -- float, a tenth written here is a double that lands just under it, and
+    -- the whole setting is refused; an eighth is exact in both.
     dwindle = {
         preserve_split         = true,
-        split_width_multiplier = 0.1,
+        split_width_multiplier = 0.125,
     },
 })
 

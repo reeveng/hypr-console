@@ -133,6 +133,10 @@ pub fn borrow(system: *const SystemTable) -> Result<(), Never> {
     dylint_lib = "explicit051_no_machine_width",
     allow(explicit051_no_machine_width, reason = "the buffer the firmware writes the map into is a slice, measured in `usize`, and `console-core-number-conversion`, where the width is otherwise met, links `std` and so cannot be linked into a kernel")
 )]
+#[cfg_attr(
+    dylint_lib = "explicit059_no_unchecked_api",
+    allow(explicit059_no_unchecked_api, reason = "the map is the kernel's for as long as the machine is up, and the pool its buffer came from is gone once boot services are, so there is no owner left whose end could be said")
+)]
 pub fn exit_boot_services(image: *const c_void) -> Result<MemoryMap<'static>, FirmwareError> {
     let services = BOOT_SERVICES.load(Ordering::Acquire);
     let capacity = measure(services)?;

@@ -8,8 +8,9 @@
 //! into any number of chunks and is the one deflate stream when they are put
 //! back together. Every other chunk is checked and passed over.
 //!
-//! A PNG this writes is the three chunks a PNG cannot be without: the header,
-//! the data in one chunk, and the end. Nothing about colour is said, so a
+//! A PNG this writes has the header, optional text, the data in one chunk,
+//! and the end. Callers supply keywords and values; framing and checksums
+//! stay here. Nothing about colour is said, so a
 //! reader draws the bytes as they are, which is how they were read here too.
 
 use console_core_checksums::crc32;
@@ -18,7 +19,7 @@ use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
-use crate::PngError;
+use crate::{PngError, Text};
 
 const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1A, b'\n'];
 
@@ -237,7 +238,7 @@ fn header_in(data: &[u8]) -> Result<Header, PngError> {
     Ok(Header { size: Size { width: wide, height: tall }, depth: u32::from(depth), color, lacing })
 }
 
-pub(crate) fn written(header: &Header, packed: &[u8]) -> Result<Vec<u8>, PngError> {
+pub(crate) fn written(header: &Header, packed: &[u8], text: &[Text<'_>]) -> Result<Vec<u8>, PngError> {
     let Ok(color) = color_type(header.color);
     let Ok(depth) = fitted::<u32, u8>(header.depth);
     let mut described = Vec::with_capacity(13);
@@ -249,10 +250,38 @@ pub(crate) fn written(header: &Header, packed: &[u8]) -> Result<Vec<u8>, PngErro
     let mut bytes = SIGNATURE.to_vec();
 
     put(&mut bytes, (*b"IHDR", &described))?;
+
+    for entry in text {
+        let data = text_data(entry)?;
+
+        put(&mut bytes, (*b"tEXt", &data))?;
+    }
+
     put(&mut bytes, (*b"IDAT", packed))?;
     put(&mut bytes, (*b"IEND", &[]))?;
 
     Ok(bytes)
+}
+
+fn latin1(said: &str) -> Result<Vec<u8>, PngError> {
+    said.chars().map(|letter| u8::try_from(u32::from(letter)).map_err(|_outside_latin1| PngError::InvalidText)).collect()
+}
+
+fn text_data(text: &Text<'_>) -> Result<Vec<u8>, PngError> {
+    let mut keyword = latin1(text.keyword)?;
+    let value = latin1(text.value)?;
+    let printable = keyword.iter().all(|byte| matches!(byte, 32..=126 | 161..=255));
+    let spaced = keyword.starts_with(b" ") || keyword.ends_with(b" ") || keyword.windows(2).any(|pair| pair == b"  ");
+
+    match ((1..=79).contains(&keyword.len()), printable, spaced, value.contains(&0)) {
+        (true, true, false, false) => {},
+        (_, _, _, _) => return Err(PngError::InvalidText),
+    }
+
+    keyword.push(0);
+    keyword.extend_from_slice(&value);
+
+    Ok(keyword)
 }
 
 fn color_type(color: Color) -> Result<u8, Never> {
@@ -327,6 +356,45 @@ fn key(header: &Header, transparency: Option<&[u8]>) -> Result<Option<Key>, Neve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_is_latin1_after_the_header_and_the_picture_still_decodes() -> Result<(), PngError> {
+        let picture = crate::Picture { size: Size { width: 1, height: 1 }, rgba: vec![12, 34, 56, 255] };
+        let text = [Text { keyword: "Title", value: "Café" }, Text { keyword: "Author", value: "" }];
+        let bytes = crate::encoded_with_text(&picture, &text)?;
+        let header = chunk(&bytes, FIRST)?;
+        let title = chunk(&bytes, header.next)?;
+        let author = chunk(&bytes, title.next)?;
+        let data = chunk(&bytes, author.next)?;
+
+        assert_eq!(header.kind, *b"IHDR");
+        assert_eq!(title.kind, *b"tEXt");
+        assert_eq!(title.data, b"Title\0Caf\xe9");
+        assert_eq!(author.kind, *b"tEXt");
+        assert_eq!(author.data, b"Author\0");
+        assert_eq!(data.kind, *b"IDAT");
+
+        let decoded = crate::decoded(&bytes)?;
+
+        assert_eq!(decoded, picture);
+
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_keywords_and_values_are_refused() {
+        for keyword in ["", " leading", "trailing ", "two  spaces", "a\0b", "line\nbreak", "\u{7f}", "\u{a0}", "outside \u{100}"] {
+            assert_eq!(text_data(&Text { keyword, value: "text" }), Err(PngError::InvalidText));
+        }
+
+        assert_eq!(text_data(&Text { keyword: &"k".repeat(80), value: "text" }), Err(PngError::InvalidText));
+        assert_eq!(text_data(&Text { keyword: "Title", value: "a\0b" }), Err(PngError::InvalidText));
+        assert_eq!(text_data(&Text { keyword: "Title", value: "\u{100}" }), Err(PngError::InvalidText));
+        let keyword = "k".repeat(79);
+        let expected = format!("{keyword}\0text").into_bytes();
+
+        assert_eq!(text_data(&Text { keyword: &keyword, value: "text" }), Ok(expected));
+    }
 
     #[test]
     fn a_chunk_whose_sum_is_wrong_is_damage() {

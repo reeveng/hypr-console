@@ -8,7 +8,7 @@
 //! - [`Demuxer`] iterates [`Packet`]s in file order (from any [`ByteSource`], `Read + Seek`, or a
 //!   byte slice) and seeks to the keyframe preceding a time, via the index, Cues, or a cluster scan.
 //!
-//! Layer L0: no dependencies beyond `std`, no `unsafe`, builds for `wasm32-unknown-unknown`.
+//! Byte access is shared with MPEG-4 through `console-core-byte-sources`.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
@@ -19,7 +19,6 @@ mod error;
 mod ids;
 mod meta;
 mod mux;
-mod source;
 #[cfg(test)]
 mod synthetic_tests;
 mod track;
@@ -29,7 +28,7 @@ pub use demux::{Demuxer, Keyframe, MkvFile, OpenOptions, Packet, SeekPoint, open
 pub use error::{Error, Result};
 pub use meta::{Attachment, Chapter, ChapterDisplay, ClusterInfo, CuePoint, CuePosition, Edition, SeekEntry, SegmentInfo, SimpleTag, Tag, TagTargets};
 pub use mux::{LacingMode, MkvWriter, MuxOptions, TrackSpec};
-pub use source::{ByteSource, ReadSeekSource};
+pub use console_core_byte_sources::{ByteSource, ReadSeekSource};
 pub use track::{AudioInfo, Colour, ContentEncoding, MasteringMetadata, Projection, Sample, Track, TrackKind, VideoInfo};
 
 /// Element IDs used by the demuxer (marker bits included), for callers inspecting raw elements.

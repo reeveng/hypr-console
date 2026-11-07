@@ -19,6 +19,12 @@
 //! kept as it is made, and B goes back to the list, where the note is named
 //! after its title. What that means on the disk is `console_notes::folder`'s.
 //!
+//! Diagrams opens a preview of the note's fenced Mermaid blocks. F5 or Y
+//! switches between preview and writing; arrows and shoulders walk the
+//! diagrams, and B returns to writing. A finger can use the header and the
+//! Previous and Next buttons. The source stays in the note, so another editor
+//! can read and change it too.
+//!
 //! It is an app, and holds the lock an app holds: asked for again it is
 //! brought forward, and asked for a note while it is up, the one up stands down
 //! for it. It was a panel once, which is how a note came to be a list of
@@ -39,8 +45,8 @@ use console_core_geometry::{Point, Size};
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, toward_zero_i32};
-use console_core_shapes::{Edge, Font, Panel, Round, Shape, Text, Weight};
+use console_core_number_conversion::{fitted, toward_zero_i32, whole_u32};
+use console_core_shapes::{Edge, Font, Panel, Picture, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::Run;
 use console_draw_surface::standing::{Closed, PointerEvent, SurfaceError, Window};
 use console_draw_surface::{Keysym, Surface};
@@ -48,6 +54,7 @@ use console_input_text::area::row_at;
 use console_input_text::{Row, TextArea, Typed, Way, between};
 use console_notes::folder::{self, Destination, Leave, Note, OnDisk, Record};
 use console_notes::pages;
+use console_notes::diagrams::{self, DiagramError};
 use console_panel::keys::{Driving, Meaning, meaning};
 use console_panel::window::{self, Responder, Update, handle_input, merge};
 
@@ -127,6 +134,55 @@ struct OpenNote {
     known: String,
     area: TextArea,
     notice: Notice,
+    mode: PageMode,
+}
+
+enum PageMode {
+    Writing,
+    Diagrams(Preview),
+}
+
+struct Preview {
+    sources: Vec<String>,
+    selected: u32,
+    image: Result<Pixels, DiagramError>,
+}
+
+impl Preview {
+    fn of(text: &str) -> Result<Preview, Never> {
+        let Ok(sources) = diagrams::sources(text);
+        let mut preview = Preview { sources, selected: 0, image: Err(DiagramError::NoDiagram) };
+        let Ok(()) = preview.render();
+
+        Ok(preview)
+    }
+
+    fn render(&mut self) -> Result<(), Never> {
+        let Ok(at) = console_core_number_conversion::index(self.selected);
+
+        self.image = match self.sources.get(at) {
+            Some(source) => diagrams::drawn(source, Size { width: 2048, height: 1536 }),
+            None => Err(DiagramError::NoDiagram),
+        };
+
+        Ok(())
+    }
+
+    fn step(&mut self, by: i32) -> Result<Update, Never> {
+        let Ok(count) = fitted::<_, u32>(self.sources.len());
+        let selected = self.selected.saturating_add_signed(by).min(count.saturating_sub(1));
+
+        match selected == self.selected {
+            true => Ok(Update::None),
+            false => {
+                self.selected = selected;
+
+                let Ok(()) = self.render();
+
+                Ok(Update::Redraw)
+            },
+        }
+    }
 }
 
 enum View {
@@ -268,6 +324,19 @@ fn show_keyboard() -> Result<(), Never> {
     Ok(())
 }
 
+fn hide_keyboard() -> Result<(), Never> {
+    use console_input_keyboard::remote::{self, Answer, Command};
+
+    let Ok(answer) = remote::send(Command::Hide);
+
+    match answer {
+        Answer::Received | Answer::Sessionless => {},
+        Answer::Failed { at, why } => eprintln!("notes: the keyboard could not be hidden at {}: {why}", at.display()),
+    }
+
+    Ok(())
+}
+
 impl App {
     fn screen(&self) -> Result<Screen, Never> {
         Ok(match self.view {
@@ -324,7 +393,7 @@ impl App {
             Ok((known, text)) => {
                 let Ok(area) = TextArea::holding(&text);
 
-                self.view = View::Page(Box::new(OpenNote { at, known, area, notice: Notice::None }));
+                self.view = View::Page(Box::new(OpenNote { at, known, area, notice: Notice::None, mode: PageMode::Writing }));
 
                 let Ok(()) = show_keyboard();
             },
@@ -339,7 +408,15 @@ impl App {
 
     fn page_key(&mut self, key: Keysym, room: Size<u32>) -> Result<Update, Never> {
         match key {
-            Keysym::Escape => return self.back(),
+            Keysym::F5 | Keysym::F18 | Keysym::XF86_Launch9 => return self.toggle_diagrams(),
+            _ => {},
+        }
+
+        match (&self.view, key) {
+            (View::Page(writing), Keysym::Escape) => match writing.mode {
+                PageMode::Writing => return self.back(),
+                PageMode::Diagrams(_) => return self.toggle_diagrams(),
+            },
             _ => {},
         }
 
@@ -349,6 +426,16 @@ impl App {
             View::Page(writing) => writing,
             View::List(_) => return Ok(Update::None),
         };
+
+        match &mut writing.mode {
+            PageMode::Diagrams(preview) => return match key {
+                Keysym::Left | Keysym::Up | Keysym::Page_Up => preview.step(-1),
+                Keysym::Right | Keysym::Down | Keysym::Page_Down => preview.step(1),
+                Keysym::Return | Keysym::KP_Enter => self.toggle_diagrams(),
+                _ => Ok(Update::None),
+            },
+            PageMode::Writing => {},
+        }
 
         let Ok(rows) = rows_of(&writing.area, appearance, room);
 
@@ -378,6 +465,18 @@ impl App {
     }
 
     fn page_pointer(&mut self, event: PointerEvent, room: Size<u32>) -> Result<Update, Never> {
+        match (&mut self.view, event) {
+            (View::Page(writing), PointerEvent::Scrolled { by }) => match &mut writing.mode {
+                PageMode::Diagrams(preview) => {
+                    let Ok(step) = toward_zero_i32(by.signum());
+
+                    return preview.step(step);
+                },
+                PageMode::Writing => {},
+            },
+            _ => {},
+        }
+
         let at = match event {
             PointerEvent::Down { at } => at,
             PointerEvent::Moved { .. }
@@ -391,7 +490,14 @@ impl App {
         let Ok(edge) = fitted::<u32, i32>(READING_EDGE);
 
         match at.y < edge {
-            true => return self.back(),
+            true => {
+                let Ok(across) = fitted::<i32, u32>(at.x.max(0));
+
+                return match across >= room.width.saturating_div(2) {
+                    true => self.toggle_diagrams(),
+                    false => self.back(),
+                };
+            },
             false => {},
         }
 
@@ -402,9 +508,49 @@ impl App {
             View::List(_) => return Ok(Update::None),
         };
 
+        match &mut writing.mode {
+            PageMode::Diagrams(preview) => {
+                let Ok(down) = fitted::<i32, u32>(at.y.max(0));
+                let Ok(across) = fitted::<i32, u32>(at.x.max(0));
+
+                return match down >= room.height.saturating_sub(READING_EDGE) {
+                    true => preview.step(match across < room.width.saturating_div(2) {
+                        true => -1,
+                        false => 1,
+                    }),
+                    false => Ok(Update::None),
+                };
+            },
+            PageMode::Writing => {},
+        }
+
         let Ok(caret) = caret_at(&writing.area, at, appearance, room);
         let Ok(_moved) = writing.area.placed(caret);
         let Ok(()) = show_keyboard();
+
+        Ok(Update::Redraw)
+    }
+
+    fn toggle_diagrams(&mut self) -> Result<Update, Never> {
+        let writing = match &mut self.view {
+            View::Page(writing) => writing,
+            View::List(_) => return Ok(Update::None),
+        };
+
+        writing.mode = match writing.mode {
+            PageMode::Writing => {
+                let Ok(text) = writing.area.text();
+                let Ok(preview) = Preview::of(text);
+                let Ok(()) = hide_keyboard();
+
+                PageMode::Diagrams(preview)
+            },
+            PageMode::Diagrams(_) => {
+                let Ok(()) = show_keyboard();
+
+                PageMode::Writing
+            },
+        };
 
         Ok(Update::Redraw)
     }
@@ -970,11 +1116,19 @@ fn say(shapes: &mut Vec<Shape>, said: &Notice, wearing: &Wearing, room: Size<u32
 }
 
 fn page_shapes(writing: &OpenNote, wearing: &Wearing, appearance: Appearance, room: Size<u32>) -> Result<Vec<Shape>, Never> {
+    match &writing.mode {
+        PageMode::Diagrams(preview) => return diagram_shapes(preview, wearing, appearance, room),
+        PageMode::Writing => {},
+    }
+
     let Ok(paper) = appearance.ground(wearing);
     let Ok(ink) = appearance.ink(wearing);
     let Ok(ground) = background(room, paper);
     let Ok(back) = words(BACK, (WORDS, WORDS), (SMALL, Weight::Plain), (MEASURING, ink));
     let mut shapes = vec![ground, back];
+    let Ok(button) = diagram_button("Diagrams · F5 / Y", ink, room);
+
+    shapes.push(button);
 
     let Ok(text) = writing.area.text();
     let Ok(caret) = writing.area.caret();
@@ -1039,6 +1193,88 @@ fn page_shapes(writing: &OpenNote, wearing: &Wearing, appearance: Appearance, ro
     }
 
     let Ok(()) = say(&mut shapes, &writing.notice, wearing, room);
+
+    Ok(shapes)
+}
+
+fn diagram_button(label: &str, ink: Oklch, room: Size<u32>) -> Result<Shape, Never> {
+    let Ok(wide) = small_width(label);
+    let across = room.width.saturating_sub(wide).saturating_sub(WORDS).max(room.width.saturating_div(2));
+
+    words(label, (across, WORDS), (SMALL, Weight::Plain), (room.width.saturating_sub(across), ink))
+}
+
+fn diagram_shapes(preview: &Preview, wearing: &Wearing, appearance: Appearance, room: Size<u32>) -> Result<Vec<Shape>, Never> {
+    let Ok(paper) = appearance.ground(wearing);
+    let Ok(ink) = appearance.ink(wearing);
+    let Ok(ground) = background(room, paper);
+    let Ok(back) = words(BACK, (WORDS, WORDS), (SMALL, Weight::Plain), (MEASURING, ink));
+    let Ok(edit) = diagram_button("Edit · F5 / Y", ink, room);
+    let mut shapes = vec![ground, back, edit];
+    let Ok(column) = appearance::column(room);
+    let available = room.height.saturating_sub(READING_EDGE.saturating_mul(2)).max(1);
+
+    match &preview.image {
+        Ok(pixels) => {
+            let scale = (f64::from(column.width) / f64::from(pixels.width))
+                .min(f64::from(available) / f64::from(pixels.height)).min(1.0);
+            let Ok(width) = whole_u32(f64::from(pixels.width) * scale);
+            let Ok(height) = whole_u32(f64::from(pixels.height) * scale);
+            let Ok(x) = fitted::<u32, i32>(column.left.saturating_add(column.width.saturating_sub(width).saturating_div(2)));
+            let Ok(y) = fitted::<u32, i32>(READING_EDGE.saturating_add(available.saturating_sub(height).saturating_div(2)));
+            let at = Point { x, y };
+            let size = Size { width: width.max(1), height: height.max(1) };
+
+            shapes.push(Shape::Panel(Panel {
+                at, size, round: Round(0), fill: Oklch { lightness: 1.0, chroma: 0.0, hue: 0.0 }, edge: Edge::None,
+            }));
+            shapes.push(Shape::Picture(Picture { at, size, pixels: pixels.clone() }));
+        },
+        Err(fault) => {
+            let said = match preview.sources.is_empty() {
+                true => "Add a Mermaid block to your note, then open Diagrams:\n\n```mermaid\nflowchart LR\n  Idea --> Note\n```".to_string(),
+                false => fault.to_string(),
+            };
+            let Ok(message) = words(&said, (column.left, READING_EDGE), (WORDS, Weight::Plain), (column.width, ink));
+
+            shapes.push(message);
+        },
+    }
+
+    let Ok(count) = fitted::<_, u32>(preview.sources.len());
+
+    match count > 0 {
+        true => {
+            let folio = format!("{} of {count}", preview.selected.saturating_add(1));
+            let Ok(wide) = small_width(&folio);
+            let across = room.width.saturating_sub(wide).saturating_div(2);
+            let foot = room.height.saturating_sub(READING_EDGE).saturating_add(WORDS);
+            let Ok(number) = words(&folio, (across, foot), (SMALL, Weight::Plain), (wide, ink));
+
+            shapes.push(number);
+
+            match preview.selected > 0 {
+                true => {
+                    let Ok(previous) = words("‹ Previous", (column.left, foot), (SMALL, Weight::Plain), (column.width.saturating_div(3), ink));
+
+                    shapes.push(previous);
+                },
+                false => {},
+            }
+
+            match preview.selected.saturating_add(1) < count {
+                true => {
+                    let Ok(wide) = small_width("Next ›");
+                    let across = column.left.saturating_add(column.width).saturating_sub(wide);
+                    let Ok(next) = words("Next ›", (across, foot), (SMALL, Weight::Plain), (wide, ink));
+
+                    shapes.push(next);
+                },
+                false => {},
+            }
+        },
+        false => {},
+    }
 
     Ok(shapes)
 }

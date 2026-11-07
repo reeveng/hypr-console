@@ -201,7 +201,8 @@ fn no_crate_is_named_for_the_mechanism_it_happens_to_be() -> Result<(), Box<dyn 
 
 const MACHINE: [&str; 3] = ["std::fs", "std::env", "std::process"];
 
-const EDGES: [(&str, &str); 9] = [
+const EDGES: [(&str, &str); 10] = [
+    ("console-core-byte-sources", "positioned file reads and length queries shared by format readers"),
     ("console-core-arguments", "a program's edge, where its words come in and its exit code goes out, written once"),
     ("console-core-atomic-writes", "the file writer EXPLICIT040 sends every write through"),
     ("console-core-external-programs", "the one list of programs this desktop did not write"),

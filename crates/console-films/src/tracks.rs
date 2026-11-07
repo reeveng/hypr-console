@@ -21,7 +21,7 @@ use console_core_video_decoding_matroska_container as matroska;
 use console_core_video_decoding_mpeg_4_container as mpeg4;
 
 use crate::Sound;
-use crate::source::Opened;
+use console_core_byte_sources::{ByteSource, FileSource};
 
 const EBML: [u8; 4] = [0x1A, 0x45, 0xDF, 0xA3];
 
@@ -114,10 +114,10 @@ pub(crate) struct Read {
     pub(crate) seconds: f64,
 }
 
-pub(crate) fn read(opened: &Opened) -> Result<Option<Read>, ContainerFault> {
+pub(crate) fn read(opened: &FileSource) -> Result<Option<Read>, ContainerFault> {
     let mut head = [0u8; 8];
 
-    let begun = opened.read_into(0, &mut head);
+    let begun = ByteSource::read_at(opened, 0, &mut head);
 
     match begun {
         Ok(()) => {},
@@ -429,7 +429,7 @@ impl Video {
         Ok(ticks * self.a_tick)
     }
 
-    pub(crate) fn unit(&self, container: &Container, opened: &Opened, at: u32) -> Result<Option<(Vec<u8>, i64)>, ContainerFault> {
+    pub(crate) fn unit(&self, container: &Container, opened: &FileSource, at: u32) -> Result<Option<(Vec<u8>, i64)>, ContainerFault> {
         let Ok(position) = index(at);
 
         let sample = match self.samples.get(position) {
@@ -448,7 +448,7 @@ impl Video {
     }
 }
 
-pub(crate) fn cues(container: &Container, opened: &Opened, subtitles: &Subtitles) -> Result<Vec<Cue>, ContainerFault> {
+pub(crate) fn cues(container: &Container, opened: &FileSource, subtitles: &Subtitles) -> Result<Vec<Cue>, ContainerFault> {
     let file = match container {
         Container::Matroska(file) => file,
         Container::Mpeg4(_) => return Ok(Vec::new()),

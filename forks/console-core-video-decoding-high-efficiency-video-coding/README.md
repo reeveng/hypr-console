@@ -2,8 +2,14 @@
 
 Clean-room, pure-Rust (no `unsafe`) H.265 / HEVC decoder, implemented from the public ITU-T
 Rec. H.265 (ISO/IEC 23008-2) specification. It is an L0 crate: it depends only on
-`filmcraft-bitstream`, `thiserror`, and optionally `rayon` (default feature `threads`), and builds
+`console-core-video-decoding-bitstream`, `console-core-adaptive-arithmetic-decoding`, `thiserror`,
+and optionally `rayon` (default feature `threads`), and builds
 for `wasm32-unknown-unknown`.
+
+The CABAC arithmetic engine and range transitions now live under
+[`crates/console-core-adaptive-arithmetic-decoding`](../../crates/console-core-adaptive-arithmetic-decoding).
+This fork keeps HEVC context initialization, storage, WPP synchronization and
+substream policy, passing byte positions to the shared engine.
 
 All syntax tables (the CABAC `initValue` tables arranged per `initType` following Table 9-4, default
 scaling lists, `intraPredAngle` / `invAngle`, the chroma QP table, the deblocking beta'/tC' table,

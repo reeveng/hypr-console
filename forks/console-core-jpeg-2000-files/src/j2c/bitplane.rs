@@ -196,7 +196,7 @@ fn handle_coding_passes(
         }
 
         if ctx.style.reset_context_probabilities {
-            ctx.reset_contexts();
+            ctx.reset_contexts()?;
         }
     }
 
@@ -444,7 +444,7 @@ impl BitPlaneDecodeContext {
         self.height = height;
         self.sub_band_type = sub_band_type;
         self.style = *code_block_style;
-        self.reset_contexts();
+        self.reset_contexts().ok_or(DecodingError::CodeBlockDecodeFailure)?;
 
         // "The maximum number of bit-planes available for the representation of
         // coefficients in any sub-band, b, is given by Mb as defined in Equation
@@ -493,14 +493,16 @@ impl BitPlaneDecodeContext {
     }
 
     /// Reset each context to the initial state defined in table D.7.
-    fn reset_contexts(&mut self) {
+    fn reset_contexts(&mut self) -> Option<()> {
         for context in &mut self.contexts {
-            context.reset();
+            let Ok(()) = context.reset();
         }
 
-        self.contexts[0].reset_with_index(4);
-        self.contexts[17].reset_with_index(3);
-        self.contexts[18].reset_with_index(46);
+        self.contexts[0].reset_with_index(4).ok()?;
+        self.contexts[17].reset_with_index(3).ok()?;
+        self.contexts[18].reset_with_index(46).ok()?;
+
+        Some(())
     }
 
     /// Reset state that is transient for each bitplane that is decoded.

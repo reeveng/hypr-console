@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-byte-sources.workspace = true
 console-concurrency.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
@@ -19,6 +20,9 @@ console-core-video-decoding-high-efficiency-video-coding.workspace = true
 console-core-video-decoding-matroska-container.workspace = true
 console-core-video-decoding-mpeg-4-container.workspace = true
 console-core-video-decoding-vp9.workspace = true
+
+[dev-dependencies]
+console-core-checksums.workspace = true
 
 [lints]
 workspace = true

@@ -1,6 +1,7 @@
 [Unit]
 Description=Notifications
 PartOf=console.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 # Type=dbus rather than simple, because this unit exists to own a name and
